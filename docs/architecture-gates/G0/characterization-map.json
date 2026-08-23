@@ -11,8 +11,9 @@
     { "behavior": "backend retry", "file": "server/app.test.ts", "title": "keeps a failed stream uncommitted and retries without overwriting history" },
     { "behavior": "UI retry", "file": "src/App.test.tsx", "title": "shows an explicit Retry action after a failed request" },
     { "behavior": "file", "file": "server/app.test.ts", "title": "uploads a text attachment, displays its metadata and includes its content in the provider call" },
-    { "behavior": "archive/restore", "file": "server/app.test.ts", "title": "creates retrieval segments and keeps archive semantics distinct from deletion" },
-    { "behavior": "merge/delete", "file": "server/app.test.ts", "title": "creates and deletes graph nodes and semantic edges" },
+    { "behavior": "archive/restore", "file": "server/app.test.ts", "title": "archives graph nodes idempotently without losing their complete history" },
+    { "behavior": "controlled purge", "file": "server/app.test.ts", "title": "isolates physical purge behind archived state, explicit confirmation and an audit receipt" },
+    { "behavior": "merge/archive", "file": "server/app.test.ts", "title": "creates graph nodes and semantic edges while retaining archived nodes" },
     { "behavior": "provider selection", "file": "server/app.test.ts", "title": "runs three provider profiles through the same Runtime contract" }
   ]
 }

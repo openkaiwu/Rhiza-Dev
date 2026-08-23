@@ -257,8 +257,13 @@ export function App() {
     applyWorkspace(workspace);
     setSyncError('');
   };
-  const deleteGraphNode = async (id: string) => {
-    const { workspace } = await api.deleteGraphNode(id);
+  const archiveGraphNode = async (id: string) => {
+    const { workspace } = await api.archiveGraphNode(id);
+    applyWorkspace(workspace);
+    setSyncError('');
+  };
+  const restoreGraphNode = async (id: string) => {
+    const { workspace } = await api.restoreGraphNode(id);
     applyWorkspace(workspace);
     setSyncError('');
   };
@@ -278,7 +283,8 @@ export function App() {
     setView('chat');
   };
   const activeCount = contextItems.filter(item => item.status === 'active').length;
-  const activeNode = discussionNodes.find(node => node.id === activeNodeId) || discussionNodes[0] || initialNode;
+  const navigableNodes = discussionNodes.filter(node => node.status !== 'archived');
+  const activeNode = navigableNodes.find(node => node.id === activeNodeId) || navigableNodes[0] || initialNode;
   const activeMessages = messages.filter(message => message.nodeId === activeNode.id);
 
   if (boot === 'loading') return <main className="app-loading" aria-busy="true" aria-live="polite"><strong>正在加载工作区…</strong><p>正在同步项目、讨论节点与上下文。</p></main>;
@@ -291,9 +297,9 @@ export function App() {
     <a className="skip-link" href="#workspace-main">跳到主要内容</a>
     <div className="network-status" aria-live="polite" role="status">{networkNotice}</div>
     <div className="ambient-grid" aria-hidden="true"/>
-    <Sidebar view={view} nodes={discussionNodes} messages={messages} activeNodeId={activeNode.id} onView={setView} onNode={id => activateNode(id, true)} onSettings={openSettings} onCommand={() => setPaletteOpen(true)} onHelp={() => setOnboardingOpen(true)}/>
+    <Sidebar view={view} nodes={navigableNodes} messages={messages} activeNodeId={activeNode.id} onView={setView} onNode={id => activateNode(id, true)} onSettings={openSettings} onCommand={() => setPaletteOpen(true)} onHelp={() => setOnboardingOpen(true)}/>
     {discussionNodes.length === 0 ? <main id="workspace-main" className="workspace-empty"><h1>这个工作区还没有讨论节点</h1><p>请通过项目入口创建第一个节点，然后开始建立上下文。</p></main> : view === 'chat' && <ChatView
-      activeNode={activeNode} nodes={discussionNodes} edges={discussionEdges} mode={mode}
+      activeNode={activeNode} nodes={navigableNodes} edges={discussionEdges} mode={mode}
       activeCount={activeCount} messages={activeMessages} manifests={manifests} attachments={attachments}
       provider={provider} providerCatalog={providerCatalog} syncError={syncError} online={online} focusComposerRequest={focusComposerRequest} onSend={sendMessage}
       onUpload={uploadAttachment} onTempSend={sendTemporaryMessage} onCreateBranch={createBranch}
@@ -301,7 +307,7 @@ export function App() {
       onSettings={openSettings} onOpenContext={() => setContextOpen(open => !open)} onGraph={() => setView('graph')}
     />}
     {discussionNodes.length > 0 && view === 'graph' && (
-      <GraphView nodes={discussionNodes} edges={discussionEdges} activeNodeId={activeNode.id} onMove={moveNode} onActivate={id => activateNode(id, true)} onCreateNode={createGraphNode} onDeleteNode={deleteGraphNode} onCreateEdge={createGraphEdge} onDeleteEdge={deleteGraphEdge}/>
+      <GraphView nodes={discussionNodes} edges={discussionEdges} activeNodeId={activeNode.id} onMove={moveNode} onActivate={id => activateNode(id, true)} onCreateNode={createGraphNode} onArchiveNode={archiveGraphNode} onRestoreNode={restoreGraphNode} onCreateEdge={createGraphEdge} onDeleteEdge={deleteGraphEdge}/>
     )}
     {discussionNodes.length > 0 && view === 'state' && <StateView/>}
     <button className="context-backdrop" aria-label="关闭上下文面板" onClick={() => setContextOpen(false)}/>

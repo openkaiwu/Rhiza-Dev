@@ -11,6 +11,7 @@ describe('PostgreSQL schema E2E', () => {
       await database.exec(await readFile(resolve('db/migrations/0001_rhiza_core.up.sql'), 'utf8'));
       await database.exec(await readFile(resolve('db/migrations/0002_chat_parity.up.sql'), 'utf8'));
       await database.exec(await readFile(resolve('db/migrations/0003_domain_persistence.up.sql'), 'utf8'));
+      await database.exec(await readFile(resolve('db/migrations/0004_immutable_manifest_history.up.sql'), 'utf8'));
       const created = await database.query<{ tablename: string }>(`
         SELECT tablename FROM pg_tables
         WHERE schemaname = 'public' AND tablename LIKE 'rhiza_%'
@@ -29,6 +30,7 @@ describe('PostgreSQL schema E2E', () => {
         'rhiza_segments',
       ]);
 
+      await database.exec(await readFile(resolve('db/migrations/0004_immutable_manifest_history.down.sql'), 'utf8'));
       await database.exec(await readFile(resolve('db/migrations/0003_domain_persistence.down.sql'), 'utf8'));
       await database.exec(await readFile(resolve('db/migrations/0002_chat_parity.down.sql'), 'utf8'));
       await database.exec(await readFile(resolve('db/migrations/0001_rhiza_core.down.sql'), 'utf8'));

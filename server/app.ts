@@ -165,7 +165,9 @@ export function createApp(store: WorkspaceRepository, provider: ProviderService,
     const assistantMessage: StoredMessage = { id: randomUUID(), nodeId: run.request.nodeId, kind: 'assistant', text: completion.text, createdAt: run.createdAt, manifestId: run.manifest.id, operation, sourceMessageId: operation === 'regenerate' ? run.request.sourceMessageId : undefined, versionGroupId: run.versionGroupId, version: run.version, replyToMessageId: userMessage.id, usage: completion.usage, reasoning: completion.reasoning, toolCalls: completion.toolCalls };
     await store.update(latest => {
       if (latest.manifests.some(manifest => manifest.requestId === run.request.requestId)) return latest;
-      if (!latest.discussionNodes.some(node => node.id === run.request.nodeId)) throw new ProviderError('生成期间讨论节点已被删除，结果未写入。', 409, 'NODE_REMOVED_DURING_RUN');
+      const targetNode = latest.discussionNodes.find(node => node.id === run.request.nodeId);
+      if (!targetNode) throw new ProviderError('生成期间讨论节点已被删除，结果未写入。', 409, 'NODE_REMOVED_DURING_RUN');
+      if (targetNode.status === 'archived') throw new ProviderError('生成期间讨论节点已归档，结果未写入。', 409, 'NODE_ARCHIVED_DURING_RUN');
       return { ...latest, messages: [...latest.messages, userMessage, assistantMessage], manifests: [...latest.manifests, run.manifest] };
     });
     return { userMessage, assistantMessage, manifest: run.manifest };
@@ -407,6 +409,10 @@ export function createApp(store: WorkspaceRepository, provider: ProviderService,
       const workspace = await store.update(current => {
         const node = current.discussionNodes.find(item => item.id === request.params.id);
         if (!node) throw new ProviderError('讨论节点不存在。', 404, 'NODE_NOT_FOUND');
+        if (node.status === 'archived') {
+          if (status === 'archived') return current;
+          if (status !== 'active') throw new ProviderError('归档节点为只读；请先恢复。', 409, 'NODE_ARCHIVED_READ_ONLY');
+        }
         if (status === 'archived' && current.discussionNodes.filter(item => item.status !== 'archived').length <= 1) throw new ProviderError('至少需要保留一个未归档节点。', 409, 'CANNOT_ARCHIVE_LAST_NODE');
         const updatedAt = new Date().toISOString();
         const nodes = current.discussionNodes.map(item => item.id === node.id ? { ...item, status, updatedAt } : item);
@@ -424,7 +430,9 @@ export function createApp(store: WorkspaceRepository, provider: ProviderService,
       const messageIds = Array.isArray(request.body?.messageIds) ? [...new Set(request.body.messageIds.filter((id: unknown): id is string => typeof id === 'string'))] : [];
       if (!title || title.length > 200) return response.status(400).json({ error: { code: 'INVALID_SEGMENT_TITLE', message: 'Segment 标题不能为空且不能超过 200 字符。' } });
       const workspace = await store.update(current => {
-        if (!current.discussionNodes.some(node => node.id === request.params.id)) throw new ProviderError('讨论节点不存在。', 404, 'NODE_NOT_FOUND');
+        const node = current.discussionNodes.find(item => item.id === request.params.id);
+        if (!node) throw new ProviderError('讨论节点不存在。', 404, 'NODE_NOT_FOUND');
+        if (node.status === 'archived') throw new ProviderError('归档节点为只读；请先恢复。', 409, 'NODE_ARCHIVED_READ_ONLY');
         if (messageIds.some(id => !current.messages.some(message => message.id === id && message.nodeId === request.params.id))) throw new ProviderError('Segment 只能包含所属节点中的 Event。', 400, 'INVALID_SEGMENT_EVENT');
         const ordinal = Math.max(-1, ...current.segments.filter(segment => segment.nodeId === request.params.id).map(segment => segment.ordinal)) + 1;
         const segment = { id: randomUUID(), nodeId: request.params.id, ordinal, title, createdAt: new Date().toISOString() };
@@ -438,13 +446,12 @@ export function createApp(store: WorkspaceRepository, provider: ProviderService,
     try {
       const x = Number(request.body?.x); const y = Number(request.body?.y);
       if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x > 5000 || y > 5000) return response.status(400).json({ error: { code: 'INVALID_POSITION', message: '节点坐标无效。' } });
-      let found = false;
-      const workspace = await store.update(current => ({ ...current, discussionNodes: current.discussionNodes.map(node => {
-        if (node.id !== request.params.id) return node;
-        found = true;
-        return { ...node, x: Math.round(x), y: Math.round(y), updatedAt: new Date().toISOString() };
-      }) }));
-      if (!found) return response.status(404).json({ error: { code: 'NODE_NOT_FOUND', message: '讨论节点不存在。' } });
+      const workspace = await store.update(current => {
+        const node = current.discussionNodes.find(item => item.id === request.params.id);
+        if (!node) throw new ProviderError('讨论节点不存在。', 404, 'NODE_NOT_FOUND');
+        if (node.status === 'archived') throw new ProviderError('归档节点为只读；请先恢复。', 409, 'NODE_ARCHIVED_READ_ONLY');
+        return { ...current, discussionNodes: current.discussionNodes.map(item => item.id === node.id ? { ...item, x: Math.round(x), y: Math.round(y), updatedAt: new Date().toISOString() } : item) };
+      });
       response.json({ workspace });
     } catch (error) { next(error); }
   });
@@ -454,25 +461,81 @@ export function createApp(store: WorkspaceRepository, provider: ProviderService,
       const workspace = await store.update(current => {
         const node = current.discussionNodes.find(item => item.id === request.params.id);
         if (!node) throw new ProviderError('讨论节点不存在。', 404, 'NODE_NOT_FOUND');
-        if (current.discussionNodes.length <= 1) throw new ProviderError('至少需要保留一个讨论节点。', 409, 'CANNOT_DELETE_LAST_NODE');
-        if (current.discussionNodes.some(item => item.sourceNodeId === node.id)) throw new ProviderError('该节点仍有子支线，请先删除子支线。', 409, 'NODE_HAS_CHILDREN');
-        const remainingNodes = current.discussionNodes.filter(item => item.id !== node.id);
-        const fallback = remainingNodes.find(item => item.id === node.sourceNodeId) || remainingNodes[0];
-        const removedManifestIds = new Set(current.messages.filter(message => message.nodeId === node.id && message.manifestId).map(message => message.manifestId));
-        const messages = current.messages.filter(message => message.nodeId !== node.id);
+        if (node.status === 'archived') return current;
+        if (current.discussionNodes.filter(item => item.status !== 'archived').length <= 1) throw new ProviderError('至少需要保留一个未归档节点。', 409, 'CANNOT_ARCHIVE_LAST_NODE');
+        const updatedAt = new Date().toISOString();
+        const nodes = current.discussionNodes.map(item => item.id === node.id ? { ...item, status: 'archived' as const, updatedAt } : item);
+        if (current.activeNodeId !== node.id) return { ...current, discussionNodes: nodes };
+        const fallback = nodes.find(item => item.status !== 'archived')!;
+        return withCurrentNodeContext({ ...current, discussionNodes: nodes, activeNodeId: fallback.id, nodeId: fallback.id }, fallback.id);
+      });
+      response.json({ workspace });
+    } catch (error) { next(error); }
+  });
+
+  // M01 deliberately keeps physical deletion behind a separate, explicit
+  // compatibility seam. Ordinary DELETE above is archive-only; the richer
+  // permission/tombstone policy belongs to the later Purge milestone.
+  app.post('/api/graph/nodes/:id/purge', async (request, response, next) => {
+    try {
+      const confirmation = typeof request.body?.confirmation === 'string' ? request.body.confirmation : '';
+      const reason = typeof request.body?.reason === 'string' ? request.body.reason.trim() : '';
+      if (confirmation !== `PURGE ${request.params.id}`) {
+        return response.status(400).json({ error: { code: 'PURGE_CONFIRMATION_REQUIRED', message: `请输入 PURGE ${request.params.id} 以确认物理删除。` } });
+      }
+      if (!reason || reason.length > 500) {
+        return response.status(400).json({ error: { code: 'PURGE_REASON_REQUIRED', message: 'Purge 必须提供不超过 500 字符的审计原因。' } });
+      }
+
+      const receiptId = randomUUID();
+      const workspace = await store.update(current => {
+        const node = current.discussionNodes.find(item => item.id === request.params.id);
+        if (!node) throw new ProviderError('讨论节点不存在。', 404, 'NODE_NOT_FOUND');
+        if (node.status !== 'archived') throw new ProviderError('仅允许 Purge 已归档节点。', 409, 'PURGE_REQUIRES_ARCHIVED');
+        if (current.discussionNodes.some(item => item.sourceNodeId === node.id)) throw new ProviderError('该节点仍有子支线，不能 Purge。', 409, 'PURGE_NODE_HAS_CHILDREN');
+
+        const messageIds = new Set(current.messages.filter(message => message.nodeId === node.id).map(message => message.id));
+        const segmentIds = new Set(current.segments.filter(segment => segment.nodeId === node.id).map(segment => segment.id));
+        const manifestIds = new Set(current.manifests.filter(manifest => manifest.nodeId === node.id).map(manifest => manifest.id));
+        const anchorIds = new Set(current.anchors.filter(anchor => anchor.nodeId === node.id || (anchor.messageId && messageIds.has(anchor.messageId)) || (anchor.segmentId && segmentIds.has(anchor.segmentId))).map(anchor => anchor.id));
+        const createdAt = new Date().toISOString();
+        const fallback = current.discussionNodes.find(item => item.id !== node.id && item.status !== 'archived');
+        if (!fallback) throw new ProviderError('至少需要保留一个未归档节点。', 409, 'CANNOT_PURGE_LAST_NODE');
+
         return {
           ...current,
           activeNodeId: current.activeNodeId === node.id ? fallback.id : current.activeNodeId,
           nodeId: current.nodeId === node.id ? fallback.id : current.nodeId,
-          messages,
-          anchors: current.anchors.filter(anchor => anchor.nodeId !== node.id),
+          discussionNodes: current.discussionNodes.filter(item => item.id !== node.id),
+          contextItems: current.contextItems.filter(item => item.sourceNodeId !== node.id
+            && !(item.sourceType === 'node' && item.sourceId === node.id)
+            && !(item.sourceType === 'segment' && item.sourceId && segmentIds.has(item.sourceId))),
+          messages: current.messages.filter(message => message.nodeId !== node.id).map(message => ({
+            ...message,
+            sourceMessageId: message.sourceMessageId && messageIds.has(message.sourceMessageId) ? undefined : message.sourceMessageId,
+            replyToMessageId: message.replyToMessageId && messageIds.has(message.replyToMessageId) ? undefined : message.replyToMessageId,
+          })),
           segments: current.segments.filter(segment => segment.nodeId !== node.id),
-          manifests: current.manifests.filter(manifest => !removedManifestIds.has(manifest.id)),
-          discussionNodes: remainingNodes,
-          discussionEdges: current.discussionEdges.filter(edge => edge.source !== node.id && edge.target !== node.id),
+          manifests: current.manifests.filter(manifest => !manifestIds.has(manifest.id)),
+          anchors: current.anchors.filter(anchor => !anchorIds.has(anchor.id)),
+          discussionEdges: current.discussionEdges.filter(edge => edge.source !== node.id && edge.target !== node.id && (!edge.anchorId || !anchorIds.has(edge.anchorId))),
+          auditEvents: [...current.auditEvents, {
+            id: receiptId,
+            projectId: current.projectId,
+            nodeId: node.id,
+            action: 'node.purged',
+            entityType: 'node' as const,
+            entityId: node.id,
+            metadata: {
+              reason,
+              confirmation: 'explicit-id-phrase',
+              removed: { nodes: 1, messages: messageIds.size, segments: segmentIds.size, manifests: manifestIds.size, anchors: anchorIds.size },
+            },
+            createdAt,
+          }],
         };
-      });
-      response.json({ workspace });
+      }, { purge: { nodeId: request.params.id, auditReceiptId: receiptId } });
+      response.json({ workspace, purgeReceipt: workspace.auditEvents.find(event => event.id === receiptId) });
     } catch (error) { next(error); }
   });
 
@@ -485,7 +548,10 @@ export function createApp(store: WorkspaceRepository, provider: ProviderService,
       if (!source || !target || source === target || !edgeRelations.has(relation)) return response.status(400).json({ error: { code: 'INVALID_EDGE', message: '关系必须连接两个不同的节点，并使用有效关系类型。' } });
       if (!label) return response.status(400).json({ error: { code: 'INVALID_EDGE_LABEL', message: '关系标签不能为空。' } });
       const workspace = await store.update(current => {
-        if (!current.discussionNodes.some(node => node.id === source) || !current.discussionNodes.some(node => node.id === target)) throw new ProviderError('关系节点不存在。', 404, 'NODE_NOT_FOUND');
+        const sourceNode = current.discussionNodes.find(node => node.id === source);
+        const targetNode = current.discussionNodes.find(node => node.id === target);
+        if (!sourceNode || !targetNode) throw new ProviderError('关系节点不存在。', 404, 'NODE_NOT_FOUND');
+        if (sourceNode.status === 'archived' || targetNode.status === 'archived') throw new ProviderError('归档节点为只读；请先恢复。', 409, 'NODE_ARCHIVED_READ_ONLY');
         if (current.discussionEdges.some(edge => edge.source === source && edge.target === target && edge.relation === relation)) throw new ProviderError('相同关系已经存在。', 409, 'EDGE_ALREADY_EXISTS');
         const createdAt = new Date().toISOString();
         const edge = { id: randomUUID(), source, target, relation: relation as 'derived-from' | 'references' | 'related-to' | 'merged-into', label, createdAt };
@@ -497,13 +563,12 @@ export function createApp(store: WorkspaceRepository, provider: ProviderService,
 
   app.delete('/api/graph/edges/:id', async (request, response, next) => {
     try {
-      let found = false;
-      const workspace = await store.update(current => ({ ...current, discussionEdges: current.discussionEdges.filter(edge => {
-        if (edge.id !== request.params.id) return true;
-        found = true;
-        return false;
-      }) }));
-      if (!found) return response.status(404).json({ error: { code: 'EDGE_NOT_FOUND', message: '关系不存在。' } });
+      const workspace = await store.update(current => {
+        const edge = current.discussionEdges.find(item => item.id === request.params.id);
+        if (!edge) throw new ProviderError('关系不存在。', 404, 'EDGE_NOT_FOUND');
+        if (current.discussionNodes.some(node => (node.id === edge.source || node.id === edge.target) && node.status === 'archived')) throw new ProviderError('归档节点及其关系为只读；请先恢复。', 409, 'NODE_ARCHIVED_READ_ONLY');
+        return { ...current, discussionEdges: current.discussionEdges.filter(item => item.id !== edge.id) };
+      });
       response.json({ workspace });
     } catch (error) { next(error); }
   });
@@ -513,10 +578,12 @@ export function createApp(store: WorkspaceRepository, provider: ProviderService,
       const workspace = await store.update(current => {
         const source = current.discussionNodes.find(node => node.id === request.params.id);
         if (!source || source.kind !== 'branch') throw new ProviderError('只有正式支线可以合并。', 400, 'INVALID_MERGE_SOURCE');
+        if (source.status === 'archived') throw new ProviderError('归档节点为只读；请先恢复。', 409, 'NODE_ARCHIVED_READ_ONLY');
         if (source.status === 'resolved') throw new ProviderError('该支线已经合并。', 409, 'BRANCH_ALREADY_MERGED');
         const targetId = typeof request.body?.targetNodeId === 'string' ? request.body.targetNodeId : source.sourceNodeId;
         const target = current.discussionNodes.find(node => node.id === targetId);
         if (!target) throw new ProviderError('合并目标不存在。', 404, 'MERGE_TARGET_NOT_FOUND');
+        if (target.status === 'archived') throw new ProviderError('归档节点为只读；请先恢复。', 409, 'NODE_ARCHIVED_READ_ONLY');
         const lastAnswer = [...current.messages].reverse().find(message => message.nodeId === source.id && message.kind === 'assistant')?.text;
         const summary = typeof request.body?.summary === 'string' && request.body.summary.trim() ? request.body.summary.trim().slice(0, 5000) : lastAnswer || source.summary;
         const createdAt = new Date().toISOString();

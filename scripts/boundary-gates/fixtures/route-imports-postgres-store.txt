@@ -1,0 +1,3 @@
+import { PostgresWorkspaceStore } from './postgres-store';
+
+void PostgresWorkspaceStore;

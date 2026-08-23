@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+// @vitest-environment jsdom
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { App } from './App';
 import { initialContext } from './data';
 
@@ -16,7 +17,7 @@ const mocks = vi.hoisted(() => ({
   discoverModels: vi.fn(),
   updateModel: vi.fn(),
   selectModel: vi.fn(),
-  createBranch: vi.fn(), activateNode: vi.fn(), moveNode: vi.fn(), mergeNode: vi.fn(),
+  createBranch: vi.fn(), activateNode: vi.fn(), moveNode: vi.fn(), mergeNode: vi.fn(), archiveGraphNode: vi.fn(), restoreGraphNode: vi.fn(),
   sendTemporaryMessage: vi.fn(),
 }));
 
@@ -53,6 +54,8 @@ beforeEach(() => {
   mocks.activateNode.mockResolvedValue({ workspace });
   mocks.moveNode.mockResolvedValue({ workspace });
   mocks.mergeNode.mockResolvedValue({ workspace });
+  mocks.archiveGraphNode.mockResolvedValue({ workspace: { ...workspace, discussionNodes: workspace.discussionNodes.map(node => ({ ...node, status: 'archived' as const })) } });
+  mocks.restoreGraphNode.mockResolvedValue({ workspace });
   mocks.createBranch.mockResolvedValue({ workspace: { ...workspace, discussionNodes: [...workspace.discussionNodes, { id: 'branch-1', title: '可用性支线', summary: '原始回答', status: 'active' as const, kind: 'branch' as const, sourceNodeId: 'information-architecture', sourceMessageId: 'm2', anchorText: '原始回答', x: 560, y: 260, createdAt: '', updatedAt: '' }], discussionEdges: [{ id: 'edge-1', source: 'information-architecture', target: 'branch-1', relation: 'derived-from' as const, label: '衍生支线', createdAt: '' }], activeNodeId: 'branch-1' } });
   mocks.sendTemporaryMessage.mockResolvedValue({ userMessage: { id: 'tm1', nodeId: 'temp:information-architecture', kind: 'user', text: '为什么？', createdAt: '2026-08-09T12:02:00.000Z' }, assistantMessage: { id: 'tm2', nodeId: 'temp:information-architecture', kind: 'assistant', text: '临时支线回答', createdAt: '2026-08-09T12:02:01.000Z' }, model: 'test-model' });
   mocks.uploadAttachment.mockResolvedValue({ id: 'attachment-1', name: 'brief.txt', mimeType: 'text/plain', size: 12, kind: 'file', createdAt: '' });
@@ -112,6 +115,19 @@ describe('Rhiza MVP', () => {
     expect(screen.getByRole('heading', { name: '对话图谱' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /知识状态/ }));
     expect(screen.getByRole('heading', { name: '当前有效知识' })).toBeInTheDocument();
+  });
+
+  it('keeps archived nodes out of chat navigation and wires archive restore through the graph', async () => {
+    const archived = { ...workspace.discussionNodes[0], id: 'archived-node', title: '已归档讨论', status: 'archived' as const };
+    mocks.getWorkspace.mockResolvedValueOnce({ workspace: { ...workspace, discussionNodes: [...workspace.discussionNodes, archived] }, provider: { configured: true, name: 'Test Provider', model: 'test-model', baseUrl: 'https://example.test/v1' }, providerCatalog });
+    render(<App />);
+    await screen.findByRole('heading', { level: 1, name: /信息架构方向/ });
+    expect(within(document.querySelector('.sidebar') as HTMLElement).queryByText('已归档讨论')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /对话图谱/ }));
+    const archiveRegion = screen.getByRole('region', { name: '已归档节点' });
+    expect(archiveRegion).toHaveTextContent('已归档讨论');
+    fireEvent.click(within(archiveRegion).getByRole('button', { name: '恢复' }));
+    await waitFor(() => expect(mocks.restoreGraphNode).toHaveBeenCalledWith('archived-node'));
   });
 
   it('opens the quick graph without leaving the discussion', async () => {

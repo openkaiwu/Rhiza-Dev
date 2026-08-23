@@ -1,12 +1,12 @@
 # Project Architecture
 
-> **文档地位(2026-08-22 起)**:本文是 **Current Implementation Snapshot**,仅描述已部署实现的现状,不承载目标架构设计。目标架构与开发计划的唯一权威是 `docs/Rhiza_技术架构设计书_V4.0_20260822.md` 与 `docs/Rhiza_开发路线图_V4.0_20260822.md`。本文存在若干与代码不一致的过时表述(如 M2 完成度、PostgreSQL 事务边界、G0 状态等),逐项核对以 `docs/项目现状.md` 与代码为准;本文的系统性修订属于路线图 M01。
+> **文档地位(2026-08-22 起)**:本文是 **Current Implementation Snapshot**,仅描述已部署实现的现状,不承载目标架构设计。目标架构与开发计划的唯一权威是 `docs/Rhiza_技术架构设计书_V4.0_20260822.md` 与 `docs/Rhiza_开发路线图_V4.0_20260822.md`；若快照与实现冲突，以代码和可复现验收证据为准。
 
 ## 1. Overview
 
 根系（Rhiza）是基于产品设计书构建的全栈网页端 MVP。它验证“对话网络 + 显式上下文 + 当前知识状态”的核心产品命题，并通过动态 Provider Registry 连接多个 OpenAI-compatible 模型供应商。项目和模型目录以原子 JSON 文件持久化，API Key 使用本机 AES-256-GCM 密钥加密。
 
-当前仓库不是 LibreChat fork。按照技术设计书 v2.0，现有 `server/provider-*` 承担当前 API 配置的 Runtime Adapter 职责；`librechat-data-provider` 提供共享 Model Spec 与文件策略，Rhiza 的 Project、Node、Edge、Context 与 State 语义保持独立。后续迁移仍应扩展 Runtime 能力，而不是让 LibreChat Conversation/Mongo schema 进入 Rhiza Domain。详细映射见 `docs/librechat-migration.md`。
+当前仓库不是 LibreChat fork。按 V4.0 基线，现有 `server/provider-*` 承担当前 API 配置的 Runtime Adapter 职责；`librechat-data-provider` 提供共享 Model Spec 与文件策略，Rhiza 的 Project、Node、Edge、Context 与 State 语义保持独立。后续迁移仍应扩展 Runtime 能力，而不是让 LibreChat Conversation/Mongo schema 进入 Rhiza Domain。旧映射仅见 `docs/archive/librechat-migration.md`，不定义当前架构。
 
 ## 2. Tech Stack
 
@@ -16,7 +16,7 @@
 - OpenAI-compatible Provider：第三方模型适配、超时和错误归一化
 - librechat-data-provider：LibreChat Model Spec、endpoint 枚举与文件能力策略
 - JSON 原子存储：M0 默认本地持久化消息、Context 状态与 Manifest
-- PostgreSQL migration baseline：事务迁移、checksum 防篡改和 CI 真库验证；运行时切换留给 M2
+- 可选 PostgreSQL Repository：事务更新、migration checksum 防篡改和 CI 真库验证；默认本地运行仍使用 JSON Repository
 - Lucide React：统一图标系统
 - react-markdown / remark-gfm：Markdown 与 GitHub Flavored Markdown
 - remark-math / rehype-katex / Mermaid：数学公式、LaTeX 和流程图渲染
@@ -50,7 +50,7 @@
 - `app/static/css/tokens.css`：可替换的设计令牌层
 - `app/static/css/app.css`：组件和响应式样式层
 - `product-design.md`：从原始 Word 设计书提取的工作副本
-- `docs/librechat-migration.md`：当前 MVP 到 LibreChat Runtime clean-base 的迁移边界、模块映射与验收门槛
+- `docs/archive/librechat-migration.md`：历史 MVP 到 LibreChat Runtime clean-base 映射；不定义 V4.0 架构或 Milestone
 
 ## 4. Core Modules
 
@@ -60,7 +60,7 @@
 - `Sidebar` 依据 `sourceNodeId` 构建可折叠节点树，提供活动路径、深度标识和深层路径聚焦。
 - `ProviderSettings` 管理供应商连接和模型目录；`ModelSelector` 在调用前选择当前模型。
 - `ContextPanel` 显示 Active、Recommended、Excluded Context 和预算。
-- `GraphView` 从 Workspace 渲染真实讨论节点与语义边，支持 Pointer Events 节点拖拽、空白画布平移、滚轮/按钮缩放、关系连接与节点/关系删除；坐标和编辑结果都通过 API 持久化，点击节点会激活对应讨论流。
+- `GraphView` 从 Workspace 渲染真实讨论节点与语义边，支持 Pointer Events 节点拖拽、空白画布平移、滚轮/按钮缩放、关系连接，以及节点归档/恢复与关系编辑；归档节点从主视图隐藏且只读，坐标和编辑结果都通过 API 持久化。
 - `StateView` 区分当前有效事实、约束、决策与开放问题。
 
 ## 5. Frontend Architecture
@@ -81,7 +81,9 @@ Express 后端暴露以下边界：
 - `POST /api/temp-chat`：围绕选中锚点调用 AI；请求与回复不写入 Workspace
 - `POST /api/nodes/:id/activate`：切换活动讨论节点
 - `PATCH /api/nodes/:id/position`：持久化 Graph 节点坐标
-- `POST /api/graph/nodes`、`DELETE /api/graph/nodes/:id`：创建和删除图谱节点
+- `POST /api/graph/nodes`、`DELETE /api/graph/nodes/:id`：创建图谱节点；普通 DELETE 仅归档并保留 Message、Segment、Manifest 与关系
+- `PATCH /api/nodes/:id/status`：恢复已归档节点；归档期间对象和关系只读
+- `POST /api/graph/nodes/:id/purge`：M01 隔离的物理删除缝，仅接受 archived leaf、精确 `PURGE <id>` 确认和审计原因；完整权限/tombstone 策略不在当前快照范围
 - `POST /api/graph/edges`、`DELETE /api/graph/edges/:id`：创建和删除语义关系
 - `POST /api/nodes/:id/merge`：选择性合并支线摘要、写入主线引用并生成 `merged-into` 关系
 - `GET/POST/PUT /api/providers`：读取、新增和更新安全裁剪后的供应商配置
@@ -97,14 +99,14 @@ Express 后端暴露以下边界：
 
 ## 8. Testing Strategy
 
-- `npm run lint`：覆盖前端、服务端、迁移和 E2E 的静态规则。
-- `npm run typecheck`：同时严格检查浏览器与 Node 项目；服务端不再只依赖打包器转译。
-- `npm run test:unit`：验证前端 API 接线、Context 持久化、输入校验、Provider 请求格式、架构边界和 Manifest 写入。
-- `npm run test:e2e`：通过真实 HTTP socket 验证 provider request + SSE，并用嵌入式 PostgreSQL 引擎验证 schema 正反向迁移；CI 额外对 PostgreSQL 17 真服务创建 schema 并验证迁移幂等性。
-- `npm run licenses:verify`：确保提交的生产依赖许可证报告可重复生成。
-- `npm run build`：执行全量 TypeScript 严格检查、Vite 前端构建和 tsup 服务端构建。
+- `pnpm run lint`：覆盖前端、服务端、迁移和 E2E 的静态规则。
+- `pnpm run typecheck`：同时严格检查浏览器与 Node 项目；服务端不再只依赖打包器转译。
+- `pnpm run test:unit`：验证前端 API 接线、Context 持久化、输入校验、Provider 请求格式、架构边界和 Manifest 写入。
+- `pnpm run test:e2e`：通过真实 HTTP socket 验证 provider request + SSE，并用嵌入式 PostgreSQL 引擎验证 schema 正反向迁移；CI 额外对 PostgreSQL 17 真服务创建 schema 并验证迁移幂等性。
+- `pnpm run licenses:verify`：确保提交的生产依赖许可证报告可重复生成。
+- `pnpm run build`：执行全量 TypeScript 严格检查、Vite 前端构建和 tsup 服务端构建。
 - 浏览器人工验证：检查三栏布局、移动断点、滚动、抽屉、Graph 缩放/平移、节点/关系编辑和关键交互。
-- Graph 组件与 API 测试：验证缩放、节点创建/删除、关系创建/删除及后端持久化。
+- Graph 组件与 API 测试：验证缩放、节点创建、归档/恢复、归档只读、受控 Purge、关系编辑及后端持久化。
 - Markdown 组件测试：验证 GFM 表格/任务列表、KaTeX 公式和 Mermaid SVG 输出。
 
 ## 9. Development Conventions
@@ -117,7 +119,7 @@ Express 后端暴露以下边界：
 ## 10. Known Constraints
 
 - AI 回复已连接真实 Provider；Context Planner 推荐与冲突检测仍为演示数据。
-- Graph 已支持缩放、平移、节点拖拽、节点/关系编辑与坐标持久化；框选、自动布局和超大图虚拟化仍未实现。
+- Graph 已支持缩放、平移、节点拖拽、节点归档/恢复、关系编辑与坐标持久化；框选、自动布局和超大图虚拟化仍未实现。
 - 当前运行时默认使用本机 JSON 存储，不支持多用户并发、身份认证、权限和跨项目隔离；PostgreSQL schema/migration baseline 已完成，产品数据存储切换属于 M2。
 - 已 fetch 并验证技术设计书指定 LibreChat v0.8.7 tag，`librechat-v0.8.7` 分支固定指向 commit `9e74cc0e...`，Rhiza 集成工作位于 `codex/rhiza-librechat-runtime`。当前 Provider/API Key 仍是唯一模型执行配置；已接入固定的 `librechat-data-provider@0.8.509` Model Spec 和文件策略。完整 Agent/MCP、实际文件上传与解析、运行时 PostgreSQL Repository、统一 Auth 与 SBOM 属于后续里程碑；M0 已具备许可证报告及 PostgreSQL migration 基线。
 - Provider 适配范围是 OpenAI-compatible Chat Completions；非兼容协议需要新增 Adapter。

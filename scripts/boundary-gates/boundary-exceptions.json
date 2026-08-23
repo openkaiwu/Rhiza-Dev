@@ -1,0 +1,15 @@
+{
+  "$schema": "./boundary-exceptions.schema.json",
+  "exceptions": [
+    {
+      "id": "M01-legacy-app-store-access",
+      "boundary": "http-must-not-import-persistence-adapter",
+      "file": "server/app.ts",
+      "reason": "Legacy Express routes still receive and call WorkspaceRepository until M02 creates the Application facade.",
+      "owner": "M02 Application-boundary implementer",
+      "issue": "INH-8 / M02",
+      "expiresOn": "2026-09-30",
+      "repositoryAccessBudget": ["read", "update"]
+    }
+  ]
+}

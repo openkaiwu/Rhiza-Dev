@@ -3,12 +3,13 @@
   "$id": "https://rhiza.dev/architecture-gates/ci-observation/1.0.0",
   "title": "Rhiza G0 CI observation",
   "type": "object",
-  "required": ["$schema", "schema_version", "gate_id", "commit", "provenance", "command", "environment_profile", "observed_metrics", "checksums", "started_at", "completed_at", "result"],
+  "required": ["$schema", "schema_version", "gate_id", "severity", "commit", "provenance", "command", "environment_profile", "observed_metrics", "checksums", "started_at", "completed_at", "result"],
   "additionalProperties": false,
   "properties": {
     "$schema": { "const": "https://rhiza.dev/architecture-gates/ci-observation/1.0.0" },
     "schema_version": { "const": "1.0.0" },
     "gate_id": { "const": "G0" },
+    "severity": { "const": "observational", "description": "Required for newly generated observations; omitted only by the immutable pre-severity G0 artifact." },
     "commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
     "provenance": {
       "type": "object",

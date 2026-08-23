@@ -16,6 +16,7 @@
     "POST /api/chat/stream",
     "POST /api/graph/edges",
     "POST /api/graph/nodes",
+    "POST /api/graph/nodes/:id/purge",
     "POST /api/models/:id/select",
     "POST /api/nodes",
     "POST /api/nodes/:id/activate",
@@ -24,7 +25,8 @@
     "POST /api/providers",
     "POST /api/providers/:id/discover",
     "POST /api/temp-chat",
-    "POST /api/workspace/context"
+    "POST /api/workspace/context",
+    "PUT /api/providers/:id"
   ],
   "sseChannels": [
     "runtime",

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -42,8 +42,9 @@ it('loads registered workspace and error-retry fixtures to characterize route an
   expect(scenarioFixture.scenario.workspaceFixtureId).toBe('g0-branch-context-provider-v1');
   const directory = await mkdtemp(join(tmpdir(), 'rhiza-g0-fixture-'));
   directories.push(directory);
-  const store = new WorkspaceStore(join(directory, 'workspace.json'));
-  await store.update(() => structuredClone(emptyWorkspaceFixture.workspace));
+  const workspacePath = join(directory, 'workspace.json');
+  await writeFile(workspacePath, `${JSON.stringify(emptyWorkspaceFixture.workspace, null, 2)}\n`, 'utf8');
+  const store = new WorkspaceStore(workspacePath);
   let attempts = 0;
   const runtime: AIRuntime = {
     kind: 'provider-adapter',
@@ -62,7 +63,10 @@ it('loads registered workspace and error-retry fixtures to characterize route an
   const empty = await request(server).get('/api/workspace').expect(200);
   expect(empty.body.workspace.projectId).toBe(emptyWorkspaceFixture.workspace.projectId);
   expect(empty.body.workspace.discussionNodes).toHaveLength(1);
-  await store.update(() => structuredClone(workspaceFixture.workspace));
+  // Loading a second immutable fixture is test orchestration, not a Domain
+  // mutation. Write the isolated temp snapshot directly so production history
+  // guards remain exercised by every repository update.
+  await writeFile(workspacePath, `${JSON.stringify(workspaceFixture.workspace, null, 2)}\n`, 'utf8');
   const before = await request(server).get('/api/workspace').expect(200);
   expect(before.body.workspace.activeNodeId).toBe('fixture-main');
   expect(before.body.workspace.discussionNodes).toHaveLength(2);

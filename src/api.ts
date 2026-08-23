@@ -108,7 +108,10 @@ export const api = {
   activateNode: (id: string) => request<{ workspace: WorkspaceSnapshot }>(`/api/nodes/${encodeURIComponent(id)}/activate`, { method: 'POST' }),
   moveNode: (id: string, x: number, y: number) => request<{ workspace: WorkspaceSnapshot }>(`/api/nodes/${encodeURIComponent(id)}/position`, { method: 'PATCH', body: JSON.stringify({ x, y }) }),
   createGraphNode: (input: { title: string; summary?: string; x: number; y: number }) => request<{ workspace: WorkspaceSnapshot }>('/api/graph/nodes', { method: 'POST', body: JSON.stringify(input) }),
+  archiveGraphNode: (id: string) => request<{ workspace: WorkspaceSnapshot }>(`/api/graph/nodes/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // Kept for callers that still use the pre-archive method name.
   deleteGraphNode: (id: string) => request<{ workspace: WorkspaceSnapshot }>(`/api/graph/nodes/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  restoreGraphNode: (id: string) => request<{ workspace: WorkspaceSnapshot }>(`/api/nodes/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: JSON.stringify({ status: 'active' }) }),
   createGraphEdge: (input: { source: string; target: string; relation: 'derived-from' | 'references' | 'related-to' | 'merged-into'; label: string }) => request<{ workspace: WorkspaceSnapshot }>('/api/graph/edges', { method: 'POST', body: JSON.stringify(input) }),
   deleteGraphEdge: (id: string) => request<{ workspace: WorkspaceSnapshot }>(`/api/graph/edges/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   mergeNode: (id: string, targetNodeId?: string, summary?: string) => request<{ workspace: WorkspaceSnapshot }>(`/api/nodes/${encodeURIComponent(id)}/merge`, { method: 'POST', body: JSON.stringify({ targetNodeId, summary }) }),

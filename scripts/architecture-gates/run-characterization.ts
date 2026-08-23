@@ -22,7 +22,7 @@ for (const [file, titles] of byFile) {
     if (!source.includes(`it('${title}'`)) throw new Error(`Missing mapped characterization: ${file} :: ${title}`);
   }
   const titlePattern = `(?:${titles.map(escapeRegex).join('|')})$`;
-  execFileSync('pnpm', ['exec', 'vitest', 'run', file, '-t', titlePattern], {
+  execFileSync('pnpm', ['exec', 'vitest', 'run', file, '-t', titlePattern, '--maxWorkers=1', '--testTimeout=30000'], {
     cwd: root,
     stdio: 'inherit',
   });

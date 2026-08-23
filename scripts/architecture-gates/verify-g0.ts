@@ -24,6 +24,8 @@ const writeEvidence = process.argv.includes('--write-evidence');
 const writeObservation = process.argv.includes('--write-observation');
 const baselineCommit = 'b29d94fb034678e0c9d5660848e92e995311d4da';
 const baselineTag = 'pre-0815-engineering-baseline';
+const legacyCiObservationCommit = 'bbcb85e1a985f9beffd4caa758f0f328f41cb554';
+const legacyCiObservationSha256 = '63ce4415fab6b58cb00b0bedba716215aff066eca4ff94b89043814b2f6f1542';
 
 type JsonObject = Record<string, unknown>;
 type RegistryEntry = {
@@ -143,6 +145,31 @@ function assertFixtureHygiene(content: string, fixturePath: string): void {
   inspectStrings(JSON.parse(content));
 }
 
+type EvidenceException = { owner: unknown; expiry: unknown; adr_or_issue: unknown; severity: unknown };
+
+export function validateEvidenceExceptions(exceptions: unknown, field: string, now = new Date()): void {
+  if (!Array.isArray(exceptions)) fail(`${field} must be an array`);
+  for (const exception of exceptions as EvidenceException[]) {
+    if (!exception || typeof exception !== 'object'
+      || typeof exception.owner !== 'string' || !exception.owner.trim()
+      || typeof exception.adr_or_issue !== 'string' || !exception.adr_or_issue.trim()
+      || !['blocking', 'observational'].includes(String(exception.severity))
+      || typeof exception.expiry !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(exception.expiry)) {
+      fail(`${field} exception requires owner, expiry (YYYY-MM-DD), adr_or_issue, and severity`);
+    }
+    const expiryValue = exception.expiry as string;
+    const expiry = new Date(`${expiryValue}T00:00:00.000Z`);
+    if (Number.isNaN(expiry.valueOf()) || expiry.toISOString().slice(0, 10) !== expiryValue) {
+      fail(`${field} exception has an invalid expiry: ${expiryValue}`);
+    }
+    if (expiryValue < now.toISOString().slice(0, 10)) fail(`${field} exception expired on ${expiryValue}; severity ${exception.severity} escalates to blocking`);
+  }
+}
+
+export function validateEvidenceSeverity(value: unknown, expected: 'blocking' | 'observational', subject: string): void {
+  if (value !== expected) fail(`${subject} severity must be ${expected}`);
+}
+
 async function loadRegisteredFixture<T>(registry: FixtureRegistry, id: string): Promise<T> {
   const entry = registry.fixtures.find(item => item.id === id)
     ?? fail(`registered fixture not found: ${id}`);
@@ -202,7 +229,7 @@ async function verifyCharacterizationMap(): Promise<number> {
   const map = await readJson<{ coverage: Array<{ behavior: string; file: string; title: string }> }>(path);
   const required = [
     'chat', 'branch', 'edit/resend', 'regenerate', 'Stop e2e', 'backend retry',
-    'UI retry', 'file', 'archive/restore', 'merge/delete', 'provider selection', 'fixture route/retry',
+    'UI retry', 'file', 'archive/restore', 'controlled purge', 'merge/archive', 'provider selection', 'fixture route/retry',
   ];
   const actual = map.coverage.map(item => item.behavior).sort();
   if (actual.join('|') !== [...required].sort().join('|')) fail('characterization behavior set drift');
@@ -215,6 +242,13 @@ async function verifyCharacterizationMap(): Promise<number> {
   return map.coverage.length;
 }
 
+export function extractApiRoutes(appSource: string): string[] {
+  return [...appSource.matchAll(/app\.(get|post|put|patch|delete)\(\s*['`]([^'`]+)/g)]
+    .map(match => `${match[1].toUpperCase()} ${match[2]}`)
+    .filter(route => route !== 'GET *path')
+    .sort();
+}
+
 async function verifySnapshots(registryDigest: string): Promise<Record<string, string>> {
   const snapshotDirectory = join(gates, 'G0/snapshots');
   await mkdir(snapshotDirectory, { recursive: true });
@@ -222,10 +256,7 @@ async function verifySnapshots(registryDigest: string): Promise<Record<string, s
   const runtimeSource = await readFile(join(root, 'server/ai-runtime.ts'), 'utf8');
   const api = {
     version: 'legacy-api-snapshot-1.0.0',
-    routes: [...appSource.matchAll(/app\.(get|post|patch|delete)\(\s*['`]([^'`]+)/g)]
-      .map(match => `${match[1].toUpperCase()} ${match[2]}`)
-      .filter(route => route !== 'GET *path')
-      .sort(),
+    routes: extractApiRoutes(appSource),
     sseChannels: ['runtime', 'commit'],
     sseEventTypes: [...new Set([...runtimeSource.matchAll(/type: '([A-Z_]+)'/g)].map(match => match[1]))].sort(),
   };
@@ -349,9 +380,10 @@ async function runBenchmarks(registry: FixtureRegistry, profile: PerformanceProf
   try {
     const fixture = await loadRegisteredFixture<{ workspace: WorkspaceData }>(registry, profile.baseFixtureId);
     const workspace = createBenchmarkWorkspace(fixture.workspace, profile);
-    const store = new WorkspaceStore(join(directory, 'workspace.json'));
-    await store.update(() => structuredClone(workspace));
-    const reset = async () => { await store.update(() => structuredClone(workspace)); };
+    const workspacePath = join(directory, 'workspace.json');
+    const reset = async () => { await writeFile(workspacePath, `${JSON.stringify(workspace, null, 2)}\n`, 'utf8'); };
+    await reset();
+    const store = new WorkspaceStore(workspacePath);
     const runtime: AIRuntime = {
       kind: 'provider-adapter',
       listModels: async () => [{ id: 'g0', provider: 'G0', model: 'g0', displayName: 'G0', active: true }],
@@ -434,7 +466,7 @@ function currentCommit(): string {
   return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
 }
 
-function assertArchivedEvidenceCommit(commit: unknown): void {
+function assertArchivedEvidenceCommit(commit: unknown): string {
   if (typeof commit !== 'string' || !/^[a-f0-9]{40}$/.test(commit)) {
     fail('archived evidence commit is not a full Git commit SHA');
   }
@@ -448,6 +480,16 @@ function assertArchivedEvidenceCommit(commit: unknown): void {
     execFileSync('git', ['merge-base', '--is-ancestor', recordedCommit, 'HEAD'], { cwd: root, stdio: 'ignore' });
   } catch {
     fail(`archived evidence commit is not an ancestor of HEAD: ${commit}`);
+  }
+  return recordedCommit;
+}
+
+function gateFileChecksumAtCommit(commit: string, gatePath: string): string {
+  if (!/^[A-Za-z0-9._/-]+$/.test(gatePath) || gatePath.split('/').includes('..')) fail(`unsafe evidence checksum path: ${gatePath}`);
+  try {
+    return sha256(execFileSync('git', ['show', `${commit}:docs/architecture-gates/${gatePath}`], { cwd: root }));
+  } catch {
+    return fail(`evidence input is absent from recorded commit ${commit}: ${gatePath}`);
   }
 }
 
@@ -468,24 +510,30 @@ function observationOutputPath(): string {
 async function verifyCiPerformanceBaseline(
   validator: Ajv2020,
   profile: JsonObject,
-  expectedChecksums: Record<string, string>,
 ): Promise<void> {
   const observationPath = join(gates, 'G0/ci-performance-baseline.json');
   const attestationPath = join(gates, 'G0/ci-performance-baseline-attestation.json');
   const rawObservation = await readFile(observationPath);
   const observation = JSON.parse(rawObservation.toString('utf8')) as JsonObject;
   const attestation = await readJson<JsonObject>(attestationPath);
-  assertValid(validator, 'https://rhiza.dev/architecture-gates/ci-observation/1.0.0', observation);
   assertValid(validator, 'https://rhiza.dev/architecture-gates/ci-performance-baseline-attestation/1.0.0', attestation);
 
   if (attestation.observation_path !== 'G0/ci-performance-baseline.json') fail('CI performance attestation path drift');
-  if (attestation.observation_sha256 !== sha256(rawObservation).replace(/^sha256:/, '')) fail('CI performance observation checksum drift');
+  const observationDigest = sha256(rawObservation).replace(/^sha256:/, '');
+  if (attestation.observation_sha256 !== observationDigest) fail('CI performance observation checksum drift');
+  const historicalPreSeverity = observation.severity === undefined
+    && observation.commit === legacyCiObservationCommit
+    && observationDigest === legacyCiObservationSha256;
+  if (observation.severity === undefined && !historicalPreSeverity) fail('CI performance observation severity is missing outside the exact attested legacy artifact');
+  const schemaObservation = historicalPreSeverity ? { ...observation, severity: 'observational' } : observation;
+  assertValid(validator, 'https://rhiza.dev/architecture-gates/ci-observation/1.0.0', schemaObservation);
+  validateEvidenceSeverity(schemaObservation.severity, 'observational', 'CI performance observation');
   const provenance = observation.provenance as JsonObject;
   if (provenance.ci !== 'github-actions' || provenance.event_name !== 'push' || provenance.repository !== 'Arragon/Rhiza-Dev') {
     fail('CI performance observation provenance must be a GitHub Actions push from Arragon/Rhiza-Dev');
   }
   if (observation.commit !== provenance.sha) fail('CI performance observation commit and provenance SHA differ');
-  assertArchivedEvidenceCommit(observation.commit);
+  const observationCommit = assertArchivedEvidenceCommit(observation.commit);
   const environment = observation.environment_profile as JsonObject;
   if (canonicalize(environment.declared) !== canonicalize(profile)) fail('CI performance declared environment profile drift');
 
@@ -499,11 +547,15 @@ async function verifyCiPerformanceBaseline(
     }
   }
   const checksums = observation.checksums as JsonObject;
-  if (Object.keys(checksums).sort().join('|') !== Object.keys(expectedChecksums).sort().join('|')) fail('CI performance checksum key drift');
-  for (const [path, digest] of Object.entries(expectedChecksums)) {
-    const record = checksums[path] as JsonObject | undefined;
-    if (!record || record.algorithm !== 'sha256' || record.value !== digest.replace(/^sha256:/, '')) {
-      fail(`CI performance checksum drift: ${path}`);
+  const expectedChecksumPaths = ['G0/snapshots/api.json', 'G0/snapshots/db.json', 'G0/snapshots/schema-index.json', 'fixture-registry.json', 'performance-profile.json'];
+  if (Object.keys(checksums).sort().join('|') !== expectedChecksumPaths.sort().join('|')) fail('CI performance observation checksum set is incomplete');
+  for (const [path, record] of Object.entries(checksums)) {
+    const checksum = record as { algorithm?: unknown; value?: unknown };
+    if (checksum.algorithm !== 'sha256' || typeof checksum.value !== 'string' || !/^[a-f0-9]{64}$/.test(checksum.value)) {
+      fail(`CI performance observation has an invalid checksum record: ${path}`);
+    }
+    if (checksum.value !== gateFileChecksumAtCommit(observationCommit, path).replace(/^sha256:/, '')) {
+      fail(`CI performance observation checksum is not bound to recorded commit: ${path}`);
     }
   }
   if (observation.result !== 'pass') fail('CI performance observation result is not pass');
@@ -542,14 +594,21 @@ async function run(): Promise<void> {
     if (!update) {
       const existingEvidence = await readJson<JsonObject>(join(gates, 'G0/evidence.json'));
       assertValid(validator, 'https://rhiza.dev/architecture-gates/evidence-manifest/1.0.0', existingEvidence);
+      validateEvidenceSeverity(existingEvidence.severity, 'blocking', 'archived evidence');
+      validateEvidenceExceptions(existingEvidence.failure_classification, 'failure_classification');
+      validateEvidenceExceptions(existingEvidence.known_exceptions, 'known_exceptions');
       if (existingEvidence.fixture_digest !== fixture.digest) fail('archived evidence fixture_digest drift');
-      assertArchivedEvidenceCommit(existingEvidence.commit);
-      const checksums = existingEvidence.checksums as JsonObject;
+      const evidenceCommit = assertArchivedEvidenceCommit(existingEvidence.commit);
+      const checksums = existingEvidence.checksums as Record<string, { algorithm?: unknown; value?: unknown }>;
       const expectedChecksums = { ...snapshotChecksums, 'fixture-registry.json': fixture.digest, 'performance-profile.json': performanceProfileChecksum };
       for (const [path, digest] of Object.entries(expectedChecksums)) {
-        const record = checksums[path] as JsonObject | undefined;
-        if (!record || record.algorithm !== 'sha256' || record.value !== digest.replace(/^sha256:/, '')) {
+        const record = checksums[path];
+        if (!record) fail(`archived evidence checksum missing: ${path}`);
+        if (record.algorithm !== 'sha256' || record.value !== digest.replace(/^sha256:/, '')) {
           fail(`archived evidence checksum drift: ${path}`);
+        }
+        if (record.value !== gateFileChecksumAtCommit(evidenceCommit, path).replace(/^sha256:/, '')) {
+          fail(`archived evidence checksum is not bound to recorded commit: ${path}`);
         }
       }
       for (const descriptor of existingEvidence.artifact_descriptors as JsonObject[]) {
@@ -567,7 +626,7 @@ async function run(): Promise<void> {
       for (const metric of Object.values(recorded)) {
         if (metric.warmup_count !== 20 || metric.sample_count !== 200 || metric.failures !== 0 || metric.timeouts !== 0 || metric.drops !== 0) fail(`archived evidence metric counts drift: ${metric.metric}`);
       }
-      await verifyCiPerformanceBaseline(validator, profile, expectedChecksums);
+      await verifyCiPerformanceBaseline(validator, profile);
     }
     if (!writeObservation) return;
   }
@@ -588,6 +647,7 @@ async function run(): Promise<void> {
       $schema: 'https://rhiza.dev/architecture-gates/ci-observation/1.0.0',
       schema_version: '1.0.0',
       gate_id: 'G0',
+      severity: 'observational',
       commit,
       provenance: {
         ci: process.env.GITHUB_ACTIONS === 'true' ? 'github-actions' : 'local',
@@ -621,6 +681,7 @@ async function run(): Promise<void> {
     $schema: 'https://rhiza.dev/architecture-gates/evidence-manifest/1.0.0',
     schema_version: '1.0.0',
     gate_id: 'G0',
+    severity: 'blocking',
     architecture_version: '0818-v3.0',
     commit: currentCommit(),
     baseline: evidenceBaseline,
@@ -680,10 +741,15 @@ async function run(): Promise<void> {
     result: 'pass',
   };
   assertValid(validator, 'https://rhiza.dev/architecture-gates/evidence-manifest/1.0.0', manifest);
+  validateEvidenceSeverity(manifest.severity, 'blocking', 'generated evidence');
+  validateEvidenceExceptions(manifest.failure_classification, 'failure_classification');
+  validateEvidenceExceptions(manifest.known_exceptions, 'known_exceptions');
   await writeFile(join(gates, 'G0/evidence.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
-run().catch(error => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exitCode = 1;
-});
+if (process.argv[1] && resolve(process.argv[1]) === resolve(import.meta.filename)) {
+  run().catch(error => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  });
+}
