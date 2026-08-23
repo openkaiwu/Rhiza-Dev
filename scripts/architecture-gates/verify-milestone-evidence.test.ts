@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { M01_COMMANDS, M01_PATHS, validateEvidence, validateKnownExceptions, type MilestoneEvidence } from './verify-milestone-evidence';
 
 describe('milestone evidence exceptions', () => {
@@ -55,7 +55,7 @@ describe('milestone evidence validation', () => {
 
   const valid = (): MilestoneEvidence => {
     const commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-    const checksum = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
+    const checksum = (path: string) => createHash('sha256').update(execFileSync('git', ['show', `${commit}:${path}`])).digest('hex');
     const registry = checksum('docs/architecture-gates/fixture-registry.json');
     const map = checksum('docs/architecture-gates/G0/characterization-map.json');
     return {
@@ -68,7 +68,8 @@ describe('milestone evidence validation', () => {
   };
 
   it('rejects a recorded commit that is not an ancestor of the supplied HEAD', () => {
-    expect(() => validateEvidence(valid(), '0000000000000000000000000000000000000000')).toThrow('not an ancestor');
+    const parent = execFileSync('git', ['rev-parse', 'HEAD^'], { encoding: 'utf8' }).trim();
+    expect(() => validateEvidence(valid(), parent)).toThrow('not an ancestor');
   });
 
   it('rejects a checksum that is not bound to the recorded commit', () => {
@@ -81,5 +82,27 @@ describe('milestone evidence validation', () => {
     const evidence = valid();
     evidence.checksums = { '../outside.json': evidence.checksums['docs/architecture-gates/fixture-registry.json'], ...evidence.checksums };
     expect(() => validateEvidence(evidence)).toThrow('unsafe checksum path');
+  });
+
+  it('accepts historical evidence when the current checkout has drifted', () => {
+    const path = 'docs/architecture-gates/fixture-registry.json';
+    const original = readFileSync(path);
+    try {
+      writeFileSync(path, `${original.toString()}\n`);
+      expect(() => validateEvidence(valid())).not.toThrow();
+    } finally {
+      writeFileSync(path, original);
+    }
+  });
+
+  it('rejects historical evidence in strict-current mode when the checkout has drifted', () => {
+    const path = 'docs/architecture-gates/fixture-registry.json';
+    const original = readFileSync(path);
+    try {
+      writeFileSync(path, `${original.toString()}\n`);
+      expect(() => validateEvidence(valid(), undefined, undefined, { strictCurrent: true })).toThrow('current checksum drift');
+    } finally {
+      writeFileSync(path, original);
+    }
   });
 });

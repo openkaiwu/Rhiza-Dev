@@ -20,6 +20,15 @@ export type MilestoneEvidence = {
   environment: { node: string; os: string; cpu: string; memory_bytes: number }; started_at: string; completed_at: string; result: 'pass' | 'fail';
 };
 
+export type EvidenceValidationOptions = {
+  /**
+   * Require the checkout to still match the commit-bound evidence. This is
+   * appropriate while generating evidence for the current milestone; normal
+   * reads intentionally validate historical evidence against its Git object.
+   */
+  strictCurrent?: boolean;
+};
+
 export const M01_COMMANDS = [
   'pnpm run lint',
   'pnpm run typecheck',
@@ -117,7 +126,12 @@ export function validateKnownExceptions(exceptions: KnownException[], now = new 
   }
 }
 
-export function validateEvidence(evidence: MilestoneEvidence, head = git(['rev-parse', 'HEAD']), expectedMilestone?: string): void {
+export function validateEvidence(
+  evidence: MilestoneEvidence,
+  head = git(['rev-parse', 'HEAD']),
+  expectedMilestone?: string,
+  options: EvidenceValidationOptions = {},
+): void {
   const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);
@@ -140,12 +154,14 @@ export function validateEvidence(evidence: MilestoneEvidence, head = git(['rev-p
   if (!isCommitAncestor(evidence.commit, head)) fail(`recorded commit is not an ancestor of HEAD: ${evidence.commit}`);
   for (const [path, checksum] of Object.entries(evidence.checksums)) {
     if (path.startsWith('/') || path.split('/').includes('..')) fail(`unsafe checksum path: ${path}`);
-    if (!existsSync(resolve(root, path))) fail(`checksummed path is missing: ${path}`);
-    const current = sha256(readFileSync(resolve(root, path)));
     const recorded = sha256(gitObject(evidence.commit, path));
-    if (checksum.current !== current) fail(`current checksum drift: ${path}`);
     if (checksum.recorded_commit !== recorded) fail(`recorded commit checksum drift: ${path}`);
     if (checksum.current !== checksum.recorded_commit) fail(`checksum is not bound to recorded commit: ${path}`);
+    if (options.strictCurrent) {
+      if (!existsSync(resolve(root, path))) fail(`checksummed path is missing: ${path}`);
+      const current = sha256(readFileSync(resolve(root, path)));
+      if (checksum.current !== current) fail(`current checksum drift: ${path}`);
+    }
   }
 }
 
@@ -176,7 +192,7 @@ function writeEvidence(milestone: string): void {
     environment: { node: process.version, os: `${platform()} ${release()}`, cpu: cpus()[0]?.model ?? 'unknown', memory_bytes: totalmem() },
     started_at, completed_at: new Date().toISOString(), result: 'pass',
   };
-  validateEvidence(evidence, commit, milestone);
+  validateEvidence(evidence, commit, milestone, { strictCurrent: true });
   const path = resolve(root, `docs/architecture-gates/${milestone}/evidence.json`);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(evidence, null, 2)}\n`);
@@ -190,7 +206,12 @@ function main(): void {
   if (process.argv.includes('--write')) return writeEvidence(milestone);
   const path = resolve(root, `docs/architecture-gates/${milestone}/evidence.json`);
   if (!existsSync(path)) fail(`evidence file is missing: ${path}`);
-  validateEvidence(JSON.parse(readFileSync(path, 'utf8')) as MilestoneEvidence, undefined, milestone);
+  validateEvidence(
+    JSON.parse(readFileSync(path, 'utf8')) as MilestoneEvidence,
+    undefined,
+    milestone,
+    { strictCurrent: process.argv.includes('--strict-current') },
+  );
   console.log(`${milestone} milestone evidence passes`);
 }
 
