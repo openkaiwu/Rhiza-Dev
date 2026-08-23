@@ -1,12 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { extractApiRoutes, validateEvidenceExceptions, validateEvidenceSeverity } from './verify-g0';
+import { checksumGateInput, extractApiRoutes, validateEvidenceExceptions, validateEvidenceSeverity } from './verify-g0';
 
 describe('G0 API snapshot extraction', () => {
   it('includes PUT routes and excludes SPA fallbacks', () => {
     const routes = extractApiRoutes("app.put('/api/providers/:id', handler); app.get('*path', handler);");
     expect(routes).toContain('PUT /api/providers/:id');
     expect(routes).not.toContain('GET *path');
+  });
+});
+
+describe('G0 commit-bound input checksums', () => {
+  it('uses canonical JSON for the fixture registry and byte hashes for other inputs', () => {
+    expect(checksumGateInput('fixture-registry.json', '{\n  "b": 2, "a": 1\n}\n'))
+      .toBe(checksumGateInput('fixture-registry.json', '{"a":1,"b":2}'));
+    expect(checksumGateInput('performance-profile.json', '{\n  "b": 2, "a": 1\n}\n'))
+      .not.toBe(checksumGateInput('performance-profile.json', '{"a":1,"b":2}'));
   });
 });
 

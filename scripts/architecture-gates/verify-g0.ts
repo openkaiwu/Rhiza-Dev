@@ -484,10 +484,18 @@ function assertArchivedEvidenceCommit(commit: unknown): string {
   return recordedCommit;
 }
 
+export function checksumGateInput(gatePath: string, content: string | Buffer): string {
+  if (gatePath === 'fixture-registry.json') {
+    return sha256(canonicalize(JSON.parse(content.toString())));
+  }
+  return sha256(content);
+}
+
 function gateFileChecksumAtCommit(commit: string, gatePath: string): string {
   if (!/^[A-Za-z0-9._/-]+$/.test(gatePath) || gatePath.split('/').includes('..')) fail(`unsafe evidence checksum path: ${gatePath}`);
   try {
-    return sha256(execFileSync('git', ['show', `${commit}:docs/architecture-gates/${gatePath}`], { cwd: root }));
+    const content = execFileSync('git', ['show', `${commit}:docs/architecture-gates/${gatePath}`], { cwd: root });
+    return checksumGateInput(gatePath, content);
   } catch {
     return fail(`evidence input is absent from recorded commit ${commit}: ${gatePath}`);
   }
