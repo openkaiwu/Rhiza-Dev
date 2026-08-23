@@ -31,8 +31,11 @@ describe('M02 architecture boundary gate', () => {
     ['forbidden domain child process import', 'server/domain/bad.ts', "import { execFile } from 'node:child_process'; void execFile;"],
     ['forbidden application provider import', 'server/application/bad.ts', "import OpenAI from 'openai';"],
     ['forbidden application child process import', 'server/application/bad.ts', "import { execFile } from 'node:child_process'; void execFile;"],
+    ['unlisted domain host import', 'server/domain/bad.ts', "import { Worker } from 'node:worker_threads'; void Worker;"],
     ['forbidden application LibreChat import', 'server/application/bad.ts', "import { createClient } from '@librechat/api'; void createClient;"],
     ['forbidden application model SDK import', 'server/application/bad.ts', "import { GoogleGenerativeAI } from '@google/generative-ai'; void GoogleGenerativeAI;"],
+    ['unlisted application model SDK import', 'server/application/bad.ts', "import { OpenAIClient } from '@azure/openai'; void OpenAIClient;"],
+    ['application import of an undeclared root adapter', 'server/application/bad.ts', "import '../secret-vault';"],
     ['reverse legacy context planner dependency', 'server/context-runtime/legacy-planner.ts', "import '../application/application';"],
     ['direct HTTP store access', 'server/http/bad.ts', "const workspaceRepository = { read() {} }; workspaceRepository.read();"],
     ['aliased HTTP store access', 'server/http/bad.ts', "const workspaceStore = { write() {} }; const persistence = workspaceStore; persistence.write();"],
@@ -62,5 +65,14 @@ describe('M02 architecture boundary gate', () => {
     const violations = await collectM02BoundaryViolations(root, true);
     expect(violations.map(item => item.message).join('\n')).toContain('legacy route logic remains');
     expect(violations.map(item => item.message).join('\n')).toContain('exception registry must be empty');
+  });
+
+  it('blocks an Express route hidden outside the HTTP partition', async () => {
+    const root = await fixture({
+      'server/rogue-route.ts': "import express from 'express'; const repository = { write() {} }; const router = express.Router(); router.post('/x', () => repository.write()); export { router };",
+      'scripts/boundary-gates/boundary-exceptions.json': '{"exceptions":[]}',
+    });
+    const violations = await collectM02BoundaryViolations(root, true);
+    expect(violations).toContainEqual(expect.objectContaining({ file: 'server/rogue-route.ts', message: expect.stringContaining('outside server/http') }));
   });
 });

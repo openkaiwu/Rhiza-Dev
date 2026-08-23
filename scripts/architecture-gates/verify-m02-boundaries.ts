@@ -6,7 +6,6 @@ import ts from 'typescript';
 export type M02Violation = { file: string; message: string };
 
 const sourceExtensions = new Set(['.ts', '.tsx', '.mts', '.cts']);
-const forbiddenExternal = /^(express|react|node:(fs|path|os|crypto|child_process)(\/|$)|pg$|pg\/|(?:@librechat(?:\/|$)|librechat(?:-|\/|$)|openai(?:\/|$)|@anthropic-ai(?:\/|$)|@google\/generative-ai(?:\/|$)|ollama(?:\/|$)|cohere-ai(?:\/|$)|mistralai(?:\/|$)|ai(?:\/|$)|@ai-sdk\/|langchain(?:\/|$)|@langchain\/))/;
 const forbiddenInfrastructure = /(^|\/)(infrastructure|postgres-store|provider-service|provider-runtime|ai-provider|store)(\/|$)/;
 const directPortName = /(store|repository|unitofwork|uow)/i;
 const layerOrder: Record<string, string[]> = {
@@ -57,15 +56,20 @@ function importsIn(file: string): { specifier: string; node: ts.Node }[] {
   return found;
 }
 
-function isForbiddenApplicationImport(specifier: string): boolean {
-  return forbiddenExternal.test(specifier) || (specifier.startsWith('.') && forbiddenInfrastructure.test(normalize(specifier).replaceAll('\\', '/')));
-}
-
 function layerFor(root: string, file: string): string | undefined {
   const parts = relativeFile(root, file).split('/');
   if (parts[0] !== 'server') return undefined;
   if (parts.length === 2 && ['domain.ts', 'provider-domain.ts'].includes(parts[1])) return 'domain';
   return layerOrder[parts[1]] ? parts[1] : undefined;
+}
+
+function coreImportViolation(root: string, file: string, layer: 'domain' | 'application', specifier: string): string | undefined {
+  if (!specifier.startsWith('.')) return `${layer} imports external dependency ${specifier}`;
+  const target = resolveLocalImport(file, specifier);
+  if (!target) return `${layer} imports unresolved local dependency ${specifier}`;
+  const targetLayer = layerFor(root, target);
+  if (!targetLayer || !layerOrder[layer].includes(targetLayer)) return `${layer} imports outside the core allowlist ${specifier}`;
+  return undefined;
 }
 
 function resolveLocalImport(file: string, specifier: string): string | undefined {
@@ -221,7 +225,8 @@ export async function collectM02BoundaryViolations(root = resolve('.'), strict =
   for (const layer of ['domain', 'application'] as const) {
     for (const file of layerFiles.get(layer) ?? []) {
       for (const { specifier } of importsIn(file)) {
-        if (isForbiddenApplicationImport(specifier)) report(file, `${layer} imports forbidden dependency ${specifier}`);
+        const violation = coreImportViolation(root, file, layer, specifier);
+        if (violation) report(file, violation);
       }
     }
   }
@@ -273,6 +278,11 @@ export async function collectM02BoundaryViolations(root = resolve('.'), strict =
   if (strict) {
     const legacy = resolve(server, 'app.ts');
     if (existsSync(legacy) && legacyRouteLogic(legacy)) report(legacy, 'legacy route logic remains; move routes to server/http and invoke the Application facade');
+    for (const file of await filesUnder(server)) {
+      if (file !== legacy && !relativeFile(root, file).startsWith('server/http/') && legacyRouteLogic(file)) {
+        report(file, 'Express route logic exists outside server/http; move it behind the injected Application facade');
+      }
+    }
     const registry = resolve(root, 'scripts/boundary-gates/boundary-exceptions.json');
     if (existsSync(registry)) {
       const exceptions = JSON.parse(readFileSync(registry, 'utf8')).exceptions;
