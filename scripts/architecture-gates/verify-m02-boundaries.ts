@@ -10,7 +10,7 @@ const forbiddenExternal = /^(express|react|node:(fs|path|os|crypto)(\/|$)|pg$|pg
 const forbiddenInfrastructure = /(^|\/)(infrastructure|postgres-store|provider-service|provider-runtime|ai-provider|store)(\/|$)/;
 const directPortName = /(store|repository|unitofwork|uow)/i;
 const layerOrder: Record<string, string[]> = {
-  contracts: [],
+  contracts: ['contracts', 'domain'],
   domain: ['contracts', 'domain'],
   application: ['contracts', 'domain', 'context-runtime', 'execution-runtime', 'application'],
   http: ['contracts', 'application', 'http'],
@@ -56,7 +56,9 @@ function isForbiddenApplicationImport(specifier: string): boolean {
 
 function layerFor(root: string, file: string): string | undefined {
   const parts = relativeFile(root, file).split('/');
-  return parts[0] === 'server' ? parts[1] : undefined;
+  if (parts[0] !== 'server') return undefined;
+  if (parts.length === 2 && ['domain.ts', 'provider-domain.ts'].includes(parts[1])) return 'domain';
+  return parts[1];
 }
 
 function resolveLocalImport(file: string, specifier: string): string | undefined {
@@ -83,6 +85,7 @@ function bodyCallsApplicationExecute(body: ts.Node): boolean {
       const root = propertyRoot(node.expression.expression);
       if (root && /application|appService|commandBus/i.test(root)) found = true;
     }
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && /^(execute|executeCommand)$/.test(node.expression.text)) found = true;
     ts.forEachChild(node, visit);
   };
   visit(body);

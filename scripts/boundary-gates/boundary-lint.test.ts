@@ -16,15 +16,15 @@ async function fixture(name: string) {
   return readFile(resolve('scripts/boundary-gates/fixtures', name), 'utf8');
 }
 
-describe('M01 ESLint boundary gates', () => {
-  it('keeps every documented boundary exception schema-valid, owned, unexpired, and within its AST repository budget', async () => {
-    await expect(loadAndValidateBoundaryExceptions()).resolves.toHaveLength(1);
+describe('M02 ESLint boundary gates', () => {
+  it('closes every temporary Application-boundary exception', async () => {
+    await expect(loadAndValidateBoundaryExceptions()).resolves.toEqual([]);
   });
 
-  it('fails when a legacy route expands its repository access budget', async () => {
+  it('keeps the compatibility export free of repository access', async () => {
     const source = await readFile(resolve('server/app.ts'), 'utf8');
-    expect(analyzeRepositoryAccess(source, 'store')).toEqual(['read', 'update']);
-    expect(() => assertRepositoryAccessBudget(`${source}\nvoid store.delete;`, 'store', ['read', 'update'], 'server/app.ts')).toThrow('repository access budget changed');
+    expect(analyzeRepositoryAccess(source, 'store')).toEqual([]);
+    expect(() => assertRepositoryAccessBudget(`${source}\nvoid store.read;`, 'store', [], 'server/app.ts')).toThrow('repository access budget changed');
   });
 
   it('fails when a boundary exception expires', () => {
