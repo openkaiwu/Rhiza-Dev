@@ -7,5 +7,6 @@ dist-server/
 output/playwright/
 reports/*.tmp
 *.tsbuildinfo
+.tsbuild/
 .env
 **/var/data/

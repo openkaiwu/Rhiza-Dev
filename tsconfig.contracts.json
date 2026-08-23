@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "composite": true,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "declarationMap": true,
+    "outDir": ".tsbuild/contracts",
+    "tsBuildInfoFile": ".tsbuild/contracts.tsbuildinfo",
+    "rootDir": "server",
+    "types": ["node"]
+  },
+  "references": [{ "path": "./tsconfig.domain.json" }],
+  "include": ["server/contracts/**/*.ts"],
+  "exclude": ["server/**/*.test.ts"]
+}

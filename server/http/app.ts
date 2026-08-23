@@ -82,7 +82,7 @@ function writeSse(response: express.Response, event: string, payload: unknown): 
   response.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
 }
 
-export function createHttpApp(application: Application, options: HttpAppOptions) {
+export function createHttpApp(application: Application, options: HttpAppOptions): express.Express {
   const app = express();
   const log = options.log ?? console;
   app.disable('x-powered-by');
