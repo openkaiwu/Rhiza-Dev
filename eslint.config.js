@@ -27,7 +27,19 @@ export default tseslint.config(
           { name: 'pg', message: 'Domain must not depend on PostgreSQL; depend on a repository port instead.' },
         ],
         patterns: [
-          { group: ['node:fs', 'node:fs/**'], message: 'Domain must not access the filesystem; depend on a host port instead.' },
+          { group: ['node:fs', 'node:fs/**', 'node:child_process', 'node:child_process/**'], message: 'Domain must not access host process capabilities; depend on a port instead.' },
+          { group: ['@librechat/**', 'librechat', 'librechat/**', 'librechat-*', 'openai', 'openai/**', '@anthropic-ai/**', '@google/generative-ai', '@google/generative-ai/**', 'ollama', 'ollama/**', 'cohere-ai', 'cohere-ai/**', 'mistralai', 'mistralai/**', 'ai', 'ai/**', '@ai-sdk/**', 'langchain', 'langchain/**', '@langchain/**'], message: 'Domain must not depend on a concrete model or LibreChat SDK; depend on a domain contract instead.' },
+        ],
+      }],
+    },
+  },
+  {
+    files: ['server/application/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [
+          { group: ['node:fs', 'node:fs/**', 'node:path', 'node:path/**', 'node:os', 'node:os/**', 'node:crypto', 'node:crypto/**', 'node:child_process', 'node:child_process/**'], message: 'Application must depend on host ports, not Node host capabilities.' },
+          { group: ['@librechat/**', 'librechat', 'librechat/**', 'librechat-*', 'openai', 'openai/**', '@anthropic-ai/**', '@google/generative-ai', '@google/generative-ai/**', 'ollama', 'ollama/**', 'cohere-ai', 'cohere-ai/**', 'mistralai', 'mistralai/**', 'ai', 'ai/**', '@ai-sdk/**', 'langchain', 'langchain/**', '@langchain/**'], message: 'Application must depend on runtime ports, not a concrete model or LibreChat SDK.' },
         ],
       }],
     },

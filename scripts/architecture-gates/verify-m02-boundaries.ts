@@ -6,14 +6,21 @@ import ts from 'typescript';
 export type M02Violation = { file: string; message: string };
 
 const sourceExtensions = new Set(['.ts', '.tsx', '.mts', '.cts']);
-const forbiddenExternal = /^(express|react|node:(fs|path|os|crypto)(\/|$)|pg$|pg\/|openai$|@anthropic-ai\/|@google\/generative-ai|ollama$|ai$|@ai-sdk\/|langchain|@langchain\/)/;
+const forbiddenExternal = /^(express|react|node:(fs|path|os|crypto|child_process)(\/|$)|pg$|pg\/|(?:@librechat(?:\/|$)|librechat(?:-|\/|$)|openai(?:\/|$)|@anthropic-ai(?:\/|$)|@google\/generative-ai(?:\/|$)|ollama(?:\/|$)|cohere-ai(?:\/|$)|mistralai(?:\/|$)|ai(?:\/|$)|@ai-sdk\/|langchain(?:\/|$)|@langchain\/))/;
 const forbiddenInfrastructure = /(^|\/)(infrastructure|postgres-store|provider-service|provider-runtime|ai-provider|store)(\/|$)/;
 const directPortName = /(store|repository|unitofwork|uow)/i;
 const layerOrder: Record<string, string[]> = {
   contracts: ['contracts', 'domain'],
   domain: ['contracts', 'domain'],
+  'context-runtime': ['domain', 'context-runtime'],
+  'execution-runtime': ['domain', 'execution-runtime'],
   application: ['contracts', 'domain', 'context-runtime', 'execution-runtime', 'application'],
   http: ['contracts', 'application', 'http'],
+  'runtime-adapters': ['domain', 'execution-runtime', 'runtime-adapters'],
+  infrastructure: ['domain', 'application', 'infrastructure'],
+  // Bootstrap is the composition root. It may wire every M02 partition, but
+  // the gate still scans it so its source files cannot become invisible.
+  'host-node': ['contracts', 'domain', 'context-runtime', 'execution-runtime', 'application', 'http', 'runtime-adapters', 'infrastructure', 'host-node'],
 };
 
 function fail(message: string): never { throw new Error(message); }
@@ -58,7 +65,7 @@ function layerFor(root: string, file: string): string | undefined {
   const parts = relativeFile(root, file).split('/');
   if (parts[0] !== 'server') return undefined;
   if (parts.length === 2 && ['domain.ts', 'provider-domain.ts'].includes(parts[1])) return 'domain';
-  return parts[1];
+  return layerOrder[parts[1]] ? parts[1] : undefined;
 }
 
 function resolveLocalImport(file: string, specifier: string): string | undefined {
@@ -78,18 +85,117 @@ function callbackForRoute(call: ts.CallExpression): ts.FunctionLikeDeclaration |
   return [...call.arguments].reverse().find(argument => ts.isArrowFunction(argument) || ts.isFunctionExpression(argument)) as ts.FunctionLikeDeclaration | undefined;
 }
 
-function bodyCallsApplicationExecute(body: ts.Node): boolean {
+function ancestorMap(root: ts.Node): Map<ts.Node, ts.Node | undefined> {
+  const parents = new Map<ts.Node, ts.Node | undefined>();
+  const visit = (node: ts.Node, parent: ts.Node | undefined): void => {
+    parents.set(node, parent);
+    ts.forEachChild(node, child => visit(child, node));
+  };
+  visit(root, undefined);
+  return parents;
+}
+
+function isContractsApplicationImport(declaration: ts.ImportDeclaration): boolean {
+  return ts.isStringLiteral(declaration.moduleSpecifier)
+    && /(^|\/)contracts\/application$/.test(normalize(declaration.moduleSpecifier.text).replaceAll('\\', '/'));
+}
+
+function applicationFactoryBindings(parsed: ts.SourceFile): Map<ts.SignatureDeclaration, Set<string>> {
+  const bindings = new Map<ts.SignatureDeclaration, Set<string>>();
+  const applicationTypes = new Set<string>();
+  const visitImports = (node: ts.Node): void => {
+    if (ts.isImportDeclaration(node) && isContractsApplicationImport(node) && node.importClause?.namedBindings && ts.isNamedImports(node.importClause.namedBindings)) {
+      for (const element of node.importClause.namedBindings.elements) if (element.propertyName?.text === 'Application' || element.name.text === 'Application') applicationTypes.add(element.name.text);
+    }
+    ts.forEachChild(node, visitImports);
+  };
+  visitImports(parsed);
+  const visitFactories = (node: ts.Node): void => {
+    if (ts.isFunctionLike(node)) {
+      const names = new Set<string>();
+      for (const parameter of node.parameters) {
+        if (!ts.isIdentifier(parameter.name) || !parameter.type || !ts.isTypeReferenceNode(parameter.type) || !ts.isIdentifier(parameter.type.typeName)) continue;
+        if (applicationTypes.has(parameter.type.typeName.text)) names.add(parameter.name.text);
+      }
+      if (names.size) bindings.set(node, names);
+    }
+    ts.forEachChild(node, visitFactories);
+  };
+  visitFactories(parsed);
+  return bindings;
+}
+
+function factoryFor(node: ts.Node, parents: Map<ts.Node, ts.Node | undefined>, bindings: Map<ts.SignatureDeclaration, Set<string>>): Set<string> | undefined {
+  for (let current: ts.Node | undefined = node; current; current = parents.get(current)) {
+    if (ts.isFunctionLike(current) && bindings.has(current)) return bindings.get(current);
+  }
+  return undefined;
+}
+
+function isApplicationExecuteCall(node: ts.Node, applicationBindings: Set<string>): boolean {
+  return ts.isCallExpression(node)
+    && ts.isPropertyAccessExpression(node.expression)
+    && node.expression.name.text === 'execute'
+    && applicationBindings.has(propertyRoot(node.expression.expression) ?? '');
+}
+
+function approvedExecuteHelpers(parsed: ts.SourceFile, applicationBindings: Set<string>): Set<string> {
+  const helpers = new Set<string>();
+  const visit = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))) {
+      let invokesApplication = false;
+      const inspect = (child: ts.Node): void => { if (isApplicationExecuteCall(child, applicationBindings)) invokesApplication = true; ts.forEachChild(child, inspect); };
+      inspect(node.initializer.body);
+      if (invokesApplication) helpers.add(node.name.text);
+    }
+    if (ts.isFunctionDeclaration(node) && node.name && node.body) {
+      let invokesApplication = false;
+      const inspect = (child: ts.Node): void => { if (isApplicationExecuteCall(child, applicationBindings)) invokesApplication = true; ts.forEachChild(child, inspect); };
+      inspect(node.body);
+      if (invokesApplication) helpers.add(node.name.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(parsed);
+  return helpers;
+}
+
+function bodyCallsApplicationExecute(body: ts.Node, applicationBindings: Set<string>, helpers: Set<string>): boolean {
   let found = false;
   const visit = (node: ts.Node): void => {
-    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'execute') {
-      const root = propertyRoot(node.expression.expression);
-      if (root && /application|appService|commandBus/i.test(root)) found = true;
-    }
-    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && /^(execute|executeCommand)$/.test(node.expression.text)) found = true;
+    if (isApplicationExecuteCall(node, applicationBindings)) found = true;
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && helpers.has(node.expression.text)) found = true;
     ts.forEachChild(node, visit);
   };
   visit(body);
   return found;
+}
+
+function directPortAliases(parsed: ts.SourceFile): { ports: Set<string>; methods: Set<string> } {
+  const ports = new Set<string>();
+  const methods = new Set<string>();
+  const declarations: ts.VariableDeclaration[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isParameter(node) && ts.isIdentifier(node.name) && directPortName.test(node.name.text)) ports.add(node.name.text);
+    if (ts.isVariableDeclaration(node)) declarations.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(parsed);
+  for (const declaration of declarations) if (ts.isIdentifier(declaration.name) && directPortName.test(declaration.name.text)) ports.add(declaration.name.text);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const declaration of declarations) {
+      if (!declaration.initializer) continue;
+      const root = propertyRoot(declaration.initializer as ts.Expression);
+      if (!root || !ports.has(root)) continue;
+      if (ts.isIdentifier(declaration.name) && !ports.has(declaration.name.text)) { ports.add(declaration.name.text); changed = true; }
+      if (ts.isObjectBindingPattern(declaration.name)) {
+        for (const element of declaration.name.elements) if (ts.isIdentifier(element.name) && !methods.has(element.name.text)) { methods.add(element.name.text); changed = true; }
+      }
+    }
+  }
+  return { ports, methods };
 }
 
 function legacyRouteLogic(file: string): boolean {
@@ -107,9 +213,10 @@ export async function collectM02BoundaryViolations(root = resolve('.'), strict =
   const violations: M02Violation[] = [];
   const report = (file: string, message: string) => violations.push({ file: relativeFile(root, file), message });
   const server = resolve(root, 'server');
-  const layers = ['contracts', 'domain', 'application', 'http'];
+  const layers = ['contracts', 'domain', 'context-runtime', 'execution-runtime', 'application', 'http', 'runtime-adapters', 'infrastructure', 'host-node'];
   const layerFiles = new Map<string, string[]>();
   for (const layer of layers) layerFiles.set(layer, await filesUnder(resolve(server, layer)));
+  layerFiles.set('domain', [...(layerFiles.get('domain') ?? []), ...['domain.ts', 'provider-domain.ts'].map(file => resolve(server, file)).filter(existsSync)]);
 
   for (const layer of ['domain', 'application'] as const) {
     for (const file of layerFiles.get(layer) ?? []) {
@@ -145,12 +252,18 @@ export async function collectM02BoundaryViolations(root = resolve('.'), strict =
 
   for (const file of layerFiles.get('http') ?? []) {
     const parsed = sourceFile(file);
+    const parents = ancestorMap(parsed);
+    const factories = applicationFactoryBindings(parsed);
+    const ports = directPortAliases(parsed);
     const visit = (node: ts.Node): void => {
       if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) && (forbiddenInfrastructure.test(node.moduleSpecifier.text) || node.moduleSpecifier.text === 'pg')) report(file, `http imports persistence/adapter ${node.moduleSpecifier.text}`);
-      if (ts.isPropertyAccessExpression(node) && directPortName.test(propertyRoot(node.expression) ?? '')) report(file, `http directly accesses ${propertyRoot(node.expression)}.${node.name.text}`);
+      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && ports.ports.has(propertyRoot(node.expression.expression) ?? '')) report(file, `http directly calls ${propertyRoot(node.expression.expression)}.${node.expression.name.text}`);
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && ports.methods.has(node.expression.text)) report(file, `http directly calls destructured persistence method ${node.expression.text}`);
       if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && ['post', 'put', 'patch', 'delete'].includes(node.expression.name.text)) {
         const callback = callbackForRoute(node);
-        if (!callback?.body || !bodyCallsApplicationExecute(callback.body)) report(file, `${node.expression.name.text.toUpperCase()} route is not routed through Application.execute`);
+        const applicationBindings = factoryFor(node, parents, factories);
+        const helpers = applicationBindings ? approvedExecuteHelpers(parsed, applicationBindings) : new Set<string>();
+        if (!callback?.body || !applicationBindings || !bodyCallsApplicationExecute(callback.body, applicationBindings, helpers)) report(file, `${node.expression.name.text.toUpperCase()} route is not routed through an injected Application.execute`);
       }
       ts.forEachChild(node, visit);
     };
