@@ -32,6 +32,7 @@ describe('M02 architecture boundary gate', () => {
     ['forbidden application provider import', 'server/application/bad.ts', "import OpenAI from 'openai';"],
     ['forbidden application child process import', 'server/application/bad.ts', "import { execFile } from 'node:child_process'; void execFile;"],
     ['unlisted domain host import', 'server/domain/bad.ts', "import { Worker } from 'node:worker_threads'; void Worker;"],
+    ['CommonJS domain host import', 'server/domain/bad.cts', "const { Worker } = require('node:worker_threads'); void Worker;"],
     ['forbidden application LibreChat import', 'server/application/bad.ts', "import { createClient } from '@librechat/api'; void createClient;"],
     ['forbidden application model SDK import', 'server/application/bad.ts', "import { GoogleGenerativeAI } from '@google/generative-ai'; void GoogleGenerativeAI;"],
     ['unlisted application model SDK import', 'server/application/bad.ts', "import { OpenAIClient } from '@azure/openai'; void OpenAIClient;"],
@@ -74,5 +75,14 @@ describe('M02 architecture boundary gate', () => {
     });
     const violations = await collectM02BoundaryViolations(root, true);
     expect(violations).toContainEqual(expect.objectContaining({ file: 'server/rogue-route.ts', message: expect.stringContaining('outside server/http') }));
+  });
+
+  it('blocks a CommonJS Express route hidden outside the HTTP partition', async () => {
+    const root = await fixture({
+      'server/rogue-route.cts': "const express = require('express'); const repository = { write() {} }; const router = express.Router(); router.post('/x', () => repository.write()); module.exports = router;",
+      'scripts/boundary-gates/boundary-exceptions.json': '{"exceptions":[]}',
+    });
+    const violations = await collectM02BoundaryViolations(root, true);
+    expect(violations).toContainEqual(expect.objectContaining({ file: 'server/rogue-route.cts', message: expect.stringContaining('outside server/http') }));
   });
 });

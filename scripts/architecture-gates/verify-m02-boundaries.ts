@@ -50,6 +50,9 @@ function importsIn(file: string): { specifier: string; node: ts.Node }[] {
     if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword && ts.isStringLiteral(node.arguments[0])) {
       found.push({ specifier: node.arguments[0].text, node });
     }
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'require' && ts.isStringLiteral(node.arguments[0])) {
+      found.push({ specifier: node.arguments[0].text, node });
+    }
     ts.forEachChild(node, visit);
   };
   visit(sourceFile(file));
