@@ -252,7 +252,7 @@ export function extractApiRoutes(appSource: string): string[] {
 async function verifySnapshots(registryDigest: string): Promise<Record<string, string>> {
   const snapshotDirectory = join(gates, 'G0/snapshots');
   await mkdir(snapshotDirectory, { recursive: true });
-  const appSource = await readFile(join(root, 'server/app.ts'), 'utf8');
+  const appSource = await readFile(join(root, 'server/http/app.ts'), 'utf8');
   const runtimeSource = await readFile(join(root, 'server/ai-runtime.ts'), 'utf8');
   const api = {
     version: 'legacy-api-snapshot-1.0.0',

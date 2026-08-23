@@ -25,7 +25,7 @@ describe('RepositoryWorkspaceUnitOfWork', () => {
     await expect(unit.execute({
       policy: { kind: 'normal' },
       apply: workspace => ({ next: { ...workspace, projectTitle: 'Changed' }, value: 'ok' }),
-    })).resolves.toBe('ok');
+    })).resolves.toEqual({ workspace: expect.objectContaining({ projectTitle: 'Changed' }), value: 'ok' });
     expect(repository.data.projectTitle).toBe('Changed');
     expect(repository.options).toBeUndefined();
   });

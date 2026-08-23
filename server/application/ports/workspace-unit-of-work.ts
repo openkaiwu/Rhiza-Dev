@@ -10,11 +10,17 @@ export interface WorkspaceMutation<T> {
   apply(workspace: WorkspaceData): { next: WorkspaceData; value: T } | Promise<{ next: WorkspaceData; value: T }>;
 }
 
+export interface WorkspaceExecutionResult<T> {
+  /** The committed aggregate returned by persistence, including store metadata. */
+  workspace: WorkspaceData;
+  value: T;
+}
+
 /**
  * Application-facing transaction boundary. Implementations own persistence and
  * enforce history rules; commands supply the next aggregate and explicit policy.
  */
 export interface WorkspaceUnitOfWork {
   read<T>(reader: (workspace: Readonly<WorkspaceData>) => T | Promise<T>): Promise<T>;
-  execute<T>(mutation: WorkspaceMutation<T>): Promise<T>;
+  execute<T>(mutation: WorkspaceMutation<T>): Promise<WorkspaceExecutionResult<T>>;
 }

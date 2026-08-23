@@ -1,4 +1,4 @@
-import type { WorkspaceMutation, WorkspaceMutationPolicy, WorkspaceUnitOfWork } from '../application/ports/workspace-unit-of-work';
+import type { WorkspaceExecutionResult, WorkspaceMutation, WorkspaceMutationPolicy, WorkspaceUnitOfWork } from '../application/ports/workspace-unit-of-work';
 import type { WorkspaceRepository, WorkspaceUpdateOptions } from '../store';
 
 function updateOptions(policy: WorkspaceMutationPolicy | undefined): WorkspaceUpdateOptions | undefined {
@@ -14,13 +14,13 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
     return reader(await this.repository.read());
   }
 
-  async execute<T>(mutation: WorkspaceMutation<T>): Promise<T> {
+  async execute<T>(mutation: WorkspaceMutation<T>): Promise<WorkspaceExecutionResult<T>> {
     let value!: T;
-    await this.repository.update(async current => {
+    const workspace = await this.repository.update(async current => {
       const result = await mutation.apply(current);
       value = result.value;
       return result.next;
     }, updateOptions(mutation.policy));
-    return value;
+    return { workspace, value };
   }
 }

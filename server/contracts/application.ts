@@ -20,7 +20,7 @@ export interface QueryEnvelope<K extends QueryType = QueryType> extends RequestI
 export interface CommandExecutionOptions {
   signal?: AbortSignal;
   onReady?: () => void | Promise<void>;
-  onRuntimeEvent?: (event: { type: string; payload: unknown }) => void | Promise<void>;
+  onRuntimeEvent?: (event: { type: string }) => void | Promise<void>;
 }
 
 export type CommandResult<K extends CommandType> = CommandMap[K]['result'];
@@ -38,15 +38,17 @@ export interface CreateConversationRunResult {
   manifest: WorkspaceData['manifests'][number];
 }
 
+export type LegacyAttachmentView = Omit<StoredAttachment, 'extractedText'>;
+
 type Empty = Record<string, never>;
 
 /** Versioned operation registry. Additive changes receive a new command key. */
 export interface CommandMap {
   SaveProvider: { payload: { providerId?: string; body: unknown }; result: unknown };
   DiscoverProviderModels: { payload: { providerId: string }; result: unknown };
-  UpdateModelPreference: { payload: { modelId: string; enabled?: boolean; displayName?: string }; result: unknown };
+  UpdateModelPreference: { payload: { modelId: string; favorite?: boolean; pinned?: boolean }; result: unknown };
   SelectModel: { payload: { modelId: string }; result: unknown };
-  RegisterLegacyAttachment: { payload: { name: string; mimeType: string; bytes: Uint8Array }; result: { attachment: StoredAttachment } };
+  RegisterLegacyAttachment: { payload: { name: string; mimeType: string; bytes: Uint8Array }; result: { attachment: LegacyAttachmentView } };
   CreateConversationRun: {
     payload: { prompt: string; operation: ChatOperation; sourceMessageId?: string; attachmentIds: string[]; generation: GenerationOptions };
     result: CreateConversationRunResult;
@@ -64,8 +66,8 @@ export interface CommandMap {
   PurgeObject: { payload: { nodeId: string; confirmation: string; reason: string }; result: { workspace: WorkspaceData; purgeReceipt: AuditEvent } };
   CreateRelation: { payload: { source: string; target: string; relation: 'derived-from' | 'references' | 'related-to' | 'merged-into'; label?: string }; result: WorkspaceData };
   RemoveRelation: { payload: { edgeId: string }; result: WorkspaceData };
-  UpdateGraphLayout: { payload: { positions: Array<{ nodeId: string; x: number; y: number }> } | { nodeId: string; x: number; y: number }; result: WorkspaceData };
-  CreateMergeRevision: { payload: { sourceNodeId: string; targetNodeId: string; summary?: string }; result: WorkspaceData };
+  UpdateGraphLayout: { payload: { positions: Array<{ nodeId: string; x: number; y: number }> }; result: WorkspaceData };
+  CreateMergeRevision: { payload: { sourceNodeId: string; targetNodeId?: string; summary?: string }; result: WorkspaceData };
   RegisterResource: { payload: { name: string; mimeType: string; bytes: Uint8Array }; result: WorkspaceData };
   CreateResourceVersion: { payload: { attachmentId: string; bytes: Uint8Array }; result: WorkspaceData };
   UpdateProviderProfile: { payload: { name: string; model: string; baseUrl: string; apiKey?: string }; result: unknown };
