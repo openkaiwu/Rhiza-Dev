@@ -68,10 +68,11 @@ manifest before it is committed separately. `--write` never writes evidence
 after a failed or skipped command. It also requires the worktree inputs to
 match the implementation commit.
 
-Ordinary reads validate checksums from the recorded Git object so older
+Ordinary reads, including `pnpm verify:m02:v4` in CI, validate checksums from the recorded Git object so older
 milestones remain verifiable after later milestones legitimately change the
-same files. Pass `--strict-current` while closing the current milestone to also
-require every checksummed worktree file to match. Both modes reject
+same files. Run `pnpm verify:m02:closure` once while closing M02 to also require
+every checksummed worktree file to match. Later milestone CI should verify M02
+historically and use strict-current only for the milestone being closed. Both modes reject
 missing/non-ancestor commits, recorded-object checksum drift, unsafe paths, and
 expired exceptions. M02 additionally runs
 `pnpm verify:m02:boundaries --strict`: Domain/Application infrastructure imports,

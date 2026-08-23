@@ -90,6 +90,17 @@ describe('milestone evidence validation', () => {
     expect(() => validateEvidence(evidence, undefined, 'M02')).toThrow('M02 fixture set drift');
   });
 
+  it('rejects an M02 manifest that invents an exception', () => {
+    const evidence = base();
+    evidence.milestone = 'M02';
+    evidence.commands = M02_COMMANDS.map(command => ({ command, result: 'pass' }));
+    evidence.checksums = Object.fromEntries(M02_PATHS.map(path => [path, { algorithm: 'sha256' as const, current: '0'.repeat(64), recorded_commit: '0'.repeat(64) }]));
+    evidence.fixtures = M02_FIXTURES;
+    evidence.failure_classification = { classification: 'known_exception', rationale: 'invented waiver' };
+    evidence.known_exceptions = [{ owner: 'unknown', expiry: '2099-01-01', adr_or_issue: 'NONE', severity: 'observational' }];
+    expect(() => validateEvidence(evidence, undefined, 'M02')).toThrow('M02 failure classification drift');
+  });
+
   const valid = (): MilestoneEvidence => {
     const commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
     const checksum = (path: string) => createHash('sha256').update(execFileSync('git', ['show', `${commit}:${path}`])).digest('hex');

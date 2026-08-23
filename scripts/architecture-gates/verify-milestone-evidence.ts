@@ -250,6 +250,8 @@ export function validateEvidence(
     if (evidence.commands.map(command => command.command).join('\n') !== config.commands.join('\n')) fail(`${expectedMilestone} command set drift`);
     if (Object.keys(evidence.checksums).sort().join('\n') !== [...config.paths].sort().join('\n')) fail(`${expectedMilestone} checksum path set drift`);
     if (JSON.stringify(evidence.fixtures) !== JSON.stringify(config.fixtures)) fail(`${expectedMilestone} fixture set drift`);
+    if (JSON.stringify(evidence.failure_classification) !== JSON.stringify(config.failureClassification)) fail(`${expectedMilestone} failure classification drift`);
+    if (JSON.stringify(evidence.known_exceptions) !== JSON.stringify(config.knownExceptions)) fail(`${expectedMilestone} exception policy drift`);
   }
   if (evidence.result !== 'pass') fail('evidence result is not pass');
   if (evidence.commands.some(command => command.result !== 'pass')) fail('evidence contains a failing or skipped command');
