@@ -3,8 +3,8 @@ import type { ContextItem, GenerationOptions, StoredAttachment, StoredMessage, T
 import { buildLibreChatAgentMessages } from './librechat-shared';
 
 export class ProviderError extends Error {
-  constructor(message: string, readonly status = 502, readonly code = 'PROVIDER_ERROR') {
-    super(message);
+  constructor(message: string, readonly status = 502, readonly code = 'PROVIDER_ERROR', cause?: unknown) {
+    super(message, { cause });
   }
 }
 
@@ -125,10 +125,7 @@ export class OpenAiCompatibleProvider {
       let payload: unknown;
       try { payload = raw ? JSON.parse(raw) : {}; } catch { payload = {}; }
       if (!response.ok) {
-        const providerMessage = payload && typeof payload === 'object' && 'error' in payload
-          ? JSON.stringify((payload as { error: unknown }).error)
-          : raw.slice(0, 300);
-        throw new ProviderError(`第三方 AI 请求失败（${response.status}）：${providerMessage || '无响应详情'}`, 502, 'PROVIDER_REQUEST_FAILED');
+        throw new ProviderError('第三方 AI 请求失败，请稍后重试。', 502, 'PROVIDER_REQUEST_FAILED', raw);
       }
 
       const text = extractText(payload);
@@ -140,7 +137,7 @@ export class OpenAiCompatibleProvider {
       if (error instanceof Error && error.name === 'AbortError') {
         throw new ProviderError('第三方 AI 请求超时，请检查网络或调高 AI_TIMEOUT_MS。', 504, 'PROVIDER_TIMEOUT');
       }
-      throw new ProviderError(`无法连接第三方 AI：${error instanceof Error ? error.message : '未知错误'}`, 502, 'PROVIDER_UNREACHABLE');
+      throw new ProviderError('无法连接第三方 AI，请检查网络或供应商配置。', 502, 'PROVIDER_UNREACHABLE', error);
     } finally {
       clearTimeout(timeout);
     }
@@ -168,12 +165,7 @@ export class OpenAiCompatibleProvider {
 
       if (!response.ok) {
         const raw = await response.text();
-        let payload: unknown;
-        try { payload = raw ? JSON.parse(raw) : {}; } catch { payload = {}; }
-        const providerMessage = payload && typeof payload === 'object' && 'error' in payload
-          ? JSON.stringify((payload as { error: unknown }).error)
-          : raw.slice(0, 300);
-        throw new ProviderError(`第三方 AI 请求失败（${response.status}）：${providerMessage || '无响应详情'}`, 502, 'PROVIDER_REQUEST_FAILED');
+        throw new ProviderError('第三方 AI 请求失败，请稍后重试。', 502, 'PROVIDER_REQUEST_FAILED', raw);
       }
 
       const contentType = response.headers.get('content-type') || '';
@@ -203,7 +195,7 @@ export class OpenAiCompatibleProvider {
       if (error instanceof ProviderError) throw error;
       if (error instanceof Error && error.name === 'AbortError' && request.signal?.aborted) throw new ProviderError('生成已停止。', 499, 'GENERATION_STOPPED');
       if (error instanceof Error && error.name === 'AbortError') throw new ProviderError('第三方 AI 请求超时，请检查网络或调高 AI_TIMEOUT_MS。', 504, 'PROVIDER_TIMEOUT');
-      throw new ProviderError(`无法连接第三方 AI：${error instanceof Error ? error.message : '未知错误'}`, 502, 'PROVIDER_UNREACHABLE');
+      throw new ProviderError('无法连接第三方 AI，请检查网络或供应商配置。', 502, 'PROVIDER_UNREACHABLE', error);
     } finally {
       clearTimeout(timeout);
     }

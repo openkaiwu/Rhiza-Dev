@@ -61,7 +61,7 @@ export class ProviderRuntime implements AIRuntime {
       usage.totalTokens ||= usage.promptTokens + usage.completionTokens;
       yield { type: 'RUN_END' as const, requestId: request.requestId, text, model: completion.model, provider: completion.provider, reasoning: reasoning || undefined, toolCalls: tools.size ? [...tools.values()] : undefined, usage };
     } catch (error) {
-      const providerError = error instanceof ProviderError ? error : new ProviderError(error instanceof Error ? error.message : 'AI Runtime 执行失败。');
+      const providerError = error instanceof ProviderError ? error : new ProviderError('AI Runtime 执行失败。', 502, 'RUNTIME_ERROR', error);
       yield { type: 'RUN_ERROR' as const, requestId: request.requestId, code: providerError.code, message: providerError.message, status: providerError.status };
     }
   }

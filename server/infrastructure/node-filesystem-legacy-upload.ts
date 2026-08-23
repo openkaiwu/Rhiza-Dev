@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { extractPdfText } from '../context-planner';
 import type { LegacyTextExtractionPort, LegacyUploadPort } from '../application/ports/legacy-upload';
@@ -10,6 +10,10 @@ export class NodeFilesystemLegacyUpload implements LegacyTextExtractionPort, Leg
   async put(key: string, bytes: Uint8Array): Promise<void> {
     await mkdir(this.uploadDirectory, { recursive: true });
     await writeFile(resolve(this.uploadDirectory, key), bytes);
+  }
+
+  async delete(key: string): Promise<void> {
+    await rm(resolve(this.uploadDirectory, key), { force: true });
   }
 
   async extractText(mimeType: string, bytes: Uint8Array): Promise<string> {

@@ -1,6 +1,8 @@
 /** Byte-oriented attachment storage, intentionally independent of Node buffers/filesystems. */
 export interface LegacyUploadPort {
   put(key: string, bytes: Uint8Array): Promise<void>;
+  /** Best-effort compensation when the metadata transaction cannot commit. */
+  delete?(key: string): Promise<void>;
 }
 
 /** Text extraction remains a host concern because PDF decoding needs platform libraries. */

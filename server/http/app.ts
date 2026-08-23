@@ -336,7 +336,10 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
         },
         onRuntimeEvent: event => {
           terminalRuntimeErrorObserved ||= event.type === 'RUN_ERROR';
-          writeSse(response, 'runtime', event);
+          const runtimeError = event as { type: string; status?: number };
+          writeSse(response, 'runtime', event.type === 'RUN_ERROR' ? {
+            ...event, category: 'infrastructure', retryable: (runtimeError.status ?? 500) >= 500, correlationId: correlationId(response),
+          } : event);
         },
       });
       writeSse(response, 'commit', { type: 'COMMIT', ...result });

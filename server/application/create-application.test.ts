@@ -3,7 +3,7 @@ import { createLegacyCommandEnvelope, createLegacyQueryEnvelope } from '../contr
 import { createSeedWorkspace } from '../seed';
 import { createRhizaApplication } from './create-application';
 
-function fixture() {
+function fixture(options: { failMutation?: boolean; uploads?: { put(key: string, bytes: Uint8Array): Promise<void>; delete?(key: string): Promise<void> } } = {}) {
   let workspace = createSeedWorkspace();
   let sequence = 0;
   const commits: string[] = [];
@@ -11,7 +11,7 @@ function fixture() {
   const application = createRhizaApplication({
     unitOfWork: {
       read: async reader => reader(workspace),
-      execute: async mutation => { commits.push(mutation.policy.kind); const result = await mutation.apply(workspace); workspace = result.next; return { workspace, value: result.value }; },
+      execute: async mutation => { commits.push(mutation.policy.kind); if (options.failMutation) throw new Error('workspace write failed'); const result = await mutation.apply(workspace); workspace = result.next; return { workspace, value: result.value }; },
     },
     runtime: {
       kind: 'provider-adapter',
@@ -23,7 +23,7 @@ function fixture() {
       activeStatus: async () => ({ configured: true, name: 'test', model: 'gpt-test', baseUrl: '' }),
       saveProvider: async () => providerSnapshot, discoverModels: async () => providerSnapshot, updateModel: async () => providerSnapshot, selectModel: async () => providerSnapshot,
     },
-    uploads: { put: async () => undefined },
+    uploads: options.uploads ?? { put: async () => undefined },
     textExtraction: { extractText: async (_mime, bytes) => new TextDecoder().decode(bytes) },
     planner: {
       plan: current => ({ items: current.contextItems.filter(item => item.status === 'active'), diagnostics: { candidateCount: 1, selectedCount: 1, elapsedMs: 0, fallback: false, budget: 32_000, usedTokens: 1 } }),
@@ -56,5 +56,26 @@ describe('Rhiza Application', () => {
   it('converts legacy validation failures at the application boundary', async () => {
     const { application } = fixture();
     await expect(application.execute(createLegacyCommandEnvelope('command-4', 'ChangeContextMode', { mode: 'invalid' as never }))).rejects.toMatchObject({ details: { code: 'INVALID_MODE', status: 400, category: 'validation' } });
+  });
+
+  it('rounds graph positions, reactivates a stale branch source, and trims branch drafts', async () => {
+    const { application, workspace } = fixture();
+    await application.execute(createLegacyCommandEnvelope('command-5', 'UpdateGraphLayout', { positions: [{ nodeId: 'information-architecture', x: 120.6, y: 80.4 }] }));
+    await application.execute(createLegacyCommandEnvelope('command-6', 'ChangeNodeStatus', { nodeId: 'information-architecture', status: 'stale' }));
+    await application.execute(createLegacyCommandEnvelope('command-7', 'CreateBranch', { title: 'Trimmed branch', anchorText: '', messages: [{ kind: 'user', text: '  preserved draft  ' }] }));
+    expect(workspace().discussionNodes.find(node => node.id === 'information-architecture')).toMatchObject({ status: 'active', x: 121, y: 80 });
+    expect(workspace().messages.at(-1)).toMatchObject({ text: 'preserved draft' });
+  });
+
+  it('removes an uploaded object when the workspace commit fails', async () => {
+    const deleted: string[] = [];
+    const { application } = fixture({
+      failMutation: true,
+      uploads: { put: async () => undefined, delete: async key => { deleted.push(key); } },
+    });
+    await expect(application.execute(createLegacyCommandEnvelope('command-8', 'RegisterLegacyAttachment', {
+      name: 'brief.txt', mimeType: 'text/plain', bytes: new TextEncoder().encode('attachment'),
+    }))).rejects.toMatchObject({ details: { code: 'INTERNAL_ERROR' } });
+    expect(deleted).toEqual(['id-1']);
   });
 });

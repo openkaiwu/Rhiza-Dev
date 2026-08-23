@@ -32,6 +32,26 @@ async function testApp(runtime?: AIRuntime) {
 }
 
 describe('Rhiza API', () => {
+  it('never serializes upstream runtime secrets in JSON or SSE errors', async () => {
+    const upstreamSecret = 'upstream-secret-token-123';
+    const failedRuntime: AIRuntime = {
+      kind: 'provider-adapter',
+      listModels: async () => [{ id: 'model-1', provider: 'Fixture', model: 'fixture', displayName: 'Fixture', active: true }],
+      async *generate(input) {
+        yield { type: 'RUN_START' as const, requestId: input.requestId, manifestId: input.manifestId, model: 'fixture', provider: 'Fixture' };
+        yield { type: 'RUN_ERROR' as const, requestId: input.requestId, code: 'PROVIDER_REQUEST_FAILED', message: `provider rejected ${upstreamSecret}`, status: 502 };
+      },
+    };
+    const { app } = await testApp(failedRuntime);
+    const json = await request(app).post('/api/chat').send({ message: 'trigger error' }).expect(502);
+    expect(JSON.stringify(json.body)).not.toContain(upstreamSecret);
+    expect(json.body.error).toMatchObject({ code: 'PROVIDER_REQUEST_FAILED', category: 'infrastructure', retryable: true, correlationId: expect.any(String) });
+    const stream = await request(app).post('/api/chat/stream').send({ message: 'trigger error' }).expect(200);
+    expect(stream.text).not.toContain(upstreamSecret);
+    expect(stream.text).toContain('AI Runtime 执行失败，请稍后重试。');
+    expect(stream.text).toContain('correlationId');
+  });
+
   it('persists context status updates', async () => {
     const { app, filePath } = await testApp();
     await request(app).patch('/api/workspace/context/c3').send({ status: 'active' }).expect(200);

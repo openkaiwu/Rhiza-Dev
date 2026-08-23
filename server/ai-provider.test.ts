@@ -34,6 +34,14 @@ describe('OpenAiCompatibleProvider', () => {
       .rejects.toMatchObject({ code: 'PROVIDER_NOT_CONFIGURED', status: 503 } satisfies Partial<ProviderError>);
   });
 
+  it('does not retain an upstream error response in the provider error message', async () => {
+    const upstreamSecret = 'upstream-secret-token-123';
+    const provider = new OpenAiCompatibleProvider(config, vi.fn(async () => new Response(JSON.stringify({ error: { message: upstreamSecret } }), { status: 401 })) as unknown as typeof fetch);
+    await expect(provider.complete({ prompt: 'test', mode: 'Strict', history: [], contextItems: [] }))
+      .rejects.toMatchObject({ code: 'PROVIDER_REQUEST_FAILED', message: '第三方 AI 请求失败，请稍后重试。' } satisfies Partial<ProviderError>);
+    await provider.complete({ prompt: 'test', mode: 'Strict', history: [], contextItems: [] }).catch(error => expect(String(error.message)).not.toContain(upstreamSecret));
+  });
+
   it('normalizes OpenAI-compatible SSE chunks into text deltas', async () => {
     const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       expect(JSON.parse(String(init?.body)).stream).toBe(true);
