@@ -177,21 +177,21 @@ describe('Rhiza MVP', () => {
     await screen.findByText(/test-model/);
     fireEvent.change(screen.getByLabelText('输入消息'), { target: { value: '请重试' } });
     fireEvent.click(screen.getByRole('button', { name: '发送' }));
-    expect(await screen.findByText('供应商暂时不可用')).toBeInTheDocument();
+    expect(await screen.findByText('无法完成本轮对话。请重试。')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
     await waitFor(() => expect(mocks.streamMessage).toHaveBeenLastCalledWith('请重试', expect.any(Function), expect.objectContaining({ operation: 'retry' })));
   });
 
   it('stops an in-flight generation through AbortSignal', async () => {
     mocks.streamMessage.mockImplementationOnce((_message: string, _onEvent: (event: unknown) => void, options: { signal: AbortSignal }) => new Promise((_resolve, reject) => {
-      options.signal.addEventListener('abort', () => reject(new Error('生成已停止，本轮未写入历史。')), { once: true });
+      options.signal.addEventListener('abort', () => reject(Object.assign(new Error('internal cancellation trace'), { code: 'GENERATION_STOPPED' })), { once: true });
     }));
     render(<App />);
     await screen.findByText(/test-model/);
     fireEvent.change(screen.getByLabelText('输入消息'), { target: { value: '长回答' } });
     fireEvent.click(screen.getByRole('button', { name: '发送' }));
     fireEvent.click(await screen.findByRole('button', { name: '停止生成' }));
-    expect(await screen.findByText('生成已停止，本轮未写入历史。')).toBeInTheDocument();
+    expect(await screen.findByText('生成已停止，本轮未写入历史。可以修改输入后重新发送。')).toBeInTheDocument();
     expect(screen.queryByText('长回答', { selector: 'p' })).not.toBeInTheDocument();
   });
 

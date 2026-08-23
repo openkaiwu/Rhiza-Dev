@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUp, AtSign, BookmarkPlus, Brain, Check, ChevronRight, Copy, Edit3, EyeOff, FilePlus2, FileText, GitBranch, GitMerge, Image, Link2, Paperclip, RefreshCw, RotateCcw, Send, SlidersHorizontal, Sparkles, Square, TextSelect, Trash2, Wrench, X } from 'lucide-react';
 import type { ChatRequestOptions } from '../api';
+import { presentErrorText } from '../error-presentation';
 import type { Attachment, ContextManifest, ContextMode, DiscussionEdge, DiscussionNode, GenerationOptions, Message, ProviderCatalog, ProviderStatus, TemporaryBranch } from '../types';
 import { MarkdownContent } from './MarkdownContent';
 import { ModelSelector } from './ModelSelector';
@@ -116,7 +117,7 @@ export function ChatView({ activeNode, nodes, edges, mode, activeCount, messages
       await onSend(text, requestOptions);
       setDraft(''); setSelectedAttachmentIds([]); setLastAttempt(null);
     } catch (error) {
-      setChatError(error instanceof Error ? error.message : 'AI 请求失败');
+      setChatError(presentErrorText(error, { message: '无法完成本轮对话。', recovery: '请重试。' }));
       if (options.operation === 'send' || options.operation === 'retry') setDraft(text);
     } finally {
       abortRef.current = null; setThinking(false);
@@ -143,7 +144,7 @@ export function ChatView({ activeNode, nodes, edges, mode, activeCount, messages
         const attachment = await onUpload(file);
         setSelectedAttachmentIds(current => [...new Set([...current, attachment.id])]);
       }
-    } catch (error) { setChatError(error instanceof Error ? error.message : '附件上传失败'); }
+    } catch (error) { setChatError(presentErrorText(error, { message: '无法上传附件。', recovery: '请检查文件后重试。' })); }
     finally { setUploading(false); if (fileInputRef.current) fileInputRef.current.value = ''; }
   };
 
@@ -170,7 +171,7 @@ export function ChatView({ activeNode, nodes, edges, mode, activeCount, messages
     try {
       const result = await onTempSend({ sourceNodeId: temporary.sourceNodeId, anchorText: temporary.anchorText, message: text, history: temporary.messages.map(({ kind, text: messageText }) => ({ kind, text: messageText })) });
       setTemporary(current => current ? { ...current, messages: [...current.messages, result.userMessage, result.assistantMessage] } : current);
-    } catch (error) { setTempDraft(text); setTempError(error instanceof Error ? error.message : '临时对话请求失败'); } finally { setTempThinking(false); }
+    } catch (error) { setTempDraft(text); setTempError(presentErrorText(error, { message: '无法完成临时对话。', recovery: '请重试。' })); } finally { setTempThinking(false); }
   };
 
   const preserveTemporary = async () => {
@@ -179,7 +180,7 @@ export function ChatView({ activeNode, nodes, edges, mode, activeCount, messages
     try {
       await onCreateBranch({ title: temporary.title.trim(), anchorText: temporary.anchorText, ...(temporary.anchorStart !== undefined && temporary.anchorEnd !== undefined ? { anchorStart: temporary.anchorStart, anchorEnd: temporary.anchorEnd } : {}), sourceMessageId: temporary.sourceMessageId, messages: temporary.messages.map(({ kind, text, createdAt }) => ({ kind, text, createdAt })) });
       setTemporary(null);
-    } catch (error) { setTempError(error instanceof Error ? error.message : '支线保留失败'); } finally { setPreserving(false); }
+    } catch (error) { setTempError(presentErrorText(error, { message: '无法保留支线。', recovery: '请稍后重试。' })); } finally { setPreserving(false); }
   };
 
   const createFormalBranch = async (message: Message) => {
@@ -187,7 +188,7 @@ export function ChatView({ activeNode, nodes, edges, mode, activeCount, messages
     const compact = message.text.replace(/\s+/g, ' ').trim();
     try {
       await onCreateBranch({ title: `支线：${compact.slice(0, 22)}`, anchorText: message.text, anchorStart: 0, anchorEnd: message.text.length, sourceMessageId: message.id });
-    } catch (error) { setChatError(error instanceof Error ? error.message : '正式支线创建失败'); }
+    } catch (error) { setChatError(presentErrorText(error, { message: '无法创建正式支线。', recovery: '请稍后重试。' })); }
   };
 
   const renderAttachments = (ids: string[] = [], removable = false) => ids.length ? <div className="attachment-list">{ids.map(id => {

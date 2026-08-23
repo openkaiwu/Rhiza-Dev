@@ -1,7 +1,31 @@
 import type { Attachment, ChatOperation, ContextManifest, ContextMode, ContextStatus, GenerationOptions, Message, ProviderCatalog, ProviderPreset, ProviderPresetInfo, ProviderStatus, TokenUsage, ToolCall, WorkspaceSnapshot } from './types';
 
+export type ApiErrorCategory = 'validation' | 'conflict' | 'permission' | 'not_found' | 'infrastructure';
+
+export interface ApiErrorDetails {
+  category?: ApiErrorCategory;
+  retryable?: boolean;
+  correlationId?: string;
+}
+
 export class ApiError extends Error {
-  constructor(message: string, readonly code = 'API_ERROR', readonly status = 500) { super(message); }
+  constructor(message: string, readonly code = 'API_ERROR', readonly status = 500, readonly details: ApiErrorDetails = {}) {
+    super(message);
+  }
+
+  get category() { return this.details.category; }
+  get retryable() { return this.details.retryable; }
+  get correlationId() { return this.details.correlationId; }
+}
+
+type ErrorPayload = { code?: string; message?: string; category?: ApiErrorCategory; retryable?: boolean; correlationId?: string };
+
+function apiError(payload: ErrorPayload | undefined, status: number) {
+  return new ApiError(payload?.message || `请求失败（${status}）`, payload?.code, status, {
+    category: payload?.category,
+    retryable: payload?.retryable,
+    correlationId: payload?.correlationId,
+  });
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -9,8 +33,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: { 'Content-Type': 'application/json', ...init?.headers },
   });
-  const payload = await response.json().catch(() => ({})) as { error?: { code?: string; message?: string } } & T;
-  if (!response.ok) throw new ApiError(payload.error?.message || `请求失败（${response.status}）`, payload.error?.code, response.status);
+  const payload = await response.json().catch(() => ({})) as { error?: ErrorPayload } & T;
+  if (!response.ok) throw apiError(payload.error, response.status);
   return payload;
 }
 
@@ -21,7 +45,7 @@ type RuntimeStreamEvent =
   | { type: 'TOOL_CALL_DELTA'; requestId: string; toolCall: ToolCall }
   | { type: 'USAGE'; requestId: string; usage: TokenUsage }
   | { type: 'RUN_END'; requestId: string; text: string; model: string; provider: string; reasoning?: string; toolCalls?: ToolCall[]; usage?: TokenUsage }
-  | { type: 'RUN_ERROR'; requestId: string; code: string; message: string; status: number };
+  | { type: 'RUN_ERROR'; requestId: string; code: string; message: string; status: number; category?: ApiErrorCategory; retryable?: boolean; correlationId?: string };
 
 type ChatCommit = { type: 'COMMIT'; userMessage: Message; assistantMessage: Message; manifest: ContextManifest };
 
@@ -42,8 +66,8 @@ async function streamMessage(message: string, onEvent: (event: RuntimeStreamEven
     throw error;
   }
   if (!response.ok) {
-    const payload = await response.json().catch(() => ({})) as { error?: { code?: string; message?: string } };
-    throw new ApiError(payload.error?.message || `请求失败（${response.status}）`, payload.error?.code, response.status);
+    const payload = await response.json().catch(() => ({})) as { error?: ErrorPayload };
+    throw apiError(payload.error, response.status);
   }
   if (!response.body) throw new ApiError('浏览器未收到可读取的 AI 事件流。', 'STREAM_UNAVAILABLE', 502);
 
@@ -81,7 +105,7 @@ async function streamMessage(message: string, onEvent: (event: RuntimeStreamEven
     if (done) break;
   }
   if (buffer.trim()) consumeFrame(buffer);
-  if (streamError) throw new ApiError(streamError.message, streamError.code, streamError.status);
+  if (streamError) throw new ApiError(streamError.message, streamError.code, streamError.status, { category: streamError.category, retryable: streamError.retryable, correlationId: streamError.correlationId });
   if (!commit) throw new ApiError('AI 事件流结束前未提交消息。', 'INCOMPLETE_STREAM', 502);
   return { userMessage: commit.userMessage, assistantMessage: commit.assistantMessage, manifest: commit.manifest };
 }

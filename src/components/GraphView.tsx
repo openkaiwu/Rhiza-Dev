@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Archive, Check, Focus, Grip, Link2, Maximize2, Minus, Plus, RotateCcw, Search, Trash2, X } from 'lucide-react';
 import type { DiscussionEdge, DiscussionNode, EdgeRelation } from '../types';
+import { presentErrorText } from '../error-presentation';
 
 const STAGE_WIDTH = 2200;
 const STAGE_HEIGHT = 1400;
@@ -133,7 +134,7 @@ export function GraphView({ nodes, edges, activeNodeId, onMove, onActivate, onCr
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     if (!drag) return;
     if (drag.moved) {
-      try { await onMove(node.id, drag.x, drag.y); } catch (error) { setActionError(error instanceof Error ? error.message : '节点位置保存失败'); }
+      try { await onMove(node.id, drag.x, drag.y); } catch (error) { setActionError(presentErrorText(error, { message: '无法保存节点位置。', recovery: '请稍后重试。' })); }
       return;
     }
     if (connectMode) {
@@ -144,7 +145,7 @@ export function GraphView({ nodes, edges, activeNodeId, onMove, onActivate, onCr
       }
       return;
     }
-    try { await onActivate(node.id); } catch (error) { setActionError(error instanceof Error ? error.message : '节点打开失败'); }
+    try { await onActivate(node.id); } catch (error) { setActionError(presentErrorText(error, { message: '无法打开节点。', recovery: '请刷新后重试。' })); }
   };
   const openNodeCreate = () => { setActionError(''); setNodeForm({ title: '', summary: '' }); setNodeFormOpen(true); };
   const submitNode = async (event: React.FormEvent) => {
@@ -156,7 +157,7 @@ export function GraphView({ nodes, edges, activeNodeId, onMove, onActivate, onCr
     try {
       await onCreateNode({ title: nodeForm.title.trim(), summary: nodeForm.summary.trim(), x: Math.max(18, Math.round(center.x)), y: Math.max(18, Math.round(center.y)) });
       setNodeFormOpen(false);
-    } catch (error) { setActionError(error instanceof Error ? error.message : '节点创建失败'); }
+    } catch (error) { setActionError(presentErrorText(error, { message: '无法创建节点。', recovery: '请稍后重试。' })); }
   };
   const submitEdge = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -165,24 +166,24 @@ export function GraphView({ nodes, edges, activeNodeId, onMove, onActivate, onCr
       await onCreateEdge({ ...edgeForm, label: edgeForm.label.trim() });
       setEdgeForm(null);
       setConnectMode(false);
-    } catch (error) { setActionError(error instanceof Error ? error.message : '关系创建失败'); }
+    } catch (error) { setActionError(presentErrorText(error, { message: '无法创建关系。', recovery: '请稍后重试。' })); }
   };
   const archiveNode = async () => {
     if (!archiveTarget) return;
     try {
       await onArchiveNode(archiveTarget.id);
       setArchiveTarget(null);
-    } catch (error) { setActionError(error instanceof Error ? error.message : '节点归档失败'); }
+    } catch (error) { setActionError(presentErrorText(error, { message: '无法归档节点。', recovery: '请稍后重试。' })); }
   };
   const restoreNode = async (id: string) => {
-    try { await onRestoreNode(id); } catch (error) { setActionError(error instanceof Error ? error.message : '节点恢复失败'); }
+    try { await onRestoreNode(id); } catch (error) { setActionError(presentErrorText(error, { message: '无法恢复节点。', recovery: '请稍后重试。' })); }
   };
   const deleteEdge = async () => {
     if (!selectedEdgeId) return;
     try {
       await onDeleteEdge(selectedEdgeId);
       setSelectedEdgeId(null);
-    } catch (error) { setActionError(error instanceof Error ? error.message : '关系删除失败'); }
+    } catch (error) { setActionError(presentErrorText(error, { message: '无法删除关系。', recovery: '请稍后重试。' })); }
   };
 
   const normalizedQuery = query.trim().toLowerCase();

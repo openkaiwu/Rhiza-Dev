@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Attachment, ContextManifest, ContextMode, ContextStatus, DiscussionEdge, DiscussionNode, Message, ProviderCatalog, ProviderPresetInfo, ProviderStatus, Segment, View, WorkspaceSnapshot } from './types';
 import { api, type ChatRequestOptions } from './api';
+import { presentErrorText } from './error-presentation';
 import { Sidebar } from './components/Sidebar';
 import { ChatView } from './components/ChatView';
 import { GraphView } from './components/GraphView';
@@ -63,7 +64,7 @@ export function App() {
       return 'loaded' as const;
     } catch (error) {
       if (requestId !== loadRequestRef.current) return 'stale' as const;
-      const message = error instanceof Error ? error.message : '无法连接后端';
+      const message = presentErrorText(error, { message: '无法加载工作区。', recovery: '请检查网络后重试。' });
       if (!background) { setBoot('error'); setBootError(message); }
       setSyncError(message);
       return 'failed' as const;
@@ -140,7 +141,7 @@ export function App() {
       const { catalog, presets } = await api.getProviders();
       applyCatalog(catalog);
       setProviderPresets(presets);
-    } catch (error) { setSyncError(error instanceof Error ? error.message : '模型配置加载失败'); }
+    } catch (error) { setSyncError(presentErrorText(error, { message: '无法加载模型配置。', recovery: '请稍后重试。' })); }
   };
 
   const saveProvider = async (form: ProviderFormState) => {
@@ -160,7 +161,7 @@ export function App() {
       setSyncError('');
     } catch (error) {
       setContextItems(previous);
-      setSyncError(error instanceof Error ? error.message : 'Context 保存失败');
+      setSyncError(presentErrorText(error, { message: '无法保存 Context。', recovery: '请稍后重试。' }));
     }
   };
 
@@ -172,7 +173,7 @@ export function App() {
       setSyncError('');
     } catch (error) {
       setMode(previous);
-      setSyncError(error instanceof Error ? error.message : '模式保存失败');
+      setSyncError(presentErrorText(error, { message: '无法保存模式。', recovery: '请稍后重试。' }));
     }
   };
 
@@ -185,7 +186,7 @@ export function App() {
       setSyncError('');
     } catch (error) {
       setContextItems(previous);
-      setSyncError(error instanceof Error ? error.message : 'Pin 保存失败');
+      setSyncError(presentErrorText(error, { message: '无法保存固定状态。', recovery: '请稍后重试。' }));
     }
   };
 
@@ -194,7 +195,7 @@ export function App() {
       const { workspace } = await api.addContextSource(sourceType, sourceId);
       setContextItems(workspace.contextItems);
       setSyncError('');
-    } catch (error) { setSyncError(error instanceof Error ? error.message : 'Context 来源添加失败'); }
+    } catch (error) { setSyncError(presentErrorText(error, { message: '无法添加 Context 来源。', recovery: '请稍后重试。' })); }
   };
 
   const sendMessage = async (text: string, options: ChatRequestOptions = {}) => {
@@ -249,7 +250,7 @@ export function App() {
       applyWorkspace(workspace);
     } catch (error) {
       setDiscussionNodes(previous);
-      setSyncError(error instanceof Error ? error.message : '节点位置保存失败');
+      setSyncError(presentErrorText(error, { message: '无法保存节点位置。', recovery: '请稍后重试。' }));
     }
   };
   const createGraphNode = async (input: { title: string; summary?: string; x: number; y: number }) => {
