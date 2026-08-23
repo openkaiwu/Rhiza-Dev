@@ -41,8 +41,10 @@ jobs:
           node-version: 24.19.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Verify M01 blocking gate and committed evidence
-        run: pnpm run verify:m01:v4
+      - name: Verify M01 historical evidence chain
+        run: pnpm exec tsx scripts/architecture-gates/verify-milestone-evidence.ts --milestone M01
+      - name: Verify M02 blocking gate and committed evidence
+        run: pnpm run verify:m02:v4
   observational:
     needs: blocking
     if: ${{ always() }}

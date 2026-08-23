@@ -12,6 +12,14 @@ const schemaPath = resolve(root, 'docs/architecture-gates/milestone-evidence.sch
 type Checksum = { algorithm: 'sha256'; current: string; recorded_commit: string };
 type CommandResult = { command: string; result: 'pass' | 'fail' | 'skipped' };
 type KnownException = { owner: string; expiry: string; adr_or_issue: string; severity: 'blocking' | 'observational' };
+type FailureClassification = MilestoneEvidence['failure_classification'];
+type MilestoneConfig = {
+  commands: string[];
+  paths: string[];
+  fixtures: Array<{ id: string; path: string; role: string }>;
+  failureClassification: FailureClassification;
+  knownExceptions: KnownException[];
+};
 export type MilestoneEvidence = {
   $schema: 'https://rhiza.dev/architecture-gates/milestone-evidence/1.0.0'; schema_version: '1.0.0'; milestone: string;
   architecture_version: 'V4.0'; commit: string; fixtures: Array<{ id: string; path: string; role: string }>;
@@ -105,9 +113,108 @@ export const M01_FIXTURES = [
   { id: 'g0-blocking-evidence-v1', path: 'docs/architecture-gates/G0/evidence.json', role: 'acceptance_fixture' },
 ];
 
-const milestoneConfig = (milestone: string) => milestone === 'M01'
-  ? { commands: M01_COMMANDS, paths: M01_PATHS, fixtures: M01_FIXTURES }
-  : fail(`no verifier is configured for ${milestone}`);
+export const M02_COMMANDS = [
+  'pnpm run lint',
+  'pnpm run typecheck',
+  'pnpm run test:unit',
+  'pnpm run test:e2e',
+  'pnpm run licenses:verify',
+  'pnpm run verify:g0',
+  'pnpm run verify:m02:boundaries',
+  'pnpm run build',
+];
+
+export const M02_PATHS = [
+  '.github/workflows/ci.yml',
+  '.gitignore',
+  'package.json',
+  'docs/architecture-gates/README.md',
+  'docs/architecture-gates/fixture-registry.json',
+  'docs/architecture-gates/G0/characterization-map.json',
+  'docs/architecture-gates/G0/evidence.json',
+  'scripts/architecture-gates/verify-g0.ts',
+  'scripts/architecture-gates/verify-m02-boundaries.test.ts',
+  'scripts/architecture-gates/verify-m02-boundaries.ts',
+  'scripts/architecture-gates/verify-milestone-evidence.test.ts',
+  'scripts/architecture-gates/verify-milestone-evidence.ts',
+  'scripts/boundary-gates/boundary-exceptions.json',
+  'scripts/boundary-gates/boundary-lint.test.ts',
+  'server/app.ts',
+  'server/application/create-application.test.ts',
+  'server/application/create-application.ts',
+  'server/application/ports/legacy-upload.ts',
+  'server/application/ports/provider-management.ts',
+  'server/application/ports/runtime.ts',
+  'server/application/ports/workspace-unit-of-work.ts',
+  'server/context-runtime/legacy-planner.ts',
+  'server/context-runtime/port.ts',
+  'server/contracts/application-error.test.ts',
+  'server/contracts/application-error.ts',
+  'server/contracts/application.ts',
+  'server/contracts/references.ts',
+  'server/domain/message-version.test.ts',
+  'server/domain/message-version.ts',
+  'server/execution-runtime/runtime.ts',
+  'server/host-node/create-app.ts',
+  'server/http/app.ts',
+  'server/infrastructure/node-filesystem-legacy-upload.test.ts',
+  'server/infrastructure/node-filesystem-legacy-upload.ts',
+  'server/infrastructure/workspace-repository-unit-of-work.test.ts',
+  'server/infrastructure/workspace-repository-unit-of-work.ts',
+  'server/runtime-adapters/provider-runtime.ts',
+  'src/App.test.tsx',
+  'src/App.tsx',
+  'src/api.ts',
+  'src/components/ChatView.tsx',
+  'src/components/GraphView.tsx',
+  'src/components/MarkdownRenderer.tsx',
+  'src/components/ProviderSettings.tsx',
+  'src/error-presentation.test.ts',
+  'src/error-presentation.ts',
+  'tsconfig.application-layer.json',
+  'tsconfig.context-runtime.json',
+  'tsconfig.contracts.json',
+  'tsconfig.domain.json',
+  'tsconfig.execution-runtime.json',
+  'tsconfig.http-layer.json',
+  'tsconfig.json',
+  'tsconfig.runtime-adapters.json',
+];
+
+export const M02_FIXTURES = [
+  { id: 'g0-fixture-registry-v1', path: 'docs/architecture-gates/fixture-registry.json', role: 'fixture_registry' },
+  { id: 'g0-characterization-map-v1', path: 'docs/architecture-gates/G0/characterization-map.json', role: 'characterization_map' },
+  { id: 'g0-blocking-evidence-v1', path: 'docs/architecture-gates/G0/evidence.json', role: 'acceptance_fixture' },
+  { id: 'm02-empty-boundary-exception-registry-v1', path: 'scripts/boundary-gates/boundary-exceptions.json', role: 'acceptance_fixture' },
+];
+
+const M01_CONFIG: MilestoneConfig = {
+  commands: M01_COMMANDS,
+  paths: M01_PATHS,
+  fixtures: M01_FIXTURES,
+  failureClassification: {
+    classification: 'known_exception',
+    rationale: 'All blocking M01 commands passed; the legacy HTTP-to-repository port access remains an owned observational exception until M02.',
+  },
+  knownExceptions: [{ owner: 'M02 Application-boundary implementer', expiry: '2026-09-30', adr_or_issue: 'INH-8 / M02', severity: 'observational' }],
+};
+
+const M02_CONFIG: MilestoneConfig = {
+  commands: M02_COMMANDS,
+  paths: M02_PATHS,
+  fixtures: M02_FIXTURES,
+  failureClassification: {
+    classification: 'none',
+    rationale: 'All M02 blocking commands passed; latency deltas remain observational under the V4 roadmap and do not waive a blocking requirement.',
+  },
+  knownExceptions: [],
+};
+
+const milestoneConfig = (milestone: string): MilestoneConfig => {
+  if (milestone === 'M01') return M01_CONFIG;
+  if (milestone === 'M02') return M02_CONFIG;
+  return fail(`no verifier is configured for ${milestone}`);
+};
 
 const sha256 = (value: string | Buffer): string => createHash('sha256').update(value).digest('hex');
 const git = (args: string[]): string => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
@@ -187,8 +294,8 @@ function writeEvidence(milestone: string): void {
       const digest = sha256(readFileSync(resolve(root, path)));
       return [path, { algorithm: 'sha256', current: digest, recorded_commit: digest }];
     })),
-    failure_classification: { classification: 'known_exception', rationale: 'All blocking M01 commands passed; the legacy HTTP-to-repository port access remains an owned observational exception until M02.' },
-    known_exceptions: [{ owner: 'M02 Application-boundary implementer', expiry: '2026-09-30', adr_or_issue: 'INH-8 / M02', severity: 'observational' }],
+    failure_classification: config.failureClassification,
+    known_exceptions: config.knownExceptions,
     environment: { node: process.version, os: `${platform()} ${release()}`, cpu: cpus()[0]?.model ?? 'unknown', memory_bytes: totalmem() },
     started_at, completed_at: new Date().toISOString(), result: 'pass',
   };
@@ -202,7 +309,7 @@ function writeEvidence(milestone: string): void {
 function main(): void {
   const milestoneIndex = process.argv.indexOf('--milestone');
   const milestone = milestoneIndex >= 0 ? (process.argv[milestoneIndex + 1] ?? '') : '';
-  if (milestone.length === 0) fail('pass --milestone M01 and optionally --write');
+  if (milestone.length === 0) fail('pass --milestone M01 or M02 and optionally --write');
   if (process.argv.includes('--write')) return writeEvidence(milestone);
   const path = resolve(root, `docs/architecture-gates/${milestone}/evidence.json`);
   if (!existsSync(path)) fail(`evidence file is missing: ${path}`);

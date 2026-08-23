@@ -2,7 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { M01_COMMANDS, M01_PATHS, validateEvidence, validateKnownExceptions, type MilestoneEvidence } from './verify-milestone-evidence';
+import {
+  M01_COMMANDS,
+  M01_PATHS,
+  M02_COMMANDS,
+  M02_FIXTURES,
+  M02_PATHS,
+  validateEvidence,
+  validateKnownExceptions,
+  type MilestoneEvidence,
+} from './verify-milestone-evidence';
 
 describe('milestone evidence exceptions', () => {
   it('accepts an owned exception through its expiry day', () => {
@@ -51,6 +60,34 @@ describe('milestone evidence validation', () => {
     evidence.commands = M01_COMMANDS.map(command => ({ command, result: 'pass' }));
     evidence.checksums = Object.fromEntries(M01_PATHS.map(path => [path, { algorithm: 'sha256' as const, current: '0'.repeat(64), recorded_commit: '0'.repeat(64) }]));
     expect(() => validateEvidence(evidence, undefined, 'M01')).toThrow('M01 fixture set drift');
+  });
+
+  it('configures M02 with the strict boundary gate and every named fixture checksummed', () => {
+    expect(M02_COMMANDS).toContain('pnpm run verify:m02:boundaries');
+    expect(M02_PATHS).toContain('scripts/architecture-gates/verify-m02-boundaries.ts');
+    expect(M02_PATHS).toContain('server/application/create-application.ts');
+    expect(M02_FIXTURES.every(fixture => M02_PATHS.includes(fixture.path))).toBe(true);
+  });
+
+  it('rejects a reduced M02 command set', () => {
+    const evidence = base();
+    evidence.milestone = 'M02';
+    expect(() => validateEvidence(evidence, undefined, 'M02')).toThrow('M02 command set drift');
+  });
+
+  it('rejects a reduced M02 checksum path set', () => {
+    const evidence = base();
+    evidence.milestone = 'M02';
+    evidence.commands = M02_COMMANDS.map(command => ({ command, result: 'pass' }));
+    expect(() => validateEvidence(evidence, undefined, 'M02')).toThrow('M02 checksum path set drift');
+  });
+
+  it('rejects arbitrary fixtures when the M02 command and path sets are complete', () => {
+    const evidence = base();
+    evidence.milestone = 'M02';
+    evidence.commands = M02_COMMANDS.map(command => ({ command, result: 'pass' }));
+    evidence.checksums = Object.fromEntries(M02_PATHS.map(path => [path, { algorithm: 'sha256' as const, current: '0'.repeat(64), recorded_commit: '0'.repeat(64) }]));
+    expect(() => validateEvidence(evidence, undefined, 'M02')).toThrow('M02 fixture set drift');
   });
 
   const valid = (): MilestoneEvidence => {

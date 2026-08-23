@@ -59,15 +59,26 @@ an expired observational exception explicitly escalates to a blocking failure.
 M01/M02/M03 use `milestone-evidence.schema.json`: each manifest binds its full
 Git commit to the current file and Git-object checksums, named fixtures, every
 gate command result, failure classification, owned/expiring exceptions, and the
-observed environment. `pnpm verify:m01:v4` runs the M01 checks and validates
-the committed M01 manifest. Its intentionally separate evidence phase is
-`pnpm m01:evidence`: after the implementation commit exists, it runs the gate
-commands, writes `M01/evidence.json`, and validates the new manifest before it
-is committed separately. `--write` never writes evidence after a failed or
-skipped command. The validator also rejects missing/non-ancestor commits,
-checksum drift from either the worktree or the recorded Git object, and expired
-exceptions. M02/M03 can reuse the same validator and schema by adding their
-small command/path configuration rather than creating another evidence format.
+observed environment. `pnpm verify:m01:v4` and `pnpm verify:m02:v4` run their
+milestone checks and validate the corresponding committed manifest. Each
+milestone has an intentionally separate evidence phase (`pnpm m01:evidence` or
+`pnpm m02:evidence`): after the implementation commit exists, it runs the exact
+gate command set, writes `<milestone>/evidence.json`, and validates the new
+manifest before it is committed separately. `--write` never writes evidence
+after a failed or skipped command. It also requires the worktree inputs to
+match the implementation commit.
+
+Ordinary reads validate checksums from the recorded Git object so older
+milestones remain verifiable after later milestones legitimately change the
+same files. Pass `--strict-current` while closing the current milestone to also
+require every checksummed worktree file to match. Both modes reject
+missing/non-ancestor commits, recorded-object checksum drift, unsafe paths, and
+expired exceptions. M02 additionally runs
+`pnpm verify:m02:boundaries --strict`: Domain/Application infrastructure imports,
+illegal layer direction or cycles, HTTP persistence access, mutating routes
+outside `Application.execute`, legacy route logic, and remaining M01 boundary
+exceptions are blocking failures. G0 characterization remains blocking; raw
+local latency deltas remain observational under the V4 roadmap.
 
 On ordinary verification, the baseline tag must exist as an annotated tag and
 peel to `b29d94f`. The archived evidence file is required: its recorded commit
