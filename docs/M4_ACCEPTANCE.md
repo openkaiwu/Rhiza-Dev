@@ -1,6 +1,6 @@
 # M4 Acceptance — Explicit Context + Immutable Manifest
 
-> **Historical Evidence Only(2026-08-22)**:本文件是 Legacy 里程碑验收证据,其编号不定义当前 Milestone。当前基线见 `docs/Rhiza_开发路线图_V4.0_20260822.md`(统一 M01+ 编号)。
+> **Historical Evidence Only(2026-08-22)**:本文件是 Legacy 里程碑验收证据,其编号不定义当前 Milestone。当前基线见 `docs/Rhiza_开发路线图_V4.1_20260824.md`(统一 M01+ 编号)。
 
 ## 结论
 

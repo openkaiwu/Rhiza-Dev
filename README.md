@@ -100,7 +100,7 @@ ExecutorProfile · RunGroup · Handoff · Extension
 
 近期施工顺序为：冻结当前 M6 → Architecture Reset → Event Journal / Identity / Scope → `ExecutionRun` 与 Endpoint telemetry → Universal Work Graph → Context Runtime → Replay / Provenance → 重新产品化与 Closed Beta。路线图描述的是目标状态，不代表这些能力已在本仓库完成。
 
-完整战略、物理架构约束与阶段 Gate 见 [docs/0815Rhiza_三步走开发战略与架构重构规划_v2.3_高性能与跨平台优化.md](docs/0815Rhiza_三步走开发战略与架构重构规划_v2.3_高性能与跨平台优化.md)。当前实现结构见 [docs/architecture.md](docs/architecture.md)。
+目标架构与正式施工路线见 [技术架构设计书 V4.1](docs/Rhiza_技术架构设计书_V4.1_20260824.md) 与 [开发路线图 V4.1](docs/Rhiza_开发路线图_V4.1_20260824.md)。当前实现结构见 [docs/architecture.md](docs/architecture.md)。
 
 ## 本地运行
 
@@ -186,8 +186,9 @@ pnpm run licenses:verify
 
 ## 文档索引
 
-- [战略与目标架构](docs/0815Rhiza_三步走开发战略与架构重构规划_v2.3_高性能与跨平台优化.md)
+- [V4.1 目标架构](docs/Rhiza_技术架构设计书_V4.1_20260824.md)
+- [V4.1 开发路线图](docs/Rhiza_开发路线图_V4.1_20260824.md)
 - [当前实现架构](docs/architecture.md)
 - [产品概念与交互模型](product-design.md)
-- [LibreChat 复用与迁移边界](docs/librechat-migration.md)
+- [LibreChat 复用与迁移边界（历史归档）](docs/archive/librechat-migration.md)
 - [M0–M6 验收记录](docs/)
