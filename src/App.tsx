@@ -74,7 +74,7 @@ export function App() {
   }, [applyWorkspace]);
 
   useEffect(() => { void loadWorkspace(); }, [loadWorkspace]);
-  useEffect(() => { void api.listWorkspaces().then(result => setWorkspaces(result.workspaces)).catch(() => undefined); }, []);
+  useEffect(() => { if (api.listWorkspaces) void api.listWorkspaces().then(result => setWorkspaces(result.workspaces)).catch(() => undefined); }, []);
   const switchWorkspace = async (workspaceId: string) => { setMessages([]); setDiscussionNodes([]); const { workspace } = await api.getScopedWorkspace(workspaceId); setCurrentWorkspaceId(workspaceId); applyWorkspace(workspace); };
   const refreshWorkspaces = async () => setWorkspaces((await api.listWorkspaces()).workspaces);
   const createWorkspace = async () => { const name = window.prompt('工作区名称'); if (!name?.trim()) return; const { workspace } = await api.createWorkspace(name.trim()); await refreshWorkspaces(); await switchWorkspace(workspace.workspaceId); };
