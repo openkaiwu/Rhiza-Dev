@@ -153,6 +153,9 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
       response.json({ workspace: await executeScoped(response, request.params.workspaceId, command, payload as never) });
     } catch (error) { next(error); }
   });
+  app.post('/api/v1/workspaces/:workspaceId/switch', async (request, response, next) => {
+    try { response.json({ workspace: await executeScoped(response, request.params.workspaceId, 'SwitchWorkspace', {}) }); } catch (error) { next(error); }
+  });
 
   app.get('/api/providers', async (_request, response, next) => {
     try { response.json({ catalog: await query(response, 'GetProviders', {}), presets: options.providerPresets }); }

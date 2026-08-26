@@ -32,6 +32,18 @@ async function testApp(runtime?: AIRuntime) {
 }
 
 describe('Rhiza API', () => {
+  it('scopes workspace lifecycle to the v1 path, not request body', async () => {
+    const { app } = await testApp();
+    const created = await request(app).post('/api/v1/workspaces').send({ name: 'Second', workspaceId: 'forged' }).expect(201);
+    const id = created.body.workspace.workspaceId as string;
+    expect(id).not.toBe('forged');
+    await request(app).patch(`/api/v1/workspaces/${id}`).send({ action: 'rename', name: 'Renamed', workspaceId: 'forged' }).expect(200);
+    await request(app).post(`/api/v1/workspaces/${id}/switch`).send({ workspaceId: 'forged' }).expect(200);
+    await request(app).patch(`/api/v1/workspaces/${id}`).send({ action: 'archive' }).expect(200);
+    await request(app).patch(`/api/v1/workspaces/${id}`).send({ action: 'restore' }).expect(200);
+    const listed = await request(app).get('/api/v1/workspaces').expect(200);
+    expect(listed.body.workspaces).toEqual(expect.arrayContaining([expect.objectContaining({ workspaceId: id, name: 'Renamed', status: 'active' })]));
+  });
   it('never serializes upstream runtime secrets in JSON or SSE errors', async () => {
     const upstreamSecret = 'upstream-secret-token-123';
     const failedRuntime: AIRuntime = {
