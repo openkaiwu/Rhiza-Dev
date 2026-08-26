@@ -4,7 +4,6 @@ import type { Anchor, AuditEvent, ContextManifest, DiscussionEdge, DiscussionNod
 import { createSeedWorkspace } from './seed';
 import { validateWorkspaceHistoryUpdate, type WorkspaceRepository, type WorkspaceUpdateOptions } from './store';
 import type { WorkspaceDirectoryPort } from './identity/workspace-directory';
-import type { WorkspaceRecord } from './contracts/application';
 
 interface QueryResult<Row> { rows: Row[] }
 export interface SqlQueryable {
