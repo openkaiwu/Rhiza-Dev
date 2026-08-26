@@ -214,10 +214,17 @@ const M02_CONFIG: MilestoneConfig = {
   },
   knownExceptions: [],
 };
+const M03_CONFIG: MilestoneConfig = {
+  commands: [...M02_COMMANDS.slice(0, 6), 'pnpm vitest run server/app.test.ts server/application/create-application.test.ts e2e/postgres-schema.e2e.test.ts scripts/migrate.test.ts --maxWorkers=1 --testTimeout=30000', 'pnpm run build'],
+  paths: [...M02_PATHS, 'db/migrations/0005_identity_workspace_scope.up.sql', 'db/migrations/0005_identity_workspace_scope.down.sql', 'server/identity/workspace-directory.ts', 'server/identity/workspace-scope.ts', 'e2e/postgres-schema.e2e.test.ts', 'scripts/migrate.test.ts'],
+  fixtures: M02_FIXTURES,
+  failureClassification: { classification: 'none', rationale: 'M03 scope, isolation, and repeatable backfill gates passed.' }, knownExceptions: [],
+};
 
 const milestoneConfig = (milestone: string): MilestoneConfig => {
   if (milestone === 'M01') return M01_CONFIG;
   if (milestone === 'M02') return M02_CONFIG;
+  if (milestone === 'M03') return M03_CONFIG;
   return fail(`no verifier is configured for ${milestone}`);
 };
 
