@@ -7,6 +7,7 @@ import type { LegacyTextExtractionPort, LegacyUploadPort } from './ports/legacy-
 import type { ProviderManagementPort } from './ports/provider-management';
 import type { RuntimePort, RuntimeRequest } from './ports/runtime';
 import type { WorkspaceUnitOfWork } from './ports/workspace-unit-of-work';
+import { WorkspaceDirectory } from '../identity/workspace-directory';
 
 const nodeStatuses = new Set(['draft', 'active', 'resolved', 'stale', 'archived']);
 const textMimeTypes = new Set(['text/plain', 'text/markdown', 'text/csv', 'application/json', 'application/xml', 'text/xml', 'application/javascript', 'text/javascript']);
@@ -22,6 +23,7 @@ export interface RhizaApplicationDependencies {
   now: () => string;
   log?: { error(message: string, error?: unknown): void };
   contextTokenBudget?: number;
+  workspaceDirectory?: WorkspaceDirectory;
 }
 
 type Completion = { text: string; model: string; provider: string; reasoning?: string; toolCalls?: StoredMessage['toolCalls']; usage?: StoredMessage['usage'] };
@@ -80,6 +82,11 @@ function withCurrentNodeContext(workspace: WorkspaceData, nodeId: string, planne
 
 export function createRhizaApplication(dependencies: RhizaApplicationDependencies): Application {
   const { unitOfWork, runtime, providers, uploads, textExtraction, planner, id, now, log } = dependencies;
+  const fallbackWorkspaces = new Map<string, import('../contracts/application').WorkspaceRecord>([['00000000-0000-4000-8000-000000000001', { workspaceId: '00000000-0000-4000-8000-000000000001', name: 'Rhiza 产品研究', status: 'active', createdBy: '00000000-0000-4000-8000-000000000002', revision: 1 }]]);
+  const workspaceDirectory = dependencies.workspaceDirectory ?? new WorkspaceDirectory({
+    listWorkspaces: async (userId, includeArchived = false) => [...fallbackWorkspaces.values()].filter(item => item.createdBy === userId && (includeArchived || item.status === 'active')),
+    createWorkspace: async record => { fallbackWorkspaces.set(record.workspaceId, record); }, updateWorkspace: async record => { fallbackWorkspaces.set(record.workspaceId, record); },
+  });
   const budget = dependencies.contextTokenBudget ?? 32_000;
   const activeModel = async () => {
     const model = (await runtime.listModels()).find(item => item.active);
@@ -144,6 +151,27 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
   };
 
   const dispatch = async (envelope: AnyCommandEnvelope, options?: CommandExecutionOptions): Promise<unknown> => {
+    try {
+      const record = await workspaceDirectory.require(envelope.actor, envelope.workspaceId, envelope.scope);
+      if (record.status === 'archived' && !['RestoreWorkspace'].includes(envelope.commandType)) throw legacyError('归档工作区为只读，请先恢复。', 409, 'WORKSPACE_ARCHIVED');
+      if (envelope.expectedRevision !== undefined && envelope.expectedRevision !== record.revision) throw legacyError('工作区版本已变化，请刷新后重试。', 409, 'WORKSPACE_REVISION_CONFLICT');
+      if (envelope.commandType === 'CreateWorkspace') {
+        const name = String((envelope.payload as { name?: string }).name || '').trim();
+        if (!name || name.length > 200) throw legacyError('工作区名称不能为空且不能超过 200 字符。', 400, 'INVALID_WORKSPACE_NAME');
+        const workspaceId = id(); const created = await workspaceDirectory.create(envelope.actor, workspaceId, name);
+        await unitOfWork.createWorkspace?.(workspaceId, name);
+        return created;
+      }
+      if (envelope.commandType === 'RenameWorkspace') return workspaceDirectory.rename(record, String((envelope.payload as { name?: string }).name || '').trim());
+      if (envelope.commandType === 'ArchiveWorkspace') return workspaceDirectory.status(record, 'archived');
+      if (envelope.commandType === 'RestoreWorkspace') return workspaceDirectory.status(record, 'active');
+      if (envelope.commandType === 'SwitchWorkspace') return record;
+      if (unitOfWork.withWorkspace) return unitOfWork.withWorkspace(envelope.workspaceId, () => dispatchScoped(envelope, options));
+      return dispatchScoped(envelope, options);
+    } catch (error) { throw asApplicationError(error); }
+  };
+
+  const dispatchScoped = async (envelope: AnyCommandEnvelope, options?: CommandExecutionOptions): Promise<unknown> => {
     try {
       // The public generic envelope cannot be narrowed by a switch in TS 6;
       // dispatch remains exhaustive while each runtime key maps to its contract payload.
@@ -217,6 +245,14 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
   };
 
   const dispatchQuery = async (envelope: AnyQueryEnvelope): Promise<unknown> => {
+    try {
+      if (envelope.queryType === 'ListWorkspaces') return workspaceDirectory.list(envelope.actor, Boolean((envelope.payload as { includeArchived?: boolean }).includeArchived));
+      await workspaceDirectory.require(envelope.actor, envelope.workspaceId, envelope.scope);
+      if (unitOfWork.withWorkspace) return unitOfWork.withWorkspace(envelope.workspaceId, () => dispatchQueryScoped(envelope));
+      return dispatchQueryScoped(envelope);
+    } catch (error) { throw asApplicationError(error); }
+  };
+  const dispatchQueryScoped = async (envelope: AnyQueryEnvelope): Promise<unknown> => {
     try {
       switch (envelope.queryType) {
         case 'GetHealth': return { ok: true };

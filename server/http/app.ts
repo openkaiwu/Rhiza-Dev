@@ -99,6 +99,9 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
   );
   const query = <K extends QueryType>(response: express.Response, queryType: K, payload: QueryMap[K]['payload']): Promise<QueryResult<K>> =>
     application.query(createLegacyQueryEnvelope(options.id(), queryType, payload, correlationId(response)));
+  const workspaceIdentity = (workspaceId: string) => ({ workspaceId, actor: { actorType: 'human' as const, actorId: '00000000-0000-4000-8000-000000000002' }, scope: { scopeType: 'workspace' as const, scopeId: workspaceId } });
+  const executeScoped = <K extends CommandType>(response: express.Response, workspaceId: string, commandType: K, payload: CommandMap[K]['payload']) => application.execute({ ...createLegacyCommandEnvelope(options.id(), commandType, payload, correlationId(response)), ...workspaceIdentity(workspaceId) });
+  const queryScoped = <K extends QueryType>(response: express.Response, workspaceId: string, queryType: K, payload: QueryMap[K]['payload']) => application.query({ ...createLegacyQueryEnvelope(options.id(), queryType, payload, correlationId(response)), ...workspaceIdentity(workspaceId) });
 
   app.use((request, response, next) => {
     const requestId = options.id();
@@ -126,6 +129,28 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
       const provider = await query(response, 'GetProviderStatus', {});
       const providerCatalog = await query(response, 'GetProviders', {});
       response.json({ workspace, provider, providerCatalog });
+    } catch (error) { next(error); }
+  });
+
+  app.get('/api/v1/workspaces', async (_request, response, next) => {
+    try { response.json({ workspaces: await query(response, 'ListWorkspaces', {}) }); } catch (error) { next(error); }
+  });
+  app.post('/api/v1/workspaces', async (request, response, next) => {
+    try {
+      const name = typeof request.body?.name === 'string' ? request.body.name.trim() : '';
+      response.status(201).json({ workspace: await execute(response, 'CreateWorkspace', { name }) });
+    } catch (error) { next(error); }
+  });
+  app.get('/api/v1/workspaces/:workspaceId', async (request, response, next) => {
+    try { response.json({ workspace: await queryScoped(response, request.params.workspaceId, 'GetWorkspace', {}) }); } catch (error) { next(error); }
+  });
+  app.patch('/api/v1/workspaces/:workspaceId', async (request, response, next) => {
+    try {
+      const action = request.body?.action;
+      const command = action === 'archive' ? 'ArchiveWorkspace' : action === 'restore' ? 'RestoreWorkspace' : action === 'rename' ? 'RenameWorkspace' : undefined;
+      if (!command) rejectInput('无效的工作区操作。', 'INVALID_WORKSPACE_OPERATION');
+      const payload = command === 'RenameWorkspace' ? { name: typeof request.body?.name === 'string' ? request.body.name.trim() : '' } : {};
+      response.json({ workspace: await executeScoped(response, request.params.workspaceId, command, payload as never) });
     } catch (error) { next(error); }
   });
 

@@ -8,6 +8,7 @@ import { loadFeatureFlags, type FeatureFlags } from '../feature-flags';
 import { createHttpApp } from '../http/app';
 import { NodeFilesystemLegacyUpload } from '../infrastructure/node-filesystem-legacy-upload';
 import { RepositoryWorkspaceUnitOfWork } from '../infrastructure/workspace-repository-unit-of-work';
+import { WorkspaceDirectory } from '../identity/workspace-directory';
 import { providerPresets, type ProviderService } from '../provider-service';
 import { ProviderRuntime } from '../runtime-adapters/provider-runtime';
 import type { WorkspaceRepository } from '../store';
@@ -32,6 +33,7 @@ export function createApp(
     id: randomUUID,
     now: () => new Date().toISOString(),
     log: console,
+    workspaceDirectory: new WorkspaceDirectory(store.workspaceDirectory ?? { listWorkspaces: async () => [], createWorkspace: async () => undefined, updateWorkspace: async () => undefined }),
   });
   const frontendDirectory = resolve('dist');
   return createHttpApp(application, {

@@ -41,9 +41,15 @@ export interface CreateConversationRunResult {
 export type LegacyAttachmentView = Omit<StoredAttachment, 'extractedText'>;
 
 type Empty = Record<string, never>;
+export interface WorkspaceRecord { workspaceId: string; name: string; status: 'active' | 'archived'; createdBy: string; revision: number }
 
 /** Versioned operation registry. Additive changes receive a new command key. */
 export interface CommandMap {
+  CreateWorkspace: { payload: { name: string }; result: WorkspaceRecord };
+  RenameWorkspace: { payload: { name: string }; result: WorkspaceRecord };
+  ArchiveWorkspace: { payload: Empty; result: WorkspaceRecord };
+  RestoreWorkspace: { payload: Empty; result: WorkspaceRecord };
+  SwitchWorkspace: { payload: Empty; result: WorkspaceRecord };
   SaveProvider: { payload: { providerId?: string; body: unknown }; result: unknown };
   DiscoverProviderModels: { payload: { providerId: string }; result: unknown };
   UpdateModelPreference: { payload: { modelId: string; favorite?: boolean; pinned?: boolean }; result: unknown };
@@ -74,6 +80,7 @@ export interface CommandMap {
 }
 
 export interface QueryMap {
+  ListWorkspaces: { payload: { includeArchived?: boolean }; result: WorkspaceRecord[] };
   GetHealth: { payload: Empty; result: { ok: true } };
   GetWorkspace: { payload: Empty; result: WorkspaceData };
   GetProviders: { payload: Empty; result: unknown };
@@ -86,9 +93,9 @@ export function withLegacyIdentity<T extends { commandId?: string; queryId?: str
   return {
     ...request,
     schemaVersion: '1.0.0',
-    workspaceId: 'legacy-default-workspace',
-    actor: { actorType: 'human', actorId: 'legacy-local' },
-    scope: { scopeType: 'workspace', scopeId: 'legacy-default-workspace' },
+    workspaceId: '00000000-0000-4000-8000-000000000001',
+    actor: { actorType: 'human', actorId: '00000000-0000-4000-8000-000000000002' },
+    scope: { scopeType: 'workspace', scopeId: '00000000-0000-4000-8000-000000000001' },
   };
 }
 

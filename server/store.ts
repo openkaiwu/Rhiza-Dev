@@ -4,11 +4,14 @@ import { dirname, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { AuditEvent, WorkspaceData } from './domain';
 import { createSeedWorkspace } from './seed';
+import type { WorkspaceDirectoryPort } from './identity/workspace-directory';
+import type { WorkspaceRecord } from './contracts/application';
 
 export interface WorkspaceRepository {
   read(): Promise<WorkspaceData>;
   update(mutator: (current: WorkspaceData) => WorkspaceData | Promise<WorkspaceData>, options?: WorkspaceUpdateOptions): Promise<WorkspaceData>;
   close?(): Promise<void>;
+  workspaceDirectory?: WorkspaceDirectoryPort;
 }
 
 export interface WorkspacePurgeCapability {
@@ -101,6 +104,27 @@ export class WorkspaceStore implements WorkspaceRepository {
   private queue: Promise<void> = Promise.resolve();
 
   constructor(private readonly filePath = resolve('var/data/workspace.json')) {}
+
+  readonly workspaceDirectory: WorkspaceDirectoryPort = {
+    listWorkspaces: async (userId, includeArchived = false) => (await this.readDirectory()).filter(item => item.createdBy === userId && (includeArchived || item.status === 'active')),
+    createWorkspace: async record => { const records = await this.readDirectory(); if (!records.some(item => item.workspaceId === record.workspaceId)) await this.writeDirectory([...records, record]); },
+    updateWorkspace: async record => { const records = await this.readDirectory(); await this.writeDirectory(records.map(item => item.workspaceId === record.workspaceId ? record : item)); },
+  };
+
+  private directoryPath() { return `${this.filePath}.workspaces.json`; }
+  private async readDirectory(): Promise<WorkspaceRecord[]> {
+    try { return JSON.parse(await readFile(this.directoryPath(), 'utf8')) as WorkspaceRecord[]; }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      const seed: WorkspaceRecord = { workspaceId: '00000000-0000-4000-8000-000000000001', name: (await this.read()).projectTitle, status: 'active', createdBy: '00000000-0000-4000-8000-000000000002', revision: 1 };
+      await this.writeDirectory([seed]); return [seed];
+    }
+  }
+  private async writeDirectory(records: WorkspaceRecord[]) {
+    await mkdir(dirname(this.directoryPath()), { recursive: true });
+    const temporaryPath = `${this.directoryPath()}.${process.pid}.tmp`;
+    await writeFile(temporaryPath, `${JSON.stringify(records, null, 2)}\n`, 'utf8'); await rename(temporaryPath, this.directoryPath());
+  }
 
   async read(): Promise<WorkspaceData> {
     try {

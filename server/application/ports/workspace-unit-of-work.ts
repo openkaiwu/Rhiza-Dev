@@ -23,4 +23,7 @@ export interface WorkspaceExecutionResult<T> {
 export interface WorkspaceUnitOfWork {
   read<T>(reader: (workspace: Readonly<WorkspaceData>) => T | Promise<T>): Promise<T>;
   execute<T>(mutation: WorkspaceMutation<T>): Promise<WorkspaceExecutionResult<T>>;
+  /** Runs a complete application request against one workspace; implementations must not leak that selection. */
+  withWorkspace?<T>(workspaceId: string, operation: () => Promise<T>): Promise<T>;
+  createWorkspace?(workspaceId: string, name: string): Promise<WorkspaceData>;
 }
