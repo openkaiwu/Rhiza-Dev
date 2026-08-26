@@ -12,7 +12,7 @@ describe('PostgreSQL migration baseline', () => {
     expect(migrations[0].sql).not.toMatch(/LibreChat|conversation/i);
     expect(migrations[1].sql).toContain('CREATE TABLE rhiza_attachments');
     expect(migrations[3].sql).toContain('rhiza_context_manifests are immutable');
-    expect(migrations[4].sql).toContain('CREATE TABLE users');
+    expect(migrations[4].sql).toContain('CREATE TABLE IF NOT EXISTS users');
     expect(migrations[4].sql).toContain('ON CONFLICT');
   });
 });

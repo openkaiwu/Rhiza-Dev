@@ -152,6 +152,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
 
   const dispatch = async (envelope: AnyCommandEnvelope, options?: CommandExecutionOptions): Promise<unknown> => {
     try {
+      if (!envelope.actor || !envelope.scope || !envelope.workspaceId) throw legacyError('写命令必须提供 ActorRef 与 ScopeRef。', 403, 'MISSING_ACTOR_OR_SCOPE');
       const record = await workspaceDirectory.require(envelope.actor, envelope.workspaceId, envelope.scope);
       if (record.status === 'archived' && !['RestoreWorkspace'].includes(envelope.commandType)) throw legacyError('归档工作区为只读，请先恢复。', 409, 'WORKSPACE_ARCHIVED');
       if (envelope.expectedRevision !== undefined && envelope.expectedRevision !== record.revision) throw legacyError('工作区版本已变化，请刷新后重试。', 409, 'WORKSPACE_REVISION_CONFLICT');
