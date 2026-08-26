@@ -5,12 +5,14 @@ import { loadMigrations } from './migrate';
 describe('PostgreSQL migration baseline', () => {
   it('has an ordered, checksummed core schema migration', async () => {
     const migrations = await loadMigrations();
-    expect(migrations.map(item => item.version)).toEqual(['0001', '0002', '0003', '0004']);
+    expect(migrations.map(item => item.version)).toEqual(['0001', '0002', '0003', '0004', '0005']);
     expect(migrations.every(item => /^[a-f0-9]{64}$/.test(item.checksum))).toBe(true);
     expect(migrations[0].sql).toContain('CREATE TABLE rhiza_projects');
     expect(migrations[0].sql).toContain('CREATE TABLE rhiza_context_manifests');
     expect(migrations[0].sql).not.toMatch(/LibreChat|conversation/i);
     expect(migrations[1].sql).toContain('CREATE TABLE rhiza_attachments');
     expect(migrations[3].sql).toContain('rhiza_context_manifests are immutable');
+    expect(migrations[4].sql).toContain('CREATE TABLE users');
+    expect(migrations[4].sql).toContain('ON CONFLICT');
   });
 });

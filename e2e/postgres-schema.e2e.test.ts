@@ -12,6 +12,12 @@ describe('PostgreSQL schema E2E', () => {
       await database.exec(await readFile(resolve('db/migrations/0002_chat_parity.up.sql'), 'utf8'));
       await database.exec(await readFile(resolve('db/migrations/0003_domain_persistence.up.sql'), 'utf8'));
       await database.exec(await readFile(resolve('db/migrations/0004_immutable_manifest_history.up.sql'), 'utf8'));
+      await database.exec("INSERT INTO rhiza_projects (id,title,state) VALUES ('00000000-0000-4000-8000-000000000001','Legacy','{}')");
+      await database.exec(await readFile(resolve('db/migrations/0005_identity_workspace_scope.up.sql'), 'utf8'));
+      const ownership = await database.query<{ workspace_id: string; user_id: string; role: string }>(`SELECT m.workspace_id,m.user_id,m.role FROM workspace_members m`);
+      expect(ownership.rows).toEqual([{ workspace_id: '00000000-0000-4000-8000-000000000001', user_id: '00000000-0000-4000-8000-000000000002', role: 'owner' }]);
+      const dangling = await database.query<{ count: number }>(`SELECT count(*)::int count FROM workspace_members m LEFT JOIN workspaces w ON w.workspace_id=m.workspace_id LEFT JOIN users u ON u.user_id=m.user_id WHERE w.workspace_id IS NULL OR u.user_id IS NULL`);
+      expect(dangling.rows[0]?.count).toBe(0);
       const created = await database.query<{ tablename: string }>(`
         SELECT tablename FROM pg_tables
         WHERE schemaname = 'public' AND tablename LIKE 'rhiza_%'
@@ -30,6 +36,7 @@ describe('PostgreSQL schema E2E', () => {
         'rhiza_segments',
       ]);
 
+      await database.exec(await readFile(resolve('db/migrations/0005_identity_workspace_scope.down.sql'), 'utf8'));
       await database.exec(await readFile(resolve('db/migrations/0004_immutable_manifest_history.down.sql'), 'utf8'));
       await database.exec(await readFile(resolve('db/migrations/0003_domain_persistence.down.sql'), 'utf8'));
       await database.exec(await readFile(resolve('db/migrations/0002_chat_parity.down.sql'), 'utf8'));
