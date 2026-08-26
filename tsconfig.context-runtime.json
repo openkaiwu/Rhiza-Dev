@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "composite": true,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "declarationMap": true,
+    "outDir": ".tsbuild/context-runtime",
+    "tsBuildInfoFile": ".tsbuild/context-runtime.tsbuildinfo",
+    "rootDir": "server",
+    "types": ["node"]
+  },
+  "references": [{ "path": "./tsconfig.domain.json" }],
+  "files": ["server/context-runtime/port.ts", "server/context-runtime/legacy-planner.ts", "server/context-planner.ts"]
+}

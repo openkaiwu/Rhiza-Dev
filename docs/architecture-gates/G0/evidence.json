@@ -2,8 +2,9 @@
   "$schema": "https://rhiza.dev/architecture-gates/evidence-manifest/1.0.0",
   "schema_version": "1.0.0",
   "gate_id": "G0",
+  "severity": "blocking",
   "architecture_version": "0818-v3.0",
-  "commit": "e2303b7009d36d85d709a4b8ad0729bb63357de1",
+  "commit": "7623b86c3bba04b52ac5d3e1fb6e7b4f646de3d0",
   "baseline": {
     "commit": "b29d94fb034678e0c9d5660848e92e995311d4da",
     "tag": "pre-0815-engineering-baseline",
@@ -17,8 +18,8 @@
   "environment_profile": {
     "declared": {
       "id": "ci-node24-linux-json-store-v1",
-      "runtime": "Node.js 24.x",
-      "os": "ubuntu-latest",
+      "runtime": "Node.js 24.19.0",
+      "os": "ubuntu-24.04",
       "store_adapter": "json fixture / no external network",
       "warmup_count": 20,
       "sample_count": 200,
@@ -51,10 +52,10 @@
       "failures": 0,
       "timeouts": 0,
       "drops": 0,
-      "p50": 1.309,
-      "p95": 2.77,
-      "p99": 4.182,
-      "max": 6.946
+      "p50": 4.109,
+      "p95": 7.204,
+      "p99": 10.769,
+      "max": 15.57
     },
     "workspace_command_latency_ms": {
       "metric": "workspace_command_latency_ms",
@@ -65,10 +66,10 @@
       "failures": 0,
       "timeouts": 0,
       "drops": 0,
-      "p50": 2.474,
-      "p95": 5.209,
-      "p99": 7.68,
-      "max": 12.39
+      "p50": 7.134,
+      "p95": 10.198,
+      "p99": 14.735,
+      "max": 35.291
     },
     "legacy_graph_workspace_read_latency_ms": {
       "metric": "legacy_graph_workspace_read_latency_ms",
@@ -79,10 +80,10 @@
       "failures": 0,
       "timeouts": 0,
       "drops": 0,
-      "p50": 1.221,
-      "p95": 2.106,
-      "p99": 4.355,
-      "max": 5.234
+      "p50": 3.912,
+      "p95": 9.175,
+      "p99": 12.761,
+      "max": 27.012
     },
     "context_plan_latency_ms": {
       "metric": "context_plan_latency_ms",
@@ -93,10 +94,10 @@
       "failures": 0,
       "timeouts": 0,
       "drops": 0,
-      "p50": 2.988,
-      "p95": 3.94,
-      "p99": 8.74,
-      "max": 9.81
+      "p50": 7.436,
+      "p95": 14.546,
+      "p99": 22.628,
+      "max": 32.959
     },
     "stream_chat_commit_latency_ms": {
       "metric": "stream_chat_commit_latency_ms",
@@ -107,42 +108,42 @@
       "failures": 0,
       "timeouts": 0,
       "drops": 0,
-      "p50": 6.862,
-      "p95": 10.297,
-      "p99": 15.639,
-      "max": 16.599
+      "p50": 19.866,
+      "p95": 30.656,
+      "p99": 37.621,
+      "max": 50.19
     }
   },
   "absolute_metrics": {
     "workspace_query_latency_ms": {
-      "p50": 1.309,
-      "p95": 2.77,
-      "p99": 4.182,
-      "max": 6.946
+      "p50": 4.109,
+      "p95": 7.204,
+      "p99": 10.769,
+      "max": 15.57
     },
     "workspace_command_latency_ms": {
-      "p50": 2.474,
-      "p95": 5.209,
-      "p99": 7.68,
-      "max": 12.39
+      "p50": 7.134,
+      "p95": 10.198,
+      "p99": 14.735,
+      "max": 35.291
     },
     "legacy_graph_workspace_read_latency_ms": {
-      "p50": 1.221,
-      "p95": 2.106,
-      "p99": 4.355,
-      "max": 5.234
+      "p50": 3.912,
+      "p95": 9.175,
+      "p99": 12.761,
+      "max": 27.012
     },
     "context_plan_latency_ms": {
-      "p50": 2.988,
-      "p95": 3.94,
-      "p99": 8.74,
-      "max": 9.81
+      "p50": 7.436,
+      "p95": 14.546,
+      "p99": 22.628,
+      "max": 32.959
     },
     "stream_chat_commit_latency_ms": {
-      "p50": 6.862,
-      "p95": 10.297,
-      "p99": 15.639,
-      "max": 16.599
+      "p50": 19.866,
+      "p95": 30.656,
+      "p99": 37.621,
+      "max": 50.19
     }
   },
   "regression_vs_g0": {
@@ -158,15 +159,15 @@
   "checksums": {
     "G0/snapshots/api.json": {
       "algorithm": "sha256",
-      "value": "fefc7299e0b7501075cc7e3e947fa535633c208841071490dfd8ac660f511d13"
+      "value": "fe4dc37f2468b904975f4a6b510f54f444472d86333afd1129cb5b1b9459e45b"
     },
     "G0/snapshots/db.json": {
       "algorithm": "sha256",
-      "value": "8652484269e0e5ba18b0e7897988b97f1af3b80e6697317b86089fa2d17f6580"
+      "value": "e9c366f60819b59b6db5b79468306d1e95ad4d36a5258353079e7685867a70e7"
     },
     "G0/snapshots/schema-index.json": {
       "algorithm": "sha256",
-      "value": "fa5ad987f898173a4d9eea85d4aa9f9da27d9a8dcbbacd222721d85e31cdce64"
+      "value": "3fda577be88c0abd11c4a00446eb23458c4a0d785595d44d2155ab3bca4a8837"
     },
     "fixture-registry.json": {
       "algorithm": "sha256",
@@ -236,7 +237,7 @@
     }
   ],
   "known_exceptions": [],
-  "started_at": "2026-08-17T20:02:54.622Z",
-  "completed_at": "2026-08-17T20:03:04.536Z",
+  "started_at": "2026-08-23T08:04:34.983Z",
+  "completed_at": "2026-08-23T08:05:05.808Z",
   "result": "pass"
 }

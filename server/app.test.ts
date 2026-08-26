@@ -32,6 +32,26 @@ async function testApp(runtime?: AIRuntime) {
 }
 
 describe('Rhiza API', () => {
+  it('never serializes upstream runtime secrets in JSON or SSE errors', async () => {
+    const upstreamSecret = 'upstream-secret-token-123';
+    const failedRuntime: AIRuntime = {
+      kind: 'provider-adapter',
+      listModels: async () => [{ id: 'model-1', provider: 'Fixture', model: 'fixture', displayName: 'Fixture', active: true }],
+      async *generate(input) {
+        yield { type: 'RUN_START' as const, requestId: input.requestId, manifestId: input.manifestId, model: 'fixture', provider: 'Fixture' };
+        yield { type: 'RUN_ERROR' as const, requestId: input.requestId, code: 'PROVIDER_REQUEST_FAILED', message: `provider rejected ${upstreamSecret}`, status: 502 };
+      },
+    };
+    const { app } = await testApp(failedRuntime);
+    const json = await request(app).post('/api/chat').send({ message: 'trigger error' }).expect(502);
+    expect(JSON.stringify(json.body)).not.toContain(upstreamSecret);
+    expect(json.body.error).toMatchObject({ code: 'PROVIDER_REQUEST_FAILED', category: 'infrastructure', retryable: true, correlationId: expect.any(String) });
+    const stream = await request(app).post('/api/chat/stream').send({ message: 'trigger error' }).expect(200);
+    expect(stream.text).not.toContain(upstreamSecret);
+    expect(stream.text).toContain('AI Runtime 执行失败，请稍后重试。');
+    expect(stream.text).toContain('correlationId');
+  });
+
   it('persists context status updates', async () => {
     const { app, filePath } = await testApp();
     await request(app).patch('/api/workspace/context/c3').send({ status: 'active' }).expect(200);
@@ -107,6 +127,38 @@ describe('Rhiza API', () => {
     const workspace = await request(app).get('/api/workspace').expect(200);
     expect(workspace.body.workspace.messages.slice(-2).map((message: { text: string }) => message.text)).toEqual(['用事件流回答', '后端生成的回答']);
     expect(workspace.body.workspace.manifests).toHaveLength(1);
+  });
+
+  it('refuses to commit a chat run when its node is archived during generation', async () => {
+    let signalStarted!: () => void;
+    let releaseGeneration!: () => void;
+    const started = new Promise<void>(resolve => { signalStarted = resolve; });
+    const generationGate = new Promise<void>(resolve => { releaseGeneration = resolve; });
+    const gatedRuntime: AIRuntime = {
+      kind: 'provider-adapter',
+      listModels: async () => [{ id: 'model-1', provider: 'Concurrency Fixture', model: 'gated-model', displayName: 'Gated', active: true }],
+      async *generate(input) {
+        signalStarted();
+        yield { type: 'RUN_START', requestId: input.requestId, manifestId: input.manifestId, model: 'gated-model', provider: 'Concurrency Fixture' };
+        await generationGate;
+        yield { type: 'RUN_END', requestId: input.requestId, text: '归档后不得提交', model: 'gated-model', provider: 'Concurrency Fixture' };
+      },
+    };
+    const { app } = await testApp(gatedRuntime);
+    await request(app).post('/api/graph/nodes').send({ title: '归档后的后备节点', x: 620, y: 280 }).expect(201);
+
+    const pendingChat = request(app).post('/api/chat').send({ message: '并发归档检查' }).then(response => response);
+    await started;
+    await request(app).delete('/api/graph/nodes/information-architecture').expect(200);
+    releaseGeneration();
+
+    const rejected = await pendingChat;
+    expect(rejected.status).toBe(409);
+    expect(rejected.body.error.code).toBe('NODE_ARCHIVED_DURING_RUN');
+    const workspace = (await request(app).get('/api/workspace').expect(200)).body.workspace;
+    expect(workspace.messages).toHaveLength(2);
+    expect(workspace.manifests).toEqual([]);
+    expect(workspace.discussionNodes.find((node: { id: string }) => node.id === 'information-architecture')).toMatchObject({ status: 'archived' });
   });
 
   it('does not persist a partial assistant response when a runtime stream fails', async () => {
@@ -203,7 +255,7 @@ describe('Rhiza API', () => {
     expect(JSON.parse(await readFile(filePath, 'utf8')).discussionNodes).toHaveLength(2);
   });
 
-  it('creates retrieval segments and keeps archive semantics distinct from deletion', async () => {
+  it('archives graph nodes idempotently without losing their complete history', async () => {
     const { app } = await testApp();
     const initial = await request(app).get('/api/workspace').expect(200);
     const messageIds = initial.body.workspace.messages.map((message: { id: string }) => message.id);
@@ -211,14 +263,58 @@ describe('Rhiza API', () => {
     expect(segmented.body.segment).toMatchObject({ nodeId: 'information-architecture', ordinal: 1, title: '访谈结论' });
     expect(segmented.body.workspace.messages.every((message: { segmentId: string }) => message.segmentId === segmented.body.segment.id)).toBe(true);
 
-    const branchResponse = await request(app).post('/api/graph/nodes').send({ title: '可归档支线' }).expect(201);
+    const branchResponse = await request(app).post('/api/nodes').send({ title: '可归档支线', sourceMessageId: 'm2', anchorText: '渐进式上下文', messages: [{ kind: 'user', text: '支线历史' }] }).expect(201);
     const branch = branchResponse.body.workspace.discussionNodes.find((node: { title: string }) => node.title === '可归档支线');
-    await request(app).post(`/api/nodes/${branch.id}/activate`).expect(200);
-    const archived = await request(app).patch(`/api/nodes/${branch.id}/status`).send({ status: 'archived' }).expect(200);
+    const chat = await request(app).post('/api/chat').send({ message: '支线结论' }).expect(201);
+    const afterChat = await request(app).get('/api/workspace').expect(200);
+    const branchMessageIds = afterChat.body.workspace.messages.filter((message: { nodeId: string }) => message.nodeId === branch.id).map((message: { id: string }) => message.id);
+    const branchSegment = await request(app).post(`/api/nodes/${branch.id}/segments`).send({ title: '支线片段', messageIds: branchMessageIds }).expect(201);
+    const beforeArchive = branchSegment.body.workspace;
+    const archived = await request(app).delete(`/api/graph/nodes/${branch.id}`).expect(200);
     expect(archived.body.workspace.activeNodeId).toBe('information-architecture');
+    expect(archived.body.workspace.discussionNodes.find((node: { id: string }) => node.id === branch.id)).toMatchObject({ status: 'archived' });
+    expect(archived.body.workspace.messages.filter((message: { nodeId: string }) => message.nodeId === branch.id)).toEqual(beforeArchive.messages.filter((message: { nodeId: string }) => message.nodeId === branch.id));
+    expect(archived.body.workspace.segments).toContainEqual(branchSegment.body.segment);
+    expect(archived.body.workspace.manifests).toContainEqual(chat.body.manifest);
+    expect(archived.body.workspace.anchors).toEqual(beforeArchive.anchors);
+    expect(archived.body.workspace.discussionEdges).toEqual(beforeArchive.discussionEdges);
+    await request(app).delete(`/api/graph/nodes/${branch.id}`).expect(200);
     await request(app).post(`/api/nodes/${branch.id}/activate`).expect(409);
-    await request(app).patch(`/api/nodes/${branch.id}/status`).send({ status: 'active' }).expect(200);
+    await request(app).post(`/api/nodes/${branch.id}/segments`).send({ title: '不可改写', messageIds: branchMessageIds }).expect(409);
+    await request(app).patch(`/api/nodes/${branch.id}/position`).send({ x: 100, y: 100 }).expect(409);
+    await request(app).patch(`/api/nodes/${branch.id}/status`).send({ status: 'resolved' }).expect(409);
+    await request(app).post(`/api/nodes/${branch.id}/merge`).send({ summary: '不可合并' }).expect(409);
+    await request(app).post('/api/graph/edges').send({ source: 'information-architecture', target: branch.id, relation: 'references', label: '不可新增' }).expect(409);
+    const derivedEdge = archived.body.workspace.discussionEdges.find((edge: { target: string }) => edge.target === branch.id);
+    await request(app).delete(`/api/graph/edges/${derivedEdge.id}`).expect(409);
+    const restored = await request(app).patch(`/api/nodes/${branch.id}/status`).send({ status: 'active' }).expect(200);
+    expect(restored.body.workspace.discussionNodes.find((node: { id: string }) => node.id === branch.id)).toMatchObject({ status: 'active' });
     await request(app).post(`/api/nodes/${branch.id}/activate`).expect(200);
+  });
+
+  it('isolates physical purge behind archived state, explicit confirmation and an audit receipt', async () => {
+    const { app } = await testApp();
+    const created = await request(app).post('/api/nodes').send({ title: '待清除支线', sourceMessageId: 'm2', messages: [{ kind: 'user', text: '需要受控清除的内容' }] }).expect(201);
+    const nodeId = created.body.workspace.activeNodeId as string;
+    await request(app).post('/api/chat').send({ message: '生成待清除 Manifest' }).expect(201);
+    const afterChat = await request(app).get('/api/workspace').expect(200);
+    const nodeMessageIds = afterChat.body.workspace.messages.filter((message: { nodeId: string }) => message.nodeId === nodeId).map((message: { id: string }) => message.id);
+    const segmentResponse = await request(app).post(`/api/nodes/${nodeId}/segments`).send({ title: '待清除片段', messageIds: nodeMessageIds }).expect(201);
+    const segmentId = segmentResponse.body.segment.id as string;
+    await request(app).post('/api/workspace/context').send({ sourceType: 'node', sourceId: nodeId }).expect(201);
+    await request(app).post('/api/workspace/context').send({ sourceType: 'segment', sourceId: segmentId }).expect(201);
+
+    await request(app).post(`/api/graph/nodes/${nodeId}/purge`).send({ confirmation: `PURGE ${nodeId}`, reason: '测试显式物理清除' }).expect(409);
+    await request(app).delete(`/api/graph/nodes/${nodeId}`).expect(200);
+    await request(app).post(`/api/graph/nodes/${nodeId}/purge`).send({ confirmation: 'PURGE wrong-id', reason: '测试显式物理清除' }).expect(400);
+
+    const purged = await request(app).post(`/api/graph/nodes/${nodeId}/purge`).send({ confirmation: `PURGE ${nodeId}`, reason: '测试显式物理清除' }).expect(200);
+    expect(purged.body.workspace.discussionNodes.some((node: { id: string }) => node.id === nodeId)).toBe(false);
+    expect(purged.body.workspace.messages.some((message: { nodeId: string }) => message.nodeId === nodeId)).toBe(false);
+    expect(purged.body.workspace.segments.some((segment: { nodeId: string }) => segment.nodeId === nodeId)).toBe(false);
+    expect(purged.body.workspace.manifests.some((manifest: { nodeId: string }) => manifest.nodeId === nodeId)).toBe(false);
+    expect(purged.body.workspace.contextItems.some((item: { sourceId?: string; sourceNodeId?: string }) => item.sourceId === nodeId || item.sourceId === segmentId || item.sourceNodeId === nodeId)).toBe(false);
+    expect(purged.body.purgeReceipt).toMatchObject({ action: 'node.purged', entityType: 'node', entityId: nodeId, metadata: { reason: '测试显式物理清除', confirmation: 'explicit-id-phrase' } });
   });
 
   it('keeps runtime history and persisted messages scoped to the active graph node', async () => {
@@ -236,7 +332,7 @@ describe('Rhiza API', () => {
     expect(providerBody.messages.at(-1).content).toBe('支线中的第一个问题');
   });
 
-  it('creates and deletes graph nodes and semantic edges', async () => {
+  it('creates graph nodes and semantic edges while retaining archived nodes', async () => {
     const { app } = await testApp();
     const createdNode = await request(app).post('/api/graph/nodes').send({ title: '检索实验', summary: '验证关系图谱编辑能力', x: 620, y: 280 }).expect(201);
     const node = createdNode.body.workspace.discussionNodes.find((item: { title: string }) => item.title === '检索实验');
@@ -247,7 +343,8 @@ describe('Rhiza API', () => {
     await request(app).delete(`/api/graph/edges/${edge.id}`).expect(200);
     await request(app).delete(`/api/graph/nodes/${node.id}`).expect(200);
     const workspace = await request(app).get('/api/workspace').expect(200);
-    expect(workspace.body.workspace.discussionNodes).toHaveLength(1);
+    expect(workspace.body.workspace.discussionNodes).toHaveLength(2);
+    expect(workspace.body.workspace.discussionNodes.find((item: { id: string }) => item.id === node.id)).toMatchObject({ status: 'archived' });
     expect(workspace.body.workspace.discussionEdges).toHaveLength(0);
   });
 

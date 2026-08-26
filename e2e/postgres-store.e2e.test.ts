@@ -4,11 +4,12 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it } from 'vitest';
+import type { ContextManifest } from '../server/domain';
 import { PostgresWorkspaceStore } from '../server/postgres-store';
 
 async function migratedDatabase() {
   const database = new PGlite();
-  for (const migration of ['0001_rhiza_core', '0002_chat_parity', '0003_domain_persistence']) {
+  for (const migration of ['0001_rhiza_core', '0002_chat_parity', '0003_domain_persistence', '0004_immutable_manifest_history']) {
     await database.exec(await readFile(resolve(`db/migrations/${migration}.up.sql`), 'utf8'));
   }
   return database;
@@ -73,4 +74,102 @@ describe('PostgreSQL workspace persistence', () => {
       await database.close();
     }
   });
+
+  it('rejects ordinary history omission and Manifest rewrites', async () => {
+    const database = await migratedDatabase();
+    try {
+      const projectId = randomUUID();
+      const store = new PostgresWorkspaceStore(database, projectId);
+      const seeded = await store.read();
+      const createdAt = new Date().toISOString();
+      const messageId = randomUUID();
+      const manifest: ContextManifest = {
+        id: randomUUID(), projectId, nodeId: seeded.activeNodeId, requestId: randomUUID(), createdAt,
+        mode: 'Assisted', provider: 'Test', model: 'original-model', runtime: 'provider-adapter',
+        contextItemIds: [], excludedItemIds: [], contextItems: [], estimatedTokens: 0,
+        generation: { temperature: 0.4, topP: 1, maxTokens: 1024 }, operation: 'send', attachmentIds: [],
+      };
+      await store.update(current => ({
+        ...current,
+        manifests: [...current.manifests, manifest],
+        messages: [...current.messages, { id: messageId, nodeId: current.activeNodeId, kind: 'assistant', text: '必须保留的历史', manifestId: manifest.id, createdAt }],
+      }));
+      await expect(store.update(current => ({
+        ...current,
+        manifests: current.manifests.map(item => item.id === manifest.id ? { ...item, model: 'attempted-rewrite' } : item),
+      }))).rejects.toThrow(`Immutable Manifest ${manifest.id} cannot be rewritten`);
+      await expect(database.query('UPDATE rhiza_context_manifests SET manifest = $2::jsonb WHERE id = $1', [manifest.id, JSON.stringify({ ...manifest, model: 'direct-rewrite' })]))
+        .rejects.toThrow('rhiza_context_manifests are immutable');
+      await expect(database.query('DELETE FROM rhiza_context_manifests WHERE id = $1', [manifest.id]))
+        .rejects.toThrow('authorized purge');
+      await expect(store.update(current => ({
+        ...current,
+        messages: current.messages.filter(message => message.id !== messageId),
+        manifests: current.manifests.filter(item => item.id !== manifest.id),
+      }))).rejects.toThrow('explicit purge capability');
+
+      const recovered = await new PostgresWorkspaceStore(database, projectId).read();
+      expect(recovered.messages).toContainEqual(expect.objectContaining({ id: messageId, text: '必须保留的历史', manifestId: manifest.id }));
+      expect(recovered.manifests).toContainEqual(expect.objectContaining({ id: manifest.id, model: 'original-model' }));
+    } finally {
+      await database.close();
+    }
+  }, 30_000);
+
+  it('purges only an archived leaf with a retained node.purged receipt', async () => {
+    const database = await migratedDatabase();
+    try {
+      const projectId = randomUUID();
+      const store = new PostgresWorkspaceStore(database, projectId);
+      await store.read();
+      const createdAt = new Date().toISOString();
+      const nodeId = randomUUID();
+      const manifestId = randomUUID();
+      const messageId = randomUUID();
+      const receiptId = randomUUID();
+      const manifest: ContextManifest = {
+        id: manifestId, projectId, nodeId, requestId: randomUUID(), createdAt,
+        mode: 'Assisted', provider: 'Test', model: 'purge-model', runtime: 'provider-adapter',
+        contextItemIds: [], excludedItemIds: [], contextItems: [], estimatedTokens: 0,
+        generation: { temperature: 0.4, topP: 1, maxTokens: 1024 }, operation: 'send', attachmentIds: [],
+      };
+      await store.update(current => ({
+        ...current,
+        discussionNodes: [...current.discussionNodes, {
+          id: nodeId, title: '可清除的归档叶节点', summary: 'Purge E2E', status: 'archived', kind: 'branch',
+          sourceNodeId: current.activeNodeId, x: 640, y: 280, createdAt, updatedAt: createdAt,
+        }],
+        manifests: [...current.manifests, manifest],
+        messages: [...current.messages, { id: messageId, nodeId, kind: 'assistant', text: '随节点清除的历史', manifestId, createdAt }],
+      }));
+
+      await expect(store.update(current => ({
+        ...current,
+        discussionNodes: current.discussionNodes.filter(node => node.id !== nodeId),
+        messages: current.messages.filter(message => message.nodeId !== nodeId),
+        manifests: current.manifests.filter(item => item.nodeId !== nodeId),
+      }))).rejects.toThrow('explicit purge capability');
+
+      await store.update(current => ({
+        ...current,
+        discussionNodes: current.discussionNodes.filter(node => node.id !== nodeId),
+        messages: current.messages.filter(message => message.nodeId !== nodeId),
+        manifests: current.manifests.filter(item => item.nodeId !== nodeId),
+        auditEvents: [...current.auditEvents, {
+          id: receiptId, projectId, nodeId, action: 'node.purged', entityType: 'node', entityId: nodeId,
+          metadata: { reason: 'M01 controlled purge test' }, createdAt,
+        }],
+      }), { purge: { nodeId, auditReceiptId: receiptId } });
+
+      const recovered = await new PostgresWorkspaceStore(database, projectId).read();
+      expect(recovered.discussionNodes).not.toContainEqual(expect.objectContaining({ id: nodeId }));
+      expect(recovered.messages).not.toContainEqual(expect.objectContaining({ id: messageId }));
+      expect(recovered.manifests).not.toContainEqual(expect.objectContaining({ id: manifestId }));
+      expect(recovered.auditEvents).toContainEqual(expect.objectContaining({
+        id: receiptId, action: 'node.purged', entityId: nodeId, nodeId: undefined,
+      }));
+    } finally {
+      await database.close();
+    }
+  }, 30_000);
 });

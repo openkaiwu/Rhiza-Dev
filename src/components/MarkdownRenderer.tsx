@@ -4,6 +4,7 @@ import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
+import { presentErrorText } from '../error-presentation';
 import 'katex/dist/katex.min.css';
 
 function MermaidBlock({ chart }: { chart: string }) {
@@ -21,7 +22,7 @@ function MermaidBlock({ chart }: { chart: string }) {
     }).then(result => {
       if (!disposed) setSvg(result.svg);
     }).catch(renderError => {
-      if (!disposed) setError(renderError instanceof Error ? renderError.message : '流程图渲染失败');
+      if (!disposed) setError(presentErrorText(renderError, { message: '流程图无法渲染。', recovery: '请检查 Mermaid 语法后重试。' }));
     });
     return () => { disposed = true; };
   }, [chart, id]);

@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "composite": true,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "declarationMap": true,
+    "outDir": ".tsbuild/runtime-adapters",
+    "tsBuildInfoFile": ".tsbuild/runtime-adapters.tsbuildinfo",
+    "rootDir": "server",
+    "types": ["node"]
+  },
+  "references": [{ "path": "./tsconfig.execution-runtime.json" }],
+  "files": [
+    "server/runtime-adapters/provider-runtime.ts",
+    "server/provider-runtime.ts",
+    "server/ai-runtime.ts",
+    "server/ai-provider.ts",
+    "server/config.ts",
+    "server/librechat-shared.ts",
+    "server/provider-domain.ts",
+    "server/provider-service.ts",
+    "server/provider-store.ts",
+    "server/secret-vault.ts"
+  ]
+}

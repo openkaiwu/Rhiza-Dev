@@ -6,6 +6,8 @@
     "db/migrations/0002_chat_parity.down.sql": "sha256:e934775b7a4ccb81863115f19ad80b2f30d58796ea9363d9bf50066348bc2c95",
     "db/migrations/0002_chat_parity.up.sql": "sha256:1d784fd0d21356c88b7c8d21d6f415fad8295b5d0c171b5b09b0b18548fce6e0",
     "db/migrations/0003_domain_persistence.down.sql": "sha256:a4856570f1b41a7a0e54bf8055bf7878abd525e8878ca03852ac72335142f8a3",
-    "db/migrations/0003_domain_persistence.up.sql": "sha256:21631bcb2a9b620378d89c9f93cf5c31c6a4327568945f775caccabd13989276"
+    "db/migrations/0003_domain_persistence.up.sql": "sha256:21631bcb2a9b620378d89c9f93cf5c31c6a4327568945f775caccabd13989276",
+    "db/migrations/0004_immutable_manifest_history.down.sql": "sha256:b3280d9b3c056f49c1b990af4d0f385d57f34331ffc8b645ecc20334afc29b6f",
+    "db/migrations/0004_immutable_manifest_history.up.sql": "sha256:e4050bd326e1e1e38d46a3f37290e72156488a6857d1a00b97ad7d2c3a87e6a2"
   }
 }

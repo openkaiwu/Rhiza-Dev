@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  m2-acceptance:
+  blocking:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     services:
@@ -41,12 +41,30 @@ jobs:
           node-version: 24.19.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run lint
-      - run: pnpm run typecheck
-      - run: pnpm run test:unit
-      - run: pnpm run test:e2e
-      - run: pnpm run licenses:verify
-      - run: pnpm run verify:g0
+      - name: Verify M01 historical evidence chain
+        run: pnpm exec tsx scripts/architecture-gates/verify-milestone-evidence.ts --milestone M01
+      - name: Verify M02 blocking gate and committed evidence
+        run: pnpm run verify:m02:v4
+  observational:
+    needs: blocking
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - name: Capture G0 CI observation
         run: pnpm run g0:observe
       - name: Upload G0 CI observation
@@ -56,4 +74,3 @@ jobs:
           path: ${{ runner.temp }}/g0-evidence.json
           if-no-files-found: error
           retention-days: 90
-      - run: pnpm run build

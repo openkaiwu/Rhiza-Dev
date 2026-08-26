@@ -1,6 +1,7 @@
 import { Check, Cloud, LoaderCircle, Pin, Plus, RefreshCw, Save, Star, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { ProviderCatalog, ProviderPreset, ProviderPresetInfo } from '../types';
+import { presentErrorText } from '../error-presentation';
 
 export interface ProviderFormState { id?: string; preset: ProviderPreset; name: string; baseUrl: string; apiKey: string; allowNoKey: boolean; modelId: string }
 const blankForm: ProviderFormState = { preset: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', apiKey: '', allowNoKey: false, modelId: 'gpt-4.1-mini' };
@@ -33,7 +34,7 @@ export function ProviderSettings({ catalog, presets, onClose, onSave, onDiscover
   };
   const run = async (key: string, action: () => Promise<void>, success: string) => {
     setBusy(key); setNotice('');
-    try { await action(); setNotice(success); } catch (error) { setNotice(error instanceof Error ? error.message : '操作失败'); } finally { setBusy(''); }
+    try { await action(); setNotice(success); } catch (error) { setNotice(presentErrorText(error, { message: '无法完成该操作。', recovery: '请检查配置后重试。' })); } finally { setBusy(''); }
   };
 
   return <div className="settings-backdrop" role="presentation"><section className="provider-settings" role="dialog" aria-modal="true" aria-labelledby="provider-settings-title">

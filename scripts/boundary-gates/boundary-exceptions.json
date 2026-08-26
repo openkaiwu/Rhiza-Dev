@@ -1,0 +1,4 @@
+{
+  "$schema": "./boundary-exceptions.schema.json",
+  "exceptions": []
+}

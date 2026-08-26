@@ -6,7 +6,7 @@ assert that the target event-driven architecture exists.
 
 Run `pnpm verify:g0` to run the mapped backend, UI Retry, and Stop E2E
 characterization tests, then validate schemas and local `$ref` closure, fixture
-hygiene, snapshots, canonical determinism, and five no-network benchmarks
+hygiene, whole-repository tracked-file hygiene, snapshots, canonical determinism, and five no-network benchmarks
 (workspace query/command, graph read, context plan, stream commit). The runner intentionally does not overwrite
 tracked evidence.  A release owner performs the two-commit evidence flow:
 
@@ -29,13 +29,57 @@ absolute/file paths (including private, tmp, etc, UNC, and home paths),
 traversal, unregistered fixtures, and oversized content.
 Locally generated evidence records the actual Node, OS, CPU, memory, and store
 adapter alongside the declared CI profile. The committed local result is
-supplemental: `G0/ci-performance-baseline.json` is the canonical Linux
+archived and supplemental, never a canonical CI performance claim:
+`G0/ci-performance-baseline.json` is the canonical Linux
 performance baseline, attested to the GitHub Actions run and artifact that
 produced it. CI additionally runs `pnpm g0:observe`, which writes a
 schema-validated, untracked observation
 to `$RUNNER_TEMP/g0-evidence.json` and uploads it as an artifact. It records
 the checked-out SHA, GitHub Actions provenance, observed environment, metrics,
 and checksums without replacing the archived baseline evidence.
+
+`blocking` CI runs lint, types, tests, license checks, G0 verification, and the
+build. Archived G0 evidence has `severity: blocking`. `observational` CI runs
+separately after it, writes `severity: observational`, and uploads the G0
+runtime observation; it is explicitly `continue-on-error`, visible, and does
+not determine merge eligibility. The immutable pre-severity Linux artifact is
+treated as observational by the verifier rather than being rewritten.
+Use `pnpm g0:hygiene` to reproduce tracked-file scanning. It rejects tracked
+runtime snapshots, `.DS_Store`, zip archives, credential signatures, and real
+absolute paths. To debug a finding, remove the tracked artifact with `git rm`
+or replace the value with a synthetic relative fixture, then rerun
+`pnpm test:architecture-gates` and `pnpm verify:g0`.
+
+Evidence exceptions must state an owner, `YYYY-MM-DD` expiry, ADR/issue, and
+`blocking` or `observational` severity. The verifier rejects expired exceptions;
+an expired observational exception explicitly escalates to a blocking failure.
+
+## V4 milestone evidence
+
+M01/M02/M03 use `milestone-evidence.schema.json`: each manifest binds its full
+Git commit to the current file and Git-object checksums, named fixtures, every
+gate command result, failure classification, owned/expiring exceptions, and the
+observed environment. `pnpm verify:m01:v4` and `pnpm verify:m02:v4` run their
+milestone checks and validate the corresponding committed manifest. Each
+milestone has an intentionally separate evidence phase (`pnpm m01:evidence` or
+`pnpm m02:evidence`): after the implementation commit exists, it runs the exact
+gate command set, writes `<milestone>/evidence.json`, and validates the new
+manifest before it is committed separately. `--write` never writes evidence
+after a failed or skipped command. It also requires the worktree inputs to
+match the implementation commit.
+
+Ordinary reads, including `pnpm verify:m02:v4` in CI, validate checksums from the recorded Git object so older
+milestones remain verifiable after later milestones legitimately change the
+same files. Run `pnpm verify:m02:closure` once while closing M02 to also require
+every checksummed worktree file to match. Later milestone CI should verify M02
+historically and use strict-current only for the milestone being closed. Both modes reject
+missing/non-ancestor commits, recorded-object checksum drift, unsafe paths, and
+expired exceptions. M02 additionally runs
+`pnpm verify:m02:boundaries --strict`: Domain/Application infrastructure imports,
+illegal layer direction or cycles, HTTP persistence access, mutating routes
+outside `Application.execute`, legacy route logic, and remaining M01 boundary
+exceptions are blocking failures. G0 characterization remains blocking; raw
+local latency deltas remain observational under the V4 roadmap.
 
 On ordinary verification, the baseline tag must exist as an annotated tag and
 peel to `b29d94f`. The archived evidence file is required: its recorded commit

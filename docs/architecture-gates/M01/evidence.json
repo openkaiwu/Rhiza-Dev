@@ -1,0 +1,367 @@
+{
+  "$schema": "https://rhiza.dev/architecture-gates/milestone-evidence/1.0.0",
+  "schema_version": "1.0.0",
+  "milestone": "M01",
+  "architecture_version": "V4.0",
+  "commit": "921e36a259dc5cc58a28b5a4912a02d3d6ee6d85",
+  "fixtures": [
+    {
+      "id": "g0-fixture-registry-v1",
+      "path": "docs/architecture-gates/fixture-registry.json",
+      "role": "fixture_registry"
+    },
+    {
+      "id": "g0-characterization-map-v1",
+      "path": "docs/architecture-gates/G0/characterization-map.json",
+      "role": "characterization_map"
+    },
+    {
+      "id": "g0-blocking-evidence-v1",
+      "path": "docs/architecture-gates/G0/evidence.json",
+      "role": "acceptance_fixture"
+    }
+  ],
+  "commands": [
+    {
+      "command": "pnpm run lint",
+      "result": "pass"
+    },
+    {
+      "command": "pnpm run typecheck",
+      "result": "pass"
+    },
+    {
+      "command": "pnpm run test:unit",
+      "result": "pass"
+    },
+    {
+      "command": "pnpm run test:e2e",
+      "result": "pass"
+    },
+    {
+      "command": "pnpm run licenses:verify",
+      "result": "pass"
+    },
+    {
+      "command": "pnpm run verify:g0",
+      "result": "pass"
+    },
+    {
+      "command": "pnpm run build",
+      "result": "pass"
+    }
+  ],
+  "checksums": {
+    ".github/workflows/ci.yml": {
+      "algorithm": "sha256",
+      "current": "5b294546c771849e9022f483703359e6627ea19520d7bb7adb054f7e60bcd689",
+      "recorded_commit": "5b294546c771849e9022f483703359e6627ea19520d7bb7adb054f7e60bcd689"
+    },
+    ".gitignore": {
+      "algorithm": "sha256",
+      "current": "401d82035015fb235249e821a6dc2a59fbd6eb9fd3dd5570e89d412e883596c7",
+      "recorded_commit": "401d82035015fb235249e821a6dc2a59fbd6eb9fd3dd5570e89d412e883596c7"
+    },
+    "README.md": {
+      "algorithm": "sha256",
+      "current": "345d8ac355f457ad4e7e04692ea49c0a8a62b7630fb3ca46234957864c313c1d",
+      "recorded_commit": "345d8ac355f457ad4e7e04692ea49c0a8a62b7630fb3ca46234957864c313c1d"
+    },
+    "pnpm-lock.yaml": {
+      "algorithm": "sha256",
+      "current": "bbbec7607cda361a1e60f9f1f39033ac87bd8f3335acae76e8aff40a5bf505da",
+      "recorded_commit": "bbbec7607cda361a1e60f9f1f39033ac87bd8f3335acae76e8aff40a5bf505da"
+    },
+    "package.json": {
+      "algorithm": "sha256",
+      "current": "8e0aa930cfd4a29038b145f031aa5196ff342a9f4e35b87ac561ce5f6c13803d",
+      "recorded_commit": "8e0aa930cfd4a29038b145f031aa5196ff342a9f4e35b87ac561ce5f6c13803d"
+    },
+    "reports/third-party-licenses.json": {
+      "algorithm": "sha256",
+      "current": "741be7851378f6458d15b2957cc53e29688d72af41564a711c14ca7d6ebe450c",
+      "recorded_commit": "741be7851378f6458d15b2957cc53e29688d72af41564a711c14ca7d6ebe450c"
+    },
+    "app/static/css/app.css": {
+      "algorithm": "sha256",
+      "current": "47433106a2e200acefa12913e7ab26fb6b3d3d5869bcc855d864c73617ab5825",
+      "recorded_commit": "47433106a2e200acefa12913e7ab26fb6b3d3d5869bcc855d864c73617ab5825"
+    },
+    "db/migrations/0004_immutable_manifest_history.down.sql": {
+      "algorithm": "sha256",
+      "current": "b3280d9b3c056f49c1b990af4d0f385d57f34331ffc8b645ecc20334afc29b6f",
+      "recorded_commit": "b3280d9b3c056f49c1b990af4d0f385d57f34331ffc8b645ecc20334afc29b6f"
+    },
+    "db/migrations/0004_immutable_manifest_history.up.sql": {
+      "algorithm": "sha256",
+      "current": "e4050bd326e1e1e38d46a3f37290e72156488a6857d1a00b97ad7d2c3a87e6a2",
+      "recorded_commit": "e4050bd326e1e1e38d46a3f37290e72156488a6857d1a00b97ad7d2c3a87e6a2"
+    },
+    "docs/adr/ADR-001-module-dependency-direction.md": {
+      "algorithm": "sha256",
+      "current": "81d1172194dd38a036c4bdad8d9569c28fe1da7e3172947645947ea8d65dbfa6",
+      "recorded_commit": "81d1172194dd38a036c4bdad8d9569c28fe1da7e3172947645947ea8d65dbfa6"
+    },
+    "docs/adr/ADR-002-identity-workspace-scope.md": {
+      "algorithm": "sha256",
+      "current": "0fe95391cd98ec32c52aeea261ed99b16392bc068e29891f5c5800efe5d4332d",
+      "recorded_commit": "0fe95391cd98ec32c52aeea261ed99b16392bc068e29891f5c5800efe5d4332d"
+    },
+    "docs/adr/ADR-003-resource-identity-and-content-hash.md": {
+      "algorithm": "sha256",
+      "current": "e25a8248ee52011d90216767acde1c7e5d31df71cfe4523fe9ec6c67cdf23647",
+      "recorded_commit": "e25a8248ee52011d90216767acde1c7e5d31df71cfe4523fe9ec6c67cdf23647"
+    },
+    "docs/adr/ADR-004-state-journal-receipt-transaction.md": {
+      "algorithm": "sha256",
+      "current": "514f005369eb7f2885e1f2df4c63cf4e05032c5fe1f790acf2c3f680c3565896",
+      "recorded_commit": "514f005369eb7f2885e1f2df4c63cf4e05032c5fe1f790acf2c3f680c3565896"
+    },
+    "docs/architecture-gates/fixture-registry.json": {
+      "algorithm": "sha256",
+      "current": "7f220bcbc564af7e09dd51906548cde05b3e6b504d031bce4518108f081696be",
+      "recorded_commit": "7f220bcbc564af7e09dd51906548cde05b3e6b504d031bce4518108f081696be"
+    },
+    "docs/architecture-gates/G0/characterization-map.json": {
+      "algorithm": "sha256",
+      "current": "0f77dd5b31b26dacff9525c672ff5197e63fe173e5653367e4a4126c700fd933",
+      "recorded_commit": "0f77dd5b31b26dacff9525c672ff5197e63fe173e5653367e4a4126c700fd933"
+    },
+    "docs/architecture-gates/G0/evidence.json": {
+      "algorithm": "sha256",
+      "current": "8e70c25100ce3aec27e3e8495b5a974cdbf7485c7c6a50482b72335ecf6e919a",
+      "recorded_commit": "8e70c25100ce3aec27e3e8495b5a974cdbf7485c7c6a50482b72335ecf6e919a"
+    },
+    "docs/architecture-gates/performance-profile.json": {
+      "algorithm": "sha256",
+      "current": "ef5d727d49002ea71da3e06352581b9cbd0d1d1ee0aff7162278b358c3f42289",
+      "recorded_commit": "ef5d727d49002ea71da3e06352581b9cbd0d1d1ee0aff7162278b358c3f42289"
+    },
+    "docs/architecture-gates/G0/snapshots/api.json": {
+      "algorithm": "sha256",
+      "current": "fe4dc37f2468b904975f4a6b510f54f444472d86333afd1129cb5b1b9459e45b",
+      "recorded_commit": "fe4dc37f2468b904975f4a6b510f54f444472d86333afd1129cb5b1b9459e45b"
+    },
+    "docs/architecture-gates/G0/snapshots/db.json": {
+      "algorithm": "sha256",
+      "current": "e9c366f60819b59b6db5b79468306d1e95ad4d36a5258353079e7685867a70e7",
+      "recorded_commit": "e9c366f60819b59b6db5b79468306d1e95ad4d36a5258353079e7685867a70e7"
+    },
+    "docs/architecture-gates/G0/snapshots/schema-index.json": {
+      "algorithm": "sha256",
+      "current": "3fda577be88c0abd11c4a00446eb23458c4a0d785595d44d2155ab3bca4a8837",
+      "recorded_commit": "3fda577be88c0abd11c4a00446eb23458c4a0d785595d44d2155ab3bca4a8837"
+    },
+    "docs/architecture-gates/README.md": {
+      "algorithm": "sha256",
+      "current": "64ddaf32c54d6201ba1ca8fdf44658bdba84cd3323e4663736f33eeffe8dd38a",
+      "recorded_commit": "64ddaf32c54d6201ba1ca8fdf44658bdba84cd3323e4663736f33eeffe8dd38a"
+    },
+    "docs/architecture-gates/ci-observation.schema.json": {
+      "algorithm": "sha256",
+      "current": "0da96577640845b6a208a2e27b083a1675ce744be3a291c5f0c224352f54b74c",
+      "recorded_commit": "0da96577640845b6a208a2e27b083a1675ce744be3a291c5f0c224352f54b74c"
+    },
+    "docs/architecture-gates/evidence-manifest.schema.json": {
+      "algorithm": "sha256",
+      "current": "298ba11737b6fd4c5db8ac590d99a90a0c3fbdec79d54c53473d1a48270947ca",
+      "recorded_commit": "298ba11737b6fd4c5db8ac590d99a90a0c3fbdec79d54c53473d1a48270947ca"
+    },
+    "docs/architecture-gates/milestone-evidence.schema.json": {
+      "algorithm": "sha256",
+      "current": "6d06aa491e4323adee7822b54e964c4b61dd93354ee7c792aa83de38e672ccad",
+      "recorded_commit": "6d06aa491e4323adee7822b54e964c4b61dd93354ee7c792aa83de38e672ccad"
+    },
+    "docs/architecture.md": {
+      "algorithm": "sha256",
+      "current": "0fbd055ed9ccde75e0982d5fd06369b2a12a71acc1f192bb766c36c67c6166cb",
+      "recorded_commit": "0fbd055ed9ccde75e0982d5fd06369b2a12a71acc1f192bb766c36c67c6166cb"
+    },
+    "e2e/postgres-migration.e2e.test.ts": {
+      "algorithm": "sha256",
+      "current": "76a977162ab9c8f404bcca617d700649f451083087009d3b9e2d7931e279cbca",
+      "recorded_commit": "76a977162ab9c8f404bcca617d700649f451083087009d3b9e2d7931e279cbca"
+    },
+    "e2e/postgres-schema.e2e.test.ts": {
+      "algorithm": "sha256",
+      "current": "4b1bbc53ea76fa45e267e103a439d556384df69c8abac8e25bd6626de1b2010c",
+      "recorded_commit": "4b1bbc53ea76fa45e267e103a439d556384df69c8abac8e25bd6626de1b2010c"
+    },
+    "e2e/postgres-store.e2e.test.ts": {
+      "algorithm": "sha256",
+      "current": "9471af4254684c889fd63363b50029da935ec8d794fcb06c515430a46533d2f2",
+      "recorded_commit": "9471af4254684c889fd63363b50029da935ec8d794fcb06c515430a46533d2f2"
+    },
+    "eslint.config.js": {
+      "algorithm": "sha256",
+      "current": "704c1fd956c8c43d51feeff8420374adf4b9ec6cc1429d278491d6d37ef8ebd8",
+      "recorded_commit": "704c1fd956c8c43d51feeff8420374adf4b9ec6cc1429d278491d6d37ef8ebd8"
+    },
+    "scripts/architecture-gates/repository-hygiene.test.ts": {
+      "algorithm": "sha256",
+      "current": "d4fba1c12b86c83c9520d0d1be57d617f4fbdd1f3b630944abf20152ce4a9dc5",
+      "recorded_commit": "d4fba1c12b86c83c9520d0d1be57d617f4fbdd1f3b630944abf20152ce4a9dc5"
+    },
+    "scripts/architecture-gates/repository-hygiene.ts": {
+      "algorithm": "sha256",
+      "current": "78860528a7d5d53c14c472db05fc5de4aeaad0695063512ed54a34cee7ea526a",
+      "recorded_commit": "78860528a7d5d53c14c472db05fc5de4aeaad0695063512ed54a34cee7ea526a"
+    },
+    "scripts/architecture-gates/run-characterization.ts": {
+      "algorithm": "sha256",
+      "current": "54e6dfb3de9e324737bced3f27e4396bbe03033e58842e8f5fdb733b12a9040d",
+      "recorded_commit": "54e6dfb3de9e324737bced3f27e4396bbe03033e58842e8f5fdb733b12a9040d"
+    },
+    "scripts/architecture-gates/verify-g0.test.ts": {
+      "algorithm": "sha256",
+      "current": "9a9817f4f311b854afc748d2262bf5278e7242c7def200ec616a9b716bcf9f21",
+      "recorded_commit": "9a9817f4f311b854afc748d2262bf5278e7242c7def200ec616a9b716bcf9f21"
+    },
+    "scripts/architecture-gates/verify-g0.ts": {
+      "algorithm": "sha256",
+      "current": "79218dfa50837bf64a8c3a5f24f9cebc47035684751c4f2a55c35d0c0fb3989f",
+      "recorded_commit": "79218dfa50837bf64a8c3a5f24f9cebc47035684751c4f2a55c35d0c0fb3989f"
+    },
+    "scripts/architecture-gates/verify-milestone-evidence.test.ts": {
+      "algorithm": "sha256",
+      "current": "b9ac1c3e4d7dcee22ff36a3f5cb93ead366add166129164f42fc38559d76f57e",
+      "recorded_commit": "b9ac1c3e4d7dcee22ff36a3f5cb93ead366add166129164f42fc38559d76f57e"
+    },
+    "scripts/architecture-gates/verify-milestone-evidence.ts": {
+      "algorithm": "sha256",
+      "current": "53873e1e93f2d5d356f7995c3f65e15e56ef9e77506f01d529742784f90cb8aa",
+      "recorded_commit": "53873e1e93f2d5d356f7995c3f65e15e56ef9e77506f01d529742784f90cb8aa"
+    },
+    "scripts/generate-license-report.mjs": {
+      "algorithm": "sha256",
+      "current": "fe13a809c129604c305de1e691d202651b33de0af169c3af37fbc58dcc62028f",
+      "recorded_commit": "fe13a809c129604c305de1e691d202651b33de0af169c3af37fbc58dcc62028f"
+    },
+    "scripts/boundary-gates/boundary-exceptions.json": {
+      "algorithm": "sha256",
+      "current": "66b35cc39967ca5d25eaf420d713227619265ccc42da0bba550bd4657d19b702",
+      "recorded_commit": "66b35cc39967ca5d25eaf420d713227619265ccc42da0bba550bd4657d19b702"
+    },
+    "scripts/boundary-gates/boundary-exceptions.schema.json": {
+      "algorithm": "sha256",
+      "current": "9601ead87a9c1eb68a6d184c821fa523ddf783e14e3425b906f4c871c7213a5f",
+      "recorded_commit": "9601ead87a9c1eb68a6d184c821fa523ddf783e14e3425b906f4c871c7213a5f"
+    },
+    "scripts/boundary-gates/boundary-lint.test.ts": {
+      "algorithm": "sha256",
+      "current": "e88ec3c3794a29b5122b095db655d9cb456c950f7d500c9c53bf01d423ecedf5",
+      "recorded_commit": "e88ec3c3794a29b5122b095db655d9cb456c950f7d500c9c53bf01d423ecedf5"
+    },
+    "scripts/boundary-gates/fixtures/domain-imports-express.txt": {
+      "algorithm": "sha256",
+      "current": "37839c38e7d73e70864b0fe8456defad435eac1b2febc7f4256f9d32508466a3",
+      "recorded_commit": "37839c38e7d73e70864b0fe8456defad435eac1b2febc7f4256f9d32508466a3"
+    },
+    "scripts/boundary-gates/fixtures/domain-imports-node-fs.txt": {
+      "algorithm": "sha256",
+      "current": "984955408d57914bc3ebdf47261f8cdcaf7fae398d25bfbbc1cda4ab3bfee97a",
+      "recorded_commit": "984955408d57914bc3ebdf47261f8cdcaf7fae398d25bfbbc1cda4ab3bfee97a"
+    },
+    "scripts/boundary-gates/fixtures/http-imports-persistence.txt": {
+      "algorithm": "sha256",
+      "current": "82482fcf0959eb8eed4c2fc466aa39b376161b9217071387503ebe6d5585b685",
+      "recorded_commit": "82482fcf0959eb8eed4c2fc466aa39b376161b9217071387503ebe6d5585b685"
+    },
+    "scripts/boundary-gates/fixtures/route-imports-postgres-store.txt": {
+      "algorithm": "sha256",
+      "current": "a83f8d3d4806492628dcda34cfaa8d1804967a9ea5ce0908d7b074125f1a1e92",
+      "recorded_commit": "a83f8d3d4806492628dcda34cfaa8d1804967a9ea5ce0908d7b074125f1a1e92"
+    },
+    "scripts/boundary-gates/fixtures/web-imports-server.txt": {
+      "algorithm": "sha256",
+      "current": "e47b6071d1b79dac260896a67a1386fb1e02c0371c1003643b7b6b7433928b6f",
+      "recorded_commit": "e47b6071d1b79dac260896a67a1386fb1e02c0371c1003643b7b6b7433928b6f"
+    },
+    "scripts/boundary-gates/verify-boundary-exceptions.ts": {
+      "algorithm": "sha256",
+      "current": "05754a971a114f31ce0999e05780055a66d57d5ddd62926e499899cf250fd417",
+      "recorded_commit": "05754a971a114f31ce0999e05780055a66d57d5ddd62926e499899cf250fd417"
+    },
+    "scripts/migrate.test.ts": {
+      "algorithm": "sha256",
+      "current": "fbd997539f655069111959dce744511ae07ce6a20e5c22453f021ed830a63997",
+      "recorded_commit": "fbd997539f655069111959dce744511ae07ce6a20e5c22453f021ed830a63997"
+    },
+    "server/app.test.ts": {
+      "algorithm": "sha256",
+      "current": "af655ff48929a953283d48c7ad9be0e132cfcf39d986633d7c71141c08b0f9d7",
+      "recorded_commit": "af655ff48929a953283d48c7ad9be0e132cfcf39d986633d7c71141c08b0f9d7"
+    },
+    "server/app.ts": {
+      "algorithm": "sha256",
+      "current": "33067a9d17bc36e8a60c23b4c20d8c331292ffd79da815bc31a28ac8d0f6ac2b",
+      "recorded_commit": "33067a9d17bc36e8a60c23b4c20d8c331292ffd79da815bc31a28ac8d0f6ac2b"
+    },
+    "server/g0-fixture-characterization.test.ts": {
+      "algorithm": "sha256",
+      "current": "dd6f0fa18ba8019111675fc5374f458851c86419a64342ba8e0f04fd04552117",
+      "recorded_commit": "dd6f0fa18ba8019111675fc5374f458851c86419a64342ba8e0f04fd04552117"
+    },
+    "server/store.ts": {
+      "algorithm": "sha256",
+      "current": "0f2e697c3fd8b8a43ab64d15f991f78febaa94902f7648c3f212bc93a3e4feb7",
+      "recorded_commit": "0f2e697c3fd8b8a43ab64d15f991f78febaa94902f7648c3f212bc93a3e4feb7"
+    },
+    "server/postgres-store.ts": {
+      "algorithm": "sha256",
+      "current": "490b03e4259a1f06be982cb146a10416e541945ad02aac320a806bc7780eee8c",
+      "recorded_commit": "490b03e4259a1f06be982cb146a10416e541945ad02aac320a806bc7780eee8c"
+    },
+    "src/App.test.tsx": {
+      "algorithm": "sha256",
+      "current": "5fb66ce3c03dbd70255cb343942086395fddb834257dc5bd7d552f6be81f57da",
+      "recorded_commit": "5fb66ce3c03dbd70255cb343942086395fddb834257dc5bd7d552f6be81f57da"
+    },
+    "src/App.tsx": {
+      "algorithm": "sha256",
+      "current": "bebd59e8cd6e904d9ea252473a865b20a7cad0c118b87f7f62f41d15f2236ec5",
+      "recorded_commit": "bebd59e8cd6e904d9ea252473a865b20a7cad0c118b87f7f62f41d15f2236ec5"
+    },
+    "src/api.ts": {
+      "algorithm": "sha256",
+      "current": "0c5ace5fc6f8bed1eb4fa8e6661f7f097c11f45076d2f431c7fcf7afce7eafd5",
+      "recorded_commit": "0c5ace5fc6f8bed1eb4fa8e6661f7f097c11f45076d2f431c7fcf7afce7eafd5"
+    },
+    "src/components/GraphView.test.tsx": {
+      "algorithm": "sha256",
+      "current": "a71a5d0fe15a427c8d886791a45d62c8db60851c1bdc009bdee89a91c7a33e73",
+      "recorded_commit": "a71a5d0fe15a427c8d886791a45d62c8db60851c1bdc009bdee89a91c7a33e73"
+    },
+    "src/components/GraphView.tsx": {
+      "algorithm": "sha256",
+      "current": "9a07fbd97b6da18d2380ee19e24d4b60e87ca75d20612b34a40bde964fd9bc76",
+      "recorded_commit": "9a07fbd97b6da18d2380ee19e24d4b60e87ca75d20612b34a40bde964fd9bc76"
+    },
+    "src/test/setup.ts": {
+      "algorithm": "sha256",
+      "current": "d648759150970e42228f9a8c4a3251fa16a350d3581cbef5f1a2c9e7b5bbae2b",
+      "recorded_commit": "d648759150970e42228f9a8c4a3251fa16a350d3581cbef5f1a2c9e7b5bbae2b"
+    }
+  },
+  "failure_classification": {
+    "classification": "known_exception",
+    "rationale": "All blocking M01 commands passed; the legacy HTTP-to-repository port access remains an owned observational exception until M02."
+  },
+  "known_exceptions": [
+    {
+      "owner": "M02 Application-boundary implementer",
+      "expiry": "2026-09-30",
+      "adr_or_issue": "INH-8 / M02",
+      "severity": "observational"
+    }
+  ],
+  "environment": {
+    "node": "v24.19.0",
+    "os": "darwin 25.5.0",
+    "cpu": "Apple A18 Pro",
+    "memory_bytes": 8589934592
+  },
+  "started_at": "2026-08-23T08:05:44.414Z",
+  "completed_at": "2026-08-23T08:08:05.557Z",
+  "result": "pass"
+}

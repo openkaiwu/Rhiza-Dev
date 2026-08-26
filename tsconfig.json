@@ -1,6 +1,13 @@
 {
   "files": [],
   "references": [
+    { "path": "./tsconfig.domain.json" },
+    { "path": "./tsconfig.contracts.json" },
+    { "path": "./tsconfig.context-runtime.json" },
+    { "path": "./tsconfig.execution-runtime.json" },
+    { "path": "./tsconfig.application-layer.json" },
+    { "path": "./tsconfig.http-layer.json" },
+    { "path": "./tsconfig.runtime-adapters.json" },
     { "path": "./tsconfig.app.json" },
     { "path": "./tsconfig.server.json" }
   ]

@@ -5,7 +5,7 @@
 
 Rhiza 是一个面向长期、复杂 AI 工作流的 Workspace。它不把聊天记录当作最高层抽象，而将对话、上下文、知识、决策、任务、执行与产物组织为同一工作空间中的可追溯对象。
 
-当前仓库提供了一个可运行的 Web MVP：以节点级对话、显式 Context、不可变 Manifest、分支和 Conversation Graph 验证产品体验。最新架构基线则定义了 Rhiza 向 **Control Plane + Observability Plane** 演进的路径；二者的边界在下文明确标注。
+当前仓库提供了一个可运行的 Web MVP：以节点级对话、显式 Context、不可变 Manifest、分支和 Conversation Graph 验证产品体验。它是当前实现快照，不是目标 Kernel；目标与施工顺序以 **Rhiza Architecture & Roadmap Baseline V4.1** 为唯一权威。
 
 ## 愿景
 
@@ -58,9 +58,9 @@ M0–M6 已验证的 Web 体验聚焦于“复杂对话 → 可追溯 Context �
 - JSON 默认存储与可选 PostgreSQL Repository；原子写入、版本化消息、审计事件、事务迁移和 checksum 校验。
 - 响应式 Web 界面、首次引导、命令面板、快捷键、离线/错误/空状态恢复，以及 lint、类型、单元、E2E、构建与许可证门禁。
 
-当前 MVP 使用 Rhiza 自有领域模型。它选择性复用锁定的 `librechat-data-provider` 进行 Model Spec 校验、endpoint 归一化与文件策略；LibreChat 的 Conversation/Mongo 领域模型不会成为 Rhiza 的事实来源。迁移边界见 [docs/librechat-migration.md](docs/librechat-migration.md)。
+当前 MVP 使用 Rhiza 自有领域模型。它选择性复用锁定的 `librechat-data-provider` 进行 Model Spec 校验、endpoint 归一化与文件策略；LibreChat 的 Conversation/Mongo 领域模型不会成为 Rhiza 的事实来源。旧迁移边界说明仅作[历史归档](docs/archive/librechat-migration.md)阅读，现行边界以 V4.1 基线为准。
 
-## 目标架构（战略基线 v2.3）
+## 目标架构（V4.1 基线）
 
 当前实现是产品假设的起点，不是最终 Kernel。接下来的架构重置会将现有能力迁移到以下分层，同时保持既有用户路径：
 
