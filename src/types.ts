@@ -1,4 +1,5 @@
 export type View = 'chat' | 'graph' | 'state';
+export interface WorkspaceRecord { workspaceId: string; name: string; status: 'active' | 'archived'; createdBy: string; revision: number }
 export type ContextMode = 'Auto' | 'Assisted' | 'Strict';
 export type ContextStatus = 'active' | 'recommended' | 'excluded';
 export type ChatOperation = 'send' | 'retry' | 'regenerate' | 'edit-resend';

@@ -1,4 +1,4 @@
-import type { Attachment, ChatOperation, ContextManifest, ContextMode, ContextStatus, GenerationOptions, Message, ProviderCatalog, ProviderPreset, ProviderPresetInfo, ProviderStatus, TokenUsage, ToolCall, WorkspaceSnapshot } from './types';
+import type { Attachment, ChatOperation, ContextManifest, ContextMode, ContextStatus, GenerationOptions, Message, ProviderCatalog, ProviderPreset, ProviderPresetInfo, ProviderStatus, TokenUsage, ToolCall, WorkspaceSnapshot, WorkspaceRecord } from './types';
 
 export type ApiErrorCategory = 'validation' | 'conflict' | 'permission' | 'not_found' | 'infrastructure';
 
@@ -119,6 +119,10 @@ async function uploadAttachment(file: File): Promise<Attachment> {
 }
 
 export const api = {
+  listWorkspaces: () => request<{ workspaces: WorkspaceRecord[] }>('/api/v1/workspaces'),
+  createWorkspace: (name: string) => request<{ workspace: WorkspaceRecord }>('/api/v1/workspaces', { method: 'POST', body: JSON.stringify({ name }) }),
+  getScopedWorkspace: (workspaceId: string) => request<{ workspace: WorkspaceSnapshot }>(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}`),
+  updateWorkspace: (workspaceId: string, action: 'archive' | 'restore' | 'rename', name?: string) => request<{ workspace: WorkspaceRecord }>(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}`, { method: 'PATCH', body: JSON.stringify({ action, name }) }),
   getWorkspace: () => request<{ workspace: WorkspaceSnapshot; provider: ProviderStatus; providerCatalog: ProviderCatalog }>('/api/workspace'),
   setMode: (mode: ContextMode) => request<{ workspace: WorkspaceSnapshot }>('/api/workspace/mode', { method: 'PATCH', body: JSON.stringify({ mode }) }),
   setContextStatus: (id: string, status: ContextStatus) => request<{ workspace: WorkspaceSnapshot }>(`/api/workspace/context/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ status }) }),

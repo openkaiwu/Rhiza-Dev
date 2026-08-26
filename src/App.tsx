@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Attachment, ContextManifest, ContextMode, ContextStatus, DiscussionEdge, DiscussionNode, Message, ProviderCatalog, ProviderPresetInfo, ProviderStatus, Segment, View, WorkspaceSnapshot } from './types';
+import type { Attachment, ContextManifest, ContextMode, ContextStatus, DiscussionEdge, DiscussionNode, Message, ProviderCatalog, ProviderPresetInfo, ProviderStatus, Segment, View, WorkspaceSnapshot, WorkspaceRecord } from './types';
 import { api, type ChatRequestOptions } from './api';
 import { presentErrorText } from './error-presentation';
 import { Sidebar } from './components/Sidebar';
@@ -34,6 +34,8 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(() => localStorage.getItem('rhiza:onboarding-seen') !== '1');
   const [focusComposerRequest, setFocusComposerRequest] = useState(0);
+  const [workspaces, setWorkspaces] = useState<WorkspaceRecord[]>([]);
+  const [currentWorkspaceId, setCurrentWorkspaceId] = useState('00000000-0000-4000-8000-000000000001');
   const loadRequestRef = useRef(0);
   const modalReturnFocusRef = useRef<HTMLElement | null>(null);
   const activeModalRef = useRef<HTMLElement | null>(null);
@@ -72,6 +74,8 @@ export function App() {
   }, [applyWorkspace]);
 
   useEffect(() => { void loadWorkspace(); }, [loadWorkspace]);
+  useEffect(() => { void api.listWorkspaces().then(result => setWorkspaces(result.workspaces)).catch(() => undefined); }, []);
+  const switchWorkspace = async (workspaceId: string) => { const { workspace } = await api.getScopedWorkspace(workspaceId); setCurrentWorkspaceId(workspaceId); applyWorkspace(workspace); };
   useEffect(() => {
     const goOffline = () => { setOnline(false); setNetworkNotice('当前离线，发送已暂停。'); };
     const goOnline = () => {
@@ -298,7 +302,7 @@ export function App() {
     <a className="skip-link" href="#workspace-main">跳到主要内容</a>
     <div className="network-status" aria-live="polite" role="status">{networkNotice}</div>
     <div className="ambient-grid" aria-hidden="true"/>
-    <Sidebar view={view} nodes={navigableNodes} messages={messages} activeNodeId={activeNode.id} onView={setView} onNode={id => activateNode(id, true)} onSettings={openSettings} onCommand={() => setPaletteOpen(true)} onHelp={() => setOnboardingOpen(true)}/>
+    <Sidebar view={view} nodes={navigableNodes} messages={messages} activeNodeId={activeNode.id} onView={setView} onNode={id => activateNode(id, true)} onSettings={openSettings} onCommand={() => setPaletteOpen(true)} onHelp={() => setOnboardingOpen(true)} workspaces={workspaces} currentWorkspaceId={currentWorkspaceId} onWorkspace={id => void switchWorkspace(id)}/>
     {discussionNodes.length === 0 ? <main id="workspace-main" className="workspace-empty"><h1>这个工作区还没有讨论节点</h1><p>请通过项目入口创建第一个节点，然后开始建立上下文。</p></main> : view === 'chat' && <ChatView
       activeNode={activeNode} nodes={navigableNodes} edges={discussionEdges} mode={mode}
       activeCount={activeCount} messages={activeMessages} manifests={manifests} attachments={attachments}

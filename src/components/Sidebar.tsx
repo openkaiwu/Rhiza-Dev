@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { Archive, ChevronDown, ChevronRight, ChevronsUp, CornerDownRight, FolderKanban, GitFork, ListTree, MessageSquareMore, Search, Settings2, Shapes } from 'lucide-react';
-import type { DiscussionNode, Message, View } from '../types';
+import type { DiscussionNode, Message, View, WorkspaceRecord } from '../types';
 import { ParticleMark } from './ParticleMark';
 
 function pathFor(nodeId: string, nodes: DiscussionNode[]) {
@@ -14,7 +14,7 @@ function pathFor(nodeId: string, nodes: DiscussionNode[]) {
   return path;
 }
 
-export function Sidebar({ view, nodes, messages, activeNodeId, onView, onNode, onSettings, onCommand, onHelp }: { view: View; nodes: DiscussionNode[]; messages: Message[]; activeNodeId: string; onView: (view: View) => void; onNode: (id: string) => void; onSettings: () => void; onCommand: () => void; onHelp: () => void }) {
+export function Sidebar({ view, nodes, messages, activeNodeId, onView, onNode, onSettings, onCommand, onHelp, workspaces = [], currentWorkspaceId, onWorkspace }: { view: View; nodes: DiscussionNode[]; messages: Message[]; activeNodeId: string; onView: (view: View) => void; onNode: (id: string) => void; onSettings: () => void; onCommand: () => void; onHelp: () => void; workspaces?: WorkspaceRecord[]; currentWorkspaceId?: string; onWorkspace?: (id: string) => void }) {
   const activePath = useMemo(() => pathFor(activeNodeId, nodes), [activeNodeId, nodes]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [focusPath, setFocusPath] = useState(false);
@@ -65,7 +65,7 @@ export function Sidebar({ view, nodes, messages, activeNodeId, onView, onNode, o
   const compactPath = activePath.length <= 3 ? activePath : [activePath[0], null, ...activePath.slice(-2)];
   return <aside className="sidebar">
     <div className="brand"><ParticleMark compact/><span><strong>根系</strong><small>Rhiza</small></span><button className="icon-button quiet" aria-label="模型与 API 设置" onClick={onSettings}><Settings2 size={15}/></button></div>
-    <button className="project-switch"><span className="project-avatar">根</span><span><strong>Rhiza 产品研究</strong><small>Context-native workspace</small></span><ChevronDown size={15}/></button>
+    <div className="project-switch"><span className="project-avatar">根</span><span><strong>{workspaces.find(item => item.workspaceId === currentWorkspaceId)?.name || 'Rhiza 产品研究'}</strong><small>Context-native workspace</small></span><ChevronDown size={15}/>{workspaces.length > 1 && <select aria-label="切换工作区" value={currentWorkspaceId} onChange={event => onWorkspace?.(event.target.value)}>{workspaces.map(item => <option key={item.workspaceId} value={item.workspaceId}>{item.name}</option>)}</select>}</div>
     <button className="search-button" onClick={onCommand}><Search size={15}/><span>搜索或运行命令</span><kbd>⌘ K</kbd></button>
     <div className="side-section"><div className="section-label"><span>工作空间</span></div><button className={view === 'chat' ? 'nav-item active' : 'nav-item'} onClick={() => onView('chat')}><span className="nav-glyph"><MessageSquareMore size={15}/></span>当前讨论<span className="count">{nodes.length}</span></button><button className={view === 'graph' ? 'nav-item active' : 'nav-item'} onClick={() => onView('graph')}><span className="nav-glyph"><GitFork size={15}/></span>对话图谱</button><button className={view === 'state' ? 'nav-item active' : 'nav-item'} onClick={() => onView('state')}><span className="nav-glyph"><Shapes size={15}/></span>知识状态<span className="status-dot warning"/></button></div>
     <div className="side-section threads hierarchical-threads">
