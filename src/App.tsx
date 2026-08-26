@@ -75,7 +75,12 @@ export function App() {
 
   useEffect(() => { void loadWorkspace(); }, [loadWorkspace]);
   useEffect(() => { void api.listWorkspaces().then(result => setWorkspaces(result.workspaces)).catch(() => undefined); }, []);
-  const switchWorkspace = async (workspaceId: string) => { const { workspace } = await api.getScopedWorkspace(workspaceId); setCurrentWorkspaceId(workspaceId); applyWorkspace(workspace); };
+  const switchWorkspace = async (workspaceId: string) => { setMessages([]); setDiscussionNodes([]); const { workspace } = await api.getScopedWorkspace(workspaceId); setCurrentWorkspaceId(workspaceId); applyWorkspace(workspace); };
+  const refreshWorkspaces = async () => setWorkspaces((await api.listWorkspaces()).workspaces);
+  const createWorkspace = async () => { const name = window.prompt('工作区名称'); if (!name?.trim()) return; const { workspace } = await api.createWorkspace(name.trim()); await refreshWorkspaces(); await switchWorkspace(workspace.workspaceId); };
+  const renameWorkspace = async () => { const name = window.prompt('新名称', workspaces.find(item => item.workspaceId === currentWorkspaceId)?.name); if (!name?.trim()) return; await api.updateWorkspace(currentWorkspaceId, 'rename', name.trim()); await refreshWorkspaces(); };
+  const archiveWorkspace = async () => { await api.updateWorkspace(currentWorkspaceId, 'archive'); await refreshWorkspaces(); const next = workspaces.find(item => item.workspaceId !== currentWorkspaceId && item.status === 'active'); if (next) await switchWorkspace(next.workspaceId); };
+  const restoreWorkspace = async () => { await api.updateWorkspace(currentWorkspaceId, 'restore'); await refreshWorkspaces(); };
   useEffect(() => {
     const goOffline = () => { setOnline(false); setNetworkNotice('当前离线，发送已暂停。'); };
     const goOnline = () => {
@@ -302,7 +307,7 @@ export function App() {
     <a className="skip-link" href="#workspace-main">跳到主要内容</a>
     <div className="network-status" aria-live="polite" role="status">{networkNotice}</div>
     <div className="ambient-grid" aria-hidden="true"/>
-    <Sidebar view={view} nodes={navigableNodes} messages={messages} activeNodeId={activeNode.id} onView={setView} onNode={id => activateNode(id, true)} onSettings={openSettings} onCommand={() => setPaletteOpen(true)} onHelp={() => setOnboardingOpen(true)} workspaces={workspaces} currentWorkspaceId={currentWorkspaceId} onWorkspace={id => void switchWorkspace(id)}/>
+    <Sidebar view={view} nodes={navigableNodes} messages={messages} activeNodeId={activeNode.id} onView={setView} onNode={id => activateNode(id, true)} onSettings={openSettings} onCommand={() => setPaletteOpen(true)} onHelp={() => setOnboardingOpen(true)} workspaces={workspaces} currentWorkspaceId={currentWorkspaceId} onWorkspace={id => void switchWorkspace(id)} onCreateWorkspace={() => void createWorkspace()} onRenameWorkspace={() => void renameWorkspace()} onArchiveWorkspace={() => void archiveWorkspace()} onRestoreWorkspace={() => void restoreWorkspace()}/>
     {discussionNodes.length === 0 ? <main id="workspace-main" className="workspace-empty"><h1>这个工作区还没有讨论节点</h1><p>请通过项目入口创建第一个节点，然后开始建立上下文。</p></main> : view === 'chat' && <ChatView
       activeNode={activeNode} nodes={navigableNodes} edges={discussionEdges} mode={mode}
       activeCount={activeCount} messages={activeMessages} manifests={manifests} attachments={attachments}
