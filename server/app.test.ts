@@ -44,6 +44,19 @@ describe('Rhiza API', () => {
     const listed = await request(app).get('/api/v1/workspaces').expect(200);
     expect(listed.body.workspaces).toEqual(expect.arrayContaining([expect.objectContaining({ workspaceId: id, name: 'Renamed', status: 'active' })]));
   });
+  it('keeps scoped writes invisible across workspaces and preserves legacy default', async () => {
+    const { app } = await testApp();
+    const legacyBefore = await request(app).get('/api/workspace').expect(200);
+    const created = await request(app).post('/api/v1/workspaces').send({ name: 'Isolation' }).expect(201);
+    const id = created.body.workspace.workspaceId as string;
+    await request(app).post(`/api/v1/workspaces/${id}/graph/nodes`).send({ title: 'Only here' }).expect(201);
+    expect((await request(app).get(`/api/v1/workspaces/${id}`)).body.workspace.discussionNodes.map((node: { title: string }) => node.title)).toContain('Only here');
+    expect((await request(app).get('/api/workspace')).body.workspace.discussionNodes.map((node: { title: string }) => node.title)).not.toContain('Only here');
+    expect((await request(app).get('/api/workspace')).body.workspace.projectId).toBe(legacyBefore.body.workspace.projectId);
+    await request(app).patch(`/api/v1/workspaces/${id}`).send({ action: 'archive' }).expect(200);
+    await request(app).post(`/api/v1/workspaces/${id}/graph/nodes`).send({ title: 'Denied' }).expect(409);
+    await request(app).patch(`/api/v1/workspaces/${id}`).send({ action: 'restore' }).expect(200);
+  });
   it('never serializes upstream runtime secrets in JSON or SSE errors', async () => {
     const upstreamSecret = 'upstream-secret-token-123';
     const failedRuntime: AIRuntime = {

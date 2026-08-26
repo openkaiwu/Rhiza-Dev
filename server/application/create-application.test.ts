@@ -58,6 +58,11 @@ describe('Rhiza Application', () => {
     await expect(application.execute(createLegacyCommandEnvelope('command-4', 'ChangeContextMode', { mode: 'invalid' as never }))).rejects.toMatchObject({ details: { code: 'INVALID_MODE', status: 400, category: 'validation' } });
   });
 
+  it('rejects write commands without a matching actor and workspace scope', async () => {
+    const { application } = fixture();
+    await expect(application.execute({ commandId: 'missing-scope', commandType: 'CreateGraphNode', payload: { title: 'nope' } } as never)).rejects.toMatchObject({ details: { code: 'MISSING_ACTOR_OR_SCOPE', status: 403 } });
+  });
+
   it('rounds graph positions, reactivates a stale branch source, and trims branch drafts', async () => {
     const { application, workspace } = fixture();
     await application.execute(createLegacyCommandEnvelope('command-5', 'UpdateGraphLayout', { positions: [{ nodeId: 'information-architecture', x: 120.6, y: 80.4 }] }));
