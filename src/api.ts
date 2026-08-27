@@ -19,6 +19,8 @@ export class ApiError extends Error {
 }
 
 type ErrorPayload = { code?: string; message?: string; category?: ApiErrorCategory; retryable?: boolean; correlationId?: string };
+let currentWorkspaceId = '00000000-0000-4000-8000-000000000001';
+const scopedPath = (path: string) => /^\/api\/(?!health$|providers|models)/.test(path) ? `/api/v1/workspaces/${encodeURIComponent(currentWorkspaceId)}${path.slice(4)}` : path;
 
 function apiError(payload: ErrorPayload | undefined, status: number) {
   return new ApiError(payload?.message || `请求失败（${status}）`, payload?.code, status, {
@@ -29,7 +31,7 @@ function apiError(payload: ErrorPayload | undefined, status: number) {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
+  const response = await fetch(scopedPath(path), {
     ...init,
     headers: { 'Content-Type': 'application/json', ...init?.headers },
   });
@@ -60,7 +62,7 @@ export interface ChatRequestOptions {
 async function streamMessage(message: string, onEvent: (event: RuntimeStreamEvent) => void, options: ChatRequestOptions = {}): Promise<Omit<ChatCommit, 'type'>> {
   let response: Response;
   try {
-    response = await fetch('/api/chat/stream', { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' }, body: JSON.stringify({ message, attachmentIds: options.attachmentIds, generation: options.generation, operation: options.operation, sourceMessageId: options.sourceMessageId }), signal: options.signal });
+    response = await fetch(scopedPath('/api/chat/stream'), { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' }, body: JSON.stringify({ message, attachmentIds: options.attachmentIds, generation: options.generation, operation: options.operation, sourceMessageId: options.sourceMessageId }), signal: options.signal });
   } catch (error) {
     if (options.signal?.aborted) throw new ApiError('生成已停止，本轮未写入历史。', 'GENERATION_STOPPED', 499);
     throw error;
@@ -119,6 +121,7 @@ async function uploadAttachment(file: File): Promise<Attachment> {
 }
 
 export const api = {
+  setWorkspace: (workspaceId: string) => { currentWorkspaceId = workspaceId; },
   listWorkspaces: () => request<{ workspaces: WorkspaceRecord[] }>('/api/v1/workspaces'),
   createWorkspace: (name: string) => request<{ workspace: WorkspaceRecord }>('/api/v1/workspaces', { method: 'POST', body: JSON.stringify({ name }) }),
   getScopedWorkspace: (workspaceId: string) => request<{ workspace: WorkspaceSnapshot }>(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}`),
