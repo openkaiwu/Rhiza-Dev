@@ -93,12 +93,12 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
     commandType: K,
     payload: CommandMap[K]['payload'],
     executionOptions?: CommandExecutionOptions,
-  ): Promise<CommandResult<K>> => application.execute(
-    createLegacyCommandEnvelope(options.id(), commandType, payload, correlationId(response)),
-    executionOptions,
-  );
+  ): Promise<CommandResult<K>> => {
+    const scoped = response.locals.workspaceIdentity as ReturnType<typeof workspaceIdentity> | undefined;
+    return application.execute({ ...createLegacyCommandEnvelope(options.id(), commandType, payload, correlationId(response)), ...(scoped || {}) }, executionOptions);
+  };
   const query = <K extends QueryType>(response: express.Response, queryType: K, payload: QueryMap[K]['payload']): Promise<QueryResult<K>> =>
-    application.query(createLegacyQueryEnvelope(options.id(), queryType, payload, correlationId(response)));
+    application.query({ ...createLegacyQueryEnvelope(options.id(), queryType, payload, correlationId(response)), ...(response.locals.workspaceIdentity || {}) });
   const workspaceIdentity = (workspaceId: string) => ({ workspaceId, actor: { actorType: 'human' as const, actorId: '00000000-0000-4000-8000-000000000002' }, scope: { scopeType: 'workspace' as const, scopeId: workspaceId } });
   const executeScoped = <K extends CommandType>(response: express.Response, workspaceId: string, commandType: K, payload: CommandMap[K]['payload']) => application.execute({ ...createLegacyCommandEnvelope(options.id(), commandType, payload, correlationId(response)), ...workspaceIdentity(workspaceId) });
   const queryScoped = <K extends QueryType>(response: express.Response, workspaceId: string, queryType: K, payload: QueryMap[K]['payload']) => application.query({ ...createLegacyQueryEnvelope(options.id(), queryType, payload, correlationId(response)), ...workspaceIdentity(workspaceId) });
@@ -163,6 +163,12 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
       const workspace = await executeScoped(response, request.params.workspaceId, 'CreateGraphNode', { title, summary: typeof request.body?.summary === 'string' ? request.body.summary : undefined, x: Number(request.body?.x ?? 180), y: Number(request.body?.y ?? 140) });
       response.status(201).json({ workspace });
     } catch (error) { next(error); }
+  });
+  // Scoped aliases reuse every legacy workspace handler; provider/model/health routes stay global.
+  app.use('/api/v1/workspaces/:workspaceId', (request, response, next) => {
+    response.locals.workspaceIdentity = workspaceIdentity(request.params.workspaceId);
+    request.url = request.url.replace(/^\//, '/api/');
+    next();
   });
 
   app.get('/api/providers', async (_request, response, next) => {
