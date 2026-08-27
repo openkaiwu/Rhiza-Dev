@@ -6,16 +6,31 @@ import { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it } from 'vitest';
 import type { ContextManifest } from '../server/domain';
 import { PostgresWorkspaceStore } from '../server/postgres-store';
+import { RepositoryWorkspaceUnitOfWork } from '../server/infrastructure/workspace-repository-unit-of-work';
 
 async function migratedDatabase() {
   const database = new PGlite();
   for (const migration of ['0001_rhiza_core', '0002_chat_parity', '0003_domain_persistence', '0004_immutable_manifest_history']) {
     await database.exec(await readFile(resolve(`db/migrations/${migration}.up.sql`), 'utf8'));
   }
+  await database.exec(await readFile(resolve('db/migrations/0005_identity_workspace_scope.up.sql'), 'utf8'));
   return database;
 }
 
 describe('PostgreSQL workspace persistence', () => {
+  it('persists a scoped aggregate across reconstructed UoWs without changing default', async () => {
+    const database = await migratedDatabase();
+    try {
+      const defaultId = randomUUID(); const scopedId = randomUUID();
+      const unit = new RepositoryWorkspaceUnitOfWork(new PostgresWorkspaceStore(database, defaultId));
+      await unit.read(item => item.projectId);
+      await unit.createWorkspace(scopedId, 'Second workspace');
+      await unit.withWorkspace!(scopedId, () => unit.execute({ policy: { kind: 'normal' }, apply: current => ({ next: { ...current, projectTitle: 'Scoped saved' }, value: undefined }) }));
+      const restored = new RepositoryWorkspaceUnitOfWork(new PostgresWorkspaceStore(database, defaultId));
+      await expect(restored.withWorkspace!(scopedId, () => restored.read(item => item.projectTitle))).resolves.toBe('Scoped saved');
+      await expect(restored.read(item => item.projectTitle)).resolves.toBe('Rhiza 产品研究');
+    } finally { await database.close(); }
+  });
   it('transactionally restores Project, Node, Segment, Event and audit state', async () => {
     const database = await migratedDatabase();
     try {
