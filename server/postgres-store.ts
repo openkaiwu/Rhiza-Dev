@@ -49,6 +49,10 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
 
   constructor(private readonly database: TransactionalSql, private readonly projectId = DEFAULT_PROJECT_ID) {}
 
+  forWorkspace(workspaceId: string): WorkspaceRepository {
+    return workspaceId === this.projectId ? this : new PostgresWorkspaceStore(this.database, workspaceId);
+  }
+
   readonly workspaceDirectory: WorkspaceDirectoryPort = {
     listWorkspaces: async (userId, includeArchived = false) => {
       const result = await this.database.query<{ workspace_id: string; name: string; status: 'active' | 'archived'; created_by: string; revision: number }>(`SELECT workspace_id,name,status,created_by,COALESCE((settings->>'revision')::integer,1) revision FROM workspaces WHERE created_by=$1${includeArchived ? '' : " AND status='active'"} ORDER BY updated_at DESC`, [userId]);

@@ -12,7 +12,6 @@ function updateOptions(policy: WorkspaceMutationPolicy | undefined): WorkspaceUp
 /** Bridges the M01 repository while preserving its append-only/purge guarantees. */
 export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
   private readonly scope = new AsyncLocalStorage<string>();
-  private readonly additional = new Map<string, WorkspaceData>();
   constructor(private readonly repository: WorkspaceRepository) {}
 
   async withWorkspace<T>(workspaceId: string, operation: () => Promise<T>): Promise<T> {
@@ -22,16 +21,17 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
   async createWorkspace(workspaceId: string, name: string): Promise<WorkspaceData> {
     const seed = createSeedWorkspace();
     const created = { ...seed, projectId: workspaceId, projectTitle: name, updatedAt: new Date().toISOString() };
-    this.additional.set(workspaceId, created);
-    return created;
+    const target = this.repository.forWorkspace?.(workspaceId);
+    if (!target) throw Object.assign(new Error('Scoped workspace persistence is unavailable'), { code: 'WORKSPACE_PERSISTENCE_UNAVAILABLE', status: 503 });
+    return target.update(() => created);
   }
 
   private async selected(): Promise<WorkspaceData> {
     const workspaceId = this.scope.getStore();
     if (!workspaceId || workspaceId === '00000000-0000-4000-8000-000000000001') return this.repository.read();
-    const existing = this.additional.get(workspaceId);
-    if (existing) return structuredClone(existing);
-    throw Object.assign(new Error('Workspace not found'), { code: 'WORKSPACE_NOT_FOUND', status: 404 });
+    const target = this.repository.forWorkspace?.(workspaceId);
+    if (!target) throw Object.assign(new Error('Scoped workspace persistence is unavailable'), { code: 'WORKSPACE_PERSISTENCE_UNAVAILABLE', status: 503 });
+    return target.read();
   }
 
   async read<T>(reader: (workspace: Readonly<import('../domain').WorkspaceData>) => T | Promise<T>): Promise<T> {
@@ -41,13 +41,9 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
   async execute<T>(mutation: WorkspaceMutation<T>): Promise<WorkspaceExecutionResult<T>> {
     let value!: T;
     const workspaceId = this.scope.getStore();
-    if (workspaceId && workspaceId !== '00000000-0000-4000-8000-000000000001') {
-      const current = await this.selected();
-      const result = await mutation.apply(current);
-      this.additional.set(workspaceId, structuredClone(result.next));
-      return { workspace: result.next, value: result.value };
-    }
-    const workspace = await this.repository.update(async current => {
+    const target = workspaceId && workspaceId !== '00000000-0000-4000-8000-000000000001' ? this.repository.forWorkspace?.(workspaceId) : this.repository;
+    if (!target) throw Object.assign(new Error('Scoped workspace persistence is unavailable'), { code: 'WORKSPACE_PERSISTENCE_UNAVAILABLE', status: 503 });
+    const workspace = await target.update(async current => {
       const result = await mutation.apply(current);
       value = result.value;
       return result.next;

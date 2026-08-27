@@ -12,6 +12,7 @@ export interface WorkspaceRepository {
   update(mutator: (current: WorkspaceData) => WorkspaceData | Promise<WorkspaceData>, options?: WorkspaceUpdateOptions): Promise<WorkspaceData>;
   close?(): Promise<void>;
   workspaceDirectory?: WorkspaceDirectoryPort;
+  forWorkspace?(workspaceId: string): WorkspaceRepository;
 }
 
 export interface WorkspacePurgeCapability {
@@ -102,8 +103,16 @@ export function validateWorkspaceHistoryUpdate(previous: WorkspaceData, next: Wo
 
 export class WorkspaceStore implements WorkspaceRepository {
   private queue: Promise<void> = Promise.resolve();
+  private readonly scoped = new Map<string, WorkspaceStore>();
 
   constructor(private readonly filePath = resolve('var/data/workspace.json')) {}
+
+  forWorkspace(workspaceId: string): WorkspaceRepository {
+    if (workspaceId === '00000000-0000-4000-8000-000000000001') return this;
+    let scoped = this.scoped.get(workspaceId);
+    if (!scoped) { scoped = new WorkspaceStore(resolve(dirname(this.filePath), 'workspaces', `${workspaceId}.json`)); this.scoped.set(workspaceId, scoped); }
+    return scoped;
+  }
 
   readonly workspaceDirectory: WorkspaceDirectoryPort = {
     listWorkspaces: async (userId, includeArchived = false) => (await this.readDirectory()).filter(item => item.createdBy === userId && (includeArchived || item.status === 'active')),
