@@ -13,6 +13,7 @@ export interface WorkspaceRepository {
   close?(): Promise<void>;
   workspaceDirectory?: WorkspaceDirectoryPort;
   forWorkspace?(workspaceId: string): WorkspaceRepository;
+  initialize?(workspace: WorkspaceData): Promise<WorkspaceData>;
 }
 
 export interface WorkspacePurgeCapability {
@@ -114,6 +115,10 @@ export class WorkspaceStore implements WorkspaceRepository {
     return scoped;
   }
 
+  async initialize(workspace: WorkspaceData): Promise<WorkspaceData> {
+    await this.write(workspace); return workspace;
+  }
+
   readonly workspaceDirectory: WorkspaceDirectoryPort = {
     listWorkspaces: async (userId, includeArchived = false) => (await this.readDirectory()).filter(item => item.createdBy === userId && (includeArchived || item.status === 'active')),
     createWorkspace: async record => { const records = await this.readDirectory(); if (!records.some(item => item.workspaceId === record.workspaceId)) await this.writeDirectory([...records, record]); },
@@ -140,6 +145,7 @@ export class WorkspaceStore implements WorkspaceRepository {
       return this.normalize(JSON.parse(await readFile(this.filePath, 'utf8')) as Partial<WorkspaceData>);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      if (this.scopedFile) throw Object.assign(new Error('Workspace data is missing'), { code: 'WORKSPACE_DATA_MISSING', status: 409 });
       const seed = createSeedWorkspace();
       await this.write(seed);
       return seed;

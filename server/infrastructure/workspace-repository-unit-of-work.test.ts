@@ -55,6 +55,7 @@ describe('RepositoryWorkspaceUnitOfWork', () => {
       const restored = new RepositoryWorkspaceUnitOfWork(new WorkspaceStore(path));
       await expect(restored.withWorkspace!('workspace-a', () => restored.read(item => item.projectTitle))).resolves.toBe('workspace-a-saved');
       await expect(restored.withWorkspace!('workspace-b', () => restored.read(item => item.projectTitle))).resolves.toBe('workspace-b-saved');
+      await expect(restored.withWorkspace!('missing', () => restored.read(item => item.projectId))).rejects.toMatchObject({ code: 'WORKSPACE_DATA_MISSING', status: 409 });
     } finally { await rm(directory, { recursive: true, force: true }); }
   });
 });

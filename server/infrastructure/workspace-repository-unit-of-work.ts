@@ -23,7 +23,8 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
     const created = { ...seed, projectId: workspaceId, projectTitle: name, updatedAt: new Date().toISOString() };
     const target = this.repository.forWorkspace?.(workspaceId);
     if (!target) throw Object.assign(new Error('Scoped workspace persistence is unavailable'), { code: 'WORKSPACE_PERSISTENCE_UNAVAILABLE', status: 503 });
-    return target.update(() => created);
+    if (!target.initialize) throw Object.assign(new Error('Scoped workspace initialization is unavailable'), { code: 'WORKSPACE_PERSISTENCE_UNAVAILABLE', status: 503 });
+    return target.initialize(created);
   }
 
   private async selected(): Promise<WorkspaceData> {
