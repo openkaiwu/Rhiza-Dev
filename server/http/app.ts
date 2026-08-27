@@ -110,6 +110,13 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
     response.on('finish', () => log.info(`[api] ${request.method} ${request.path} ${response.statusCode} ${Date.now() - startedAt}ms request=${requestId}`));
     next();
   });
+  app.use((request, response, next) => {
+    const match = request.url.match(/^\/api\/v1\/workspaces\/([^/]+)\/(.+)$/);
+    if (!match || match[2] === 'switch') return next();
+    response.locals.workspaceIdentity = workspaceIdentity(match[1]);
+    request.url = `/api/${match[2]}`;
+    next();
+  });
 
   app.get('/api/health', async (_request, response, next) => {
     try {
@@ -163,12 +170,6 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
       const workspace = await executeScoped(response, request.params.workspaceId, 'CreateGraphNode', { title, summary: typeof request.body?.summary === 'string' ? request.body.summary : undefined, x: Number(request.body?.x ?? 180), y: Number(request.body?.y ?? 140) });
       response.status(201).json({ workspace });
     } catch (error) { next(error); }
-  });
-  // Scoped aliases reuse every legacy workspace handler; provider/model/health routes stay global.
-  app.use('/api/v1/workspaces/:workspaceId', (request, response, next) => {
-    response.locals.workspaceIdentity = workspaceIdentity(request.params.workspaceId);
-    request.url = request.url.replace(/^\//, '/api/');
-    next();
   });
 
   app.get('/api/providers', async (_request, response, next) => {

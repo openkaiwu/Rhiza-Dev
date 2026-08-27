@@ -57,6 +57,25 @@ describe('Rhiza API', () => {
     await request(app).post(`/api/v1/workspaces/${id}/graph/nodes`).send({ title: 'Denied' }).expect(409);
     await request(app).patch(`/api/v1/workspaces/${id}`).send({ action: 'restore' }).expect(200);
   });
+  it('routes attachment, context, graph and chat writes to the path workspace', async () => {
+    const { app } = await testApp();
+    const id = (await request(app).post('/api/v1/workspaces').send({ name: 'Scoped', workspaceId: 'forged' }).expect(201)).body.workspace.workspaceId;
+    const attachment = await request(app).post(`/api/v1/workspaces/${id}/attachments`).send({ name: 'scope.txt', mimeType: 'text/plain', dataBase64: Buffer.from('scoped').toString('base64'), workspaceId: 'forged' }).expect(201);
+    const node = (await request(app).post(`/api/v1/workspaces/${id}/graph/nodes`).send({ title: 'Scoped graph' }).expect(201)).body.workspace.discussionNodes.at(-1);
+    await request(app).post(`/api/v1/workspaces/${id}/workspace/context`).send({ sourceType: 'node', sourceId: node.id, workspaceId: 'forged' }).expect(201);
+    await request(app).post(`/api/v1/workspaces/${id}/chat`).send({ message: 'scoped chat', workspaceId: 'forged' }).expect(201);
+    const stream = await request(app).post(`/api/v1/workspaces/${id}/chat/stream`).send({ message: 'scoped stream', workspaceId: 'forged' }).expect(200).expect('Content-Type', /text\/event-stream/);
+    expect(stream.text).toContain('event: commit');
+    const scoped = (await request(app).get(`/api/v1/workspaces/${id}`).expect(200)).body.workspace;
+    const legacy = (await request(app).get('/api/workspace').expect(200)).body.workspace;
+    expect(scoped.attachments).toEqual(expect.arrayContaining([expect.objectContaining({ id: attachment.body.attachment.id })]));
+    expect(scoped.discussionNodes).toEqual(expect.arrayContaining([expect.objectContaining({ title: 'Scoped graph' })]));
+    expect(scoped.messages).toEqual(expect.arrayContaining([expect.objectContaining({ text: 'scoped chat' })]));
+    expect(scoped.messages).toEqual(expect.arrayContaining([expect.objectContaining({ text: 'scoped stream' })]));
+    expect(legacy.attachments).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: attachment.body.attachment.id })]));
+    expect(legacy.discussionNodes).not.toEqual(expect.arrayContaining([expect.objectContaining({ title: 'Scoped graph' })]));
+    expect(legacy.messages).not.toEqual(expect.arrayContaining([expect.objectContaining({ text: 'scoped chat' }), expect.objectContaining({ text: 'scoped stream' })]));
+  });
   it('never serializes upstream runtime secrets in JSON or SSE errors', async () => {
     const upstreamSecret = 'upstream-secret-token-123';
     const failedRuntime: AIRuntime = {

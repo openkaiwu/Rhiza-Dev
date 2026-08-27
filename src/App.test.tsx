@@ -19,6 +19,9 @@ const mocks = vi.hoisted(() => ({
   selectModel: vi.fn(),
   createBranch: vi.fn(), activateNode: vi.fn(), moveNode: vi.fn(), mergeNode: vi.fn(), archiveGraphNode: vi.fn(), restoreGraphNode: vi.fn(),
   sendTemporaryMessage: vi.fn(),
+  setWorkspace: vi.fn(),
+  listWorkspaces: vi.fn(),
+  getScopedWorkspace: vi.fn(),
 }));
 
 vi.mock('./api', () => ({ api: mocks }));
@@ -77,6 +80,8 @@ beforeEach(() => {
       manifest: { id: 'manifest-1' },
     };
   });
+  mocks.listWorkspaces.mockResolvedValue({ workspaces: [] });
+  mocks.getScopedWorkspace.mockResolvedValue({ workspace });
 });
 
 describe('Rhiza MVP', () => {
@@ -257,6 +262,24 @@ describe('Rhiza MVP', () => {
     });
     render(<App />);
     expect(await screen.findByRole('heading', { name: '这个工作区还没有讨论节点' })).toBeInTheDocument();
+  });
+
+  it('clears the old scope and never reloads the legacy workspace when a switch fails', async () => {
+    const secondWorkspace = '00000000-0000-4000-8000-000000000099';
+    mocks.listWorkspaces.mockResolvedValueOnce({ workspaces: [
+      { workspaceId: '00000000-0000-4000-8000-000000000001', name: 'Default', status: 'active' },
+      { workspaceId: secondWorkspace, name: 'Second', status: 'active' },
+    ] });
+    mocks.getScopedWorkspace.mockRejectedValueOnce(new Error('scoped load failed'));
+    render(<App />);
+    await screen.findByRole('heading', { level: 1, name: /信息架构方向/ });
+    const select = await screen.findByRole('combobox', { name: '切换工作区' });
+    const legacyReads = mocks.getWorkspace.mock.calls.length;
+    fireEvent.change(select, { target: { value: secondWorkspace } });
+    await waitFor(() => expect(mocks.getScopedWorkspace).toHaveBeenCalledWith(secondWorkspace));
+    expect(mocks.setWorkspace).toHaveBeenCalledWith(secondWorkspace);
+    expect(mocks.getWorkspace.mock.calls).toHaveLength(legacyReads);
+    expect(screen.queryByRole('heading', { level: 1, name: /信息架构方向/ })).not.toBeInTheDocument();
   });
 
   it('refreshes the workspace and disables sending while offline', async () => {
