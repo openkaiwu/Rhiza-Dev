@@ -105,12 +105,12 @@ export class WorkspaceStore implements WorkspaceRepository {
   private queue: Promise<void> = Promise.resolve();
   private readonly scoped = new Map<string, WorkspaceStore>();
 
-  constructor(private readonly filePath = resolve('var/data/workspace.json')) {}
+  constructor(private readonly filePath = resolve('var/data/workspace.json'), private readonly scopedFile = false) {}
 
   forWorkspace(workspaceId: string): WorkspaceRepository {
     if (workspaceId === '00000000-0000-4000-8000-000000000001') return this;
     let scoped = this.scoped.get(workspaceId);
-    if (!scoped) { scoped = new WorkspaceStore(resolve(dirname(this.filePath), 'workspaces', `${workspaceId}.json`)); this.scoped.set(workspaceId, scoped); }
+    if (!scoped) { scoped = new WorkspaceStore(resolve(dirname(this.filePath), 'workspaces', `${workspaceId}.json`), true); this.scoped.set(workspaceId, scoped); }
     return scoped;
   }
 

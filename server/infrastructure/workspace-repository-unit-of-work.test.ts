@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createSeedWorkspace } from '../seed';
 import type { WorkspaceData } from '../domain';
-import type { WorkspaceRepository, WorkspaceUpdateOptions } from '../store';
+import { WorkspaceStore, type WorkspaceRepository, type WorkspaceUpdateOptions } from '../store';
 import { RepositoryWorkspaceUnitOfWork } from './workspace-repository-unit-of-work';
 
 class FakeRepository implements WorkspaceRepository {
@@ -38,5 +41,20 @@ describe('RepositoryWorkspaceUnitOfWork', () => {
       apply: workspace => ({ next: workspace, value: undefined }),
     });
     expect(repository.options).toEqual({ purge: { nodeId: 'node-1', auditReceiptId: 'receipt-1' } });
+  });
+
+  it('persists scoped JSON workspaces across reconstructed stores without cross-write loss', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-uow-'));
+    try {
+      const path = join(directory, 'workspace.json');
+      const first = new RepositoryWorkspaceUnitOfWork(new WorkspaceStore(path));
+      await Promise.all(['workspace-a', 'workspace-b'].map(async id => {
+        await first.createWorkspace(id, id);
+        await first.withWorkspace!(id, () => first.execute({ policy: { kind: 'normal' }, apply: current => ({ next: { ...current, projectTitle: `${id}-saved` }, value: undefined }) }));
+      }));
+      const restored = new RepositoryWorkspaceUnitOfWork(new WorkspaceStore(path));
+      await expect(restored.withWorkspace!('workspace-a', () => restored.read(item => item.projectTitle))).resolves.toBe('workspace-a-saved');
+      await expect(restored.withWorkspace!('workspace-b', () => restored.read(item => item.projectTitle))).resolves.toBe('workspace-b-saved');
+    } finally { await rm(directory, { recursive: true, force: true }); }
   });
 });
