@@ -34,6 +34,7 @@ export interface HttpAppOptions {
   runtimeKind: 'provider-adapter' | 'librechat';
   featureFlags: unknown;
   providerPresets: unknown;
+  defaultWorkspaceId?: string;
   frontendDirectory?: string;
   log?: {
     info(message: string): void;
@@ -119,6 +120,10 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
     response.setHeader('X-Request-Id', requestId);
     const startedAt = Date.now();
     response.on('finish', () => log.info(`[api] ${request.method} ${request.path} ${response.statusCode} ${Date.now() - startedAt}ms request=${requestId}`));
+    next();
+  });
+  app.use((_request, response, next) => {
+    response.locals.workspaceIdentity = workspaceIdentity(options.defaultWorkspaceId ?? '00000000-0000-4000-8000-000000000001');
     next();
   });
   app.use((request, response, next) => {

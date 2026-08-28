@@ -29,7 +29,8 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
 
   private async selected(): Promise<WorkspaceData> {
     const workspaceId = this.scope.getStore();
-    if (!workspaceId || workspaceId === '00000000-0000-4000-8000-000000000001') return this.repository.read();
+    const defaultWorkspaceId = this.repository.defaultWorkspaceId ?? '00000000-0000-4000-8000-000000000001';
+    if (!workspaceId || workspaceId === defaultWorkspaceId) return this.repository.read();
     const target = this.repository.forWorkspace?.(workspaceId);
     if (!target) throw Object.assign(new Error('Scoped workspace persistence is unavailable'), { code: 'WORKSPACE_PERSISTENCE_UNAVAILABLE', status: 503 });
     return target.read();
@@ -42,7 +43,8 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
   async execute<T>(mutation: WorkspaceMutation<T>): Promise<WorkspaceExecutionResult<T>> {
     let value!: T;
     const workspaceId = this.scope.getStore();
-    const target = workspaceId && workspaceId !== '00000000-0000-4000-8000-000000000001' ? this.repository.forWorkspace?.(workspaceId) : this.repository;
+    const defaultWorkspaceId = this.repository.defaultWorkspaceId ?? '00000000-0000-4000-8000-000000000001';
+    const target = workspaceId && workspaceId !== defaultWorkspaceId ? this.repository.forWorkspace?.(workspaceId) : this.repository;
     if (!target) throw Object.assign(new Error('Scoped workspace persistence is unavailable'), { code: 'WORKSPACE_PERSISTENCE_UNAVAILABLE', status: 503 });
     const workspace = await target.update(async current => {
       const result = await mutation.apply(current);

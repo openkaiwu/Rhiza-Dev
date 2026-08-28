@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { createLegacyCommandEnvelope, createLegacyQueryEnvelope } from '../contracts/application';
 import { createSeedWorkspace } from '../seed';
 import { createRhizaApplication } from './create-application';
+import { WorkspaceDirectory } from '../identity/workspace-directory';
+import { LOCAL_USER_ID } from '../identity/workspace-scope';
 
-function fixture(options: { failMutation?: boolean; ensureWorkspaceInitialized?: (workspaceId: string, name: string) => Promise<import('../domain').WorkspaceData>; uploads?: { put(key: string, bytes: Uint8Array): Promise<void>; delete?(key: string): Promise<void> } } = {}) {
+function fixture(options: { failMutation?: boolean; ensureWorkspaceInitialized?: (workspaceId: string, name: string) => Promise<import('../domain').WorkspaceData>; uploads?: { put(key: string, bytes: Uint8Array): Promise<void>; delete?(key: string): Promise<void> }; workspaceDirectory?: WorkspaceDirectory; defaultWorkspaceId?: string } = {}) {
   let workspace = createSeedWorkspace();
   let sequence = 0;
   const commits: string[] = [];
@@ -33,6 +35,8 @@ function fixture(options: { failMutation?: boolean; ensureWorkspaceInitialized?:
     },
     id: () => `id-${++sequence}`,
     now: () => '2026-08-23T00:00:00.000Z',
+    workspaceDirectory: options.workspaceDirectory,
+    defaultWorkspaceId: options.defaultWorkspaceId,
   });
   return { application, commits, workspace: () => workspace };
 }
@@ -75,6 +79,27 @@ describe('Rhiza Application', () => {
     await expect(application.execute(command)).rejects.toMatchObject({ details: { code: 'INTERNAL_ERROR' } });
     await expect(application.execute(command)).resolves.toMatchObject({ workspaceId: 'retry-workspace', name: 'Retry' });
     expect(attempts).toBe(2);
+  });
+
+  it('bootstraps only the configured local default before authorization', async () => {
+    const defaultWorkspaceId = '00000000-0000-4000-8000-000000000099';
+    const records = new Map<string, import('../contracts/application').WorkspaceRecord>();
+    const initialized: string[] = [];
+    const directory = new WorkspaceDirectory({
+      listWorkspaces: async userId => [...records.values()].filter(record => record.createdBy === userId),
+      createWorkspace: async record => ({ record, created: true }),
+      updateWorkspace: async () => undefined,
+      ensureWorkspace: async record => { records.set(record.workspaceId, record); return record; },
+    });
+    const { application } = fixture({ defaultWorkspaceId, workspaceDirectory: directory, ensureWorkspaceInitialized: async (workspaceId, name) => {
+      initialized.push(`${workspaceId}:${name}`); return { ...createSeedWorkspace(), projectId: workspaceId, projectTitle: name };
+    } });
+    await expect(application.query({ queryId: 'default-bootstrap', queryType: 'GetWorkspace', payload: {}, schemaVersion: '1.0.0', workspaceId: defaultWorkspaceId, actor: { actorType: 'human', actorId: LOCAL_USER_ID }, scope: { scopeType: 'workspace', scopeId: defaultWorkspaceId } })).resolves.toMatchObject({ discussionNodes: [expect.any(Object)] });
+    expect(records.get(defaultWorkspaceId)).toMatchObject({ createdBy: LOCAL_USER_ID });
+    expect(initialized).toEqual([`${defaultWorkspaceId}:Rhiza 产品研究`]);
+    const guessedId = '00000000-0000-4000-8000-000000000098';
+    await expect(application.query({ queryId: 'guessed-scope', queryType: 'GetWorkspace', payload: {}, schemaVersion: '1.0.0', workspaceId: guessedId, actor: { actorType: 'human', actorId: LOCAL_USER_ID }, scope: { scopeType: 'workspace', scopeId: guessedId } })).rejects.toMatchObject({ details: { code: 'WORKSPACE_ACCESS_DENIED' } });
+    expect(records.has(guessedId)).toBe(false);
   });
 
   it('rounds graph positions, reactivates a stale branch source, and trims branch drafts', async () => {

@@ -19,10 +19,10 @@ afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map(directory => rm(directory, { recursive: true, force: true })));
 });
 
-async function testApp(runtime?: AIRuntime) {
+async function testApp(runtime?: AIRuntime, defaultWorkspaceId?: string) {
   const directory = await mkdtemp(join(tmpdir(), 'rhiza-'));
   temporaryDirectories.push(directory);
-  const store = new WorkspaceStore(join(directory, 'workspace.json'));
+  const store = new WorkspaceStore(join(directory, 'workspace.json'), false, defaultWorkspaceId);
   const fetcher = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({ choices: [{ message: { content: '后端生成的回答' } }] }), { status: 200 })) as unknown as typeof fetch;
   const provider = new ProviderService(new ProviderStore(join(directory, 'providers.json')), new SecretVault(join(directory, '.provider-key')), { baseUrl: 'https://example.test/v1', apiKey: 'test-key', model: 'test-model', providerName: 'Test', chatPath: '/chat/completions', timeoutMs: 1000, temperature: 0.4, extraHeaders: {}, allowNoKey: false }, fetcher);
   const server = createServer(createApp(store, provider, false, runtime, undefined, join(directory, 'uploads')));
@@ -32,6 +32,14 @@ async function testApp(runtime?: AIRuntime) {
 }
 
 describe('Rhiza API', () => {
+  it('uses the configured default workspace for legacy HTTP envelopes', async () => {
+    const workspaceId = '00000000-0000-4000-8000-000000000099';
+    const { app } = await testApp(undefined, workspaceId);
+    expect((await request(app).get('/api/workspace').expect(200)).body.workspace.discussionNodes).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'main' })]));
+    expect((await request(app).get('/api/v1/workspaces').expect(200)).body.workspaces).toEqual(expect.arrayContaining([expect.objectContaining({ workspaceId })]));
+    await request(app).get(`/api/v1/workspaces/${workspaceId}`).expect(200);
+  });
+
   it('scopes workspace lifecycle to the v1 path, not request body', async () => {
     const { app } = await testApp();
     const created = await request(app).post('/api/v1/workspaces').send({ name: 'Second', workspaceId: 'forged' }).expect(201);

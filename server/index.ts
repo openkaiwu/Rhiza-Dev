@@ -16,7 +16,7 @@ if (featureFlags.postgresPersistence) {
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required when postgresPersistence is enabled');
   store = PostgresWorkspaceStore.fromConnectionString(process.env.DATABASE_URL, process.env.RHIZA_PROJECT_ID);
 } else {
-  store = new WorkspaceStore();
+  store = new WorkspaceStore(undefined, false, process.env.RHIZA_PROJECT_ID);
 }
 const serveFrontend = process.env.SERVE_FRONTEND !== 'false';
 const runtime = new ProviderRuntime(provider);

@@ -47,16 +47,16 @@ function relationalSeed(projectId: string): WorkspaceData {
 export class PostgresWorkspaceStore implements WorkspaceRepository {
   private queue: Promise<void> = Promise.resolve();
 
-  constructor(private readonly database: TransactionalSql, private readonly projectId = DEFAULT_PROJECT_ID) {}
+  constructor(private readonly database: TransactionalSql, readonly defaultWorkspaceId = DEFAULT_PROJECT_ID) {}
 
   forWorkspace(workspaceId: string): WorkspaceRepository {
-    return workspaceId === this.projectId ? this : new PostgresWorkspaceStore(this.database, workspaceId);
+    return workspaceId === this.defaultWorkspaceId ? this : new PostgresWorkspaceStore(this.database, workspaceId);
   }
 
   async initialize(workspace: WorkspaceData): Promise<WorkspaceData> {
     const initial = /^[0-9a-f-]{36}$/i.test(workspace.activeNodeId) ? workspace : { ...relationalSeed(workspace.projectId), projectTitle: workspace.projectTitle };
     return this.inTransaction(async database => {
-      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace:init:' || $1))", [this.projectId]);
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace:init:' || $1))", [this.defaultWorkspaceId]);
       const existing = await this.readFrom(database, true);
       if (existing?.discussionNodes.length) return existing;
       await this.persist(database, initial);
@@ -66,7 +66,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
 
   readonly workspaceDirectory: WorkspaceDirectoryPort = {
     listWorkspaces: async (userId, includeArchived = false) => {
-      const result = await this.database.query<{ workspace_id: string; name: string; status: 'active' | 'archived'; created_by: string; revision: number }>(`SELECT workspace_id,name,status,created_by,COALESCE((settings->>'revision')::integer,1) revision FROM workspaces WHERE created_by=$1${includeArchived ? '' : " AND status='active'"} ORDER BY updated_at DESC`, [userId]);
+      const result = await this.database.query<{ workspace_id: string; name: string; status: 'active' | 'archived'; created_by: string; revision: number }>(`SELECT w.workspace_id,w.name,w.status,w.created_by,COALESCE((w.settings->>'revision')::integer,1) revision FROM workspace_members m JOIN workspaces w ON w.workspace_id=m.workspace_id WHERE m.user_id=$1${includeArchived ? '' : " AND w.status='active'"} ORDER BY w.updated_at DESC`, [userId]);
       return result.rows.map(row => ({ workspaceId: row.workspace_id, name: row.name, status: row.status, createdBy: row.created_by, revision: row.revision }));
     },
     createWorkspace: async record => this.inTransaction(async database => {
@@ -84,6 +84,15 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       const result = await this.database.query<{ workspace_id: string }>("UPDATE workspaces SET name=$2,status=$3,settings=jsonb_set(settings,'{revision}',to_jsonb($4::int),true),updated_at=now() WHERE workspace_id=$1 AND COALESCE((settings->>'revision')::integer,1)=$5 RETURNING workspace_id", [record.workspaceId, record.name, record.status, record.revision, expectedRevision]);
       return result.rows[0] ? record : undefined;
     },
+    ensureWorkspace: async record => this.inTransaction(async database => {
+      await database.query("INSERT INTO users (user_id,display_name) VALUES ($1,'Local user') ON CONFLICT (user_id) DO NOTHING", [record.createdBy]);
+      await database.query('INSERT INTO rhiza_projects (id,title,state) VALUES ($1,$2,$3::jsonb) ON CONFLICT (id) DO NOTHING', [record.workspaceId, record.name, '{}']);
+      await database.query("INSERT INTO workspaces (workspace_id,name,status,created_by,settings) VALUES ($1,$2,$3,$4,$5::jsonb) ON CONFLICT (workspace_id) DO NOTHING", [record.workspaceId, record.name, record.status, record.createdBy, JSON.stringify({ revision: record.revision })]);
+      await database.query("INSERT INTO workspace_members (workspace_id,user_id,role) VALUES ($1,$2,'owner') ON CONFLICT (workspace_id,user_id) DO NOTHING", [record.workspaceId, record.createdBy]);
+      const existing = await database.query<{ workspace_id: string; name: string; status: 'active' | 'archived'; created_by: string; revision: number }>("SELECT workspace_id,name,status,created_by,COALESCE((settings->>'revision')::integer,1) revision FROM workspaces WHERE workspace_id=$1", [record.workspaceId]);
+      const value = existing.rows[0]!;
+      return { workspaceId: value.workspace_id, name: value.name, status: value.status, createdBy: value.created_by, revision: value.revision };
+    }),
   };
 
   static fromConnectionString(connectionString: string, projectId?: string) {
@@ -119,7 +128,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace:init'))");
       const afterLock = await this.readFrom(database);
       if (afterLock) return afterLock;
-      const seed = relationalSeed(this.projectId);
+      const seed = relationalSeed(this.defaultWorkspaceId);
       await this.persist(database, seed);
       return seed;
     });
@@ -131,9 +140,9 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       result = await this.inTransaction(async database => {
         let current = await this.readFrom(database, true);
         if (!current) {
-          current = relationalSeed(this.projectId);
+          current = relationalSeed(this.defaultWorkspaceId);
           await this.persist(database, current);
-          await database.query('SELECT id FROM rhiza_projects WHERE id = $1 FOR UPDATE', [this.projectId]);
+          await database.query('SELECT id FROM rhiza_projects WHERE id = $1 FOR UPDATE', [this.defaultWorkspaceId]);
         }
         const next = await mutator(structuredClone(current));
         validateWorkspaceHistoryUpdate(current, next, options);
@@ -153,7 +162,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   }
 
   private async readFrom(database: SqlQueryable, lock = false): Promise<WorkspaceData | undefined> {
-    const projects = await database.query<{ id: string; title: string; active_node_id: string | null; state: unknown; updated_at: unknown }>(`SELECT id, title, active_node_id, state, updated_at FROM rhiza_projects WHERE id = $1${lock ? ' FOR UPDATE' : ''}`, [this.projectId]);
+    const projects = await database.query<{ id: string; title: string; active_node_id: string | null; state: unknown; updated_at: unknown }>(`SELECT id, title, active_node_id, state, updated_at FROM rhiza_projects WHERE id = $1${lock ? ' FOR UPDATE' : ''}`, [this.defaultWorkspaceId]);
     const project = projects.rows[0];
     if (!project) return undefined;
     const [nodesResult, segmentsResult, messagesResult, anchorsResult, edgesResult, manifestsResult, attachmentsResult, messageAttachmentsResult, auditResult] = await Promise.all([

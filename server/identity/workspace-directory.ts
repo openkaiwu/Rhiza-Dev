@@ -7,6 +7,7 @@ export interface WorkspaceDirectoryPort {
   listWorkspaces(userId: string, includeArchived?: boolean): Promise<WorkspaceRecord[]>;
   createWorkspace(record: WorkspaceRecord): Promise<{ record: WorkspaceRecord; created: boolean }>;
   updateWorkspace(record: WorkspaceRecord, expectedRevision: number): Promise<WorkspaceRecord | undefined>;
+  ensureWorkspace(record: WorkspaceRecord): Promise<WorkspaceRecord>;
 }
 
 /** Minimal membership/scope policy; persistence is supplied by the repository adapter. */
@@ -25,6 +26,9 @@ export class WorkspaceDirectory {
     const created = await this.port.createWorkspace(record);
     if (!created.created && created.record.createdBy !== actor.actorId) throw applicationError('工作区标识已被其他成员使用。', 'WORKSPACE_ID_CONFLICT', 'conflict', 'refresh', false, 409);
     return created;
+  }
+  ensure(actor: ActorRef, workspaceId: string, name: string) {
+    return this.port.ensureWorkspace({ workspaceId, name, status: 'active', createdBy: actor.actorId, revision: 1 });
   }
   private async update(record: WorkspaceRecord, next: WorkspaceRecord) {
     const persisted = await this.port.updateWorkspace(next, record.revision);

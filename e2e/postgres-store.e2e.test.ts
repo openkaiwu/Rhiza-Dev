@@ -4,7 +4,11 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it } from 'vitest';
+import request from 'supertest';
 import type { ContextManifest } from '../server/domain';
+import { createRhizaApplication } from '../server/application/create-application';
+import { createHttpApp } from '../server/http/app';
+import { WorkspaceDirectory } from '../server/identity/workspace-directory';
 import { PostgresWorkspaceStore } from '../server/postgres-store';
 import { RepositoryWorkspaceUnitOfWork } from '../server/infrastructure/workspace-repository-unit-of-work';
 
@@ -17,7 +21,35 @@ async function migratedDatabase() {
   return database;
 }
 
+function legacyApp(database: PGlite, defaultWorkspaceId: string) {
+  const store = new PostgresWorkspaceStore(database, defaultWorkspaceId);
+  const application = createRhizaApplication({
+    unitOfWork: new RepositoryWorkspaceUnitOfWork(store), workspaceDirectory: new WorkspaceDirectory(store.workspaceDirectory), defaultWorkspaceId,
+    runtime: { kind: 'provider-adapter', listModels: async () => [{ id: 'model', provider: 'test', model: 'test', displayName: 'test', active: true }], async *generate() { yield { type: 'RUN_END', requestId: 'run', text: 'unused', model: 'test', provider: 'test' } as const; } },
+    providers: { snapshot: async () => ({ filePolicy: { maxFileSizeBytes: 1, supportedMimeTypes: [], disabled: false, maxFiles: 1, maxTotalSizeBytes: 1, fileTokenLimit: 1 }, providers: [], models: [], activeModelId: null, modelSpecs: [] }), activeStatus: async () => ({ configured: true, name: 'test', model: 'test', baseUrl: '' }), saveProvider: async () => ({}) as never, discoverModels: async () => ({}) as never, updateModel: async () => ({}) as never, selectModel: async () => ({}) as never },
+    uploads: { put: async () => undefined }, textExtraction: { extractText: async () => '' },
+    planner: { plan: workspace => ({ items: workspace.contextItems, diagnostics: { candidateCount: 0, selectedCount: 0, elapsedMs: 0, fallback: false, budget: 1, usedTokens: 0 } }), sourceItem: (_workspace, _sourceType, sourceId) => ({ id: sourceId, title: sourceId, detail: sourceId, role: 'Reference', status: 'active', tokens: 1 }), processAttachment: () => ({ chunks: [], summary: '' }) },
+    id: randomUUID, now: () => new Date().toISOString(),
+  });
+  return { app: createHttpApp(application, { id: randomUUID, runtimeKind: 'provider-adapter', featureFlags: {}, providerPresets: {}, defaultWorkspaceId }), store };
+}
+
 describe('PostgreSQL workspace persistence', () => {
+  it('bootstraps the migrated default through legacy HTTP reads exactly once', async () => {
+    const database = await migratedDatabase();
+    const workspaceId = '00000000-0000-4000-8000-000000000099';
+    try {
+      const first = legacyApp(database, workspaceId);
+      const initial = await request(first.app).get('/api/workspace').expect(200);
+      expect(initial.body.workspace).toMatchObject({ projectId: workspaceId, discussionNodes: [expect.objectContaining({ kind: 'main' })] });
+      expect((await database.query('SELECT user_id FROM users')).rows).toEqual([{ user_id: '00000000-0000-4000-8000-000000000002' }]);
+      expect((await database.query('SELECT workspace_id FROM workspaces')).rows).toEqual([{ workspace_id: workspaceId }]);
+      expect((await database.query('SELECT workspace_id,user_id,role FROM workspace_members')).rows).toEqual([{ workspace_id: workspaceId, user_id: '00000000-0000-4000-8000-000000000002', role: 'owner' }]);
+      const second = legacyApp(database, workspaceId);
+      await expect(request(second.app).get('/api/workspace').expect(200)).resolves.toMatchObject({ body: { workspace: { discussionNodes: [expect.any(Object)] } } });
+      expect((await database.query('SELECT count(*)::int count FROM workspace_members')).rows).toEqual([{ count: 1 }]);
+    } finally { await database.close(); }
+  });
   it('seeds a directory-only workspace once and keeps it readable after reconstruction', async () => {
     const database = await migratedDatabase();
     try {
@@ -44,6 +76,27 @@ describe('PostgreSQL workspace persistence', () => {
       ]);
       expect([first, second].filter(Boolean)).toHaveLength(1);
       expect(await port.listWorkspaces(record.createdBy, true)).toEqual(expect.arrayContaining([expect.objectContaining({ workspaceId: record.workspaceId, revision: 2, name: expect.stringMatching(/First|Second/) })]));
+    } finally { await database.close(); }
+  });
+
+  it('authorizes PostgreSQL workspaces by membership, not creator metadata', async () => {
+    const database = await migratedDatabase();
+    try {
+      const owner = '00000000-0000-4000-8000-000000000002';
+      const member = '00000000-0000-4000-8000-000000000003';
+      const workspaceId = randomUUID();
+      const store = new PostgresWorkspaceStore(database);
+      const directory = new WorkspaceDirectory(store.workspaceDirectory);
+      await store.workspaceDirectory.ensureWorkspace({ workspaceId, name: 'Members', status: 'active', createdBy: owner, revision: 1 });
+      await database.query("INSERT INTO users (user_id,display_name) VALUES ($1,'Member')", [member]);
+      await database.query("INSERT INTO workspace_members (workspace_id,user_id,role) VALUES ($1,$2,'member')", [workspaceId, member]);
+      const actor = { actorType: 'human' as const, actorId: member };
+      await expect(directory.list(actor, true)).resolves.toEqual([expect.objectContaining({ workspaceId })]);
+      await expect(directory.require(actor, workspaceId, { scopeType: 'workspace', scopeId: workspaceId })).resolves.toMatchObject({ workspaceId });
+      await database.query('DELETE FROM workspace_members WHERE workspace_id=$1 AND user_id=$2', [workspaceId, member]);
+      await expect(directory.require(actor, workspaceId, { scopeType: 'workspace', scopeId: workspaceId })).rejects.toMatchObject({ code: 'WORKSPACE_ACCESS_DENIED' });
+      await database.query('DELETE FROM workspace_members WHERE workspace_id=$1 AND user_id=$2', [workspaceId, owner]);
+      await expect(directory.require({ actorType: 'human', actorId: owner }, workspaceId, { scopeType: 'workspace', scopeId: workspaceId })).rejects.toMatchObject({ code: 'WORKSPACE_ACCESS_DENIED' });
     } finally { await database.close(); }
   });
 

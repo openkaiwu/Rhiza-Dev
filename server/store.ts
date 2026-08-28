@@ -14,6 +14,7 @@ export interface WorkspaceRepository {
   workspaceDirectory?: WorkspaceDirectoryPort;
   forWorkspace?(workspaceId: string): WorkspaceRepository;
   initialize?(workspace: WorkspaceData): Promise<WorkspaceData>;
+  defaultWorkspaceId?: string;
 }
 
 export interface WorkspacePurgeCapability {
@@ -106,12 +107,12 @@ export class WorkspaceStore implements WorkspaceRepository {
   private queue: Promise<void> = Promise.resolve();
   private readonly scoped = new Map<string, WorkspaceStore>();
 
-  constructor(private readonly filePath = resolve('var/data/workspace.json'), private readonly scopedFile = false) {}
+  constructor(private readonly filePath = resolve('var/data/workspace.json'), private readonly scopedFile = false, readonly defaultWorkspaceId = '00000000-0000-4000-8000-000000000001') {}
 
   forWorkspace(workspaceId: string): WorkspaceRepository {
-    if (workspaceId === '00000000-0000-4000-8000-000000000001') return this;
+    if (workspaceId === this.defaultWorkspaceId) return this;
     let scoped = this.scoped.get(workspaceId);
-    if (!scoped) { scoped = new WorkspaceStore(resolve(dirname(this.filePath), 'workspaces', `${workspaceId}.json`), true); this.scoped.set(workspaceId, scoped); }
+    if (!scoped) { scoped = new WorkspaceStore(resolve(dirname(this.filePath), 'workspaces', `${workspaceId}.json`), true, this.defaultWorkspaceId); this.scoped.set(workspaceId, scoped); }
     return scoped;
   }
 
@@ -122,8 +123,9 @@ export class WorkspaceStore implements WorkspaceRepository {
         result = this.normalize(JSON.parse(await readFile(this.filePath, 'utf8')) as Partial<WorkspaceData>);
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-        await this.write(workspace);
-        result = workspace;
+        const seed = this.scopedFile ? workspace : { ...workspace, projectId: createSeedWorkspace().projectId };
+        await this.write(seed);
+        result = seed;
       }
     });
     await this.queue;
@@ -146,6 +148,13 @@ export class WorkspaceStore implements WorkspaceRepository {
       await this.writeDirectory(records.map(item => item.workspaceId === record.workspaceId ? record : item));
       return record;
     }),
+    ensureWorkspace: record => this.inDirectoryQueue(async () => {
+      const records = await this.readDirectory();
+      const existing = records.find(item => item.workspaceId === record.workspaceId);
+      if (existing) return existing;
+      await this.writeDirectory([...records, record]);
+      return record;
+    }),
   };
 
   private directoryPath() { return `${this.filePath}.workspaces.json`; }
@@ -159,7 +168,7 @@ export class WorkspaceStore implements WorkspaceRepository {
     try { return JSON.parse(await readFile(this.directoryPath(), 'utf8')) as WorkspaceRecord[]; }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      const seed: WorkspaceRecord = { workspaceId: '00000000-0000-4000-8000-000000000001', name: (await this.read()).projectTitle, status: 'active', createdBy: '00000000-0000-4000-8000-000000000002', revision: 1 };
+      const seed: WorkspaceRecord = { workspaceId: this.defaultWorkspaceId, name: createSeedWorkspace().projectTitle, status: 'active', createdBy: '00000000-0000-4000-8000-000000000002', revision: 1 };
       await this.writeDirectory([seed]); return [seed];
     }
   }

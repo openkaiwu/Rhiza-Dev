@@ -72,6 +72,7 @@ describe('RepositoryWorkspaceUnitOfWork', () => {
       ]);
       expect([first, second].filter(Boolean)).toHaveLength(1);
       expect(await port.listWorkspaces(record.createdBy, true)).toEqual(expect.arrayContaining([expect.objectContaining({ workspaceId: record.workspaceId, revision: 2, name: expect.stringMatching(/First|Second/) })]));
+      expect(await port.listWorkspaces('00000000-0000-4000-8000-000000000003', true)).toEqual([]);
     } finally { await rm(directory, { recursive: true, force: true }); }
   });
 
