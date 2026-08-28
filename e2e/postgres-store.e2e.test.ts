@@ -50,6 +50,22 @@ describe('PostgreSQL workspace persistence', () => {
       expect((await database.query('SELECT count(*)::int count FROM workspace_members')).rows).toEqual([{ count: 1 }]);
     } finally { await database.close(); }
   });
+
+  it('does not grant local membership to an existing configured default', async () => {
+    const database = await migratedDatabase();
+    const workspaceId = '00000000-0000-4000-8000-000000000098';
+    const ownerId = '00000000-0000-4000-8000-000000000003';
+    try {
+      await database.query("INSERT INTO users (user_id,display_name) VALUES ($1,'Other owner')", [ownerId]);
+      await database.query("INSERT INTO rhiza_projects (id,title,state) VALUES ($1,'Existing custom','{}'::jsonb)", [workspaceId]);
+      await database.query("INSERT INTO workspaces (workspace_id,name,status,created_by) VALUES ($1,'Existing custom','active',$2)", [workspaceId, ownerId]);
+      await database.query("INSERT INTO workspace_members (workspace_id,user_id,role) VALUES ($1,$2,'owner')", [workspaceId, ownerId]);
+      await request(legacyApp(database, workspaceId).app).get('/api/workspace').expect(403);
+      expect((await database.query('SELECT workspace_id,user_id,role FROM workspace_members ORDER BY user_id')).rows).toEqual([{ workspace_id: workspaceId, user_id: ownerId, role: 'owner' }]);
+      await database.query("INSERT INTO workspace_members (workspace_id,user_id,role) VALUES ($1,'00000000-0000-4000-8000-000000000002','member')", [workspaceId]);
+      await expect(request(legacyApp(database, workspaceId).app).get('/api/workspace').expect(200)).resolves.toMatchObject({ body: { workspace: { projectId: workspaceId, discussionNodes: [expect.any(Object)] } } });
+    } finally { await database.close(); }
+  });
   it('seeds a directory-only workspace once and keeps it readable after reconstruction', async () => {
     const database = await migratedDatabase();
     try {

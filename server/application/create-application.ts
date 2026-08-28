@@ -104,9 +104,10 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
     },
   });
   const defaultWorkspaceId = dependencies.defaultWorkspaceId ?? DEFAULT_WORKSPACE_ID;
-  const ensureDefaultWorkspace = async (actor: import('../contracts/references').ActorRef, workspaceId: string) => {
+  const ensureDefaultWorkspace = async (actor: import('../contracts/references').ActorRef, workspaceId: string, scope: import('../contracts/references').ScopeRef) => {
     if (workspaceId !== defaultWorkspaceId || actor.actorType !== 'human' || actor.actorId !== LOCAL_USER_ID) return;
     const record = await workspaceDirectory.ensure(actor, workspaceId, 'Rhiza 产品研究');
+    await workspaceDirectory.require(actor, workspaceId, scope);
     await unitOfWork.ensureWorkspaceInitialized?.(workspaceId, record.name);
   };
   const budget = dependencies.contextTokenBudget ?? 32_000;
@@ -183,7 +184,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
         await unitOfWork.ensureWorkspaceInitialized?.(workspaceId, created.record.name);
         return created.record;
       }
-      await ensureDefaultWorkspace(envelope.actor, envelope.workspaceId);
+      await ensureDefaultWorkspace(envelope.actor, envelope.workspaceId, envelope.scope);
       const record = await workspaceDirectory.require(envelope.actor, envelope.workspaceId, envelope.scope);
       if (record.status === 'archived' && !['RestoreWorkspace'].includes(envelope.commandType)) throw legacyError('归档工作区为只读，请先恢复。', 409, 'WORKSPACE_ARCHIVED');
       if (envelope.expectedRevision !== undefined && envelope.expectedRevision !== record.revision) throw legacyError('工作区版本已变化，请刷新后重试。', 409, 'WORKSPACE_REVISION_CONFLICT');
@@ -272,7 +273,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
   const dispatchQuery = async (envelope: AnyQueryEnvelope): Promise<unknown> => {
     try {
       if (envelope.queryType === 'ListWorkspaces') return workspaceDirectory.list(envelope.actor, Boolean((envelope.payload as { includeArchived?: boolean }).includeArchived));
-      await ensureDefaultWorkspace(envelope.actor, envelope.workspaceId);
+      await ensureDefaultWorkspace(envelope.actor, envelope.workspaceId, envelope.scope);
       await workspaceDirectory.require(envelope.actor, envelope.workspaceId, envelope.scope);
       if (unitOfWork.withWorkspace) return unitOfWork.withWorkspace(envelope.workspaceId, () => dispatchQueryScoped(envelope));
       return dispatchQueryScoped(envelope);
