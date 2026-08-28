@@ -2,8 +2,8 @@
   "$schema": "https://rhiza.dev/architecture-gates/milestone-evidence/1.0.0",
   "schema_version": "1.0.0",
   "milestone": "M03",
-  "architecture_version": "V4.0",
-  "commit": "7c0e7f47c3b30a93919f3138122ba4099cf3eb5a",
+  "architecture_version": "V4.1",
+  "commit": "25f9740d9d2a38a6a3f4e3d9110136de2008b6fa",
   "fixtures": [
     {
       "id": "g0-fixture-registry-v1",
@@ -83,8 +83,8 @@
     },
     "docs/architecture-gates/README.md": {
       "algorithm": "sha256",
-      "current": "bbd806dbaabe26e61d0995f03b7f49e73bfc2049633f568aa25c82911daf3556",
-      "recorded_commit": "bbd806dbaabe26e61d0995f03b7f49e73bfc2049633f568aa25c82911daf3556"
+      "current": "4e72338a8e9b53d700da3721f92562bf2cada6589da5523418d0ae412f982858",
+      "recorded_commit": "4e72338a8e9b53d700da3721f92562bf2cada6589da5523418d0ae412f982858"
     },
     "docs/architecture-gates/fixture-registry.json": {
       "algorithm": "sha256",
@@ -118,13 +118,13 @@
     },
     "scripts/architecture-gates/verify-milestone-evidence.test.ts": {
       "algorithm": "sha256",
-      "current": "d1af693e16ff499dcd81b0584da94728f878d445c20639916fdae4c1eaabc5ea",
-      "recorded_commit": "d1af693e16ff499dcd81b0584da94728f878d445c20639916fdae4c1eaabc5ea"
+      "current": "78a040b35bf3a571a03e02273b1ea738f9a97b4dd3072acc0349d8871b709b92",
+      "recorded_commit": "78a040b35bf3a571a03e02273b1ea738f9a97b4dd3072acc0349d8871b709b92"
     },
     "scripts/architecture-gates/verify-milestone-evidence.ts": {
       "algorithm": "sha256",
-      "current": "c58dcd06d56ca24c1e0b0cadb4f64396543bf5d53e3ccbd689adcf6e7d18127e",
-      "recorded_commit": "c58dcd06d56ca24c1e0b0cadb4f64396543bf5d53e3ccbd689adcf6e7d18127e"
+      "current": "e5885f4a16ad7edebb1fcb7d8b7728e96aea41bf1de038d0693bb5ed0810df58",
+      "recorded_commit": "e5885f4a16ad7edebb1fcb7d8b7728e96aea41bf1de038d0693bb5ed0810df58"
     },
     "scripts/boundary-gates/boundary-exceptions.json": {
       "algorithm": "sha256",
@@ -273,18 +273,18 @@
     },
     "src/App.test.tsx": {
       "algorithm": "sha256",
-      "current": "d0cb9337318e25d81ad5735874f52f4fcc8bc4f8be63b44589b8dae796c69457",
-      "recorded_commit": "d0cb9337318e25d81ad5735874f52f4fcc8bc4f8be63b44589b8dae796c69457"
+      "current": "7e2830a5bba839c343dfe92f9a5a0171636cc5398f17ca2d487482660c271069",
+      "recorded_commit": "7e2830a5bba839c343dfe92f9a5a0171636cc5398f17ca2d487482660c271069"
     },
     "src/App.tsx": {
       "algorithm": "sha256",
-      "current": "6f9279e72d877702845815059292b29745fd16c78815ded389e8dc7ecba194da",
-      "recorded_commit": "6f9279e72d877702845815059292b29745fd16c78815ded389e8dc7ecba194da"
+      "current": "04616ec894c90e4bbdb06d18afc03cdb28c3355dd5077edd334b7ad5b25fd9b9",
+      "recorded_commit": "04616ec894c90e4bbdb06d18afc03cdb28c3355dd5077edd334b7ad5b25fd9b9"
     },
     "src/api.ts": {
       "algorithm": "sha256",
-      "current": "235287f15c9ea060c7c510ba5073cf4b32126d8257ea240c0d2ce4ace8ac1f9d",
-      "recorded_commit": "235287f15c9ea060c7c510ba5073cf4b32126d8257ea240c0d2ce4ace8ac1f9d"
+      "current": "3b814c9abe8e401bcf767384c2c8777a65e2a649325433609120f9fbf28adb18",
+      "recorded_commit": "3b814c9abe8e401bcf767384c2c8777a65e2a649325433609120f9fbf28adb18"
     },
     "src/components/ChatView.tsx": {
       "algorithm": "sha256",
@@ -366,6 +366,11 @@
       "current": "403e27e6606e2bd18cb0b0991ec9c02854044df4eb936b45a5d1cf4ce8133acd",
       "recorded_commit": "403e27e6606e2bd18cb0b0991ec9c02854044df4eb936b45a5d1cf4ce8133acd"
     },
+    "docs/architecture-gates/milestone-evidence.schema.json": {
+      "algorithm": "sha256",
+      "current": "4649caa1e534ab156772ad33bd91a42a49658520fd1f0fd79ca745d72eb168a8",
+      "recorded_commit": "4649caa1e534ab156772ad33bd91a42a49658520fd1f0fd79ca745d72eb168a8"
+    },
     "server/identity/workspace-directory.ts": {
       "algorithm": "sha256",
       "current": "032044b93e82709c60943d7839834473e492178ae3a1b5c52d2832495967ddf8",
@@ -398,8 +403,8 @@
     },
     "src/api.test.ts": {
       "algorithm": "sha256",
-      "current": "46ce8f6a36d9e680947e3f69c75f960f2093aefa3ad6b33689ca03f6d59e220d",
-      "recorded_commit": "46ce8f6a36d9e680947e3f69c75f960f2093aefa3ad6b33689ca03f6d59e220d"
+      "current": "76382fcd546ee73257fceb2cfef38ad216d3128356bacca844739ca92d42e7d8",
+      "recorded_commit": "76382fcd546ee73257fceb2cfef38ad216d3128356bacca844739ca92d42e7d8"
     }
   },
   "failure_classification": {
@@ -413,7 +418,7 @@
     "cpu": "Apple A18 Pro",
     "memory_bytes": 8589934592
   },
-  "started_at": "2026-08-28T17:05:50.101Z",
-  "completed_at": "2026-08-28T17:08:54.449Z",
+  "started_at": "2026-08-28T17:30:41.567Z",
+  "completed_at": "2026-08-28T17:32:01.767Z",
   "result": "pass"
 }
