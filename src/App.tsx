@@ -53,6 +53,12 @@ export function App() {
     setSegments(workspace.segments || []);
   }, []);
 
+  const workspaceMutation = () => {
+    const workspaceId = selectedWorkspaceRef.current;
+    const generation = workspaceGenerationRef.current;
+    return () => generation === workspaceGenerationRef.current && workspaceId === selectedWorkspaceRef.current;
+  };
+
   const loadWorkspace = useCallback(async (background = false) => {
     const workspaceId = selectedWorkspaceRef.current;
     const generation = ++workspaceGenerationRef.current;
@@ -97,11 +103,11 @@ export function App() {
     }
   };
   const refreshWorkspaces = async () => { const items = (await api.listWorkspaces(true)).workspaces; setWorkspaces(items); return items; };
-  const createWorkspace = async () => { const name = window.prompt('工作区名称'); if (!name?.trim()) return; const { workspace } = await api.createWorkspace(name.trim()); await refreshWorkspaces(); await switchWorkspace(workspace.workspaceId); };
+  const createWorkspace = async () => { const current = workspaceMutation(); const name = window.prompt('工作区名称'); if (!name?.trim()) return; const { workspace } = await api.createWorkspace(name.trim()); if (!current()) return; await refreshWorkspaces(); if (current()) await switchWorkspace(workspace.workspaceId); };
   const workspaceRecord = () => workspaces.find(item => item.workspaceId === currentWorkspaceId);
-  const renameWorkspace = async () => { const record = workspaceRecord(); const name = window.prompt('新名称', record?.name); if (!name?.trim() || !record) return; await api.updateWorkspace(record.workspaceId, 'rename', record.revision, name.trim()); await refreshWorkspaces(); };
-  const archiveWorkspace = async () => { const record = workspaceRecord(); if (!record) return; await api.updateWorkspace(record.workspaceId, 'archive', record.revision); const items = await refreshWorkspaces(); const next = items.find(item => item.workspaceId !== record.workspaceId && item.status === 'active'); if (next) await switchWorkspace(next.workspaceId); };
-  const restoreWorkspace = async () => { const record = workspaceRecord(); if (!record) return; await api.updateWorkspace(record.workspaceId, 'restore', record.revision); await refreshWorkspaces(); };
+  const renameWorkspace = async () => { const current = workspaceMutation(); const record = workspaceRecord(); const name = window.prompt('新名称', record?.name); if (!name?.trim() || !record) return; await api.updateWorkspace(record.workspaceId, 'rename', record.revision, name.trim()); if (current()) await refreshWorkspaces(); };
+  const archiveWorkspace = async () => { const current = workspaceMutation(); const record = workspaceRecord(); if (!record) return; await api.updateWorkspace(record.workspaceId, 'archive', record.revision); if (!current()) return; const items = await refreshWorkspaces(); if (!current()) return; const next = items.find(item => item.workspaceId !== record.workspaceId && item.status === 'active'); if (next) await switchWorkspace(next.workspaceId); };
+  const restoreWorkspace = async () => { const current = workspaceMutation(); const record = workspaceRecord(); if (!record) return; await api.updateWorkspace(record.workspaceId, 'restore', record.revision); if (current()) await refreshWorkspaces(); };
   useEffect(() => {
     const goOffline = () => { setOnline(false); setNetworkNotice('当前离线，发送已暂停。'); };
     const goOnline = () => {
@@ -183,52 +189,64 @@ export function App() {
   const selectModel = async (modelId: string) => { const result = await api.selectModel(modelId); setProviderCatalog(result.catalog); setProvider(result.provider); };
 
   const updateStatus = async (id: string, status: ContextStatus) => {
+    const current = workspaceMutation();
     const previous = contextItems;
     setContextItems(items => items.map(item => item.id === id ? { ...item, status } : item));
     try {
       const { workspace } = await api.setContextStatus(id, status);
+      if (!current()) return;
       setContextItems(workspace.contextItems);
       setSyncError('');
     } catch (error) {
+      if (!current()) return;
       setContextItems(previous);
       setSyncError(presentErrorText(error, { message: '无法保存 Context。', recovery: '请稍后重试。' }));
     }
   };
 
   const updateMode = async (nextMode: ContextMode) => {
+    const current = workspaceMutation();
     const previous = mode;
     setMode(nextMode);
     try {
       await api.setMode(nextMode);
+      if (!current()) return;
       setSyncError('');
     } catch (error) {
+      if (!current()) return;
       setMode(previous);
       setSyncError(presentErrorText(error, { message: '无法保存模式。', recovery: '请稍后重试。' }));
     }
   };
 
   const updatePin = async (id: string, pinned: boolean) => {
+    const current = workspaceMutation();
     const previous = contextItems;
     setContextItems(items => items.map(item => item.id === id ? { ...item, pinned, ...(pinned ? { status: 'active' as const } : {}) } : item));
     try {
       const { workspace } = await api.setContextPin(id, pinned);
+      if (!current()) return;
       setContextItems(workspace.contextItems);
       setSyncError('');
     } catch (error) {
+      if (!current()) return;
       setContextItems(previous);
       setSyncError(presentErrorText(error, { message: '无法保存固定状态。', recovery: '请稍后重试。' }));
     }
   };
 
   const addContextSource = async (sourceType: 'node' | 'segment' | 'file', sourceId: string) => {
+    const current = workspaceMutation();
     try {
       const { workspace } = await api.addContextSource(sourceType, sourceId);
+      if (!current()) return;
       setContextItems(workspace.contextItems);
       setSyncError('');
-    } catch (error) { setSyncError(presentErrorText(error, { message: '无法添加 Context 来源。', recovery: '请稍后重试。' })); }
+    } catch (error) { if (current()) setSyncError(presentErrorText(error, { message: '无法添加 Context 来源。', recovery: '请稍后重试。' })); }
   };
 
   const sendMessage = async (text: string, options: ChatRequestOptions = {}) => {
+    const current = workspaceMutation();
     const pendingId = `pending-${Date.now()}`;
     const pendingAssistantId = `${pendingId}-assistant`;
     const pending: Message = { id: pendingId, nodeId: activeNodeId, kind: 'user', text, createdAt: new Date().toISOString(), pending: true, attachmentIds: options.attachmentIds, operation: options.operation };
@@ -236,6 +254,7 @@ export function App() {
     setMessages(current => [...current, pending]);
     try {
       const result = await api.streamMessage(text, event => {
+        if (!current()) return;
         if (!['CONTENT_DELTA', 'REASONING_DELTA', 'TOOL_CALL_DELTA', 'USAGE'].includes(event.type)) return;
         setMessages(current => {
           const existing = current.find(message => message.id === pendingAssistantId) || pendingAssistant;
@@ -247,69 +266,92 @@ export function App() {
           return current.some(message => message.id === pendingAssistantId) ? current.map(message => message.id === pendingAssistantId ? next : message) : [...current, next];
         });
       }, options);
+      if (!current()) return;
       setMessages(current => [...current.filter(message => message.id !== pendingId && message.id !== pendingAssistantId), result.userMessage, result.assistantMessage]);
       setManifests(current => current.some(manifest => manifest.id === result.manifest.id) ? current : [...current, result.manifest]);
       setSyncError('');
     } catch (error) {
+      if (!current()) return;
       setMessages(current => current.filter(message => message.id !== pendingAssistantId && message.id !== pendingId));
       throw error;
     }
   };
   const uploadAttachment = async (file: File) => {
+    const current = workspaceMutation();
     const attachment = await api.uploadAttachment(file);
+    if (!current()) return attachment;
     setAttachments(current => current.some(item => item.id === attachment.id) ? current : [...current, attachment]);
     return attachment;
   };
   const createBranch = async (input: { title: string; anchorText?: string; anchorStart?: number; anchorEnd?: number; sourceMessageId?: string; messages?: Array<Pick<Message, 'kind' | 'text' | 'createdAt'>> }) => {
+    const current = workspaceMutation();
     const { workspace } = await api.createBranch(input);
+    if (!current()) return;
     applyWorkspace(workspace);
     setView('chat');
     setSyncError('');
   };
   const sendTemporaryMessage = async (input: { sourceNodeId: string; anchorText: string; message: string; history: Array<Pick<Message, 'kind' | 'text'>> }) => api.sendTemporaryMessage(input);
   const activateNode = async (id: string, openChat = false) => {
+    const current = workspaceMutation();
     const { workspace } = await api.activateNode(id);
+    if (!current()) return;
     applyWorkspace(workspace);
     if (openChat) setView('chat');
   };
   const moveNode = async (id: string, x: number, y: number) => {
+    const current = workspaceMutation();
     const previous = discussionNodes;
     setDiscussionNodes(nodes => nodes.map(node => node.id === id ? { ...node, x, y } : node));
     try {
       const { workspace } = await api.moveNode(id, x, y);
+      if (!current()) return;
       applyWorkspace(workspace);
     } catch (error) {
+      if (!current()) return;
       setDiscussionNodes(previous);
       setSyncError(presentErrorText(error, { message: '无法保存节点位置。', recovery: '请稍后重试。' }));
     }
   };
   const createGraphNode = async (input: { title: string; summary?: string; x: number; y: number }) => {
+    const current = workspaceMutation();
     const { workspace } = await api.createGraphNode(input);
+    if (!current()) return;
     applyWorkspace(workspace);
     setSyncError('');
   };
   const archiveGraphNode = async (id: string) => {
+    const current = workspaceMutation();
     const { workspace } = await api.archiveGraphNode(id);
+    if (!current()) return;
     applyWorkspace(workspace);
     setSyncError('');
   };
   const restoreGraphNode = async (id: string) => {
+    const current = workspaceMutation();
     const { workspace } = await api.restoreGraphNode(id);
+    if (!current()) return;
     applyWorkspace(workspace);
     setSyncError('');
   };
   const createGraphEdge = async (input: { source: string; target: string; relation: 'derived-from' | 'references' | 'related-to' | 'merged-into'; label: string }) => {
+    const current = workspaceMutation();
     const { workspace } = await api.createGraphEdge(input);
+    if (!current()) return;
     applyWorkspace(workspace);
     setSyncError('');
   };
   const deleteGraphEdge = async (id: string) => {
+    const current = workspaceMutation();
     const { workspace } = await api.deleteGraphEdge(id);
+    if (!current()) return;
     applyWorkspace(workspace);
     setSyncError('');
   };
   const mergeNode = async (id: string) => {
+    const current = workspaceMutation();
     const { workspace } = await api.mergeNode(id);
+    if (!current()) return;
     applyWorkspace(workspace);
     setView('chat');
   };

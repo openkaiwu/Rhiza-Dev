@@ -2,6 +2,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { App } from './App';
 import { initialContext } from './data';
+import type { ContextManifest, Message } from './types';
 
 const mocks = vi.hoisted(() => ({
   getWorkspace: vi.fn(),
@@ -122,6 +123,57 @@ describe('Rhiza MVP', () => {
     fireEvent.click(screen.getByRole('button', { name: '加入' }));
     expect(screen.getByText('3 项上下文')).toBeInTheDocument();
     await waitFor(() => expect(mocks.setContextStatus).toHaveBeenCalledWith('c3', 'active'));
+  });
+
+  it('ignores a late workspace mutation after switching to another workspace', async () => {
+    const delayed = deferred<{ workspace: typeof workspace }>();
+    const workspaceB = { ...scopedWorkspace('Workspace B'), projectId: 'workspace-b', contextItems: [] };
+    mocks.listWorkspaces.mockResolvedValue({ workspaces: [
+      { workspaceId: workspace.projectId, name: 'Workspace A', status: 'active', createdBy: 'local', revision: 1 },
+      { workspaceId: 'workspace-b', name: 'Workspace B', status: 'active', createdBy: 'local', revision: 1 },
+    ] });
+    mocks.setContextStatus.mockReturnValueOnce(delayed.promise);
+    mocks.getScopedWorkspace.mockResolvedValueOnce({ workspace: workspaceB });
+    render(<App />);
+    await screen.findByRole('heading', { level: 1, name: /信息架构方向/ });
+    await waitFor(() => expect(screen.getByLabelText('切换工作区')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: '加入' }));
+    fireEvent.change(screen.getByLabelText('切换工作区'), { target: { value: 'workspace-b' } });
+    await screen.findByRole('heading', { level: 1, name: /Workspace B/ });
+    delayed.resolve({ workspace: { ...workspace, contextItems: [...workspace.contextItems, { ...workspace.contextItems[0], id: 'late-a' }] } });
+    await waitFor(() => expect(screen.queryByText('3 项上下文')).not.toBeInTheDocument());
+    expect(screen.getByText('0 项上下文')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: /Workspace B/ })).toBeInTheDocument();
+  });
+
+  it('ignores late SSE deltas and commits after switching workspaces', async () => {
+    const delayed = deferred<{ userMessage: Message; assistantMessage: Message; manifest: ContextManifest }>();
+    let emit: (event: { type: 'CONTENT_DELTA'; requestId: string; delta: string }) => void = () => undefined;
+    const workspaceB = { ...scopedWorkspace('Workspace B'), projectId: 'workspace-b', contextItems: [] };
+    mocks.listWorkspaces.mockResolvedValue({ workspaces: [
+      { workspaceId: workspace.projectId, name: 'Workspace A', status: 'active', createdBy: 'local', revision: 1 },
+      { workspaceId: 'workspace-b', name: 'Workspace B', status: 'active', createdBy: 'local', revision: 1 },
+    ] });
+    mocks.streamMessage.mockImplementationOnce((_message: string, onEvent: (event: { type: 'CONTENT_DELTA'; requestId: string; delta: string }) => void) => { emit = onEvent; return delayed.promise; });
+    mocks.getScopedWorkspace.mockResolvedValueOnce({ workspace: workspaceB });
+    render(<App />);
+    await screen.findByLabelText('输入消息');
+    fireEvent.change(screen.getByLabelText('输入消息'), { target: { value: 'A pending' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+    await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledWith('A pending', expect.any(Function), expect.anything()));
+    fireEvent.change(screen.getByLabelText('切换工作区'), { target: { value: 'workspace-b' } });
+    await screen.findByRole('heading', { level: 1, name: /Workspace B/ });
+    emit({ type: 'CONTENT_DELTA', requestId: 'late-a', delta: 'A late delta' });
+    delayed.resolve({
+      userMessage: { id: 'late-user', nodeId: 'information-architecture', kind: 'user', text: 'A pending', createdAt: '' },
+      assistantMessage: { id: 'late-assistant', nodeId: 'information-architecture', kind: 'assistant', text: 'A final message', createdAt: '', manifestId: 'manifest-a-late' },
+      manifest: { ...workspace.manifests[0], id: 'manifest-a-late' },
+    });
+    await waitFor(() => expect(screen.queryByText('A late delta')).not.toBeInTheDocument());
+    expect(screen.queryByText('A pending')).not.toBeInTheDocument();
+    expect(screen.queryByText('A final message')).not.toBeInTheDocument();
+    expect(screen.queryByText(/manifest-a-late/)).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: /Workspace B/ })).toBeInTheDocument();
   });
 
   it('pins explicit context and exposes the immutable historical Manifest summary', async () => {
