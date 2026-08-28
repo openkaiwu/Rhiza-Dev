@@ -4,6 +4,13 @@
   "title": "Rhiza V4 milestone gate evidence",
   "type": "object",
   "required": ["$schema", "schema_version", "milestone", "architecture_version", "commit", "fixtures", "commands", "checksums", "failure_classification", "known_exceptions", "environment", "started_at", "completed_at", "result"],
+  "allOf": [{
+    "if": { "properties": { "milestone": { "const": "M03" } }, "required": ["milestone"] },
+    "then": {
+      "properties": { "severity": {}, "thresholds": {}, "observed_metrics": {}, "failure_injection_checkpoint": {}, "recovery_command": {} },
+      "required": ["severity", "thresholds", "observed_metrics", "failure_injection_checkpoint", "recovery_command"]
+    }
+  }],
   "additionalProperties": false,
   "properties": {
     "$schema": { "const": "https://rhiza.dev/architecture-gates/milestone-evidence/1.0.0" },
@@ -44,6 +51,14 @@
       "type": "object", "required": ["classification", "rationale"], "additionalProperties": false,
       "properties": { "classification": { "enum": ["none", "product_defect", "test_defect", "environment", "known_exception"] }, "rationale": { "type": "string", "minLength": 1 } }
     },
+    "severity": { "enum": ["blocking", "observational"] },
+    "thresholds": { "type": "object", "minProperties": 1 },
+    "observed_metrics": { "type": "object", "minProperties": 1 },
+    "failure_injection_checkpoint": {
+      "type": "object", "required": ["checkpoint", "injection_command", "expected"], "additionalProperties": false,
+      "properties": { "checkpoint": { "type": "string", "minLength": 1 }, "injection_command": { "type": "string", "minLength": 1 }, "expected": { "type": "string", "minLength": 1 } }
+    },
+    "recovery_command": { "type": "string", "minLength": 1 },
     "known_exceptions": {
       "type": "array",
       "items": {

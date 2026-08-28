@@ -185,8 +185,11 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
   app.post('/api/v1/workspaces/:workspaceId/graph/nodes', async (request, response, next) => {
     try {
       const title = typeof request.body?.title === 'string' ? request.body.title.trim() : '';
-      if (!title) rejectInput('节点标题不能为空。', 'INVALID_NODE_TITLE');
-      const workspace = await executeScoped(response, request.params.workspaceId, 'CreateGraphNode', { title, summary: typeof request.body?.summary === 'string' ? request.body.summary : undefined, x: Number(request.body?.x ?? 180), y: Number(request.body?.y ?? 140) });
+      const summary = typeof request.body?.summary === 'string' ? request.body.summary.trim().slice(0, 500) : '';
+      const x = Number(request.body?.x ?? 180); const y = Number(request.body?.y ?? 140);
+      if (!title || title.length > 120) rejectInput('节点标题不能为空且不能超过 120 字符。', 'INVALID_NODE_TITLE');
+      if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x > 5000 || y > 5000) rejectInput('节点坐标无效。', 'INVALID_POSITION');
+      const workspace = await executeScoped(response, request.params.workspaceId, 'CreateGraphNode', { title, summary, x, y });
       response.status(201).json({ workspace });
     } catch (error) { next(error); }
   });

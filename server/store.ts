@@ -123,9 +123,8 @@ export class WorkspaceStore implements WorkspaceRepository {
         result = this.normalize(JSON.parse(await readFile(this.filePath, 'utf8')) as Partial<WorkspaceData>);
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-        const seed = this.scopedFile ? workspace : { ...workspace, projectId: createSeedWorkspace().projectId };
-        await this.write(seed);
-        result = seed;
+        await this.write(workspace);
+        result = workspace;
       }
     });
     await this.queue;

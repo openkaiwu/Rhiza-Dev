@@ -34,10 +34,12 @@ async function testApp(runtime?: AIRuntime, defaultWorkspaceId?: string) {
 describe('Rhiza API', () => {
   it('uses the configured default workspace for legacy HTTP envelopes', async () => {
     const workspaceId = '00000000-0000-4000-8000-000000000099';
-    const { app } = await testApp(undefined, workspaceId);
-    expect((await request(app).get('/api/workspace').expect(200)).body.workspace.discussionNodes).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'main' })]));
+    const { app, filePath } = await testApp(undefined, workspaceId);
+    const legacy = await request(app).get('/api/workspace').expect(200);
+    expect(legacy.body.workspace).toMatchObject({ projectId: workspaceId, discussionNodes: expect.arrayContaining([expect.objectContaining({ kind: 'main' })]) });
     expect((await request(app).get('/api/v1/workspaces').expect(200)).body.workspaces).toEqual(expect.arrayContaining([expect.objectContaining({ workspaceId })]));
-    await request(app).get(`/api/v1/workspaces/${workspaceId}`).expect(200);
+    await request(app).post(`/api/v1/workspaces/${workspaceId}/graph/nodes`).send({ title: 'Configured default' }).expect(201);
+    expect(JSON.parse(await readFile(filePath, 'utf8'))).toMatchObject({ projectId: workspaceId });
   });
 
   it('scopes workspace lifecycle to the v1 path, not request body', async () => {
@@ -77,6 +79,24 @@ describe('Rhiza API', () => {
     expect((await request(app).get('/api/v1/workspaces?includeArchived=true')).body.workspaces).toEqual(expect.arrayContaining([expect.objectContaining({ workspaceId: id, status: 'archived', revision: 2 })]));
     await request(app).patch(`/api/v1/workspaces/${id}`).set('If-Match', '2').send({ action: 'restore' }).expect(200);
   });
+  it('recovers an idempotent workspace creation after scoped JSON initialization fails once', async () => {
+    const { app, store } = await testApp();
+    const original = store.forWorkspace.bind(store);
+    let failOnce = true;
+    store.forWorkspace = workspaceId => {
+      const target = original(workspaceId) as WorkspaceStore;
+      const initialize = target.initialize.bind(target);
+      target.initialize = async workspace => {
+        if (failOnce) { failOnce = false; throw new Error('simulated initialize failure'); }
+        return initialize(workspace);
+      };
+      return target;
+    };
+    const first = await request(app).post('/api/v1/workspaces').set('Idempotency-Key', 'retry-after-init-failure').send({ name: 'Retry' }).expect(500);
+    expect(first.body.error.code).toBe('INTERNAL_ERROR');
+    const retried = await request(app).post('/api/v1/workspaces').set('Idempotency-Key', 'retry-after-init-failure').send({ name: 'Retry' }).expect(201);
+    await request(app).post(`/api/v1/workspaces/${retried.body.workspace.workspaceId}/switch`).expect(200);
+  });
   it('keeps scoped writes invisible across workspaces and preserves legacy default', async () => {
     const { app } = await testApp();
     const legacyBefore = await request(app).get('/api/workspace').expect(200);
@@ -89,6 +109,13 @@ describe('Rhiza API', () => {
     await request(app).patch(`/api/v1/workspaces/${id}`).send({ action: 'archive' }).expect(200);
     await request(app).post(`/api/v1/workspaces/${id}/graph/nodes`).send({ title: 'Denied' }).expect(409);
     await request(app).patch(`/api/v1/workspaces/${id}`).send({ action: 'restore' }).expect(200);
+  });
+  it('applies legacy graph node validation to scoped graph creates', async () => {
+    const { app } = await testApp();
+    const id = (await request(app).post('/api/v1/workspaces').send({ name: 'Validation' }).expect(201)).body.workspace.workspaceId;
+    await request(app).post(`/api/v1/workspaces/${id}/graph/nodes`).send({ title: 'x'.repeat(121) }).expect(400).expect(({ body }) => expect(body.error.code).toBe('INVALID_NODE_TITLE'));
+    await request(app).post(`/api/v1/workspaces/${id}/graph/nodes`).send({ title: 'Finite', x: 'NaN', y: 0 }).expect(400).expect(({ body }) => expect(body.error.code).toBe('INVALID_POSITION'));
+    await request(app).post(`/api/v1/workspaces/${id}/graph/nodes`).send({ title: 'Bounds', x: 5001, y: 0 }).expect(400).expect(({ body }) => expect(body.error.code).toBe('INVALID_POSITION'));
   });
   it('routes attachment, context, graph and chat writes to the path workspace', async () => {
     const { app } = await testApp();
@@ -179,7 +206,7 @@ describe('Rhiza API', () => {
     expect(response.body.assistantMessage.text).toBe('后端生成的回答');
     expect(response.body.manifest.contextItemIds).toEqual(['c1', 'c2']);
     expect(response.body.manifest).toMatchObject({
-      projectId: 'rhiza-product-research', nodeId: 'information-architecture',
+      projectId: '00000000-0000-4000-8000-000000000001', nodeId: 'information-architecture',
       provider: 'Test', model: 'test-model', runtime: 'provider-adapter', excludedItemIds: ['c4'],
     });
     expect(response.body.manifest.requestId).toEqual(expect.any(String));

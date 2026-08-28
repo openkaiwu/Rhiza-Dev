@@ -8,7 +8,9 @@ import {
   M02_COMMANDS,
   M02_FIXTURES,
   M02_PATHS,
+  M03_FIXTURES,
   M03_PATHS,
+  m03ObservedMetrics,
   validateEvidence,
   validateKnownExceptions,
   type MilestoneEvidence,
@@ -48,6 +50,8 @@ describe('milestone evidence validation', () => {
 
   it('rejects an M03 manifest labeled with the historical V4.0 architecture version', () => {
     const evidence = base(); evidence.milestone = 'M03';
+    evidence.severity = 'blocking'; evidence.thresholds = { required_gate_commands: 8 }; evidence.observed_metrics = { required_gate_commands: 8 };
+    evidence.failure_injection_checkpoint = { checkpoint: 'test', injection_command: 'test', expected: 'test' }; evidence.recovery_command = 'test';
     expect(() => validateEvidence(evidence, undefined, 'M03')).toThrow('M03 architecture version V4.0 does not match V4.1');
   });
 
@@ -82,7 +86,26 @@ describe('milestone evidence validation', () => {
       'src/api.test.ts',
       'server/application/create-application.test.ts',
       'src/App.test.tsx',
+      'server/index.ts',
+      'src/components/Sidebar.tsx',
+      'src/types.ts',
     ]));
+  });
+
+  it('requires M03 severity, explicit PostgreSQL skip metrics, and recovery evidence', () => {
+    const evidence = base(); evidence.milestone = 'M03'; evidence.architecture_version = 'V4.1';
+    expect(() => validateEvidence(evidence, undefined, 'M03')).toThrow(/severity|thresholds|observed_metrics|failure_injection_checkpoint|recovery_command/);
+  });
+
+  it('records the real PostgreSQL E2E result from the evidence environment', () => {
+    expect(m03ObservedMetrics()).toMatchObject({ real_postgres_e2e: { status: 'skipped', reason: expect.stringContaining('DATABASE_URL') } });
+    expect(m03ObservedMetrics('postgres://fixture')).toMatchObject({ real_postgres_e2e: { status: 'pass' } });
+  });
+
+  it('binds each M03 fixture identifier to its checksum and records an observed environment', () => {
+    expect(M03_FIXTURES.every(fixture => M03_PATHS.includes(fixture.path))).toBe(true);
+    const schema = JSON.parse(readFileSync('docs/architecture-gates/milestone-evidence.schema.json', 'utf8'));
+    expect(schema.properties.environment.required).toEqual(expect.arrayContaining(['node', 'os', 'cpu', 'memory_bytes']));
   });
 
   it('rejects a reduced M02 command set', () => {
