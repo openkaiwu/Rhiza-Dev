@@ -3,7 +3,7 @@
   "schema_version": "1.0.0",
   "milestone": "M03",
   "architecture_version": "V4.0",
-  "commit": "c6f65d0ba7a3f8a2f774bdaf6ae4167ae125fdd0",
+  "commit": "7c0e7f47c3b30a93919f3138122ba4099cf3eb5a",
   "fixtures": [
     {
       "id": "g0-fixture-registry-v1",
@@ -163,8 +163,8 @@
     },
     "server/application/create-application.ts": {
       "algorithm": "sha256",
-      "current": "ffbe80fe3c5599ea138ddc602e892be59e20e763dd7c19ea757b30558323499d",
-      "recorded_commit": "ffbe80fe3c5599ea138ddc602e892be59e20e763dd7c19ea757b30558323499d"
+      "current": "da9f6b3133803dbdbcf225b8cd1eb9a724e677dc64967d49aa940250ed9ed013",
+      "recorded_commit": "da9f6b3133803dbdbcf225b8cd1eb9a724e677dc64967d49aa940250ed9ed013"
     },
     "server/application/ports/legacy-upload.ts": {
       "algorithm": "sha256",
@@ -388,8 +388,8 @@
     },
     "e2e/postgres-store.e2e.test.ts": {
       "algorithm": "sha256",
-      "current": "4980e44168a7be04acc5530d38f3109e87d738a6a3325941f55c15ef3c3aa0c5",
-      "recorded_commit": "4980e44168a7be04acc5530d38f3109e87d738a6a3325941f55c15ef3c3aa0c5"
+      "current": "02b4a22cdba87acb4b34c872947560b5cf8502301f5dd4794ce402abc81d2f58",
+      "recorded_commit": "02b4a22cdba87acb4b34c872947560b5cf8502301f5dd4794ce402abc81d2f58"
     },
     "scripts/migrate.test.ts": {
       "algorithm": "sha256",
@@ -413,7 +413,7 @@
     "cpu": "Apple A18 Pro",
     "memory_bytes": 8589934592
   },
-  "started_at": "2026-08-28T11:01:56.840Z",
-  "completed_at": "2026-08-28T11:02:58.429Z",
+  "started_at": "2026-08-28T17:05:50.101Z",
+  "completed_at": "2026-08-28T17:08:54.449Z",
   "result": "pass"
 }
