@@ -3,7 +3,7 @@
   "schema_version": "1.0.0",
   "milestone": "M03",
   "architecture_version": "V4.1",
-  "commit": "25f9740d9d2a38a6a3f4e3d9110136de2008b6fa",
+  "commit": "e6aeacd742ab78e3ebdbcd70e4dba22fa86e7e9b",
   "fixtures": [
     {
       "id": "g0-fixture-registry-v1",
@@ -108,13 +108,13 @@
     },
     "scripts/architecture-gates/verify-m02-boundaries.test.ts": {
       "algorithm": "sha256",
-      "current": "70c5245426ec81b15337b53d513bd40a3e4bd58e0b7eecc2f31f38c30e02e369",
-      "recorded_commit": "70c5245426ec81b15337b53d513bd40a3e4bd58e0b7eecc2f31f38c30e02e369"
+      "current": "51376da11e362417f976a079851bf31ff2f720ac0f6daf7f29a5b1a50461c237",
+      "recorded_commit": "51376da11e362417f976a079851bf31ff2f720ac0f6daf7f29a5b1a50461c237"
     },
     "scripts/architecture-gates/verify-m02-boundaries.ts": {
       "algorithm": "sha256",
-      "current": "006ad284afa04d88964eaed4b662cebc60bf87f7cd882f092e558ab87a6e05ca",
-      "recorded_commit": "006ad284afa04d88964eaed4b662cebc60bf87f7cd882f092e558ab87a6e05ca"
+      "current": "82777c4ad3eadade6910870de35c96107cc66d009bd98c0bc4c054d1801fc064",
+      "recorded_commit": "82777c4ad3eadade6910870de35c96107cc66d009bd98c0bc4c054d1801fc064"
     },
     "scripts/architecture-gates/verify-milestone-evidence.test.ts": {
       "algorithm": "sha256",
@@ -418,7 +418,7 @@
     "cpu": "Apple A18 Pro",
     "memory_bytes": 8589934592
   },
-  "started_at": "2026-08-28T17:30:41.567Z",
-  "completed_at": "2026-08-28T17:32:01.767Z",
+  "started_at": "2026-08-28T17:40:57.810Z",
+  "completed_at": "2026-08-28T17:42:28.274Z",
   "result": "pass"
 }
