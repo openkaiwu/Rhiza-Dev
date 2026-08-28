@@ -46,6 +46,13 @@ const providerCatalog = {
   activeModelId: 'model-1',
 };
 const presets = { openai: { name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', allowNoKey: false } };
+const deferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => { resolve = resolvePromise; reject = rejectPromise; });
+  return { promise, resolve, reject };
+};
+const scopedWorkspace = (title: string) => ({ ...workspace, discussionNodes: workspace.discussionNodes.map(node => ({ ...node, title })) });
 
 beforeEach(() => {
   localStorage.clear();
@@ -282,6 +289,55 @@ describe('Rhiza MVP', () => {
     expect(mocks.setWorkspace).toHaveBeenCalledWith(secondWorkspace);
     expect(mocks.getWorkspace.mock.calls).toHaveLength(legacyReads);
     expect(screen.queryByRole('heading', { level: 1, name: /信息架构方向/ })).not.toBeInTheDocument();
+  });
+
+  it('keeps the most recently selected workspace when switch responses resolve out of order', async () => {
+    const firstId = '00000000-0000-4000-8000-000000000010';
+    const secondId = '00000000-0000-4000-8000-000000000020';
+    const first = deferred<{ workspace: typeof workspace }>();
+    const second = deferred<{ workspace: typeof workspace }>();
+    mocks.listWorkspaces.mockResolvedValueOnce({ workspaces: [
+      { workspaceId: '00000000-0000-4000-8000-000000000001', name: 'Default', status: 'active' },
+      { workspaceId: firstId, name: 'First', status: 'active' },
+      { workspaceId: secondId, name: 'Second', status: 'active' },
+    ] });
+    mocks.getScopedWorkspace.mockImplementation((id: string) => id === firstId ? first.promise : second.promise);
+    render(<App />);
+    await screen.findByRole('heading', { level: 1, name: /信息架构方向/ });
+    const select = await screen.findByRole('combobox', { name: '切换工作区' });
+    fireEvent.change(select, { target: { value: firstId } });
+    fireEvent.change(select, { target: { value: secondId } });
+    await waitFor(() => expect(mocks.getScopedWorkspace).toHaveBeenCalledWith(secondId));
+    second.resolve({ workspace: scopedWorkspace('Second scope') });
+    expect(await screen.findByRole('heading', { level: 1, name: /Second scope/ })).toBeInTheDocument();
+    first.reject(new Error('first scope failed late'));
+    await Promise.resolve();
+    expect(screen.getByRole('heading', { level: 1, name: /Second scope/ })).toBeInTheDocument();
+  });
+
+  it('does not let a stale default background refresh overwrite a selected workspace', async () => {
+    const secondId = '00000000-0000-4000-8000-000000000030';
+    const background = deferred<{ workspace: typeof workspace; provider: { configured: boolean; name: string; model: string; baseUrl: string }; providerCatalog: typeof providerCatalog }>();
+    const selected = deferred<{ workspace: typeof workspace }>();
+    mocks.listWorkspaces.mockResolvedValueOnce({ workspaces: [
+      { workspaceId: '00000000-0000-4000-8000-000000000001', name: 'Default', status: 'active' },
+      { workspaceId: secondId, name: 'Second', status: 'active' },
+    ] });
+    mocks.getScopedWorkspace.mockReturnValueOnce(selected.promise);
+    render(<App />);
+    await screen.findByRole('heading', { level: 1, name: /信息架构方向/ });
+    const readsBeforeBackgroundRefresh = mocks.getWorkspace.mock.calls.length;
+    mocks.getWorkspace.mockImplementationOnce(() => background.promise);
+    fireEvent(window, new Event('online'));
+    await waitFor(() => expect(mocks.getWorkspace.mock.calls.length).toBeGreaterThan(readsBeforeBackgroundRefresh));
+    const select = await screen.findByRole('combobox', { name: '切换工作区' });
+    fireEvent.change(select, { target: { value: secondId } });
+    await waitFor(() => expect(mocks.getScopedWorkspace).toHaveBeenCalledWith(secondId));
+    selected.resolve({ workspace: scopedWorkspace('Selected scope') });
+    expect(await screen.findByRole('heading', { level: 1, name: /Selected scope/ })).toBeInTheDocument();
+    background.resolve({ workspace, provider: { configured: true, name: 'Test Provider', model: 'test-model', baseUrl: 'https://example.test/v1' }, providerCatalog });
+    await Promise.resolve();
+    expect(screen.getByRole('heading', { level: 1, name: /Selected scope/ })).toBeInTheDocument();
   });
 
   it('keeps archived workspaces selectable and exposes restore after an archive refresh', async () => {

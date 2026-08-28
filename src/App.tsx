@@ -36,7 +36,8 @@ export function App() {
   const [focusComposerRequest, setFocusComposerRequest] = useState(0);
   const [workspaces, setWorkspaces] = useState<WorkspaceRecord[]>([]);
   const [currentWorkspaceId, setCurrentWorkspaceId] = useState('00000000-0000-4000-8000-000000000001');
-  const loadRequestRef = useRef(0);
+  const workspaceGenerationRef = useRef(0);
+  const selectedWorkspaceRef = useRef('00000000-0000-4000-8000-000000000001');
   const modalReturnFocusRef = useRef<HTMLElement | null>(null);
   const activeModalRef = useRef<HTMLElement | null>(null);
 
@@ -53,11 +54,12 @@ export function App() {
   }, []);
 
   const loadWorkspace = useCallback(async (background = false) => {
-    const requestId = ++loadRequestRef.current;
+    const workspaceId = selectedWorkspaceRef.current;
+    const generation = ++workspaceGenerationRef.current;
     if (!background) setBoot('loading');
     try {
       const { workspace, provider: providerStatus, providerCatalog: catalog } = await api.getWorkspace();
-      if (requestId !== loadRequestRef.current) return 'stale' as const;
+      if (generation !== workspaceGenerationRef.current || workspaceId !== selectedWorkspaceRef.current) return 'stale' as const;
       applyWorkspace(workspace);
       setProvider(providerStatus);
       setProviderCatalog(catalog);
@@ -65,7 +67,7 @@ export function App() {
       setBoot('ready'); setBootError('');
       return 'loaded' as const;
     } catch (error) {
-      if (requestId !== loadRequestRef.current) return 'stale' as const;
+      if (generation !== workspaceGenerationRef.current || workspaceId !== selectedWorkspaceRef.current) return 'stale' as const;
       const message = presentErrorText(error, { message: '无法加载工作区。', recovery: '请检查网络后重试。' });
       if (!background) { setBoot('error'); setBootError(message); }
       setSyncError(message);
@@ -76,12 +78,16 @@ export function App() {
   useEffect(() => { void loadWorkspace(); }, [loadWorkspace]);
   useEffect(() => { if (api.listWorkspaces) void api.listWorkspaces(true).then(result => setWorkspaces(result.workspaces)).catch(() => undefined); }, []);
   const switchWorkspace = async (workspaceId: string) => {
+    const generation = ++workspaceGenerationRef.current;
+    selectedWorkspaceRef.current = workspaceId;
     setMessages([]); setDiscussionNodes([]); setContextItems([]); setAttachments([]); setDiscussionEdges([]); setSegments([]); setManifests([]); setActiveNodeId('');
     api.setWorkspace(workspaceId); setCurrentWorkspaceId(workspaceId);
     try {
       const { workspace } = await api.getScopedWorkspace(workspaceId);
+      if (generation !== workspaceGenerationRef.current || workspaceId !== selectedWorkspaceRef.current) return;
       applyWorkspace(workspace); setSyncError('');
     } catch (error) {
+      if (generation !== workspaceGenerationRef.current || workspaceId !== selectedWorkspaceRef.current) return;
       setSyncError(presentErrorText(error, { message: '无法加载所选工作区。', recovery: '请检查网络后重试。' }));
     }
   };
