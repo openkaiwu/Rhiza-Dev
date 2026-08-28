@@ -55,8 +55,13 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
 
   async initialize(workspace: WorkspaceData): Promise<WorkspaceData> {
     const initial = /^[0-9a-f-]{36}$/i.test(workspace.activeNodeId) ? workspace : { ...relationalSeed(workspace.projectId), projectTitle: workspace.projectTitle };
-    await this.inTransaction(database => this.persist(database, initial));
-    return initial;
+    return this.inTransaction(async database => {
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace:init:' || $1))", [this.projectId]);
+      const existing = await this.readFrom(database, true);
+      if (existing?.discussionNodes.length) return existing;
+      await this.persist(database, initial);
+      return initial;
+    });
   }
 
   readonly workspaceDirectory: WorkspaceDirectoryPort = {

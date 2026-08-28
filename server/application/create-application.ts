@@ -167,7 +167,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
         if (!name || name.length > 200) throw legacyError('工作区名称不能为空且不能超过 200 字符。', 400, 'INVALID_WORKSPACE_NAME');
         const workspaceId = String((envelope.payload as { workspaceId?: string }).workspaceId || id());
         const created = await workspaceDirectory.create(envelope.actor, workspaceId, name);
-        if (created.created) await unitOfWork.createWorkspace?.(workspaceId, name);
+        await unitOfWork.ensureWorkspaceInitialized?.(workspaceId, created.record.name);
         return created.record;
       }
       const record = await workspaceDirectory.require(envelope.actor, envelope.workspaceId, envelope.scope);

@@ -25,5 +25,6 @@ export interface WorkspaceUnitOfWork {
   execute<T>(mutation: WorkspaceMutation<T>): Promise<WorkspaceExecutionResult<T>>;
   /** Runs a complete application request against one workspace; implementations must not leak that selection. */
   withWorkspace?<T>(workspaceId: string, operation: () => Promise<T>): Promise<T>;
-  createWorkspace?(workspaceId: string, name: string): Promise<WorkspaceData>;
+  /** Idempotently completes aggregate initialization after directory creation. */
+  ensureWorkspaceInitialized?(workspaceId: string, name: string): Promise<WorkspaceData>;
 }

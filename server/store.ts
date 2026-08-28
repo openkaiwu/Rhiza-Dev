@@ -116,7 +116,18 @@ export class WorkspaceStore implements WorkspaceRepository {
   }
 
   async initialize(workspace: WorkspaceData): Promise<WorkspaceData> {
-    await this.write(workspace); return workspace;
+    let result!: WorkspaceData;
+    this.queue = this.queue.catch(() => undefined).then(async () => {
+      try {
+        result = this.normalize(JSON.parse(await readFile(this.filePath, 'utf8')) as Partial<WorkspaceData>);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        await this.write(workspace);
+        result = workspace;
+      }
+    });
+    await this.queue;
+    return result;
   }
 
   readonly workspaceDirectory: WorkspaceDirectoryPort = {

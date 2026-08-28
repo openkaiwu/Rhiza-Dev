@@ -18,7 +18,7 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
     return this.scope.run(workspaceId, operation);
   }
 
-  async createWorkspace(workspaceId: string, name: string): Promise<WorkspaceData> {
+  async ensureWorkspaceInitialized(workspaceId: string, name: string): Promise<WorkspaceData> {
     const seed = createSeedWorkspace();
     const created = { ...seed, projectId: workspaceId, projectTitle: name, updatedAt: new Date().toISOString() };
     const target = this.repository.forWorkspace?.(workspaceId);

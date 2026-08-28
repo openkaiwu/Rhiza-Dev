@@ -49,7 +49,7 @@ describe('RepositoryWorkspaceUnitOfWork', () => {
       const path = join(directory, 'workspace.json');
       const first = new RepositoryWorkspaceUnitOfWork(new WorkspaceStore(path));
       await Promise.all(['workspace-a', 'workspace-b'].map(async id => {
-        await first.createWorkspace(id, id);
+        await first.ensureWorkspaceInitialized(id, id);
         await first.withWorkspace!(id, () => first.execute({ policy: { kind: 'normal' }, apply: current => ({ next: { ...current, projectTitle: `${id}-saved` }, value: undefined }) }));
       }));
       const restored = new RepositoryWorkspaceUnitOfWork(new WorkspaceStore(path));
@@ -72,6 +72,39 @@ describe('RepositoryWorkspaceUnitOfWork', () => {
       ]);
       expect([first, second].filter(Boolean)).toHaveLength(1);
       expect(await port.listWorkspaces(record.createdBy, true)).toEqual(expect.arrayContaining([expect.objectContaining({ workspaceId: record.workspaceId, revision: 2, name: expect.stringMatching(/First|Second/) })]));
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it('keeps an initialized JSON aggregate on an idempotent ensure retry', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-ensure-'));
+    try {
+      const unit = new RepositoryWorkspaceUnitOfWork(new WorkspaceStore(join(directory, 'workspace.json')));
+      await unit.ensureWorkspaceInitialized('ensure-workspace', 'Ensure');
+      await unit.withWorkspace!('ensure-workspace', () => unit.execute({ policy: { kind: 'normal' }, apply: current => ({ next: { ...current, projectTitle: 'Preserved' }, value: undefined }) }));
+      await unit.ensureWorkspaceInitialized('ensure-workspace', 'Should not overwrite');
+      await expect(unit.withWorkspace!('ensure-workspace', () => unit.read(item => item.projectTitle))).resolves.toBe('Preserved');
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it('retries a failed JSON initialization after directory creation without overwriting data', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-ensure-retry-'));
+    try {
+      const store = new WorkspaceStore(join(directory, 'workspace.json'));
+      const workspaceId = 'ensure-retry-workspace';
+      await store.workspaceDirectory!.createWorkspace({ workspaceId, name: 'Retry', status: 'active', createdBy: '00000000-0000-4000-8000-000000000002', revision: 1 });
+      const target = store.forWorkspace(workspaceId) as WorkspaceStore;
+      const initialize = target.initialize.bind(target);
+      let failOnce = true;
+      target.initialize = async workspace => {
+        if (failOnce) { failOnce = false; throw new Error('simulated JSON initialize failure'); }
+        return initialize(workspace);
+      };
+      const unit = new RepositoryWorkspaceUnitOfWork(store);
+      await expect(unit.ensureWorkspaceInitialized(workspaceId, 'Retry')).rejects.toThrow('simulated JSON initialize failure');
+      await unit.ensureWorkspaceInitialized(workspaceId, 'Retry');
+      await unit.withWorkspace!(workspaceId, () => unit.execute({ policy: { kind: 'normal' }, apply: current => ({ next: { ...current, projectTitle: 'Recovered' }, value: undefined }) }));
+      await unit.ensureWorkspaceInitialized(workspaceId, 'Retry');
+      await expect(unit.withWorkspace!(workspaceId, () => unit.read(item => item.projectTitle))).resolves.toBe('Recovered');
     } finally { await rm(directory, { recursive: true, force: true }); }
   });
 });

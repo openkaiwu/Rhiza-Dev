@@ -3,7 +3,7 @@ import { createLegacyCommandEnvelope, createLegacyQueryEnvelope } from '../contr
 import { createSeedWorkspace } from '../seed';
 import { createRhizaApplication } from './create-application';
 
-function fixture(options: { failMutation?: boolean; uploads?: { put(key: string, bytes: Uint8Array): Promise<void>; delete?(key: string): Promise<void> } } = {}) {
+function fixture(options: { failMutation?: boolean; ensureWorkspaceInitialized?: (workspaceId: string, name: string) => Promise<import('../domain').WorkspaceData>; uploads?: { put(key: string, bytes: Uint8Array): Promise<void>; delete?(key: string): Promise<void> } } = {}) {
   let workspace = createSeedWorkspace();
   let sequence = 0;
   const commits: string[] = [];
@@ -12,6 +12,7 @@ function fixture(options: { failMutation?: boolean; uploads?: { put(key: string,
     unitOfWork: {
       read: async reader => reader(workspace),
       execute: async mutation => { commits.push(mutation.policy.kind); if (options.failMutation) throw new Error('workspace write failed'); const result = await mutation.apply(workspace); workspace = result.next; return { workspace, value: result.value }; },
+      ensureWorkspaceInitialized: options.ensureWorkspaceInitialized,
     },
     runtime: {
       kind: 'provider-adapter',
@@ -61,6 +62,19 @@ describe('Rhiza Application', () => {
   it('rejects write commands without a matching actor and workspace scope', async () => {
     const { application } = fixture();
     await expect(application.execute({ commandId: 'missing-scope', commandType: 'CreateGraphNode', payload: { title: 'nope' } } as never)).rejects.toMatchObject({ details: { code: 'MISSING_ACTOR_OR_SCOPE', status: 403 } });
+  });
+
+  it('retries aggregate initialization after directory creation without allocating another workspace', async () => {
+    let attempts = 0;
+    const { application } = fixture({ ensureWorkspaceInitialized: async (workspaceId, name) => {
+      attempts += 1;
+      if (attempts === 1) throw new Error('simulated initialization failure');
+      return { ...createSeedWorkspace(), projectId: workspaceId, projectTitle: name };
+    } });
+    const command = createLegacyCommandEnvelope('create-retry', 'CreateWorkspace', { name: 'Retry', workspaceId: 'retry-workspace' });
+    await expect(application.execute(command)).rejects.toMatchObject({ details: { code: 'INTERNAL_ERROR' } });
+    await expect(application.execute(command)).resolves.toMatchObject({ workspaceId: 'retry-workspace', name: 'Retry' });
+    expect(attempts).toBe(2);
   });
 
   it('rounds graph positions, reactivates a stale branch source, and trims branch drafts', async () => {

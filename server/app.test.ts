@@ -54,6 +54,13 @@ describe('Rhiza API', () => {
     expect((await request(app).get(`/api/v1/workspaces/${id}`)).body.workspace.discussionNodes).toEqual(expect.arrayContaining([expect.objectContaining({ title: 'Retained' })]));
     const different = await request(app).post('/api/v1/workspaces').set('Idempotency-Key', 'different-key').send({ name: 'Different' }).expect(201);
     expect(different.body.workspace.workspaceId).not.toBe(id);
+    const concurrent = await Promise.all([
+      request(app).post('/api/v1/workspaces').set('Idempotency-Key', 'concurrent-key').send({ name: 'Concurrent' }).expect(201),
+      request(app).post('/api/v1/workspaces').set('Idempotency-Key', 'concurrent-key').send({ name: 'Concurrent' }).expect(201),
+    ]);
+    const concurrentId = concurrent[0].body.workspace.workspaceId as string;
+    expect(concurrent[1].body.workspace.workspaceId).toBe(concurrentId);
+    expect((await request(app).get(`/api/v1/workspaces/${concurrentId}`)).body.workspace.discussionNodes).not.toHaveLength(0);
     const [archived, stale] = await Promise.all([
       request(app).patch(`/api/v1/workspaces/${id}`).set('If-Match', '1').send({ action: 'archive' }),
       request(app).patch(`/api/v1/workspaces/${id}`).set('If-Match', '1').send({ action: 'archive' }),

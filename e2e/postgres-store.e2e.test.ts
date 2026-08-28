@@ -18,6 +18,19 @@ async function migratedDatabase() {
 }
 
 describe('PostgreSQL workspace persistence', () => {
+  it('seeds a directory-only workspace once and keeps it readable after reconstruction', async () => {
+    const database = await migratedDatabase();
+    try {
+      const workspaceId = randomUUID();
+      const store = new PostgresWorkspaceStore(database);
+      await store.workspaceDirectory!.createWorkspace({ workspaceId, name: 'Directory only', status: 'active', createdBy: '00000000-0000-4000-8000-000000000002', revision: 1 });
+      const unit = new RepositoryWorkspaceUnitOfWork(store);
+      await unit.ensureWorkspaceInitialized(workspaceId, 'Directory only');
+      const restored = new RepositoryWorkspaceUnitOfWork(new PostgresWorkspaceStore(database));
+      await expect(restored.withWorkspace!(workspaceId, () => restored.read(item => item.discussionNodes.length))).resolves.toBeGreaterThan(0);
+    } finally { await database.close(); }
+  });
+
   it('atomically accepts only one PostgreSQL directory revision update', async () => {
     const database = await migratedDatabase();
     try {
@@ -40,7 +53,7 @@ describe('PostgreSQL workspace persistence', () => {
       const defaultId = randomUUID(); const scopedId = randomUUID();
       const unit = new RepositoryWorkspaceUnitOfWork(new PostgresWorkspaceStore(database, defaultId));
       await unit.read(item => item.projectId);
-      await unit.createWorkspace(scopedId, 'Second workspace');
+      await unit.ensureWorkspaceInitialized(scopedId, 'Second workspace');
       await unit.withWorkspace!(scopedId, () => unit.execute({ policy: { kind: 'normal' }, apply: current => ({ next: { ...current, projectTitle: 'Scoped saved' }, value: undefined }) }));
       const restored = new RepositoryWorkspaceUnitOfWork(new PostgresWorkspaceStore(database, defaultId));
       await expect(restored.withWorkspace!(scopedId, () => restored.read(item => item.projectTitle))).resolves.toBe('Scoped saved');
