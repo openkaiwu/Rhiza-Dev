@@ -46,6 +46,11 @@ describe('milestone evidence validation', () => {
     expect(() => validateEvidence(evidence, undefined, 'M01')).toThrow('does not match requested M01');
   });
 
+  it('rejects an M03 manifest labeled with the historical V4.0 architecture version', () => {
+    const evidence = base(); evidence.milestone = 'M03';
+    expect(() => validateEvidence(evidence, undefined, 'M03')).toThrow('M03 architecture version V4.0 does not match V4.1');
+  });
+
   it('rejects a reduced M01 command set', () => {
     expect(() => validateEvidence(base(), undefined, 'M01')).toThrow('M01 command set drift');
   });

@@ -19,8 +19,8 @@ export class ApiError extends Error {
 }
 
 type ErrorPayload = { code?: string; message?: string; category?: ApiErrorCategory; retryable?: boolean; correlationId?: string };
-let currentWorkspaceId = '00000000-0000-4000-8000-000000000001';
-const scopedPath = (path: string) => /^\/api\/(?!v1\/workspaces(?:\/|\?|$)|health$|providers|models)/.test(path) ? `/api/v1/workspaces/${encodeURIComponent(currentWorkspaceId)}${path.slice(4)}` : path;
+let currentWorkspaceId: string | undefined;
+const scopedPath = (path: string) => currentWorkspaceId && /^\/api\/(?!v1\/workspaces(?:\/|\?|$)|health$|providers|models)/.test(path) ? `/api/v1/workspaces/${encodeURIComponent(currentWorkspaceId)}${path.slice(4)}` : path;
 
 function apiError(payload: ErrorPayload | undefined, status: number) {
   return new ApiError(payload?.message || `请求失败（${status}）`, payload?.code, status, {
@@ -121,7 +121,7 @@ async function uploadAttachment(file: File): Promise<Attachment> {
 }
 
 export const api = {
-  setWorkspace: (workspaceId: string) => { currentWorkspaceId = workspaceId; },
+  setWorkspace: (workspaceId?: string) => { currentWorkspaceId = workspaceId; },
   listWorkspaces: (includeArchived = false) => request<{ workspaces: WorkspaceRecord[] }>(`/api/v1/workspaces${includeArchived ? '?includeArchived=true' : ''}`),
   createWorkspace: (name: string, idempotencyKey?: string) => request<{ workspace: WorkspaceRecord }>('/api/v1/workspaces', { method: 'POST', headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined, body: JSON.stringify({ name }) }),
   getScopedWorkspace: (workspaceId: string) => request<{ workspace: WorkspaceSnapshot }>(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}`),

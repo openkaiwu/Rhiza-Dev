@@ -104,6 +104,18 @@ describe('Rhiza MVP', () => {
     expect(screen.getByText('推荐项不会自动进入模型输入。')).toBeInTheDocument();
   });
 
+  it('binds the configured default returned by the legacy bootstrap before later workspace requests', async () => {
+    const customDefault = 'custom-default-workspace';
+    const readsBeforeBoot = mocks.getWorkspace.mock.calls.length;
+    mocks.getWorkspace.mockResolvedValueOnce({ workspace: { ...workspace, projectId: customDefault }, provider: { configured: true, name: 'Test Provider', model: 'test-model', baseUrl: 'https://example.test/v1' }, providerCatalog });
+    render(<App />);
+    await screen.findByRole('heading', { level: 1, name: /信息架构方向/ });
+    expect(mocks.getWorkspace).toHaveBeenCalledTimes(readsBeforeBoot + 1);
+    expect(mocks.setWorkspace).toHaveBeenCalledWith(customDefault);
+    fireEvent.click(screen.getByRole('button', { name: '加入' }));
+    await waitFor(() => expect(mocks.setContextStatus).toHaveBeenCalledWith('c3', 'active'));
+  });
+
   it('moves recommended context into active context', async () => {
     render(<App />);
     expect(await screen.findByText('2 项上下文')).toBeInTheDocument();
@@ -341,7 +353,7 @@ describe('Rhiza MVP', () => {
   });
 
   it('keeps archived workspaces selectable and exposes restore after an archive refresh', async () => {
-    const id = '00000000-0000-4000-8000-000000000001';
+    const id = workspace.projectId;
     mocks.listWorkspaces
       .mockResolvedValueOnce({ workspaces: [{ workspaceId: id, name: 'Default', status: 'active', createdBy: '00000000-0000-4000-8000-000000000002', revision: 1 }] })
       .mockResolvedValueOnce({ workspaces: [{ workspaceId: id, name: 'Default', status: 'archived', createdBy: '00000000-0000-4000-8000-000000000002', revision: 2 }] });

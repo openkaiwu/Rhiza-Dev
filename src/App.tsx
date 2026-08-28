@@ -35,9 +35,9 @@ export function App() {
   const [onboardingOpen, setOnboardingOpen] = useState(() => localStorage.getItem('rhiza:onboarding-seen') !== '1');
   const [focusComposerRequest, setFocusComposerRequest] = useState(0);
   const [workspaces, setWorkspaces] = useState<WorkspaceRecord[]>([]);
-  const [currentWorkspaceId, setCurrentWorkspaceId] = useState('00000000-0000-4000-8000-000000000001');
+  const [currentWorkspaceId, setCurrentWorkspaceId] = useState<string>();
   const workspaceGenerationRef = useRef(0);
-  const selectedWorkspaceRef = useRef('00000000-0000-4000-8000-000000000001');
+  const selectedWorkspaceRef = useRef<string | undefined>(undefined);
   const modalReturnFocusRef = useRef<HTMLElement | null>(null);
   const activeModalRef = useRef<HTMLElement | null>(null);
 
@@ -60,6 +60,11 @@ export function App() {
     try {
       const { workspace, provider: providerStatus, providerCatalog: catalog } = await api.getWorkspace();
       if (generation !== workspaceGenerationRef.current || workspaceId !== selectedWorkspaceRef.current) return 'stale' as const;
+      if (!workspaceId) {
+        selectedWorkspaceRef.current = workspace.projectId;
+        api.setWorkspace(workspace.projectId);
+        setCurrentWorkspaceId(workspace.projectId);
+      }
       applyWorkspace(workspace);
       setProvider(providerStatus);
       setProviderCatalog(catalog);
@@ -94,9 +99,9 @@ export function App() {
   const refreshWorkspaces = async () => { const items = (await api.listWorkspaces(true)).workspaces; setWorkspaces(items); return items; };
   const createWorkspace = async () => { const name = window.prompt('工作区名称'); if (!name?.trim()) return; const { workspace } = await api.createWorkspace(name.trim()); await refreshWorkspaces(); await switchWorkspace(workspace.workspaceId); };
   const workspaceRecord = () => workspaces.find(item => item.workspaceId === currentWorkspaceId);
-  const renameWorkspace = async () => { const record = workspaceRecord(); const name = window.prompt('新名称', record?.name); if (!name?.trim() || !record) return; await api.updateWorkspace(currentWorkspaceId, 'rename', record.revision, name.trim()); await refreshWorkspaces(); };
-  const archiveWorkspace = async () => { const record = workspaceRecord(); if (!record) return; await api.updateWorkspace(currentWorkspaceId, 'archive', record.revision); const items = await refreshWorkspaces(); const next = items.find(item => item.workspaceId !== currentWorkspaceId && item.status === 'active'); if (next) await switchWorkspace(next.workspaceId); };
-  const restoreWorkspace = async () => { const record = workspaceRecord(); if (!record) return; await api.updateWorkspace(currentWorkspaceId, 'restore', record.revision); await refreshWorkspaces(); };
+  const renameWorkspace = async () => { const record = workspaceRecord(); const name = window.prompt('新名称', record?.name); if (!name?.trim() || !record) return; await api.updateWorkspace(record.workspaceId, 'rename', record.revision, name.trim()); await refreshWorkspaces(); };
+  const archiveWorkspace = async () => { const record = workspaceRecord(); if (!record) return; await api.updateWorkspace(record.workspaceId, 'archive', record.revision); const items = await refreshWorkspaces(); const next = items.find(item => item.workspaceId !== record.workspaceId && item.status === 'active'); if (next) await switchWorkspace(next.workspaceId); };
+  const restoreWorkspace = async () => { const record = workspaceRecord(); if (!record) return; await api.updateWorkspace(record.workspaceId, 'restore', record.revision); await refreshWorkspaces(); };
   useEffect(() => {
     const goOffline = () => { setOnline(false); setNetworkNotice('当前离线，发送已暂停。'); };
     const goOnline = () => {

@@ -2,11 +2,20 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { api } from './api';
 
-const defaultWorkspaceId = '00000000-0000-4000-8000-000000000001';
-
 afterEach(() => {
-  api.setWorkspace(defaultWorkspaceId);
+  api.setWorkspace();
   vi.unstubAllGlobals();
+});
+
+it('keeps the first workspace read legacy, then scopes subsequent requests to its configured default', async () => {
+  const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ workspace: { projectId: 'custom-default' } }), { status: 200 }));
+  vi.stubGlobal('fetch', fetch);
+
+  await api.getWorkspace();
+  api.setWorkspace('custom-default');
+  await api.setMode('Assisted');
+
+  expect(fetch.mock.calls.map(([url]) => url)).toEqual(['/api/workspace', '/api/v1/workspaces/custom-default/workspace/mode']);
 });
 
 it('binds workspace data requests to the selected path while keeping provider requests global', async () => {

@@ -14,6 +14,7 @@ type CommandResult = { command: string; result: 'pass' | 'fail' | 'skipped' };
 type KnownException = { owner: string; expiry: string; adr_or_issue: string; severity: 'blocking' | 'observational' };
 type FailureClassification = MilestoneEvidence['failure_classification'];
 type MilestoneConfig = {
+  architectureVersion: 'V4.0' | 'V4.1';
   commands: string[];
   paths: string[];
   fixtures: Array<{ id: string; path: string; role: string }>;
@@ -22,7 +23,7 @@ type MilestoneConfig = {
 };
 export type MilestoneEvidence = {
   $schema: 'https://rhiza.dev/architecture-gates/milestone-evidence/1.0.0'; schema_version: '1.0.0'; milestone: string;
-  architecture_version: 'V4.0'; commit: string; fixtures: Array<{ id: string; path: string; role: string }>;
+  architecture_version: 'V4.0' | 'V4.1'; commit: string; fixtures: Array<{ id: string; path: string; role: string }>;
   commands: CommandResult[]; checksums: Record<string, Checksum>;
   failure_classification: { classification: string; rationale: string }; known_exceptions: KnownException[];
   environment: { node: string; os: string; cpu: string; memory_bytes: number }; started_at: string; completed_at: string; result: 'pass' | 'fail';
@@ -194,6 +195,7 @@ export const M02_FIXTURES = [
 ];
 
 const M01_CONFIG: MilestoneConfig = {
+  architectureVersion: 'V4.0',
   commands: M01_COMMANDS,
   paths: M01_PATHS,
   fixtures: M01_FIXTURES,
@@ -205,6 +207,7 @@ const M01_CONFIG: MilestoneConfig = {
 };
 
 const M02_CONFIG: MilestoneConfig = {
+  architectureVersion: 'V4.0',
   commands: M02_COMMANDS,
   paths: M02_PATHS,
   fixtures: M02_FIXTURES,
@@ -215,9 +218,10 @@ const M02_CONFIG: MilestoneConfig = {
   knownExceptions: [],
 };
 export const M03_COMMANDS = [...M02_COMMANDS.slice(0, 6), 'pnpm vitest run server/app.test.ts server/application/create-application.test.ts e2e/postgres-schema.e2e.test.ts scripts/migrate.test.ts --maxWorkers=1 --testTimeout=30000', 'pnpm run build'];
-export const M03_PATHS = [...M02_PATHS, 'db/migrations/0005_identity_workspace_scope.up.sql', 'db/migrations/0005_identity_workspace_scope.down.sql', 'server/identity/workspace-directory.ts', 'server/identity/workspace-scope.ts', 'e2e/postgres-schema.e2e.test.ts', 'e2e/postgres-migration.e2e.test.ts', 'e2e/postgres-store.e2e.test.ts', 'scripts/migrate.test.ts', 'src/api.test.ts'];
+export const M03_PATHS = [...M02_PATHS, 'db/migrations/0005_identity_workspace_scope.up.sql', 'db/migrations/0005_identity_workspace_scope.down.sql', 'docs/architecture-gates/milestone-evidence.schema.json', 'server/identity/workspace-directory.ts', 'server/identity/workspace-scope.ts', 'e2e/postgres-schema.e2e.test.ts', 'e2e/postgres-migration.e2e.test.ts', 'e2e/postgres-store.e2e.test.ts', 'scripts/migrate.test.ts', 'src/api.test.ts'];
 export const M03_FIXTURES = M02_FIXTURES;
 const M03_CONFIG: MilestoneConfig = {
+  architectureVersion: 'V4.1',
   commands: M03_COMMANDS,
   paths: M03_PATHS,
   fixtures: M03_FIXTURES,
@@ -262,6 +266,7 @@ export function validateEvidence(
   if (expectedMilestone) {
     const config = milestoneConfig(expectedMilestone);
     if (evidence.milestone !== expectedMilestone) fail(`evidence milestone ${evidence.milestone} does not match requested ${expectedMilestone}`);
+    if (evidence.architecture_version !== config.architectureVersion) fail(`${expectedMilestone} architecture version ${evidence.architecture_version} does not match ${config.architectureVersion}`);
     if (evidence.commands.map(command => command.command).join('\n') !== config.commands.join('\n')) fail(`${expectedMilestone} command set drift`);
     if (Object.keys(evidence.checksums).sort().join('\n') !== [...config.paths].sort().join('\n')) fail(`${expectedMilestone} checksum path set drift`);
     if (JSON.stringify(evidence.fixtures) !== JSON.stringify(config.fixtures)) fail(`${expectedMilestone} fixture set drift`);
@@ -304,7 +309,7 @@ function writeEvidence(milestone: string): void {
   const commit = git(['rev-parse', 'HEAD']);
   const evidence: MilestoneEvidence = {
     $schema: 'https://rhiza.dev/architecture-gates/milestone-evidence/1.0.0', schema_version: '1.0.0', milestone,
-    architecture_version: 'V4.0', commit,
+    architecture_version: config.architectureVersion, commit,
     fixtures: config.fixtures,
     commands,
     checksums: Object.fromEntries(config.paths.map(path => {
