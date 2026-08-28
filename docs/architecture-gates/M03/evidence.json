@@ -3,7 +3,7 @@
   "schema_version": "1.0.0",
   "milestone": "M03",
   "architecture_version": "V4.1",
-  "commit": "102606ce0e124be4c34bf926c5a252318e1afde7",
+  "commit": "583fd18669d980772b595359fe4b7a7fba59aaef",
   "fixtures": [
     {
       "id": "g0-fixture-registry-v1",
@@ -273,13 +273,13 @@
     },
     "src/App.test.tsx": {
       "algorithm": "sha256",
-      "current": "7e2830a5bba839c343dfe92f9a5a0171636cc5398f17ca2d487482660c271069",
-      "recorded_commit": "7e2830a5bba839c343dfe92f9a5a0171636cc5398f17ca2d487482660c271069"
+      "current": "b9d29c6e6c1b30eaaf4e3e3095ea6763301c9827b4fdc277bcc322b2aa3051e9",
+      "recorded_commit": "b9d29c6e6c1b30eaaf4e3e3095ea6763301c9827b4fdc277bcc322b2aa3051e9"
     },
     "src/App.tsx": {
       "algorithm": "sha256",
-      "current": "04616ec894c90e4bbdb06d18afc03cdb28c3355dd5077edd334b7ad5b25fd9b9",
-      "recorded_commit": "04616ec894c90e4bbdb06d18afc03cdb28c3355dd5077edd334b7ad5b25fd9b9"
+      "current": "e2c8145faad88164afdb1ed81fa23397299c7220729c63fed03531197c5ae3ec",
+      "recorded_commit": "e2c8145faad88164afdb1ed81fa23397299c7220729c63fed03531197c5ae3ec"
     },
     "src/api.ts": {
       "algorithm": "sha256",
@@ -491,7 +491,7 @@
     "cpu": "Apple A18 Pro",
     "memory_bytes": 8589934592
   },
-  "started_at": "2026-08-28T22:31:24.920Z",
-  "completed_at": "2026-08-28T22:34:06.702Z",
+  "started_at": "2026-08-28T22:54:18.265Z",
+  "completed_at": "2026-08-28T22:56:19.488Z",
   "result": "pass"
 }
