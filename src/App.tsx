@@ -74,7 +74,7 @@ export function App() {
   }, [applyWorkspace]);
 
   useEffect(() => { void loadWorkspace(); }, [loadWorkspace]);
-  useEffect(() => { if (api.listWorkspaces) void api.listWorkspaces().then(result => setWorkspaces(result.workspaces)).catch(() => undefined); }, []);
+  useEffect(() => { if (api.listWorkspaces) void api.listWorkspaces(true).then(result => setWorkspaces(result.workspaces)).catch(() => undefined); }, []);
   const switchWorkspace = async (workspaceId: string) => {
     setMessages([]); setDiscussionNodes([]); setContextItems([]); setAttachments([]); setDiscussionEdges([]); setSegments([]); setManifests([]); setActiveNodeId('');
     api.setWorkspace(workspaceId); setCurrentWorkspaceId(workspaceId);
@@ -85,11 +85,12 @@ export function App() {
       setSyncError(presentErrorText(error, { message: '无法加载所选工作区。', recovery: '请检查网络后重试。' }));
     }
   };
-  const refreshWorkspaces = async () => setWorkspaces((await api.listWorkspaces()).workspaces);
+  const refreshWorkspaces = async () => { const items = (await api.listWorkspaces(true)).workspaces; setWorkspaces(items); return items; };
   const createWorkspace = async () => { const name = window.prompt('工作区名称'); if (!name?.trim()) return; const { workspace } = await api.createWorkspace(name.trim()); await refreshWorkspaces(); await switchWorkspace(workspace.workspaceId); };
-  const renameWorkspace = async () => { const name = window.prompt('新名称', workspaces.find(item => item.workspaceId === currentWorkspaceId)?.name); if (!name?.trim()) return; await api.updateWorkspace(currentWorkspaceId, 'rename', name.trim()); await refreshWorkspaces(); };
-  const archiveWorkspace = async () => { await api.updateWorkspace(currentWorkspaceId, 'archive'); await refreshWorkspaces(); const next = workspaces.find(item => item.workspaceId !== currentWorkspaceId && item.status === 'active'); if (next) await switchWorkspace(next.workspaceId); };
-  const restoreWorkspace = async () => { await api.updateWorkspace(currentWorkspaceId, 'restore'); await refreshWorkspaces(); };
+  const workspaceRecord = () => workspaces.find(item => item.workspaceId === currentWorkspaceId);
+  const renameWorkspace = async () => { const record = workspaceRecord(); const name = window.prompt('新名称', record?.name); if (!name?.trim() || !record) return; await api.updateWorkspace(currentWorkspaceId, 'rename', record.revision, name.trim()); await refreshWorkspaces(); };
+  const archiveWorkspace = async () => { const record = workspaceRecord(); if (!record) return; await api.updateWorkspace(currentWorkspaceId, 'archive', record.revision); const items = await refreshWorkspaces(); const next = items.find(item => item.workspaceId !== currentWorkspaceId && item.status === 'active'); if (next) await switchWorkspace(next.workspaceId); };
+  const restoreWorkspace = async () => { const record = workspaceRecord(); if (!record) return; await api.updateWorkspace(currentWorkspaceId, 'restore', record.revision); await refreshWorkspaces(); };
   useEffect(() => {
     const goOffline = () => { setOnline(false); setNetworkNotice('当前离线，发送已暂停。'); };
     const goOnline = () => {

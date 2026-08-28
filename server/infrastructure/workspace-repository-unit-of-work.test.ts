@@ -58,4 +58,20 @@ describe('RepositoryWorkspaceUnitOfWork', () => {
       await expect(restored.withWorkspace!('missing', () => restored.read(item => item.projectId))).rejects.toMatchObject({ code: 'WORKSPACE_DATA_MISSING', status: 409 });
     } finally { await rm(directory, { recursive: true, force: true }); }
   });
+
+  it('atomically accepts only one JSON workspace revision update', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-directory-'));
+    try {
+      const store = new WorkspaceStore(join(directory, 'workspace.json'));
+      const port = store.workspaceDirectory!;
+      const record = { workspaceId: 'workspace-revision', name: 'Original', status: 'active' as const, createdBy: '00000000-0000-4000-8000-000000000002', revision: 1 };
+      await port.createWorkspace(record);
+      const [first, second] = await Promise.all([
+        port.updateWorkspace({ ...record, name: 'First', revision: 2 }, 1),
+        port.updateWorkspace({ ...record, name: 'Second', revision: 2 }, 1),
+      ]);
+      expect([first, second].filter(Boolean)).toHaveLength(1);
+      expect(await port.listWorkspaces(record.createdBy, true)).toEqual(expect.arrayContaining([expect.objectContaining({ workspaceId: record.workspaceId, revision: 2, name: expect.stringMatching(/First|Second/) })]));
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
 });

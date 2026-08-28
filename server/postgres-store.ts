@@ -64,12 +64,21 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       const result = await this.database.query<{ workspace_id: string; name: string; status: 'active' | 'archived'; created_by: string; revision: number }>(`SELECT workspace_id,name,status,created_by,COALESCE((settings->>'revision')::integer,1) revision FROM workspaces WHERE created_by=$1${includeArchived ? '' : " AND status='active'"} ORDER BY updated_at DESC`, [userId]);
       return result.rows.map(row => ({ workspaceId: row.workspace_id, name: row.name, status: row.status, createdBy: row.created_by, revision: row.revision }));
     },
-    createWorkspace: async record => {
-      await this.database.query('INSERT INTO rhiza_projects (id,title,state) VALUES ($1,$2,$3::jsonb) ON CONFLICT (id) DO NOTHING', [record.workspaceId, record.name, '{}']);
-      await this.database.query("INSERT INTO workspaces (workspace_id,name,status,created_by,settings) VALUES ($1,$2,$3,$4,$5::jsonb) ON CONFLICT (workspace_id) DO NOTHING", [record.workspaceId, record.name, record.status, record.createdBy, JSON.stringify({ revision: record.revision })]);
-      await this.database.query("INSERT INTO workspace_members (workspace_id,user_id,role) VALUES ($1,$2,'owner') ON CONFLICT (workspace_id,user_id) DO NOTHING", [record.workspaceId, record.createdBy]);
+    createWorkspace: async record => this.inTransaction(async database => {
+      await database.query('INSERT INTO rhiza_projects (id,title,state) VALUES ($1,$2,$3::jsonb) ON CONFLICT (id) DO NOTHING', [record.workspaceId, record.name, '{}']);
+      const inserted = await database.query<{ workspace_id: string }>("INSERT INTO workspaces (workspace_id,name,status,created_by,settings) VALUES ($1,$2,$3,$4,$5::jsonb) ON CONFLICT (workspace_id) DO NOTHING RETURNING workspace_id", [record.workspaceId, record.name, record.status, record.createdBy, JSON.stringify({ revision: record.revision })]);
+      if (!inserted.rows[0]) {
+        const existing = await database.query<{ workspace_id: string; name: string; status: 'active' | 'archived'; created_by: string; revision: number }>("SELECT workspace_id,name,status,created_by,COALESCE((settings->>'revision')::integer,1) revision FROM workspaces WHERE workspace_id=$1", [record.workspaceId]);
+        const value = existing.rows[0]!;
+        return { record: { workspaceId: value.workspace_id, name: value.name, status: value.status, createdBy: value.created_by, revision: value.revision }, created: false };
+      }
+      await database.query("INSERT INTO workspace_members (workspace_id,user_id,role) VALUES ($1,$2,'owner') ON CONFLICT (workspace_id,user_id) DO NOTHING", [record.workspaceId, record.createdBy]);
+      return { record, created: true };
+    }),
+    updateWorkspace: async (record, expectedRevision) => {
+      const result = await this.database.query<{ workspace_id: string }>("UPDATE workspaces SET name=$2,status=$3,settings=jsonb_set(settings,'{revision}',to_jsonb($4::int),true),updated_at=now() WHERE workspace_id=$1 AND COALESCE((settings->>'revision')::integer,1)=$5 RETURNING workspace_id", [record.workspaceId, record.name, record.status, record.revision, expectedRevision]);
+      return result.rows[0] ? record : undefined;
     },
-    updateWorkspace: async record => { await this.database.query('UPDATE workspaces SET name=$2,status=$3,settings=jsonb_set(settings,\'{revision}\',to_jsonb($4::int),true),updated_at=now() WHERE workspace_id=$1', [record.workspaceId, record.name, record.status, record.revision]); },
   };
 
   static fromConnectionString(connectionString: string, projectId?: string) {

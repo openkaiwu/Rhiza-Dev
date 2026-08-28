@@ -18,6 +18,22 @@ async function migratedDatabase() {
 }
 
 describe('PostgreSQL workspace persistence', () => {
+  it('atomically accepts only one PostgreSQL directory revision update', async () => {
+    const database = await migratedDatabase();
+    try {
+      const store = new PostgresWorkspaceStore(database);
+      const port = store.workspaceDirectory!;
+      const record = { workspaceId: randomUUID(), name: 'Original', status: 'active' as const, createdBy: '00000000-0000-4000-8000-000000000002', revision: 1 };
+      await port.createWorkspace(record);
+      const [first, second] = await Promise.all([
+        port.updateWorkspace({ ...record, name: 'First', revision: 2 }, 1),
+        port.updateWorkspace({ ...record, name: 'Second', revision: 2 }, 1),
+      ]);
+      expect([first, second].filter(Boolean)).toHaveLength(1);
+      expect(await port.listWorkspaces(record.createdBy, true)).toEqual(expect.arrayContaining([expect.objectContaining({ workspaceId: record.workspaceId, revision: 2, name: expect.stringMatching(/First|Second/) })]));
+    } finally { await database.close(); }
+  });
+
   it('persists a scoped aggregate across reconstructed UoWs without changing default', async () => {
     const database = await migratedDatabase();
     try {

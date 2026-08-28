@@ -20,7 +20,7 @@ export class ApiError extends Error {
 
 type ErrorPayload = { code?: string; message?: string; category?: ApiErrorCategory; retryable?: boolean; correlationId?: string };
 let currentWorkspaceId = '00000000-0000-4000-8000-000000000001';
-const scopedPath = (path: string) => /^\/api\/(?!health$|providers|models)/.test(path) ? `/api/v1/workspaces/${encodeURIComponent(currentWorkspaceId)}${path.slice(4)}` : path;
+const scopedPath = (path: string) => /^\/api\/(?!v1\/workspaces(?:\/|\?|$)|health$|providers|models)/.test(path) ? `/api/v1/workspaces/${encodeURIComponent(currentWorkspaceId)}${path.slice(4)}` : path;
 
 function apiError(payload: ErrorPayload | undefined, status: number) {
   return new ApiError(payload?.message || `请求失败（${status}）`, payload?.code, status, {
@@ -122,10 +122,10 @@ async function uploadAttachment(file: File): Promise<Attachment> {
 
 export const api = {
   setWorkspace: (workspaceId: string) => { currentWorkspaceId = workspaceId; },
-  listWorkspaces: () => request<{ workspaces: WorkspaceRecord[] }>('/api/v1/workspaces'),
-  createWorkspace: (name: string) => request<{ workspace: WorkspaceRecord }>('/api/v1/workspaces', { method: 'POST', body: JSON.stringify({ name }) }),
+  listWorkspaces: (includeArchived = false) => request<{ workspaces: WorkspaceRecord[] }>(`/api/v1/workspaces${includeArchived ? '?includeArchived=true' : ''}`),
+  createWorkspace: (name: string, idempotencyKey?: string) => request<{ workspace: WorkspaceRecord }>('/api/v1/workspaces', { method: 'POST', headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined, body: JSON.stringify({ name }) }),
   getScopedWorkspace: (workspaceId: string) => request<{ workspace: WorkspaceSnapshot }>(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}`),
-  updateWorkspace: (workspaceId: string, action: 'archive' | 'restore' | 'rename', name?: string) => request<{ workspace: WorkspaceRecord }>(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}`, { method: 'PATCH', body: JSON.stringify({ action, name }) }),
+  updateWorkspace: (workspaceId: string, action: 'archive' | 'restore' | 'rename', revision: number, name?: string) => request<{ workspace: WorkspaceRecord }>(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}`, { method: 'PATCH', headers: { 'If-Match': String(revision) }, body: JSON.stringify({ action, name }) }),
   getWorkspace: () => request<{ workspace: WorkspaceSnapshot; provider: ProviderStatus; providerCatalog: ProviderCatalog }>('/api/workspace'),
   setMode: (mode: ContextMode) => request<{ workspace: WorkspaceSnapshot }>('/api/workspace/mode', { method: 'PATCH', body: JSON.stringify({ mode }) }),
   setContextStatus: (id: string, status: ContextStatus) => request<{ workspace: WorkspaceSnapshot }>(`/api/workspace/context/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ status }) }),

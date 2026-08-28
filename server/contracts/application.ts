@@ -45,7 +45,7 @@ export interface WorkspaceRecord { workspaceId: string; name: string; status: 'a
 
 /** Versioned operation registry. Additive changes receive a new command key. */
 export interface CommandMap {
-  CreateWorkspace: { payload: { name: string }; result: WorkspaceRecord };
+  CreateWorkspace: { payload: { name: string; workspaceId?: string }; result: WorkspaceRecord };
   RenameWorkspace: { payload: { name: string }; result: WorkspaceRecord };
   ArchiveWorkspace: { payload: Empty; result: WorkspaceRecord };
   RestoreWorkspace: { payload: Empty; result: WorkspaceRecord };

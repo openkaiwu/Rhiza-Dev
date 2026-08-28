@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   setWorkspace: vi.fn(),
   listWorkspaces: vi.fn(),
   getScopedWorkspace: vi.fn(),
+  updateWorkspace: vi.fn(),
 }));
 
 vi.mock('./api', () => ({ api: mocks }));
@@ -82,6 +83,7 @@ beforeEach(() => {
   });
   mocks.listWorkspaces.mockResolvedValue({ workspaces: [] });
   mocks.getScopedWorkspace.mockResolvedValue({ workspace });
+  mocks.updateWorkspace.mockResolvedValue({ workspace: { workspaceId: '00000000-0000-4000-8000-000000000001', name: 'Default', status: 'archived', createdBy: '00000000-0000-4000-8000-000000000002', revision: 2 } });
 });
 
 describe('Rhiza MVP', () => {
@@ -280,6 +282,19 @@ describe('Rhiza MVP', () => {
     expect(mocks.setWorkspace).toHaveBeenCalledWith(secondWorkspace);
     expect(mocks.getWorkspace.mock.calls).toHaveLength(legacyReads);
     expect(screen.queryByRole('heading', { level: 1, name: /信息架构方向/ })).not.toBeInTheDocument();
+  });
+
+  it('keeps archived workspaces selectable and exposes restore after an archive refresh', async () => {
+    const id = '00000000-0000-4000-8000-000000000001';
+    mocks.listWorkspaces
+      .mockResolvedValueOnce({ workspaces: [{ workspaceId: id, name: 'Default', status: 'active', createdBy: '00000000-0000-4000-8000-000000000002', revision: 1 }] })
+      .mockResolvedValueOnce({ workspaces: [{ workspaceId: id, name: 'Default', status: 'archived', createdBy: '00000000-0000-4000-8000-000000000002', revision: 2 }] });
+    render(<App />);
+    await screen.findByRole('heading', { level: 1, name: /信息架构方向/ });
+    fireEvent.click(within(document.querySelector('.project-switch') as HTMLElement).getByRole('button', { name: '归档' }));
+    await waitFor(() => expect(mocks.updateWorkspace).toHaveBeenCalledWith(id, 'archive', 1));
+    expect(within(document.querySelector('.project-switch') as HTMLElement).getByRole('button', { name: '恢复' })).toBeInTheDocument();
+    expect(mocks.listWorkspaces).toHaveBeenCalledWith(true);
   });
 
   it('refreshes the workspace and disables sending while offline', async () => {

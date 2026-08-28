@@ -44,6 +44,24 @@ describe('Rhiza API', () => {
     const listed = await request(app).get('/api/v1/workspaces').expect(200);
     expect(listed.body.workspaces).toEqual(expect.arrayContaining([expect.objectContaining({ workspaceId: id, name: 'Renamed', status: 'active' })]));
   });
+  it('makes workspace creation idempotent and revision writes atomic', async () => {
+    const { app } = await testApp();
+    const first = await request(app).post('/api/v1/workspaces').set('Idempotency-Key', 'same-key').send({ name: 'First', workspaceId: 'forged' }).expect(201);
+    const id = first.body.workspace.workspaceId as string;
+    await request(app).post(`/api/v1/workspaces/${id}/graph/nodes`).send({ title: 'Retained' }).expect(201);
+    const repeated = await request(app).post('/api/v1/workspaces').set('Idempotency-Key', 'same-key').send({ name: 'Overwritten?' }).expect(201);
+    expect(repeated.body.workspace).toEqual(first.body.workspace);
+    expect((await request(app).get(`/api/v1/workspaces/${id}`)).body.workspace.discussionNodes).toEqual(expect.arrayContaining([expect.objectContaining({ title: 'Retained' })]));
+    const different = await request(app).post('/api/v1/workspaces').set('Idempotency-Key', 'different-key').send({ name: 'Different' }).expect(201);
+    expect(different.body.workspace.workspaceId).not.toBe(id);
+    const [archived, stale] = await Promise.all([
+      request(app).patch(`/api/v1/workspaces/${id}`).set('If-Match', '1').send({ action: 'archive' }),
+      request(app).patch(`/api/v1/workspaces/${id}`).set('If-Match', '1').send({ action: 'archive' }),
+    ]);
+    expect([archived.status, stale.status].sort()).toEqual([200, 409]);
+    expect((await request(app).get('/api/v1/workspaces?includeArchived=true')).body.workspaces).toEqual(expect.arrayContaining([expect.objectContaining({ workspaceId: id, status: 'archived', revision: 2 })]));
+    await request(app).patch(`/api/v1/workspaces/${id}`).set('If-Match', '2').send({ action: 'restore' }).expect(200);
+  });
   it('keeps scoped writes invisible across workspaces and preserves legacy default', async () => {
     const { app } = await testApp();
     const legacyBefore = await request(app).get('/api/workspace').expect(200);

@@ -1,4 +1,5 @@
 import express from 'express';
+import { createHash } from 'node:crypto';
 import { ApplicationError, applicationError } from '../contracts/application-error';
 import {
   createLegacyCommandEnvelope,
@@ -82,6 +83,16 @@ function writeSse(response: express.Response, event: string, payload: unknown): 
   response.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
 }
 
+function expectedRevision(request: express.Request): number | undefined {
+  const value = request.get('If-Match')?.replaceAll('"', '').trim();
+  return value && /^\d+$/.test(value) ? Number(value) : undefined;
+}
+
+function idempotentWorkspaceId(actorId: string, key: string): string {
+  const hex = createHash('sha256').update(`${actorId}:${key}`).digest('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
 export function createHttpApp(application: Application, options: HttpAppOptions): express.Express {
   const app = express();
   const log = options.log ?? console;
@@ -100,7 +111,7 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
   const query = <K extends QueryType>(response: express.Response, queryType: K, payload: QueryMap[K]['payload']): Promise<QueryResult<K>> =>
     application.query({ ...createLegacyQueryEnvelope(options.id(), queryType, payload, correlationId(response)), ...(response.locals.workspaceIdentity || {}) });
   const workspaceIdentity = (workspaceId: string) => ({ workspaceId, actor: { actorType: 'human' as const, actorId: '00000000-0000-4000-8000-000000000002' }, scope: { scopeType: 'workspace' as const, scopeId: workspaceId } });
-  const executeScoped = <K extends CommandType>(response: express.Response, workspaceId: string, commandType: K, payload: CommandMap[K]['payload']) => application.execute({ ...createLegacyCommandEnvelope(options.id(), commandType, payload, correlationId(response)), ...workspaceIdentity(workspaceId) });
+  const executeScoped = <K extends CommandType>(response: express.Response, workspaceId: string, commandType: K, payload: CommandMap[K]['payload'], revision?: number) => application.execute({ ...createLegacyCommandEnvelope(options.id(), commandType, payload, correlationId(response)), ...workspaceIdentity(workspaceId), ...(revision === undefined ? {} : { expectedRevision: revision }) });
   const queryScoped = <K extends QueryType>(response: express.Response, workspaceId: string, queryType: K, payload: QueryMap[K]['payload']) => application.query({ ...createLegacyQueryEnvelope(options.id(), queryType, payload, correlationId(response)), ...workspaceIdentity(workspaceId) });
 
   app.use((request, response, next) => {
@@ -139,13 +150,16 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
     } catch (error) { next(error); }
   });
 
-  app.get('/api/v1/workspaces', async (_request, response, next) => {
-    try { response.json({ workspaces: await query(response, 'ListWorkspaces', {}) }); } catch (error) { next(error); }
+  app.get('/api/v1/workspaces', async (request, response, next) => {
+    try { response.json({ workspaces: await query(response, 'ListWorkspaces', { includeArchived: request.query.includeArchived === 'true' }) }); } catch (error) { next(error); }
   });
   app.post('/api/v1/workspaces', async (request, response, next) => {
     try {
       const name = typeof request.body?.name === 'string' ? request.body.name.trim() : '';
-      response.status(201).json({ workspace: await execute(response, 'CreateWorkspace', { name }) });
+      const actorId = '00000000-0000-4000-8000-000000000002';
+      const key = request.get('Idempotency-Key');
+      const workspace = await execute(response, 'CreateWorkspace', { name, ...(key ? { workspaceId: idempotentWorkspaceId(actorId, key) } : {}) });
+      response.status(201).json({ workspace });
     } catch (error) { next(error); }
   });
   app.get('/api/v1/workspaces/:workspaceId', async (request, response, next) => {
@@ -157,7 +171,7 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
       const command = action === 'archive' ? 'ArchiveWorkspace' : action === 'restore' ? 'RestoreWorkspace' : action === 'rename' ? 'RenameWorkspace' : undefined;
       if (!command) rejectInput('无效的工作区操作。', 'INVALID_WORKSPACE_OPERATION');
       const payload = command === 'RenameWorkspace' ? { name: typeof request.body?.name === 'string' ? request.body.name.trim() : '' } : {};
-      response.json({ workspace: await executeScoped(response, request.params.workspaceId, command, payload as never) });
+      response.json({ workspace: await executeScoped(response, request.params.workspaceId, command, payload as never, expectedRevision(request)) });
     } catch (error) { next(error); }
   });
   app.post('/api/v1/workspaces/:workspaceId/switch', async (request, response, next) => {

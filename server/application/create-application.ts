@@ -85,7 +85,16 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
   const fallbackWorkspaces = new Map<string, import('../contracts/application').WorkspaceRecord>([['00000000-0000-4000-8000-000000000001', { workspaceId: '00000000-0000-4000-8000-000000000001', name: 'Rhiza 产品研究', status: 'active', createdBy: '00000000-0000-4000-8000-000000000002', revision: 1 }]]);
   const workspaceDirectory = dependencies.workspaceDirectory ?? new WorkspaceDirectory({
     listWorkspaces: async (userId, includeArchived = false) => [...fallbackWorkspaces.values()].filter(item => item.createdBy === userId && (includeArchived || item.status === 'active')),
-    createWorkspace: async record => { fallbackWorkspaces.set(record.workspaceId, record); }, updateWorkspace: async record => { fallbackWorkspaces.set(record.workspaceId, record); },
+    createWorkspace: async record => {
+      const existing = fallbackWorkspaces.get(record.workspaceId);
+      if (existing) return { record: existing, created: false };
+      fallbackWorkspaces.set(record.workspaceId, record); return { record, created: true };
+    },
+    updateWorkspace: async (record, expectedRevision) => {
+      const existing = fallbackWorkspaces.get(record.workspaceId);
+      if (!existing || existing.revision !== expectedRevision) return undefined;
+      fallbackWorkspaces.set(record.workspaceId, record); return record;
+    },
   });
   const budget = dependencies.contextTokenBudget ?? 32_000;
   const activeModel = async () => {
@@ -153,16 +162,17 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
   const dispatch = async (envelope: AnyCommandEnvelope, options?: CommandExecutionOptions): Promise<unknown> => {
     try {
       if (!envelope.actor || !envelope.scope || !envelope.workspaceId) throw legacyError('写命令必须提供 ActorRef 与 ScopeRef。', 403, 'MISSING_ACTOR_OR_SCOPE');
-      const record = await workspaceDirectory.require(envelope.actor, envelope.workspaceId, envelope.scope);
-      if (record.status === 'archived' && !['RestoreWorkspace'].includes(envelope.commandType)) throw legacyError('归档工作区为只读，请先恢复。', 409, 'WORKSPACE_ARCHIVED');
-      if (envelope.expectedRevision !== undefined && envelope.expectedRevision !== record.revision) throw legacyError('工作区版本已变化，请刷新后重试。', 409, 'WORKSPACE_REVISION_CONFLICT');
       if (envelope.commandType === 'CreateWorkspace') {
         const name = String((envelope.payload as { name?: string }).name || '').trim();
         if (!name || name.length > 200) throw legacyError('工作区名称不能为空且不能超过 200 字符。', 400, 'INVALID_WORKSPACE_NAME');
-        const workspaceId = id(); const created = await workspaceDirectory.create(envelope.actor, workspaceId, name);
-        await unitOfWork.createWorkspace?.(workspaceId, name);
-        return created;
+        const workspaceId = String((envelope.payload as { workspaceId?: string }).workspaceId || id());
+        const created = await workspaceDirectory.create(envelope.actor, workspaceId, name);
+        if (created.created) await unitOfWork.createWorkspace?.(workspaceId, name);
+        return created.record;
       }
+      const record = await workspaceDirectory.require(envelope.actor, envelope.workspaceId, envelope.scope);
+      if (record.status === 'archived' && !['RestoreWorkspace'].includes(envelope.commandType)) throw legacyError('归档工作区为只读，请先恢复。', 409, 'WORKSPACE_ARCHIVED');
+      if (envelope.expectedRevision !== undefined && envelope.expectedRevision !== record.revision) throw legacyError('工作区版本已变化，请刷新后重试。', 409, 'WORKSPACE_REVISION_CONFLICT');
       if (envelope.commandType === 'RenameWorkspace') return workspaceDirectory.rename(record, String((envelope.payload as { name?: string }).name || '').trim());
       if (envelope.commandType === 'ArchiveWorkspace') return workspaceDirectory.status(record, 'archived');
       if (envelope.commandType === 'RestoreWorkspace') return workspaceDirectory.status(record, 'active');

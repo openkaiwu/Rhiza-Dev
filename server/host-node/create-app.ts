@@ -33,7 +33,11 @@ export function createApp(
     id: randomUUID,
     now: () => new Date().toISOString(),
     log: console,
-    workspaceDirectory: new WorkspaceDirectory(store.workspaceDirectory ?? { listWorkspaces: async () => [], createWorkspace: async () => undefined, updateWorkspace: async () => undefined }),
+    workspaceDirectory: new WorkspaceDirectory(store.workspaceDirectory ?? {
+      listWorkspaces: async () => [],
+      createWorkspace: async () => { throw new Error('Workspace directory is unavailable'); },
+      updateWorkspace: async () => { throw new Error('Workspace directory is unavailable'); },
+    }),
   });
   const frontendDirectory = resolve('dist');
   return createHttpApp(application, {

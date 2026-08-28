@@ -121,11 +121,29 @@ export class WorkspaceStore implements WorkspaceRepository {
 
   readonly workspaceDirectory: WorkspaceDirectoryPort = {
     listWorkspaces: async (userId, includeArchived = false) => (await this.readDirectory()).filter(item => item.createdBy === userId && (includeArchived || item.status === 'active')),
-    createWorkspace: async record => { const records = await this.readDirectory(); if (!records.some(item => item.workspaceId === record.workspaceId)) await this.writeDirectory([...records, record]); },
-    updateWorkspace: async record => { const records = await this.readDirectory(); await this.writeDirectory(records.map(item => item.workspaceId === record.workspaceId ? record : item)); },
+    createWorkspace: record => this.inDirectoryQueue(async () => {
+      const records = await this.readDirectory();
+      const existing = records.find(item => item.workspaceId === record.workspaceId);
+      if (existing) return { record: existing, created: false };
+      await this.writeDirectory([...records, record]);
+      return { record, created: true };
+    }),
+    updateWorkspace: (record, expectedRevision) => this.inDirectoryQueue(async () => {
+      const records = await this.readDirectory();
+      const current = records.find(item => item.workspaceId === record.workspaceId);
+      if (!current || current.revision !== expectedRevision) return undefined;
+      await this.writeDirectory(records.map(item => item.workspaceId === record.workspaceId ? record : item));
+      return record;
+    }),
   };
 
   private directoryPath() { return `${this.filePath}.workspaces.json`; }
+  private async inDirectoryQueue<T>(work: () => Promise<T>): Promise<T> {
+    let result!: T;
+    this.queue = this.queue.catch(() => undefined).then(async () => { result = await work(); });
+    await this.queue;
+    return result;
+  }
   private async readDirectory(): Promise<WorkspaceRecord[]> {
     try { return JSON.parse(await readFile(this.directoryPath(), 'utf8')) as WorkspaceRecord[]; }
     catch (error) {
