@@ -37,7 +37,7 @@
     "verify:m02:v4": "pnpm run m02:checks && tsx scripts/architecture-gates/verify-milestone-evidence.ts --milestone M02",
     "verify:m02:closure": "pnpm run m02:checks && tsx scripts/architecture-gates/verify-milestone-evidence.ts --milestone M02 --strict-current",
     "m02:evidence": "tsx scripts/architecture-gates/verify-milestone-evidence.ts --milestone M02 --write",
-    "m03:checks": "pnpm run lint && pnpm run typecheck && pnpm run test:unit && pnpm run test:e2e && pnpm run licenses:verify && pnpm run verify:g0 && pnpm vitest run server/app.test.ts server/application/create-application.test.ts e2e/postgres-schema.e2e.test.ts scripts/migrate.test.ts --maxWorkers=1 --testTimeout=30000 && pnpm run build",
+    "m03:checks": "pnpm run lint && pnpm run typecheck && pnpm run test:unit && pnpm run test:e2e && pnpm run licenses:verify && pnpm run verify:g0 && pnpm vitest run server/app.test.ts server/application/create-application.test.ts e2e/postgres-schema.e2e.test.ts scripts/migrate.test.ts --maxWorkers=1 --testTimeout=30000 && pnpm run build && node -e \"if (!process.env.DATABASE_URL) console.log('M03 real PostgreSQL migration E2E: skipped (DATABASE_URL unavailable).')\"",
     "verify:m03:v4": "pnpm run m03:checks && tsx scripts/architecture-gates/verify-milestone-evidence.ts --milestone M03",
     "verify:m03:closure": "pnpm run m03:checks && tsx scripts/architecture-gates/verify-milestone-evidence.ts --milestone M03 --strict-current",
     "m03:evidence": "tsx scripts/architecture-gates/verify-milestone-evidence.ts --milestone M03 --write",

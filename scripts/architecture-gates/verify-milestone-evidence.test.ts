@@ -8,6 +8,7 @@ import {
   M02_COMMANDS,
   M02_FIXTURES,
   M02_PATHS,
+  M03_PATHS,
   validateEvidence,
   validateKnownExceptions,
   type MilestoneEvidence,
@@ -67,6 +68,16 @@ describe('milestone evidence validation', () => {
     expect(M02_PATHS).toContain('scripts/architecture-gates/verify-m02-boundaries.ts');
     expect(M02_PATHS).toContain('server/application/create-application.ts');
     expect(M02_FIXTURES.every(fixture => M02_PATHS.includes(fixture.path))).toBe(true);
+  });
+
+  it('checksums M03 persistence, API, and stale-response coverage', () => {
+    expect(M03_PATHS).toEqual(expect.arrayContaining([
+      'e2e/postgres-migration.e2e.test.ts',
+      'e2e/postgres-store.e2e.test.ts',
+      'src/api.test.ts',
+      'server/application/create-application.test.ts',
+      'src/App.test.tsx',
+    ]));
   });
 
   it('rejects a reduced M02 command set', () => {
