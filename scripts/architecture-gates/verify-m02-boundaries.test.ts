@@ -26,6 +26,26 @@ describe('M02 architecture boundary gate', () => {
     await expect(collectM02BoundaryViolations(root, true)).resolves.toEqual([]);
   });
 
+  it('allows Application to use the M03 identity policy layer only', async () => {
+    const root = await fixture({
+      'server/contracts/references.ts': 'export type ActorRef = { id: string };',
+      'server/identity/workspace-scope.ts': "import type { ActorRef } from '../contracts/references'; export const scope = (_: ActorRef) => 'workspace';",
+      'server/application/application.ts': "import { scope } from '../identity/workspace-scope'; export const application = () => scope({ id: 'local' });",
+      'scripts/boundary-gates/boundary-exceptions.json': '{"exceptions":[]}',
+    });
+    await expect(collectM02BoundaryViolations(root)).resolves.toEqual([]);
+  });
+
+  it('keeps identity isolated from infrastructure adapters', async () => {
+    const root = await fixture({
+      'server/infrastructure/store.ts': 'export const store = {};',
+      'server/identity/bad.ts': "import { store } from '../infrastructure/store'; void store;",
+      'server/application/application.ts': "import '../identity/bad';",
+      'scripts/boundary-gates/boundary-exceptions.json': '{"exceptions":[]}',
+    });
+    await expect(collectM02BoundaryViolations(root)).resolves.toContainEqual(expect.objectContaining({ file: 'server/identity/bad.ts', message: expect.stringContaining('identity may not import infrastructure') }));
+  });
+
   it.each([
     ['forbidden domain import', 'server/domain/bad.ts', "import fs from 'node:fs';"],
     ['forbidden domain child process import', 'server/domain/bad.ts', "import { execFile } from 'node:child_process'; void execFile;"],

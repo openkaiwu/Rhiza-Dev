@@ -13,13 +13,16 @@ const layerOrder: Record<string, string[]> = {
   domain: ['contracts', 'domain'],
   'context-runtime': ['domain', 'context-runtime'],
   'execution-runtime': ['domain', 'execution-runtime'],
-  application: ['contracts', 'domain', 'context-runtime', 'execution-runtime', 'application'],
+  // M03 identity is a local policy layer: Application may use actor/scope
+  // policy, but identity remains unable to reach adapters or HTTP.
+  application: ['contracts', 'domain', 'context-runtime', 'execution-runtime', 'identity', 'application'],
+  identity: ['contracts', 'domain', 'identity'],
   http: ['contracts', 'application', 'http'],
   'runtime-adapters': ['domain', 'execution-runtime', 'runtime-adapters'],
   infrastructure: ['domain', 'application', 'infrastructure'],
   // Bootstrap is the composition root. It may wire every M02 partition, but
   // the gate still scans it so its source files cannot become invisible.
-  'host-node': ['contracts', 'domain', 'context-runtime', 'execution-runtime', 'application', 'http', 'runtime-adapters', 'infrastructure', 'host-node'],
+  'host-node': ['contracts', 'domain', 'context-runtime', 'execution-runtime', 'application', 'identity', 'http', 'runtime-adapters', 'infrastructure', 'host-node'],
 };
 
 function fail(message: string): never { throw new Error(message); }
@@ -220,7 +223,7 @@ export async function collectM02BoundaryViolations(root = resolve('.'), strict =
   const violations: M02Violation[] = [];
   const report = (file: string, message: string) => violations.push({ file: relativeFile(root, file), message });
   const server = resolve(root, 'server');
-  const layers = ['contracts', 'domain', 'context-runtime', 'execution-runtime', 'application', 'http', 'runtime-adapters', 'infrastructure', 'host-node'];
+  const layers = ['contracts', 'domain', 'context-runtime', 'execution-runtime', 'application', 'identity', 'http', 'runtime-adapters', 'infrastructure', 'host-node'];
   const layerFiles = new Map<string, string[]>();
   for (const layer of layers) layerFiles.set(layer, await filesUnder(resolve(server, layer)));
   layerFiles.set('domain', [...(layerFiles.get('domain') ?? []), ...['domain.ts', 'provider-domain.ts'].map(file => resolve(server, file)).filter(existsSync)]);
