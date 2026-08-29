@@ -74,8 +74,8 @@ export interface CommandMap {
   RemoveRelation: { payload: { edgeId: string }; result: WorkspaceData };
   UpdateGraphLayout: { payload: { positions: Array<{ nodeId: string; x: number; y: number }> }; result: WorkspaceData };
   CreateMergeRevision: { payload: { sourceNodeId: string; targetNodeId?: string; summary?: string }; result: WorkspaceData };
-  RegisterResource: { payload: { name: string; mimeType: string; bytes: Uint8Array }; result: WorkspaceData };
-  CreateResourceVersion: { payload: { attachmentId: string; bytes: Uint8Array }; result: WorkspaceData };
+  RegisterResource: { payload: { name: string; mimeType: string; bytes: Uint8Array }; result: { attachment: LegacyAttachmentView } };
+  CreateResourceVersion: { payload: { attachmentId: string; bytes: Uint8Array }; result: { attachment: LegacyAttachmentView } };
   UpdateProviderProfile: { payload: { name: string; model: string; baseUrl: string; apiKey?: string }; result: unknown };
 }
 

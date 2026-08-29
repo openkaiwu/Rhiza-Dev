@@ -239,7 +239,7 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
       const encoded = typeof request.body?.dataBase64 === 'string' ? request.body.dataBase64 : '';
       if (!name || !encoded || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) rejectInput('附件名称或内容无效。', 'INVALID_ATTACHMENT');
       const bytes = Buffer.from(encoded, 'base64');
-      response.status(201).json(await execute(response, 'RegisterLegacyAttachment', { name, mimeType, bytes }));
+      response.status(201).json(await execute(response, 'RegisterResource', { name, mimeType, bytes }));
     } catch (error) { next(error); }
   });
 

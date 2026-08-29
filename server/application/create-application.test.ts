@@ -5,7 +5,7 @@ import { createRhizaApplication } from './create-application';
 import { WorkspaceDirectory } from '../identity/workspace-directory';
 import { LOCAL_USER_ID } from '../identity/workspace-scope';
 
-function fixture(options: { failMutation?: boolean; ensureWorkspaceInitialized?: (workspaceId: string, name: string) => Promise<import('../domain').WorkspaceData>; uploads?: { put(key: string, bytes: Uint8Array): Promise<void>; delete?(key: string): Promise<void> }; workspaceDirectory?: WorkspaceDirectory; defaultWorkspaceId?: string } = {}) {
+function fixture(options: { failMutation?: boolean; ensureWorkspaceInitialized?: (workspaceId: string, name: string) => Promise<import('../domain').WorkspaceData>; blobPut?: (bytes: Uint8Array) => Promise<{ digestAlgorithm: 'sha256'; digest: string; blobRef: string; size: number }>; blobRead?: (blobRef: string, digest: string) => Promise<Uint8Array>; workspaceDirectory?: WorkspaceDirectory; defaultWorkspaceId?: string } = {}) {
   let workspace = createSeedWorkspace();
   let sequence = 0;
   const commits: string[] = [];
@@ -26,7 +26,16 @@ function fixture(options: { failMutation?: boolean; ensureWorkspaceInitialized?:
       activeStatus: async () => ({ configured: true, name: 'test', model: 'gpt-test', baseUrl: '' }),
       saveProvider: async () => providerSnapshot, discoverModels: async () => providerSnapshot, updateModel: async () => providerSnapshot, selectModel: async () => providerSnapshot,
     },
-    uploads: options.uploads ?? { put: async () => undefined },
+    host: {
+      describe: () => ({ host: 'headless', fileAccess: 'available', pathNormalization: 'available', blobStorage: 'available', credentialAccess: 'unavailable', spawn: 'unavailable', desktop: 'unavailable' }),
+      normalizePath: path => path,
+      blobs: {
+        put: options.blobPut ?? (async bytes => ({ digestAlgorithm: 'sha256', digest: 'a'.repeat(64), blobRef: `sha256/aa/${'a'.repeat(64)}`, size: bytes.length })),
+        read: options.blobRead ?? (async () => new Uint8Array()),
+        collectOrphans: async () => ({ deleted: [], retained: [] }),
+      },
+      readCredential: async () => ({ state: 'unavailable', reason: 'test' }),
+    },
     textExtraction: { extractText: async (_mime, bytes) => new TextDecoder().decode(bytes) },
     planner: {
       plan: current => ({ items: current.contextItems.filter(item => item.status === 'active'), diagnostics: { candidateCount: 1, selectedCount: 1, elapsedMs: 0, fallback: false, budget: 32_000, usedTokens: 1 } }),
@@ -111,15 +120,34 @@ describe('Rhiza Application', () => {
     expect(workspace().messages.at(-1)).toMatchObject({ text: 'preserved draft' });
   });
 
-  it('removes an uploaded object when the workspace commit fails', async () => {
-    const deleted: string[] = [];
+  it('leaves a promoted blob for orphan GC when the workspace commit fails', async () => {
+    let promoted = false;
     const { application } = fixture({
       failMutation: true,
-      uploads: { put: async () => undefined, delete: async key => { deleted.push(key); } },
+      blobPut: async bytes => { promoted = true; return { digestAlgorithm: 'sha256', digest: 'a'.repeat(64), blobRef: `sha256/aa/${'a'.repeat(64)}`, size: bytes.length }; },
     });
     await expect(application.execute(createLegacyCommandEnvelope('command-8', 'RegisterLegacyAttachment', {
       name: 'brief.txt', mimeType: 'text/plain', bytes: new TextEncoder().encode('attachment'),
     }))).rejects.toMatchObject({ details: { code: 'INTERNAL_ERROR' } });
-    expect(deleted).toEqual(['id-1']);
+    expect(promoted).toBe(true);
+  });
+
+  it('creates immutable ResourceVersions and validates the current digest before a run', async () => {
+    const reads: string[] = [];
+    const { application, workspace } = fixture({ blobRead: async (blobRef, digest) => { reads.push(`${blobRef}:${digest}`); return new Uint8Array(); } });
+    const first = await application.execute(createLegacyCommandEnvelope('resource-1', 'RegisterResource', { name: 'brief.txt', mimeType: 'text/plain', bytes: new TextEncoder().encode('v1') }));
+    const second = await application.execute(createLegacyCommandEnvelope('resource-2', 'CreateResourceVersion', { attachmentId: first.attachment.id, bytes: new TextEncoder().encode('v2') }));
+    expect(second.attachment.id).toBe(first.attachment.id);
+    expect(workspace().resources).toHaveLength(1);
+    expect(workspace().resourceVersions.map(item => item.version)).toEqual([1, 2]);
+    expect(workspace().materializations).toHaveLength(2);
+    await application.execute(createLegacyCommandEnvelope('resource-run', 'CreateConversationRun', { prompt: 'use it', operation: 'send', attachmentIds: [first.attachment.id], generation: { temperature: 0.4, topP: 1, maxTokens: 50 } }));
+    expect(reads).toEqual([`${second.attachment.blobRef}:${second.attachment.digest}`]);
+  });
+
+  it('does not silently fall back when a ResourceVersion digest check fails', async () => {
+    const { application } = fixture({ blobRead: async () => { throw Object.assign(new Error('corrupt'), { code: 'BLOB_INTEGRITY_ERROR', status: 409 }); } });
+    const created = await application.execute(createLegacyCommandEnvelope('corrupt-1', 'RegisterResource', { name: 'brief.txt', mimeType: 'text/plain', bytes: new TextEncoder().encode('v1') }));
+    await expect(application.execute(createLegacyCommandEnvelope('corrupt-2', 'CreateConversationRun', { prompt: 'use it', operation: 'send', attachmentIds: [created.attachment.id], generation: { temperature: 0.4, topP: 1, maxTokens: 50 } }))).rejects.toMatchObject({ message: expect.stringContaining('未使用可能损坏的数据'), details: { code: 'BLOB_INTEGRITY_ERROR', status: 409 } });
   });
 });

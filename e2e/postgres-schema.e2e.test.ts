@@ -18,6 +18,7 @@ describe('PostgreSQL schema E2E', () => {
       // Simulate an interrupted bootstrap: user exists but no workspace/member rows.
       await database.exec("CREATE TABLE users (user_id uuid PRIMARY KEY, display_name text NOT NULL, created_at timestamptz NOT NULL DEFAULT now()); INSERT INTO users (user_id,display_name) VALUES ('00000000-0000-4000-8000-000000000002','Local user')");
       await database.exec(m03);
+      await database.exec(await readFile(resolve('db/migrations/0006_resource_blob_host.up.sql'), 'utf8'));
       const snapshot = async () => {
         const rows = await database.query(`SELECT w.workspace_id,w.name,w.status,w.created_by,m.user_id,m.role FROM workspaces w JOIN workspace_members m ON m.workspace_id=w.workspace_id ORDER BY w.workspace_id,m.user_id`);
         return createHash('sha256').update(JSON.stringify(rows.rows)).digest('hex');
@@ -50,9 +51,13 @@ describe('PostgreSQL schema E2E', () => {
         'rhiza_messages',
         'rhiza_nodes',
         'rhiza_projects',
+        'rhiza_resource_materializations',
+        'rhiza_resource_versions',
+        'rhiza_resources',
         'rhiza_segments',
       ]);
 
+      await database.exec(await readFile(resolve('db/migrations/0006_resource_blob_host.down.sql'), 'utf8'));
       await database.exec(await readFile(resolve('db/migrations/0005_identity_workspace_scope.down.sql'), 'utf8'));
       await database.exec(await readFile(resolve('db/migrations/0004_immutable_manifest_history.down.sql'), 'utf8'));
       await database.exec(await readFile(resolve('db/migrations/0003_domain_persistence.down.sql'), 'utf8'));

@@ -1,0 +1,8 @@
+{
+  "$schema": "https://rhiza.dev/architecture-gates/resource-fixture/1.0.0",
+  "attachment_id": "00000000-0000-4000-8000-000000000044",
+  "name": "legacy.txt",
+  "mime_type": "text/plain",
+  "content": "legacy resource fixture\n",
+  "sha256": "a8524d9d262adaec9fe935ef3c907a5fce151eaef347d8917fa99937de38558e"
+}

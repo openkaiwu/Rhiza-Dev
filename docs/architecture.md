@@ -16,7 +16,8 @@
 - OpenAI-compatible Provider：第三方模型适配、超时和错误归一化
 - librechat-data-provider：LibreChat Model Spec、endpoint 枚举与文件能力策略
 - JSON 原子存储：默认本地持久化 Workspace 目录以及按 Workspace 隔离的消息、Context 状态与 Manifest
-- 可选 PostgreSQL Repository：`users`、`workspaces`、`workspace_members` 与 Workspace 领域表的事务更新、migration checksum 防篡改和 CI 真库验证；默认本地运行仍使用 JSON Repository
+- 可选 PostgreSQL Repository：`users`、`workspaces`、`workspace_members`、不可变 `ResourceVersion` 与 Workspace 领域表的事务更新、migration checksum 防篡改和 CI 真库验证；默认本地运行仍使用 JSON Repository
+- content-addressed BlobStore：SHA-256 内容身份、temp write → verify → atomic promote，以及 grace-period orphan GC
 - Lucide React：统一图标系统
 - react-markdown / remark-gfm：Markdown 与 GitHub Flavored Markdown
 - remark-math / rehype-katex / Mermaid：数学公式、LaTeX 和流程图渲染
@@ -39,6 +40,9 @@
 - `server/provider-service.ts`：多供应商注册、模型发现、选择与调用编排
 - `server/provider-store.ts`：供应商和模型目录持久化
 - `server/secret-vault.ts`：API Key AES-256-GCM 加密与解密
+- `server/application/ports/host-runtime.ts`：V4.2 当前 Chat 所需的 Host capability、Blob 与 credential seam；spawn/Desktop 明确不可用
+- `server/infrastructure/node-host-runtime.ts`：Node/headless Host adapter 与本机 content-addressed BlobStore
+- `server/infrastructure/resource-backfill.ts`、`scripts/backfill-resources.ts`：旧 UUID 附件到 Resource/ResourceVersion 的幂等回填；BlobStore 的 GC 只接受调用方提供的完整 active-reference set，避免按单一 Workspace 误删共享 blob
 - `server/store.ts`：Workspace directory、按 Workspace 寻址的串行更新和临时文件原子替换
 - `server/config.ts`：安全读取 Provider 环境配置
 - `server/feature-flags.ts`：默认关闭、未知值快速失败的 M0 功能开关
@@ -81,6 +85,7 @@ Express 后端暴露以下边界：
 - `PATCH /api/workspace/context/:id`：持久化 Context 生命周期状态
 - `POST /api/chat/stream`：冻结 Active Context，以 SSE 转发 Runtime Event，并在 `RUN_END` 后保存消息与 Manifest
 - `POST /api/chat`：兼容性非流式入口，消费相同 Runtime Event 并返回最终结果
+- `POST /api/attachments`：外部契约保持不变，内部执行 `RegisterResource`，先完成 blob 校验与 promote，再原子提交 Resource、ResourceVersion、materialization 与附件映射
 - `POST /api/nodes`：从当前节点或消息锚点创建正式支线和 `derived-from` 关系
 - `POST /api/temp-chat`：围绕选中锚点调用 AI；请求与回复不写入 Workspace
 - `POST /api/nodes/:id/activate`：切换活动讨论节点
@@ -97,6 +102,10 @@ Express 后端暴露以下边界：
 
 `ProviderRuntime` 实现 Rhiza `AIRuntime`，使用当前 Provider Catalog/API Key 把 OpenAI-compatible SSE 归一化为 `RUN_START`、一个或多个 `CONTENT_DELTA`、`RUN_END` 或 `RUN_ERROR`。模型目录通过 LibreChat `tModelSpecSchema` 形成 Model Spec，当前 endpoint 的文件数量、大小和 MIME 能力由 LibreChat file config 计算；Chat payload 采用 system/history/current-user 的角色化 Agent 消息格式。LibreChat 数据库对象不会进入 Rhiza Domain。
 
+每个上传附件对应一个稳定 `Resource` 和一个或多个不可变 `ResourceVersion`。版本保存 `sha256`、`raw-v1` canonicalization、media type、size 与相对 `blob_ref`；路径和旧 attachment ID 不承担内容 identity。BlobStore 只有在 temp bytes 复算 digest 成功后才原子 promote，随后 Application/UoW 提交引用。因此数据库提交失败最多留下可由 grace-period GC 回收的 orphan blob，不会产生 committed dangling reference。读取用于 Chat 的版本必须再次校验 digest；损坏或缺失会显式失败，不回退到旧 UUID 文件。旧附件通过 `pnpm run resources:backfill` 幂等迁移，回填保留 attachment ID，并把 FileChunk 登记为 materialization 而不是 ResourceVersion。
+
+`HostRuntimePort` 当前只冻结 file access、path normalization、Blob bridge、credential seam 与 capability descriptor。Node adapter 是 M04 的生产实现；spawn/PTY/process supervision 延后到 M24，Desktop 与真实跨平台 host matrix 延后到 M29。Domain/Application 不直接导入 Node OS 模块。
+
 ## 7. Data Flow
 
 网页首次加载从 legacy `/api/workspace` 恢复 default Workspace，并据返回的 `projectId` 绑定 scoped 客户端；之后所有 Workspace 领域请求经 `/api/v1/workspaces/:workspaceId/...` 发送。HTTP 层为 M03 本地部署注入确定性 local ActorRef 与路径派生的 ScopeRef，Application 层先验证 membership/scope，再进入对应 Workspace 的 Unit of Work。切换 Workspace 时前端先清空旧 scope 数据，乱序或失败响应不得回填旧 Workspace。每条 Message 归属一个 Discussion Node；Sidebar、Chat 与 Graph 共用 `activeNodeId`。发送消息时 Product API 先冻结 `projectId`、`nodeId`、`requestId`、Model Profile 与 Context Items，再以 Manifest ID 调用 `AIRuntime`；浏览器通过 POST SSE 逐段消费 `CONTENT_DELTA` 并更新临时 Assistant Message。只有 Runtime 返回 `RUN_END` 后，服务端才把 User Message、Assistant Message 与 Manifest 原子写入；`RUN_ERROR` 不落盘。AI Message 进入 `MarkdownContent`，先解析 GFM 和数学语法，遇到 Mermaid 代码块时懒加载图表引擎并在隔离容器中渲染。临时支线只保存在当前 React 会话，`/api/temp-chat` 通过同一 Runtime 契约调用模型但不写盘；用户点击保留时，临时消息随 Node 与 `derived-from` Edge 原子写入。Sidebar 从节点的 `sourceNodeId` 计算树、活动路径和深度，不在存储中维护易失真的冗余 depth。
@@ -109,6 +118,7 @@ Express 后端暴露以下边界：
 - `pnpm run test:e2e`：通过真实 HTTP socket 验证 provider request + SSE，并用嵌入式 PostgreSQL 引擎验证 schema 正反向迁移；CI 额外对 PostgreSQL 17 真服务创建 schema 并验证迁移幂等性。
 - `pnpm run licenses:verify`：确保提交的生产依赖许可证报告可重复生成。
 - `pnpm run build`：执行全量 TypeScript 严格检查、Vite 前端构建和 tsup 服务端构建。
+- `pnpm run m04:checks`：在完整回归之上验证 Resource backfill/digest/fault injection、Node Host contract、Domain/Application OS import=0 与 M04 evidence 前置条件。
 - 浏览器人工验证：检查三栏布局、移动断点、滚动、抽屉、Graph 缩放/平移、节点/关系编辑和关键交互。
 - Graph 组件与 API 测试：验证缩放、节点创建、归档/恢复、归档只读、受控 Purge、关系编辑及后端持久化。
 - Markdown 组件测试：验证 GFM 表格/任务列表、KaTeX 公式和 Mermaid SVG 输出。
@@ -124,7 +134,7 @@ Express 后端暴露以下边界：
 
 - AI 回复已连接真实 Provider；Context Planner 推荐与冲突检测仍为演示数据。
 - Graph 已支持缩放、平移、节点拖拽、节点归档/恢复、关系编辑与坐标持久化；框选、自动布局和超大图虚拟化仍未实现。
-- 当前运行时默认使用本机 JSON 存储，已支持 local user 下的多个 Workspace、membership 校验与跨 Workspace 隔离；尚不支持密码/OAuth/会话、成员协作或通用权限引擎。PostgreSQL identity/workspace migration 与 Repository 已实现，默认仍需显式开启 `postgresPersistence`。
+- 当前运行时默认使用本机 JSON 存储，已支持 local user 下的多个 Workspace、membership 校验、跨 Workspace 隔离以及 Resource/ResourceVersion 元数据；尚不支持密码/OAuth/会话、成员协作或通用权限引擎。PostgreSQL identity/workspace/resource migrations 与 Repository 已实现，默认仍需显式开启 `postgresPersistence`。
 - 已 fetch 并验证技术设计书指定 LibreChat v0.8.7 tag，`librechat-v0.8.7` 分支固定指向 commit `9e74cc0e...`，Rhiza 集成工作位于 `codex/rhiza-librechat-runtime`。当前 Provider/API Key 仍是唯一模型执行配置；已接入固定的 `librechat-data-provider@0.8.509` Model Spec 和文件策略。完整 Agent/MCP、实际文件上传与解析、运行时 PostgreSQL Repository、统一 Auth 与 SBOM 属于后续里程碑；M0 已具备许可证报告及 PostgreSQL migration 基线。
 - Provider 适配范围是 OpenAI-compatible Chat Completions；非兼容协议需要新增 Adapter。
 - 模型自动发现要求供应商实现 OpenAI-compatible `/models`；不支持时可手动添加模型 ID。

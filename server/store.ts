@@ -42,12 +42,24 @@ export function validateWorkspaceHistoryUpdate(previous: WorkspaceData, next: Wo
   const priorManifests = itemById(previous.manifests);
   const nextManifests = itemById(next.manifests);
   const removedManifestIds = [...priorManifests.keys()].filter(id => !nextManifests.has(id));
+  const priorResourceVersions = itemById(previous.resourceVersions);
+  const nextResourceVersions = itemById(next.resourceVersions);
+  const priorMaterializations = itemById(previous.materializations);
+  const nextMaterializations = itemById(next.materializations);
 
   for (const [id, manifest] of priorManifests) {
     const candidate = nextManifests.get(id);
     if (candidate && !isDeepStrictEqual(candidate, manifest)) {
       throw new Error(`Immutable Manifest ${id} cannot be rewritten`);
     }
+  }
+  for (const [id, version] of priorResourceVersions) {
+    const candidate = nextResourceVersions.get(id);
+    if (!candidate || !isDeepStrictEqual(candidate, version)) throw new Error(`Immutable ResourceVersion ${id} cannot be rewritten or removed`);
+  }
+  for (const [id, materialization] of priorMaterializations) {
+    const candidate = nextMaterializations.get(id);
+    if (!candidate || !isDeepStrictEqual(candidate, materialization)) throw new Error(`Immutable ResourceMaterialization ${id} cannot be rewritten or removed`);
   }
 
   if (!removedNodeIds.length && !removedMessageIds.length && !removedManifestIds.length) return;
@@ -205,6 +217,9 @@ export class WorkspaceStore implements WorkspaceRepository {
       anchors: raw.anchors || [],
       messages: (raw.messages || fallback.messages).map(message => ({ ...message, nodeId: message.nodeId || activeNodeId })),
       attachments: raw.attachments || [],
+      resources: raw.resources || [],
+      resourceVersions: raw.resourceVersions || [],
+      materializations: raw.materializations || [],
       fileChunks: raw.fileChunks || [],
       contextItems: raw.contextItems || fallback.contextItems,
       manifests: raw.manifests || [],

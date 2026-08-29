@@ -7,6 +7,7 @@ import { LegacyContextPlanner } from '../context-runtime/legacy-planner';
 import { loadFeatureFlags, type FeatureFlags } from '../feature-flags';
 import { createHttpApp } from '../http/app';
 import { NodeFilesystemLegacyUpload } from '../infrastructure/node-filesystem-legacy-upload';
+import { NodeHostRuntimeAdapter } from '../infrastructure/node-host-runtime';
 import { RepositoryWorkspaceUnitOfWork } from '../infrastructure/workspace-repository-unit-of-work';
 import { WorkspaceDirectory } from '../identity/workspace-directory';
 import { DEFAULT_WORKSPACE_ID } from '../identity/workspace-scope';
@@ -25,11 +26,12 @@ export function createApp(
 ) {
   const defaultWorkspaceId = store.defaultWorkspaceId ?? DEFAULT_WORKSPACE_ID;
   const upload = new NodeFilesystemLegacyUpload(uploadDirectory);
+  const host = new NodeHostRuntimeAdapter(uploadDirectory);
   const application = createRhizaApplication({
     unitOfWork: new RepositoryWorkspaceUnitOfWork(store),
     runtime,
     providers: provider,
-    uploads: upload,
+    host,
     textExtraction: upload,
     planner: new LegacyContextPlanner(randomUUID),
     id: randomUUID,

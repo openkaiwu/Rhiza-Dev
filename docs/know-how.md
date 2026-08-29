@@ -21,6 +21,11 @@
 - 领域状态由 `App` 统一持有，表现组件通过回调修改，避免 Context 数量和预算显示不一致。
 - Provider 调用必须只发生在服务端；浏览器不得读取 API Key 或直接调用第三方模型。
 - 一次成功 Chat 写入必须同时包含用户消息、AI 消息与 Context Manifest，避免审计记录和消息历史分离。
+- ResourceVersion 是 append-only 历史事实：同一 Resource 的新内容只能新增版本，不得修改或删除旧版本；FileChunk 只能登记为 materialization，不能替代原始 ResourceVersion。
+- Blob 提交顺序固定为 temp write → SHA-256 verify → atomic promote → Workspace/DB commit。DB 失败后保留已 promote blob 给 grace-period GC，不能先提交引用再补文件。
+- orphan GC 只能在调用方提供覆盖整个 BlobStore 的完整 active-reference set 后执行；不得用当前用户或单个 Workspace 的局部引用集合扫描全局 store。
+- versioned blob 读取失败或 digest 不匹配必须返回稳定 `BLOB_INTEGRITY_ERROR`，不能静默回退旧 UUID 附件。旧路径只服务尚未回填的 legacy attachment；运行 `pnpm run resources:backfill` 后 dangling 必须为 0 且重复运行 checksum 一致。
+- M04 的 HostRuntimePort 只包含当前 Chat 所需 file/path/blob/credential seam。spawn/PTY/process supervision 属于 M24，Desktop 与真实跨平台 host matrix 属于 M29；不要为这些延后能力在 M04 建兼容层或 fake matrix。
 - Workspace 更新通过串行队列与临时文件替换，避免多个请求交错造成 JSON 部分写入。
 - M03 的 HTTP identity 是确定性 local actor seam，不是认证实现；旧 `/api/*` 只能映射到 configured default Workspace，scoped 路径的 ScopeRef 必须从 `/api/v1/workspaces/:workspaceId` 派生，不能信任 body 中的 workspace id。
 - 已存在但不属于 local actor 的 configured default Workspace 不得被 bootstrap 自动授予 membership；只有缺失的 default Workspace 才可按 local owner 初始化。

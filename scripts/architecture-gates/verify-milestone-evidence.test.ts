@@ -11,6 +11,10 @@ import {
   M03_FIXTURES,
   M03_PATHS,
   m03ObservedMetrics,
+  M04_COMMANDS,
+  M04_FIXTURES,
+  M04_PATHS,
+  m04ObservedMetrics,
   validateEvidence,
   validateKnownExceptions,
   type MilestoneEvidence,
@@ -106,6 +110,18 @@ describe('milestone evidence validation', () => {
     expect(M03_FIXTURES.every(fixture => M03_PATHS.includes(fixture.path))).toBe(true);
     const schema = JSON.parse(readFileSync('docs/architecture-gates/milestone-evidence.schema.json', 'utf8'));
     expect(schema.properties.environment.required).toEqual(expect.arrayContaining(['node', 'os', 'cpu', 'memory_bytes']));
+  });
+
+  it('configures M04 as a V4.2 blocking resource and minimal-host gate', () => {
+    expect(M04_COMMANDS).toEqual(expect.arrayContaining(['pnpm run verify:m04:host-boundary', expect.stringContaining('e2e/resource-backfill.e2e.test.ts')]));
+    expect(M04_PATHS).toEqual(expect.arrayContaining(['db/migrations/0006_resource_blob_host.up.sql', 'server/application/ports/host-runtime.ts', 'docs/architecture-gates/M04/resource-fixture.json']));
+    expect(M04_FIXTURES.every(fixture => M04_PATHS.includes(fixture.path))).toBe(true);
+    expect(m04ObservedMetrics()).toMatchObject({ committed_dangling_blob_refs: 0, digest_corruption_silent_fallbacks: 0, domain_application_os_imports: 0, current_host_contract: 'pass', real_postgres_e2e: { status: 'skipped' } });
+  });
+
+  it('requires M04 V4.2 severity and recovery evidence', () => {
+    const evidence = base(); evidence.milestone = 'M04'; evidence.architecture_version = 'V4.2';
+    expect(() => validateEvidence(evidence, undefined, 'M04')).toThrow(/command set drift|severity|thresholds/);
   });
 
   it('rejects a reduced M02 command set', () => {

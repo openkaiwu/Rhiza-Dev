@@ -10,6 +10,8 @@
     "db/migrations/0004_immutable_manifest_history.down.sql": "sha256:b3280d9b3c056f49c1b990af4d0f385d57f34331ffc8b645ecc20334afc29b6f",
     "db/migrations/0004_immutable_manifest_history.up.sql": "sha256:e4050bd326e1e1e38d46a3f37290e72156488a6857d1a00b97ad7d2c3a87e6a2",
     "db/migrations/0005_identity_workspace_scope.down.sql": "sha256:403e27e6606e2bd18cb0b0991ec9c02854044df4eb936b45a5d1cf4ce8133acd",
-    "db/migrations/0005_identity_workspace_scope.up.sql": "sha256:2f8e37e2ec719023eafec81037a7bb3a5a5e34cf1710a50d3aef06312f8ee083"
+    "db/migrations/0005_identity_workspace_scope.up.sql": "sha256:2f8e37e2ec719023eafec81037a7bb3a5a5e34cf1710a50d3aef06312f8ee083",
+    "db/migrations/0006_resource_blob_host.down.sql": "sha256:ed1a19051935feb16cce06a61ee58cf4214eacd3e6ad244b6629542d85f4e923",
+    "db/migrations/0006_resource_blob_host.up.sql": "sha256:2fc7e73e77b97540ec5515ad2813312800dbe9e911ac3decfd2a066df90e55fb"
   }
 }

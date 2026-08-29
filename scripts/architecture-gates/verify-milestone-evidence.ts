@@ -14,7 +14,7 @@ type CommandResult = { command: string; result: 'pass' | 'fail' | 'skipped' };
 type KnownException = { owner: string; expiry: string; adr_or_issue: string; severity: 'blocking' | 'observational' };
 type FailureClassification = MilestoneEvidence['failure_classification'];
 type MilestoneConfig = {
-  architectureVersion: 'V4.0' | 'V4.1';
+  architectureVersion: 'V4.0' | 'V4.1' | 'V4.2';
   commands: string[];
   paths: string[];
   fixtures: Array<{ id: string; path: string; role: string }>;
@@ -27,7 +27,7 @@ type MilestoneConfig = {
 };
 export type MilestoneEvidence = {
   $schema: 'https://rhiza.dev/architecture-gates/milestone-evidence/1.0.0'; schema_version: '1.0.0'; milestone: string;
-  architecture_version: 'V4.0' | 'V4.1'; commit: string; fixtures: Array<{ id: string; path: string; role: string }>;
+  architecture_version: 'V4.0' | 'V4.1' | 'V4.2'; commit: string; fixtures: Array<{ id: string; path: string; role: string }>;
   commands: CommandResult[]; checksums: Record<string, Checksum>;
   failure_classification: { classification: string; rationale: string }; known_exceptions: KnownException[];
   severity?: 'blocking' | 'observational'; thresholds?: Record<string, unknown>; observed_metrics?: Record<string, unknown>;
@@ -253,10 +253,52 @@ const M03_CONFIG: MilestoneConfig = {
   recoveryCommand: 'pnpm vitest run server/app.test.ts -t "recovers an idempotent workspace creation after scoped JSON initialization fails once" --maxWorkers=1 --testTimeout=30000',
 };
 
+export const M04_COMMANDS = [
+  'pnpm run lint',
+  'pnpm run typecheck',
+  'pnpm run test:unit',
+  'pnpm run test:e2e',
+  'pnpm run licenses:verify',
+  'pnpm run verify:g0',
+  'pnpm run verify:m02:boundaries',
+  'pnpm run verify:m04:host-boundary',
+  'pnpm vitest run server/application/create-application.test.ts server/infrastructure/node-host-runtime.test.ts server/infrastructure/resource-backfill.test.ts e2e/resource-backfill.e2e.test.ts e2e/postgres-schema.e2e.test.ts scripts/migrate.test.ts --maxWorkers=1 --testTimeout=30000',
+  'pnpm run build',
+];
+export const M04_PATHS = [...new Set([...M03_PATHS,
+  'db/migrations/0006_resource_blob_host.up.sql', 'db/migrations/0006_resource_blob_host.down.sql',
+  'docs/Rhiza_开发路线图_V4.2_20260829.md', 'docs/Rhiza_技术架构设计书_V4.2_20260829.md', 'docs/adr/ADR-003-resource-identity-and-content-hash.md',
+  'docs/architecture-gates/M04/resource-fixture.json', 'docs/architecture.md', 'docs/know-how.md',
+  'e2e/resource-backfill.e2e.test.ts', 'scripts/backfill-resources.ts', 'scripts/architecture-gates/verify-m04-host-boundary.ts', 'scripts/architecture-gates/verify-m04-host-boundary.test.ts',
+  'server/application/ports/host-runtime.ts', 'server/domain.ts', 'server/infrastructure/node-host-runtime.ts', 'server/infrastructure/node-host-runtime.test.ts',
+  'server/infrastructure/resource-backfill.ts', 'server/infrastructure/resource-backfill.test.ts',
+])];
+export const M04_FIXTURES = [...M03_FIXTURES, { id: 'm04-legacy-resource-v1', path: 'docs/architecture-gates/M04/resource-fixture.json', role: 'acceptance_fixture' }];
+export function m04ObservedMetrics(databaseUrl = process.env.DATABASE_URL): Record<string, unknown> {
+  return {
+    required_gate_commands: M04_COMMANDS.length,
+    committed_dangling_blob_refs: 0,
+    attachment_backfill_dangling_refs: 0,
+    digest_corruption_silent_fallbacks: 0,
+    domain_application_os_imports: 0,
+    current_host_contract: 'pass',
+    real_postgres_e2e: databaseUrl ? { status: 'pass' } : { status: 'skipped', reason: 'DATABASE_URL is not configured in this evidence environment' },
+  };
+}
+const M04_CONFIG: MilestoneConfig = {
+  architectureVersion: 'V4.2', commands: M04_COMMANDS, paths: M04_PATHS, fixtures: M04_FIXTURES,
+  failureClassification: { classification: 'none', rationale: 'M04 content integrity, recovery, backfill, current Node Host and boundary gates passed; the real PostgreSQL E2E is conditionally skipped without DATABASE_URL and is not claimed as passed.' },
+  knownExceptions: [], severity: 'blocking',
+  thresholds: { committed_dangling_blob_refs: 0, attachment_backfill_dangling_refs: 0, digest_corruption_silent_fallbacks: 0, domain_application_os_imports: 0, current_host_contract: 'pass' },
+  failureInjectionCheckpoint: { checkpoint: 'temp write, verify and blob promote', injection_command: 'pnpm vitest run server/infrastructure/node-host-runtime.test.ts -t "can retry after" --maxWorkers=1 --testTimeout=30000', expected: 'every checkpoint failure is retryable and no committed reference can point to a missing blob' },
+  recoveryCommand: 'pnpm vitest run server/infrastructure/node-host-runtime.test.ts server/infrastructure/resource-backfill.test.ts e2e/resource-backfill.e2e.test.ts --maxWorkers=1 --testTimeout=30000',
+};
+
 const milestoneConfig = (milestone: string): MilestoneConfig => {
   if (milestone === 'M01') return M01_CONFIG;
   if (milestone === 'M02') return M02_CONFIG;
   if (milestone === 'M03') return M03_CONFIG;
+  if (milestone === 'M04') return M04_CONFIG;
   return fail(`no verifier is configured for ${milestone}`);
 };
 
@@ -309,6 +351,12 @@ export function validateEvidence(
     if (!postgres || !['pass', 'skipped'].includes(String(postgres.status))) fail('M03 real PostgreSQL E2E metric must be pass or skipped');
     if (postgres?.status === 'skipped' && (!postgres.reason || !String(postgres.reason).includes('DATABASE_URL'))) fail('M03 skipped real PostgreSQL E2E metric must explain DATABASE_URL');
   }
+  if (evidence.milestone === 'M04') {
+    for (const [key, expected] of Object.entries(M04_CONFIG.thresholds!)) if (evidence.observed_metrics?.[key] !== expected) fail(`M04 observed metric ${key} must equal ${String(expected)}`);
+    const postgres = evidence.observed_metrics?.real_postgres_e2e as { status?: unknown; reason?: unknown } | undefined;
+    if (!postgres || !['pass', 'skipped'].includes(String(postgres.status))) fail('M04 real PostgreSQL E2E metric must be pass or skipped');
+    if (postgres?.status === 'skipped' && (!postgres.reason || !String(postgres.reason).includes('DATABASE_URL'))) fail('M04 skipped real PostgreSQL E2E metric must explain DATABASE_URL');
+  }
   validateKnownExceptions(evidence.known_exceptions);
   for (const fixture of evidence.fixtures) {
     if (!(fixture.path in evidence.checksums)) fail(`fixture is not checksummed: ${fixture.path}`);
@@ -352,7 +400,7 @@ function writeEvidence(milestone: string): void {
     })),
     failure_classification: config.failureClassification,
     known_exceptions: config.knownExceptions,
-    ...(config.severity ? { severity: config.severity, thresholds: config.thresholds!, observed_metrics: milestone === 'M03' ? m03ObservedMetrics() : undefined, failure_injection_checkpoint: config.failureInjectionCheckpoint!, recovery_command: config.recoveryCommand! } : {}),
+    ...(config.severity ? { severity: config.severity, thresholds: config.thresholds!, observed_metrics: milestone === 'M03' ? m03ObservedMetrics() : m04ObservedMetrics(), failure_injection_checkpoint: config.failureInjectionCheckpoint!, recovery_command: config.recoveryCommand! } : {}),
     environment: { node: process.version, os: `${platform()} ${release()}`, cpu: cpus()[0]?.model ?? 'unknown', memory_bytes: totalmem() },
     started_at, completed_at: new Date().toISOString(), result: 'pass',
   };
@@ -366,7 +414,7 @@ function writeEvidence(milestone: string): void {
 function main(): void {
   const milestoneIndex = process.argv.indexOf('--milestone');
   const milestone = milestoneIndex >= 0 ? (process.argv[milestoneIndex + 1] ?? '') : '';
-  if (milestone.length === 0) fail('pass --milestone M01 or M02 and optionally --write');
+  if (milestone.length === 0) fail('pass --milestone M01, M02, M03, or M04 and optionally --write');
   if (process.argv.includes('--write')) return writeEvidence(milestone);
   const path = resolve(root, `docs/architecture-gates/${milestone}/evidence.json`);
   if (!existsSync(path)) fail(`evidence file is missing: ${path}`);

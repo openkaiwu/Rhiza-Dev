@@ -1,12 +1,13 @@
 import { ApplicationError, applicationError } from '../contracts/application-error';
 import type { Application, CommandEnvelope, CommandExecutionOptions, CommandMap, CommandResult, CommandType, QueryEnvelope, QueryMap, QueryResult, QueryType } from '../contracts/application';
-import type { AuditEvent, ChatOperation, ContextManifest, ContextMode, ContextStatus, GenerationOptions, StoredAttachment, StoredMessage, WorkspaceData } from '../domain';
+import type { AuditEvent, ChatOperation, ContextManifest, ContextMode, ContextStatus, GenerationOptions, Resource, ResourceMaterialization, ResourceVersion, StoredAttachment, StoredMessage, WorkspaceData } from '../domain';
 import { deriveVersionIdentity } from '../domain/message-version';
 import type { ContextPlannerPort } from '../context-runtime/port';
-import type { LegacyTextExtractionPort, LegacyUploadPort } from './ports/legacy-upload';
+import type { LegacyTextExtractionPort } from './ports/legacy-upload';
 import type { ProviderManagementPort } from './ports/provider-management';
 import type { RuntimePort, RuntimeRequest } from './ports/runtime';
 import type { WorkspaceUnitOfWork } from './ports/workspace-unit-of-work';
+import type { HostRuntimePort } from './ports/host-runtime';
 import { WorkspaceDirectory } from '../identity/workspace-directory';
 import { DEFAULT_WORKSPACE_ID, LOCAL_USER_ID } from '../identity/workspace-scope';
 
@@ -17,7 +18,7 @@ export interface RhizaApplicationDependencies {
   unitOfWork: WorkspaceUnitOfWork;
   runtime: RuntimePort;
   providers: ProviderManagementPort;
-  uploads: LegacyUploadPort;
+  host: HostRuntimePort;
   textExtraction: LegacyTextExtractionPort;
   planner: ContextPlannerPort;
   id: () => string;
@@ -65,6 +66,7 @@ function asApplicationError(error: unknown): ApplicationError {
   if (error instanceof ApplicationError) return error;
   if (error && typeof error === 'object' && 'message' in error && 'code' in error && 'status' in error) {
     const legacy = error as { message: string; code: string; status: number };
+    if (legacy.code === 'BLOB_INTEGRITY_ERROR') return legacyError('附件内容校验失败，系统未使用可能损坏的数据。请重新上传该附件。', 409, legacy.code);
     return legacy.status >= 500 || /^(?:PROVIDER_|RUNTIME_|GENERATION_)/.test(legacy.code)
       ? runtimeError(legacy.message, legacy.status, legacy.code)
       : legacyError(legacy.message, legacy.status, legacy.code);
@@ -83,7 +85,7 @@ function withCurrentNodeContext(workspace: WorkspaceData, nodeId: string, planne
 }
 
 export function createRhizaApplication(dependencies: RhizaApplicationDependencies): Application {
-  const { unitOfWork, runtime, providers, uploads, textExtraction, planner, id, now, log } = dependencies;
+  const { unitOfWork, runtime, providers, host, textExtraction, planner, id, now, log } = dependencies;
   const fallbackWorkspaces = new Map<string, import('../contracts/application').WorkspaceRecord>([['00000000-0000-4000-8000-000000000001', { workspaceId: '00000000-0000-4000-8000-000000000001', name: 'Rhiza 产品研究', status: 'active', createdBy: '00000000-0000-4000-8000-000000000002', revision: 1 }]]);
   const workspaceDirectory = dependencies.workspaceDirectory ?? new WorkspaceDirectory({
     listWorkspaces: async (userId, includeArchived = false) => [...fallbackWorkspaces.values()].filter(item => item.createdBy === userId && (includeArchived || item.status === 'active')),
@@ -149,6 +151,11 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
     const version = deriveVersionIdentity({ operation: payload.operation, userMessageId, source, messages: current.messages });
     const attachments = payload.attachmentIds.map(attachmentId => current.attachments.find(item => item.id === attachmentId));
     if (attachments.some(item => !item)) throw legacyError('存在无效附件，请重新选择文件。', 400, 'ATTACHMENT_NOT_FOUND');
+    await Promise.all(attachments.filter((item): item is StoredAttachment => Boolean(item)).map(async attachment => {
+      if (attachment.blobRef && attachment.digest) await host.blobs.read(attachment.blobRef, attachment.digest);
+      else if (host.readLegacyAttachment) await host.readLegacyAttachment(attachment.id);
+      else throw legacyError('附件尚未完成 ResourceVersion 回填。', 409, 'RESOURCE_BACKFILL_REQUIRED');
+    }));
     const model = await activeModel(); const createdAt = now(); const requestId = id(); const manifestId = id();
     const manifest: ContextManifest = {
       id: manifestId, projectId: current.projectId, nodeId, requestId, createdAt, mode: current.mode, model: model.model, provider: model.provider, runtime: runtime.kind || 'provider-adapter',
@@ -171,6 +178,61 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
       return { next: { ...current, messages: [...current.messages, userMessage, assistantMessage], manifests: [...current.manifests, run.manifest] }, value: { userMessage, assistantMessage, manifest: run.manifest } };
     });
     return committed.value;
+  };
+
+  const registerResourceVersion = async (payload: Pick<DispatchPayload, 'name' | 'mimeType' | 'bytes' | 'attachmentId'>, existingAttachmentId?: string) => {
+    const snapshot = await providers.snapshot();
+    if (!payload.name || !payload.bytes.length) throw legacyError('附件名称或内容无效。', 400, 'INVALID_ATTACHMENT');
+    if (payload.bytes.length > snapshot.filePolicy.maxFileSizeBytes) throw legacyError(`附件大小必须在 1 字节到 ${snapshot.filePolicy.maxFileSizeBytes} 字节之间。`, 413, 'ATTACHMENT_TOO_LARGE');
+    if (snapshot.filePolicy.supportedMimeTypes.length && !snapshot.filePolicy.supportedMimeTypes.includes(payload.mimeType)) throw legacyError(`当前模型不支持 ${payload.mimeType}。`, 415, 'UNSUPPORTED_ATTACHMENT');
+    const stored = await host.blobs.put(payload.bytes);
+    const indexable = textMimeTypes.has(payload.mimeType) || payload.mimeType.startsWith('text/') || payload.mimeType === 'application/pdf';
+    const extracted = indexable ? await textExtraction.extractText(payload.mimeType, payload.bytes) : '';
+    const attachmentId = existingAttachmentId || id();
+    const resourceVersionId = id();
+    const processed = planner.processAttachment(attachmentId, payload.name, payload.mimeType, extracted);
+    const createdAt = now();
+    const committed = await mutate(current => {
+      const existing = existingAttachmentId ? current.attachments.find(item => item.id === existingAttachmentId) : undefined;
+      if (existingAttachmentId && !existing) throw legacyError('Resource 不存在。', 404, 'RESOURCE_NOT_FOUND');
+      const resourceId = existing?.resourceId || attachmentId;
+      const resource: Resource = current.resources.find(item => item.id === resourceId) || { id: resourceId, workspaceId: current.projectId, kind: 'attachment', logicalName: payload.name, createdAt };
+      const version: ResourceVersion = {
+        id: resourceVersionId,
+        resourceId,
+        version: Math.max(0, ...current.resourceVersions.filter(item => item.resourceId === resourceId).map(item => item.version)) + 1,
+        digestAlgorithm: stored.digestAlgorithm,
+        digest: stored.digest,
+        canonicalization: 'raw-v1',
+        mediaType: payload.mimeType,
+        size: stored.size,
+        blobRef: stored.blobRef,
+        createdAt,
+      };
+      const attachment: StoredAttachment = {
+        id: attachmentId, name: payload.name, mimeType: payload.mimeType, size: payload.bytes.length,
+        kind: payload.mimeType.startsWith('image/') ? 'image' : 'file', summary: processed.summary,
+        chunkCount: processed.chunks.length, resourceId, resourceVersionId, digest: stored.digest, blobRef: stored.blobRef,
+        ...(extracted && payload.bytes.length <= 100_000 ? { extractedText: extracted } : {}), createdAt: existing?.createdAt || createdAt,
+      };
+      const materialization: ResourceMaterialization = { id: id(), resourceVersionId, kind: 'file-chunks', generator: 'legacy-context-planner-v1', createdAt };
+      const nextAttachments = existing ? current.attachments.map(item => item.id === attachmentId ? attachment : item) : [...current.attachments, attachment];
+      const nextChunks = [...current.fileChunks.filter(item => item.attachmentId !== attachmentId), ...processed.chunks.map(item => ({ ...item, resourceVersionId }))];
+      return { next: {
+        ...current,
+        attachments: nextAttachments,
+        resources: current.resources.some(item => item.id === resource.id) ? current.resources : [...current.resources, resource],
+        resourceVersions: [...current.resourceVersions, version],
+        materializations: [...current.materializations, materialization],
+        fileChunks: nextChunks,
+      }, value: attachment };
+    });
+    const attachment = committed.value;
+    return { attachment: {
+      id: attachment.id, name: attachment.name, mimeType: attachment.mimeType, size: attachment.size, kind: attachment.kind,
+      summary: attachment.summary, chunkCount: attachment.chunkCount, resourceId: attachment.resourceId,
+      resourceVersionId: attachment.resourceVersionId, digest: attachment.digest, blobRef: attachment.blobRef, createdAt: attachment.createdAt,
+    } };
   };
 
   const dispatch = async (envelope: AnyCommandEnvelope, options?: CommandExecutionOptions): Promise<unknown> => {
@@ -207,28 +269,13 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
         case 'DiscoverProviderModels': return providers.discoverModels(payload.providerId!);
         case 'UpdateModelPreference': return providers.updateModel(payload.modelId, { favorite: payload.favorite, pinned: payload.pinned });
         case 'SelectModel': return providers.selectModel(payload.modelId);
-        case 'RegisterLegacyAttachment': {
-          const snapshot = await providers.snapshot();
-          if (!payload.name || !payload.bytes.length) throw legacyError('附件名称或内容无效。', 400, 'INVALID_ATTACHMENT');
-          if (payload.bytes.length > snapshot.filePolicy.maxFileSizeBytes) throw legacyError(`附件大小必须在 1 字节到 ${snapshot.filePolicy.maxFileSizeBytes} 字节之间。`, 413, 'ATTACHMENT_TOO_LARGE');
-          if (snapshot.filePolicy.supportedMimeTypes.length && !snapshot.filePolicy.supportedMimeTypes.includes(payload.mimeType)) throw legacyError(`当前模型不支持 ${payload.mimeType}。`, 415, 'UNSUPPORTED_ATTACHMENT');
-          const attachmentId = id();
-          try {
-            await uploads.put(attachmentId, payload.bytes);
-            const indexable = textMimeTypes.has(payload.mimeType) || payload.mimeType.startsWith('text/') || payload.mimeType === 'application/pdf';
-            const extracted = indexable ? await textExtraction.extractText(payload.mimeType, payload.bytes) : '';
-            const processed = planner.processAttachment(attachmentId, payload.name, payload.mimeType, extracted);
-            const attachment: StoredAttachment = { id: attachmentId, name: payload.name, mimeType: payload.mimeType, size: payload.bytes.length, kind: payload.mimeType.startsWith('image/') ? 'image' : 'file', summary: processed.summary, chunkCount: processed.chunks.length, ...(extracted && payload.bytes.length <= 100_000 ? { extractedText: extracted } : {}), createdAt: now() };
-            await mutate(current => ({ next: { ...current, attachments: [...current.attachments, attachment], fileChunks: [...current.fileChunks, ...processed.chunks] }, value: attachment }));
-            const safeAttachment = {
-              id: attachment.id, name: attachment.name, mimeType: attachment.mimeType, size: attachment.size,
-              kind: attachment.kind, summary: attachment.summary, chunkCount: attachment.chunkCount, createdAt: attachment.createdAt,
-            };
-            return { attachment: safeAttachment };
-          } catch (error) {
-            try { await uploads.delete?.(attachmentId); } catch (cleanupError) { log?.error('[attachment] cleanup failed', cleanupError); }
-            throw error;
-          }
+        case 'RegisterLegacyAttachment':
+        case 'RegisterResource': return await registerResourceVersion(payload);
+        case 'CreateResourceVersion': {
+          const current = await unitOfWork.read(workspace => workspace);
+          const existing = current.attachments.find(item => item.id === payload.attachmentId);
+          if (!existing) throw legacyError('Resource 不存在。', 404, 'RESOURCE_NOT_FOUND');
+          return await registerResourceVersion({ ...payload, name: existing.name, mimeType: existing.mimeType }, existing.id);
         }
         case 'CreateConversationRun': {
           const run = await prepareRun(payload); run.request.signal = options?.signal; await options?.onReady?.();

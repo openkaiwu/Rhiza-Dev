@@ -18,6 +18,7 @@ async function migratedDatabase() {
     await database.exec(await readFile(resolve(`db/migrations/${migration}.up.sql`), 'utf8'));
   }
   await database.exec(await readFile(resolve('db/migrations/0005_identity_workspace_scope.up.sql'), 'utf8'));
+  await database.exec(await readFile(resolve('db/migrations/0006_resource_blob_host.up.sql'), 'utf8'));
   return database;
 }
 
@@ -27,7 +28,12 @@ function legacyApp(database: PGlite, defaultWorkspaceId: string) {
     unitOfWork: new RepositoryWorkspaceUnitOfWork(store), workspaceDirectory: new WorkspaceDirectory(store.workspaceDirectory), defaultWorkspaceId,
     runtime: { kind: 'provider-adapter', listModels: async () => [{ id: 'model', provider: 'test', model: 'test', displayName: 'test', active: true }], async *generate() { yield { type: 'RUN_END', requestId: 'run', text: 'unused', model: 'test', provider: 'test' } as const; } },
     providers: { snapshot: async () => ({ filePolicy: { maxFileSizeBytes: 1, supportedMimeTypes: [], disabled: false, maxFiles: 1, maxTotalSizeBytes: 1, fileTokenLimit: 1 }, providers: [], models: [], activeModelId: null, modelSpecs: [] }), activeStatus: async () => ({ configured: true, name: 'test', model: 'test', baseUrl: '' }), saveProvider: async () => ({}) as never, discoverModels: async () => ({}) as never, updateModel: async () => ({}) as never, selectModel: async () => ({}) as never },
-    uploads: { put: async () => undefined }, textExtraction: { extractText: async () => '' },
+    host: {
+      describe: () => ({ host: 'headless', fileAccess: 'available', pathNormalization: 'available', blobStorage: 'available', credentialAccess: 'unavailable', spawn: 'unavailable', desktop: 'unavailable' }),
+      normalizePath: path => path,
+      blobs: { put: async bytes => ({ digestAlgorithm: 'sha256', digest: 'a'.repeat(64), blobRef: `sha256/aa/${'a'.repeat(64)}`, size: bytes.length }), read: async () => new Uint8Array(), collectOrphans: async () => ({ deleted: [], retained: [] }) },
+      readCredential: async () => ({ state: 'unavailable', reason: 'test' }),
+    }, textExtraction: { extractText: async () => '' },
     planner: { plan: workspace => ({ items: workspace.contextItems, diagnostics: { candidateCount: 0, selectedCount: 0, elapsedMs: 0, fallback: false, budget: 1, usedTokens: 0 } }), sourceItem: (_workspace, _sourceType, sourceId) => ({ id: sourceId, title: sourceId, detail: sourceId, role: 'Reference', status: 'active', tokens: 1 }), processAttachment: () => ({ chunks: [], summary: '' }) },
     id: randomUUID, now: () => new Date().toISOString(),
   });
