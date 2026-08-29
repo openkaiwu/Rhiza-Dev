@@ -4,7 +4,7 @@
 
 ## 1. Overview
 
-根系（Rhiza）是基于产品设计书构建的全栈网页端 MVP。它验证“对话网络 + 显式上下文 + 当前知识状态”的核心产品命题，并通过动态 Provider Registry 连接多个 OpenAI-compatible 模型供应商。项目和模型目录以原子 JSON 文件持久化，API Key 使用本机 AES-256-GCM 密钥加密。
+根系（Rhiza）是基于产品设计书构建的全栈网页端 MVP。它验证“对话网络 + 显式上下文 + 当前知识状态”的核心产品命题，并通过动态 Provider Registry 连接多个 OpenAI-compatible 模型供应商。当前实现具备确定性 local user、Workspace membership、多个 Workspace 的创建/切换/归档与路径级 scope 隔离；领域数据由可按 Workspace 寻址的 JSON 或 PostgreSQL Repository 持久化，模型目录仍使用原子 JSON，API Key 使用本机 AES-256-GCM 密钥加密。
 
 当前仓库不是 LibreChat fork。按 V4.1 基线，现有 `server/provider-*` 承担当前 API 配置的 Runtime Adapter 职责；`librechat-data-provider` 提供共享 Model Spec 与文件策略，Rhiza 的 Project、Node、Edge、Context 与 State 语义保持独立。后续迁移仍应扩展 Runtime 能力，而不是让 LibreChat Conversation/Mongo schema 进入 Rhiza Domain。旧映射仅见 `docs/archive/librechat-migration.md`，不定义当前架构。
 
@@ -15,8 +15,8 @@
 - Express：Workspace、Context 与 Chat API
 - OpenAI-compatible Provider：第三方模型适配、超时和错误归一化
 - librechat-data-provider：LibreChat Model Spec、endpoint 枚举与文件能力策略
-- JSON 原子存储：M0 默认本地持久化消息、Context 状态与 Manifest
-- 可选 PostgreSQL Repository：事务更新、migration checksum 防篡改和 CI 真库验证；默认本地运行仍使用 JSON Repository
+- JSON 原子存储：默认本地持久化 Workspace 目录以及按 Workspace 隔离的消息、Context 状态与 Manifest
+- 可选 PostgreSQL Repository：`users`、`workspaces`、`workspace_members` 与 Workspace 领域表的事务更新、migration checksum 防篡改和 CI 真库验证；默认本地运行仍使用 JSON Repository
 - Lucide React：统一图标系统
 - react-markdown / remark-gfm：Markdown 与 GitHub Flavored Markdown
 - remark-math / rehype-katex / Mermaid：数学公式、LaTeX 和流程图渲染
@@ -25,12 +25,13 @@
 
 ## 3. Directory Structure
 
-- `src/App.tsx`：顶层 Workspace 状态、节点激活、Context 与面板控制
+- `src/App.tsx`：顶层 Workspace 选择与状态、节点激活、Context 与面板控制
 - `src/components/`：Chat、Graph、State、Sidebar、Context Inspector 等界面模块
 - `src/data.ts`：MVP 演示数据
 - `src/types.ts`：核心前端类型
 - `src/api.ts`：浏览器 API 客户端与统一错误类型
-- `server/app.ts`：HTTP 路由、输入校验与错误边界
+- `server/http/app.ts`：legacy/default 与 `/api/v1/workspaces/:workspaceId` scoped HTTP 路由、local actor 注入、输入校验与错误边界
+- `server/identity/`：Workspace directory、membership 与 ActorRef/ScopeRef scope policy
 - `server/ai-runtime.ts`：Rhiza 自有的模型目录、生成请求与 Runtime Event 稳定契约
 - `server/provider-runtime.ts`：当前 OpenAI-compatible Provider 到 `AIRuntime` 的临时适配器
 - `server/librechat-shared.ts`：LibreChat Model Spec、文件策略与 Agent 消息格式适配
@@ -38,13 +39,13 @@
 - `server/provider-service.ts`：多供应商注册、模型发现、选择与调用编排
 - `server/provider-store.ts`：供应商和模型目录持久化
 - `server/secret-vault.ts`：API Key AES-256-GCM 加密与解密
-- `server/store.ts`：串行更新和临时文件原子替换
+- `server/store.ts`：Workspace directory、按 Workspace 寻址的串行更新和临时文件原子替换
 - `server/config.ts`：安全读取 Provider 环境配置
 - `server/feature-flags.ts`：默认关闭、未知值快速失败的 M0 功能开关
 - `db/migrations/`、`scripts/migrate.ts`：Rhiza 自有 PostgreSQL schema 与迁移器
 - `e2e/`：跨真实 HTTP socket 的 Provider streaming 测试及 CI PostgreSQL 真库测试
 - `.github/workflows/ci.yml`：lint、typecheck、unit、E2E、license 和 build 门禁
-- `var/data/workspace.json`：运行时持久化文件，不提交 Git
+- `var/data/workspace.json` 及同目录 scoped Workspace 文件：运行时持久化数据，不提交 Git
 - `var/data/providers.json`：加密供应商配置、模型收藏与置顶状态
 - `src/test/`：测试环境初始化
 - `app/static/css/tokens.css`：可替换的设计令牌层
@@ -54,10 +55,10 @@
 
 ## 4. Core Modules
 
-- `App` 管理当前主视图、活动讨论节点、节点/边集合、上下文条目状态与窄屏面板状态。
+- `App` 管理当前 Workspace 选择、主视图、活动讨论节点、节点/边集合、上下文条目状态与窄屏面板状态；切换时先清空旧 scope 数据，并用 generation guard 丢弃乱序响应。
 - `ChatView` 按活动节点过滤多轮讨论，使用 Selection API 捕获回答划线内容，并在当前讨论旁打开不落盘的临时支线工作台；用户显式保留后才固化为正式节点。
 - `MarkdownContent` 负责 AI 输出的统一渲染：`react-markdown` + GFM、`remark-math` + KaTeX 数学公式，以及懒加载 Mermaid 流程图；消息组件不再直接输出 AI 原文。
-- `Sidebar` 依据 `sourceNodeId` 构建可折叠节点树，提供活动路径、深度标识和深层路径聚焦。
+- `Sidebar` 提供 Workspace 切换、创建、重命名、归档/恢复基础入口，并依据 `sourceNodeId` 构建可折叠节点树，提供活动路径、深度标识和深层路径聚焦。
 - `ProviderSettings` 管理供应商连接和模型目录；`ModelSelector` 在调用前选择当前模型。
 - `ContextPanel` 显示 Active、Recommended、Excluded Context 和预算。
 - `GraphView` 从 Workspace 渲染真实讨论节点与语义边，支持 Pointer Events 节点拖拽、空白画布平移、滚轮/按钮缩放、关系连接，以及节点归档/恢复与关系编辑；归档节点从主视图隐藏且只读，坐标和编辑结果都通过 API 持久化。
@@ -72,7 +73,10 @@
 Express 后端暴露以下边界：
 
 - `GET /api/health`：服务与安全裁剪后的 Provider 状态
-- `GET /api/workspace`：项目、消息、Context 和 Manifest 快照
+- `GET/POST /api/v1/workspaces`：按 local actor 列出或创建 Workspace
+- `GET/PATCH /api/v1/workspaces/:workspaceId`、`POST /api/v1/workspaces/:workspaceId/switch`：读取、重命名、归档、恢复与切换 Workspace
+- `/api/v1/workspaces/:workspaceId/...`：将 Workspace 领域读写映射到同一 Application handler，scope 只取路径，不信任 body
+- `GET /api/workspace`：default Workspace 的兼容快照；旧 `/api/*` 写路径同样只作用于 default Workspace
 - `PATCH /api/workspace/mode`：持久化 Context 控制模式
 - `PATCH /api/workspace/context/:id`：持久化 Context 生命周期状态
 - `POST /api/chat/stream`：冻结 Active Context，以 SSE 转发 Runtime Event，并在 `RUN_END` 后保存消息与 Manifest
@@ -95,7 +99,7 @@ Express 后端暴露以下边界：
 
 ## 7. Data Flow
 
-网页加载时从 `/api/workspace` 恢复持久状态。每条 Message 归属一个 Discussion Node；Sidebar、Chat 与 Graph 共用 `activeNodeId`。发送消息时 Product API 先冻结 `projectId`、`nodeId`、`requestId`、Model Profile 与 Context Items，再以 Manifest ID 调用 `AIRuntime`；浏览器通过 POST SSE 逐段消费 `CONTENT_DELTA` 并更新临时 Assistant Message。只有 Runtime 返回 `RUN_END` 后，服务端才把 User Message、Assistant Message 与 Manifest 原子写入；`RUN_ERROR` 不落盘。AI Message 进入 `MarkdownContent`，先解析 GFM 和数学语法，遇到 Mermaid 代码块时懒加载图表引擎并在隔离容器中渲染。临时支线只保存在当前 React 会话，`/api/temp-chat` 通过同一 Runtime 契约调用模型但不写盘；用户点击保留时，临时消息随 Node 与 `derived-from` Edge 原子写入。Sidebar 从节点的 `sourceNodeId` 计算树、活动路径和深度，不在存储中维护易失真的冗余 depth。
+网页首次加载从 legacy `/api/workspace` 恢复 default Workspace，并据返回的 `projectId` 绑定 scoped 客户端；之后所有 Workspace 领域请求经 `/api/v1/workspaces/:workspaceId/...` 发送。HTTP 层为 M03 本地部署注入确定性 local ActorRef 与路径派生的 ScopeRef，Application 层先验证 membership/scope，再进入对应 Workspace 的 Unit of Work。切换 Workspace 时前端先清空旧 scope 数据，乱序或失败响应不得回填旧 Workspace。每条 Message 归属一个 Discussion Node；Sidebar、Chat 与 Graph 共用 `activeNodeId`。发送消息时 Product API 先冻结 `projectId`、`nodeId`、`requestId`、Model Profile 与 Context Items，再以 Manifest ID 调用 `AIRuntime`；浏览器通过 POST SSE 逐段消费 `CONTENT_DELTA` 并更新临时 Assistant Message。只有 Runtime 返回 `RUN_END` 后，服务端才把 User Message、Assistant Message 与 Manifest 原子写入；`RUN_ERROR` 不落盘。AI Message 进入 `MarkdownContent`，先解析 GFM 和数学语法，遇到 Mermaid 代码块时懒加载图表引擎并在隔离容器中渲染。临时支线只保存在当前 React 会话，`/api/temp-chat` 通过同一 Runtime 契约调用模型但不写盘；用户点击保留时，临时消息随 Node 与 `derived-from` Edge 原子写入。Sidebar 从节点的 `sourceNodeId` 计算树、活动路径和深度，不在存储中维护易失真的冗余 depth。
 
 ## 8. Testing Strategy
 
@@ -120,7 +124,7 @@ Express 后端暴露以下边界：
 
 - AI 回复已连接真实 Provider；Context Planner 推荐与冲突检测仍为演示数据。
 - Graph 已支持缩放、平移、节点拖拽、节点归档/恢复、关系编辑与坐标持久化；框选、自动布局和超大图虚拟化仍未实现。
-- 当前运行时默认使用本机 JSON 存储，不支持多用户并发、身份认证、权限和跨项目隔离；PostgreSQL schema/migration baseline 已完成，产品数据存储切换属于 M2。
+- 当前运行时默认使用本机 JSON 存储，已支持 local user 下的多个 Workspace、membership 校验与跨 Workspace 隔离；尚不支持密码/OAuth/会话、成员协作或通用权限引擎。PostgreSQL identity/workspace migration 与 Repository 已实现，默认仍需显式开启 `postgresPersistence`。
 - 已 fetch 并验证技术设计书指定 LibreChat v0.8.7 tag，`librechat-v0.8.7` 分支固定指向 commit `9e74cc0e...`，Rhiza 集成工作位于 `codex/rhiza-librechat-runtime`。当前 Provider/API Key 仍是唯一模型执行配置；已接入固定的 `librechat-data-provider@0.8.509` Model Spec 和文件策略。完整 Agent/MCP、实际文件上传与解析、运行时 PostgreSQL Repository、统一 Auth 与 SBOM 属于后续里程碑；M0 已具备许可证报告及 PostgreSQL migration 基线。
 - Provider 适配范围是 OpenAI-compatible Chat Completions；非兼容协议需要新增 Adapter。
 - 模型自动发现要求供应商实现 OpenAI-compatible `/models`；不支持时可手动添加模型 ID。

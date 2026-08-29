@@ -22,6 +22,9 @@
 - Provider 调用必须只发生在服务端；浏览器不得读取 API Key 或直接调用第三方模型。
 - 一次成功 Chat 写入必须同时包含用户消息、AI 消息与 Context Manifest，避免审计记录和消息历史分离。
 - Workspace 更新通过串行队列与临时文件替换，避免多个请求交错造成 JSON 部分写入。
+- M03 的 HTTP identity 是确定性 local actor seam，不是认证实现；旧 `/api/*` 只能映射到 configured default Workspace，scoped 路径的 ScopeRef 必须从 `/api/v1/workspaces/:workspaceId` 派生，不能信任 body 中的 workspace id。
+- 已存在但不属于 local actor 的 configured default Workspace 不得被 bootstrap 自动授予 membership；只有缺失的 default Workspace 才可按 local owner 初始化。
+- Workspace 切换必须先清空旧 scope 数据，并以 request generation 丢弃乱序响应；失败时宁可显示空状态和错误，也不能短暂回显上一个 Workspace。
 - API Key 使用随机本机密钥进行 AES-256-GCM 加密；安全响应只返回 `hasApiKey`，永不返回密文或明文。
 - Chat 运行时必须从持久化的 `activeModelId` 解析供应商，Manifest 保存真实 Provider model ID。
 - 模型选择必须在生成前冻结为 Runtime `modelId`；不要在请求执行中途再次读取可变的 `activeModelId`。
