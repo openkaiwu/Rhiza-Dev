@@ -4,7 +4,7 @@
   "gate_id": "G0",
   "severity": "blocking",
   "architecture_version": "0818-v3.0",
-  "commit": "cd4d79e13570589ebc4e9cb0c442517972eae5e3",
+  "commit": "098f0bf46ff9c6366530c6d30925e7ec0264ab13",
   "baseline": {
     "commit": "b29d94fb034678e0c9d5660848e92e995311d4da",
     "tag": "pre-0815-engineering-baseline",
@@ -52,10 +52,10 @@
       "failures": 0,
       "timeouts": 0,
       "drops": 0,
-      "p50": 3.797,
-      "p95": 6.72,
-      "p99": 10.636,
-      "max": 13.451
+      "p50": 2.208,
+      "p95": 3.148,
+      "p99": 3.715,
+      "max": 5.888
     },
     "workspace_command_latency_ms": {
       "metric": "workspace_command_latency_ms",
@@ -66,10 +66,10 @@
       "failures": 0,
       "timeouts": 0,
       "drops": 0,
-      "p50": 5.892,
-      "p95": 9.53,
-      "p99": 10.904,
-      "max": 11.683
+      "p50": 2.382,
+      "p95": 3.285,
+      "p99": 3.86,
+      "max": 5.068
     },
     "legacy_graph_workspace_read_latency_ms": {
       "metric": "legacy_graph_workspace_read_latency_ms",
@@ -80,10 +80,10 @@
       "failures": 0,
       "timeouts": 0,
       "drops": 0,
-      "p50": 2.859,
-      "p95": 5.832,
-      "p99": 7.308,
-      "max": 12.345
+      "p50": 2.138,
+      "p95": 3.022,
+      "p99": 3.763,
+      "max": 9.112
     },
     "context_plan_latency_ms": {
       "metric": "context_plan_latency_ms",
@@ -94,10 +94,10 @@
       "failures": 0,
       "timeouts": 0,
       "drops": 0,
-      "p50": 5.934,
-      "p95": 11.169,
-      "p99": 13.234,
-      "max": 23.602
+      "p50": 2.775,
+      "p95": 4.891,
+      "p99": 5.881,
+      "max": 5.951
     },
     "stream_chat_commit_latency_ms": {
       "metric": "stream_chat_commit_latency_ms",
@@ -108,42 +108,42 @@
       "failures": 0,
       "timeouts": 0,
       "drops": 0,
-      "p50": 16.145,
-      "p95": 22.569,
-      "p99": 25.011,
-      "max": 29.083
+      "p50": 6.675,
+      "p95": 8.581,
+      "p99": 9.282,
+      "max": 9.508
     }
   },
   "absolute_metrics": {
     "workspace_query_latency_ms": {
-      "p50": 3.797,
-      "p95": 6.72,
-      "p99": 10.636,
-      "max": 13.451
+      "p50": 2.208,
+      "p95": 3.148,
+      "p99": 3.715,
+      "max": 5.888
     },
     "workspace_command_latency_ms": {
-      "p50": 5.892,
-      "p95": 9.53,
-      "p99": 10.904,
-      "max": 11.683
+      "p50": 2.382,
+      "p95": 3.285,
+      "p99": 3.86,
+      "max": 5.068
     },
     "legacy_graph_workspace_read_latency_ms": {
-      "p50": 2.859,
-      "p95": 5.832,
-      "p99": 7.308,
-      "max": 12.345
+      "p50": 2.138,
+      "p95": 3.022,
+      "p99": 3.763,
+      "max": 9.112
     },
     "context_plan_latency_ms": {
-      "p50": 5.934,
-      "p95": 11.169,
-      "p99": 13.234,
-      "max": 23.602
+      "p50": 2.775,
+      "p95": 4.891,
+      "p99": 5.881,
+      "max": 5.951
     },
     "stream_chat_commit_latency_ms": {
-      "p50": 16.145,
-      "p95": 22.569,
-      "p99": 25.011,
-      "max": 29.083
+      "p50": 6.675,
+      "p95": 8.581,
+      "p99": 9.282,
+      "max": 9.508
     }
   },
   "regression_vs_g0": {
@@ -163,11 +163,11 @@
     },
     "G0/snapshots/db.json": {
       "algorithm": "sha256",
-      "value": "0151f962dde64b4ff3d9c0b0e022a58fb5d076333f2dba6cbb62a89a94312514"
+      "value": "f548649dcec8f66d087a66bfd50f81088ff87ee238eeb9972f1be3e6c446bb7b"
     },
     "G0/snapshots/schema-index.json": {
       "algorithm": "sha256",
-      "value": "ed810fe03906109103f382ba2ee8325168e6f7c36d3bc2173bfe5b951c5bf107"
+      "value": "fd1d70d5f9328258668df08380b152172ded4e4bb1ee78ce2f347758a4cccc6e"
     },
     "fixture-registry.json": {
       "algorithm": "sha256",
@@ -237,7 +237,7 @@
     }
   ],
   "known_exceptions": [],
-  "started_at": "2026-08-27T18:52:52.605Z",
-  "completed_at": "2026-08-27T18:53:24.192Z",
+  "started_at": "2026-08-29T14:26:17.247Z",
+  "completed_at": "2026-08-29T14:26:28.455Z",
   "result": "pass"
 }
