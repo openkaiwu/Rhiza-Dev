@@ -3,6 +3,8 @@ import type { WorkspaceRepository, WorkspaceUpdateOptions } from '../store';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createSeedWorkspace } from '../seed';
 import type { WorkspaceData } from '../domain';
+import type { CommandFactContext } from '../domain-journal';
+import { eventForCommand, toActivityItem } from '../domain-journal';
 
 function updateOptions(policy: WorkspaceMutationPolicy | undefined): WorkspaceUpdateOptions | undefined {
   if (!policy || policy.kind === 'normal') return undefined;
@@ -12,10 +14,15 @@ function updateOptions(policy: WorkspaceMutationPolicy | undefined): WorkspaceUp
 /** Bridges the M01 repository while preserving its append-only/purge guarantees. */
 export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
   private readonly scope = new AsyncLocalStorage<string>();
+  private readonly command = new AsyncLocalStorage<CommandFactContext>();
   constructor(private readonly repository: WorkspaceRepository) {}
 
   async withWorkspace<T>(workspaceId: string, operation: () => Promise<T>): Promise<T> {
     return this.scope.run(workspaceId, operation);
+  }
+
+  async withCommand<T>(context: CommandFactContext, operation: () => Promise<T>): Promise<T> {
+    return this.command.run(context, operation);
   }
 
   async ensureWorkspaceInitialized(workspaceId: string, name: string): Promise<WorkspaceData> {
@@ -46,11 +53,44 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
     const defaultWorkspaceId = this.repository.defaultWorkspaceId ?? '00000000-0000-4000-8000-000000000001';
     const target = workspaceId && workspaceId !== defaultWorkspaceId ? this.repository.forWorkspace?.(workspaceId) : this.repository;
     if (!target) throw Object.assign(new Error('Scoped workspace persistence is unavailable'), { code: 'WORKSPACE_PERSISTENCE_UNAVAILABLE', status: 503 });
+    const context = this.command.getStore();
+    if (context && target.executeCommand) {
+      const result = await target.executeCommand({
+        context,
+        options: updateOptions(mutation.policy),
+        apply: async current => mutation.apply(current),
+        events: (previous, next, commandValue) => eventForCommand(context, previous, next, commandValue),
+      });
+      return { workspace: result.workspace, value: result.value };
+    }
     const workspace = await target.update(async current => {
       const result = await mutation.apply(current);
       value = result.value;
       return result.next;
     }, updateOptions(mutation.policy));
     return { workspace, value };
+  }
+
+  async readActivity(limit = 50) {
+    const workspaceId = this.scope.getStore();
+    const defaultWorkspaceId = this.repository.defaultWorkspaceId ?? '00000000-0000-4000-8000-000000000001';
+    const target = workspaceId && workspaceId !== defaultWorkspaceId ? this.repository.forWorkspace?.(workspaceId) : this.repository;
+    if (!target?.readJournal) return [];
+    return (await target.readJournal(limit)).map(toActivityItem);
+  }
+
+  async readCommittedResult<T>(): Promise<{ found: false } | { found: true; value: T }> {
+    const context = this.command.getStore();
+    if (!context) return { found: false };
+    const workspaceId = this.scope.getStore();
+    const defaultWorkspaceId = this.repository.defaultWorkspaceId ?? '00000000-0000-4000-8000-000000000001';
+    const target = workspaceId && workspaceId !== defaultWorkspaceId ? this.repository.forWorkspace?.(workspaceId) : this.repository;
+    const receipt = await target?.readCommandReceipt?.(context.commandId);
+    if (!receipt || receipt.status !== 'committed') return { found: false };
+    return { found: true, value: receipt.result as T };
+  }
+
+  async executeWorkspaceLifecycle(context: CommandFactContext, command: import('../application/ports/workspace-unit-of-work').WorkspaceLifecycleCommand) {
+    return this.repository.executeWorkspaceLifecycle?.(context, command);
   }
 }

@@ -6,6 +6,7 @@ import type { ContextManifest, Message } from './types';
 
 const mocks = vi.hoisted(() => ({
   getWorkspace: vi.fn(),
+  getWorkspaceActivity: vi.fn(),
   setMode: vi.fn(),
   setContextStatus: vi.fn(),
   setContextPin: vi.fn(),
@@ -58,6 +59,7 @@ const scopedWorkspace = (title: string) => ({ ...workspace, discussionNodes: wor
 beforeEach(() => {
   localStorage.clear();
   mocks.getWorkspace.mockResolvedValue({ workspace, provider: { configured: true, name: 'Test Provider', model: 'test-model', baseUrl: 'https://example.test/v1' }, providerCatalog });
+  mocks.getWorkspaceActivity.mockResolvedValue({ activity: [{ id: 'event-1', sequence: 2, type: 'conversation.run.committed', title: '完成一次对话', detail: 'conversation · information-architecture', occurredAt: '2026-08-30T00:00:00.000Z', aggregateType: 'conversation', aggregateId: 'information-architecture' }] });
   mocks.getProviders.mockResolvedValue({ catalog: providerCatalog, presets });
   mocks.saveProvider.mockResolvedValue({ catalog: providerCatalog });
   mocks.discoverModels.mockResolvedValue({ catalog: providerCatalog });
@@ -193,6 +195,16 @@ describe('Rhiza MVP', () => {
     expect(screen.getByRole('heading', { name: '对话图谱' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /知识状态/ }));
     expect(screen.getByRole('heading', { name: '当前有效知识' })).toBeInTheDocument();
+  });
+
+  it('shows committed semantic facts in the Workspace activity timeline', async () => {
+    render(<App />);
+    const button = await screen.findByRole('button', { name: /活动时间线/ });
+    fireEvent.click(button);
+    expect(await screen.findByRole('heading', { name: '活动时间线' })).toBeInTheDocument();
+    expect(await screen.findByText('完成一次对话')).toBeInTheDocument();
+    expect(screen.getByText('conversation.run.committed')).toBeInTheDocument();
+    expect(mocks.getWorkspaceActivity).toHaveBeenCalled();
   });
 
   it('keeps archived nodes out of chat navigation and wires archive restore through the graph', async () => {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Attachment, ContextManifest, ContextMode, ContextStatus, DiscussionEdge, DiscussionNode, Message, ProviderCatalog, ProviderPresetInfo, ProviderStatus, Segment, View, WorkspaceSnapshot, WorkspaceRecord } from './types';
+import type { Attachment, ContextManifest, ContextMode, ContextStatus, DiscussionEdge, DiscussionNode, Message, ProviderCatalog, ProviderPresetInfo, ProviderStatus, Segment, View, WorkspaceActivityItem, WorkspaceSnapshot, WorkspaceRecord } from './types';
 import { api, type ChatRequestOptions } from './api';
 import { presentErrorText } from './error-presentation';
 import { Sidebar } from './components/Sidebar';
@@ -8,6 +8,7 @@ import { GraphView } from './components/GraphView';
 import { StateView } from './components/StateView';
 import { ContextPanel } from './components/ContextPanel';
 import { ProviderSettings, type ProviderFormState } from './components/ProviderSettings';
+import { ActivityView } from './components/ActivityView';
 
 export function App() {
   const initialNode: DiscussionNode = { id: 'information-architecture', title: '信息架构方向', summary: '探索首屏的内容层级、上下文入口与专业能力的渐进呈现方式。', status: 'active', kind: 'main', x: 350, y: 150, createdAt: '2026-08-09T12:00:00.000Z', updatedAt: '2026-08-09T12:00:00.000Z' };
@@ -36,6 +37,9 @@ export function App() {
   const [focusComposerRequest, setFocusComposerRequest] = useState(0);
   const [workspaces, setWorkspaces] = useState<WorkspaceRecord[]>([]);
   const [currentWorkspaceId, setCurrentWorkspaceId] = useState<string>();
+  const [activity, setActivity] = useState<WorkspaceActivityItem[]>([]);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityError, setActivityError] = useState('');
   const workspaceGenerationRef = useRef(0);
   const selectedWorkspaceRef = useRef<string | undefined>(undefined);
   const modalReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -87,11 +91,26 @@ export function App() {
   }, [applyWorkspace]);
 
   useEffect(() => { void loadWorkspace(); }, [loadWorkspace]);
+  const loadActivity = useCallback(async () => {
+    const workspaceId = selectedWorkspaceRef.current;
+    const generation = workspaceGenerationRef.current;
+    setActivityLoading(true);
+    try {
+      const result = await api.getWorkspaceActivity();
+      if (generation !== workspaceGenerationRef.current || workspaceId !== selectedWorkspaceRef.current) return;
+      setActivity(result.activity); setActivityError('');
+    } catch (error) {
+      if (generation === workspaceGenerationRef.current && workspaceId === selectedWorkspaceRef.current) setActivityError(presentErrorText(error, { message: '无法加载活动时间线。', recovery: '请稍后重试。' }));
+    } finally {
+      if (generation === workspaceGenerationRef.current && workspaceId === selectedWorkspaceRef.current) setActivityLoading(false);
+    }
+  }, []);
+  useEffect(() => { if (view === 'activity' && boot === 'ready') void loadActivity(); }, [view, boot, currentWorkspaceId, loadActivity]);
   useEffect(() => { if (api.listWorkspaces) void api.listWorkspaces(true).then(result => setWorkspaces(result.workspaces)).catch(() => undefined); }, []);
   const switchWorkspace = async (workspaceId: string) => {
     const generation = ++workspaceGenerationRef.current;
     selectedWorkspaceRef.current = workspaceId;
-    setMessages([]); setDiscussionNodes([]); setContextItems([]); setAttachments([]); setDiscussionEdges([]); setSegments([]); setManifests([]); setActiveNodeId('');
+    setMessages([]); setDiscussionNodes([]); setContextItems([]); setAttachments([]); setDiscussionEdges([]); setSegments([]); setManifests([]); setActivity([]); setActiveNodeId('');
     api.setWorkspace(workspaceId); setCurrentWorkspaceId(workspaceId);
     try {
       const { workspace } = await api.getScopedWorkspace(workspaceId);
@@ -140,6 +159,7 @@ export function App() {
       if (modifier && event.key === '1') { event.preventDefault(); setView('chat'); }
       if (modifier && event.key === '2') { event.preventDefault(); setView('graph'); }
       if (modifier && event.key === '3') { event.preventDefault(); setView('state'); }
+      if (modifier && event.key === '4') { event.preventDefault(); setView('activity'); }
       if (modifier && event.shiftKey && event.key.toLowerCase() === 'c') { event.preventDefault(); setContextOpen(true); }
       if (event.key === '/' && !modifier && !(event.target instanceof HTMLInputElement) && !(event.target instanceof HTMLTextAreaElement)) { event.preventDefault(); setView('chat'); setFocusComposerRequest(value => value + 1); }
     };
@@ -383,10 +403,11 @@ export function App() {
       <GraphView nodes={discussionNodes} edges={discussionEdges} activeNodeId={activeNode.id} onMove={moveNode} onActivate={id => activateNode(id, true)} onCreateNode={createGraphNode} onArchiveNode={archiveGraphNode} onRestoreNode={restoreGraphNode} onCreateEdge={createGraphEdge} onDeleteEdge={deleteGraphEdge}/>
     )}
     {discussionNodes.length > 0 && view === 'state' && <StateView/>}
+    {discussionNodes.length > 0 && view === 'activity' && <ActivityView activity={activity} loading={activityLoading} error={activityError} onRefresh={() => void loadActivity()}/>}
     <button className="context-backdrop" aria-label="关闭上下文面板" onClick={() => setContextOpen(false)}/>
     <ContextPanel items={contextItems} mode={mode} nodes={discussionNodes} segments={segments} attachments={attachments} onMode={updateMode} onStatus={updateStatus} onPin={updatePin} onAddSource={addContextSource}/>
     {settingsOpen && <ProviderSettings catalog={providerCatalog} presets={providerPresets} onClose={() => setSettingsOpen(false)} onSave={saveProvider} onDiscover={discoverModels} onToggleModel={updateModel} onSelectModel={selectModel}/>} 
-    {paletteOpen && <div className="dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setPaletteOpen(false); }}><section ref={activeModalRef} className="command-palette" role="dialog" aria-modal="true" aria-label="命令面板"><header><strong>搜索或运行命令</strong><kbd>Esc</kbd></header><button onClick={() => runCommand(() => setView('chat'))}>当前讨论 <kbd>⌘1</kbd></button><button onClick={() => runCommand(() => setView('graph'))}>对话图谱 <kbd>⌘2</kbd></button><button onClick={() => runCommand(() => setView('state'))}>知识状态 <kbd>⌘3</kbd></button><button onClick={() => runCommand(() => setContextOpen(true))}>打开 Context <kbd>⌘⇧C</kbd></button><button onClick={() => runCommand(() => { setView('chat'); setFocusComposerRequest(value => value + 1); })}>聚焦消息输入框 <kbd>/</kbd></button><button onClick={() => runCommand(() => setOnboardingOpen(true))}>帮助与快捷键</button></section></div>}
+    {paletteOpen && <div className="dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setPaletteOpen(false); }}><section ref={activeModalRef} className="command-palette" role="dialog" aria-modal="true" aria-label="命令面板"><header><strong>搜索或运行命令</strong><kbd>Esc</kbd></header><button onClick={() => runCommand(() => setView('chat'))}>当前讨论 <kbd>⌘1</kbd></button><button onClick={() => runCommand(() => setView('graph'))}>对话图谱 <kbd>⌘2</kbd></button><button onClick={() => runCommand(() => setView('state'))}>知识状态 <kbd>⌘3</kbd></button><button onClick={() => runCommand(() => setView('activity'))}>活动时间线 <kbd>⌘4</kbd></button><button onClick={() => runCommand(() => setContextOpen(true))}>打开 Context <kbd>⌘⇧C</kbd></button><button onClick={() => runCommand(() => { setView('chat'); setFocusComposerRequest(value => value + 1); })}>聚焦消息输入框 <kbd>/</kbd></button><button onClick={() => runCommand(() => setOnboardingOpen(true))}>帮助与快捷键</button></section></div>}
     {onboardingOpen && <div className="dialog-backdrop" role="presentation"><section ref={activeModalRef} className="onboarding-dialog" role="dialog" aria-modal="true" aria-labelledby="onboarding-title"><h2 id="onboarding-title">欢迎来到 Rhiza</h2><p>用四个对象把研究和决策留在同一个工作区：</p><dl><div><dt>Project</dt><dd>一个完整的研究或决策空间。</dd></div><div><dt>Node</dt><dd>围绕一个问题持续展开的讨论。</dd></div><div><dt>Graph</dt><dd>展示讨论之间的衍生、引用和合并关系。</dd></div><div><dt>Context</dt><dd>明确控制本轮发送给模型的材料。</dd></div></dl><button className="primary-button" autoFocus onClick={closeOnboarding}>开始使用</button></section></div>}
   </div>;
 }

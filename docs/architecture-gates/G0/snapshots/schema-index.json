@@ -5,9 +5,9 @@
     "schema_digest": "sha256:9370a011dac376da95969d342119490d2dd8006bee53e363694260a467ccd53c"
   },
   "db": {
-    "digest": "sha256:f548649dcec8f66d087a66bfd50f81088ff87ee238eeb9972f1be3e6c446bb7b"
+    "digest": "sha256:e16a57325c35cbc214b369002878c1ea71e050380b6209351e444ed0f6979fa5"
   },
   "api": {
-    "digest": "sha256:322fec397ab1bbc354a48c737b5a512ad5f5f27cd62b628d7f21909ba5980745"
+    "digest": "sha256:71bc5c30b8f4c3e4a991f96dbdbbfdbdf8de78d7e6d948693d6871ae96ac6236"
   }
 }

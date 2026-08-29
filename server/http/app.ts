@@ -170,6 +170,12 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
   app.get('/api/v1/workspaces/:workspaceId', async (request, response, next) => {
     try { response.json({ workspace: await queryScoped(response, request.params.workspaceId, 'GetWorkspace', {}) }); } catch (error) { next(error); }
   });
+  app.get('/api/workspace/activity', async (request, response, next) => {
+    try {
+      const limit = Number(request.query.limit || 50);
+      response.json({ activity: await query(response, 'GetWorkspaceActivity', { limit: Number.isFinite(limit) ? limit : 50 }) });
+    } catch (error) { next(error); }
+  });
   app.patch('/api/v1/workspaces/:workspaceId', async (request, response, next) => {
     try {
       const action = request.body?.action;

@@ -1,9 +1,14 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import type { Anchor, AuditEvent, ContextManifest, DiscussionEdge, DiscussionNode, FileChunk, Resource, ResourceMaterialization, ResourceVersion, Segment, StoredAttachment, StoredMessage, WorkspaceData } from './domain';
 import { createSeedWorkspace } from './seed';
 import { validateWorkspaceHistoryUpdate, type WorkspaceRepository, type WorkspaceUpdateOptions } from './store';
 import type { WorkspaceDirectoryPort } from './identity/workspace-directory';
+import { DOMAIN_EVENT_SCHEMA_VERSION, type CommandReceipt, type DomainEventEnvelope } from './domain-journal';
+import { semanticChecksum } from './infrastructure/workspace-semantic-checksum';
+import type { TransactionalWorkspaceCommand, TransactionalWorkspaceCommandResult } from './store';
+import type { WorkspaceLifecycleCommand } from './application/ports/workspace-unit-of-work';
+import type { WorkspaceRecord } from './contracts/application';
 
 interface QueryResult<Row> { rows: Row[] }
 export interface SqlQueryable {
@@ -27,34 +32,63 @@ const changedItems = <T extends { id: string }>(items: T[], previous?: T[]): T[]
   return items.filter(item => before.get(item.id) !== JSON.stringify(item));
 };
 
-function relationalSeed(projectId: string): WorkspaceData {
-  const seed = createSeedWorkspace();
-  const nodeIds = new Map(seed.discussionNodes.map(node => [node.id, randomUUID()]));
-  const messageIds = new Map(seed.messages.map(message => [message.id, randomUUID()]));
-  const segmentIds = new Map(seed.segments.map(segment => [segment.id, randomUUID()]));
-  const activeNodeId = nodeIds.get(seed.activeNodeId)!;
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function stableUuid(namespace: string, kind: string, value: string): string {
+  if (uuidPattern.test(value)) return value;
+  const hex = createHash('sha256').update(`${namespace}:${kind}:${value}`).digest('hex').slice(0, 32).split('');
+  hex[12] = '5';
+  hex[16] = ['8', '9', 'a', 'b'][Number.parseInt(hex[16], 16) % 4];
+  return `${hex.slice(0, 8).join('')}-${hex.slice(8, 12).join('')}-${hex.slice(12, 16).join('')}-${hex.slice(16, 20).join('')}-${hex.slice(20).join('')}`;
+}
+
+export function relationalizeWorkspace(source: WorkspaceData, projectId: string): WorkspaceData {
+  const nodeIds = new Map(source.discussionNodes.map(node => [node.id, stableUuid(projectId, 'node', node.id)]));
+  const messageIds = new Map(source.messages.map(message => [message.id, stableUuid(projectId, 'message', message.id)]));
+  const segmentIds = new Map(source.segments.map(segment => [segment.id, stableUuid(projectId, 'segment', segment.id)]));
+  const anchorIds = new Map(source.anchors.map(anchor => [anchor.id, stableUuid(projectId, 'anchor', anchor.id)]));
+  const edgeIds = new Map(source.discussionEdges.map(edge => [edge.id, stableUuid(projectId, 'edge', edge.id)]));
+  const manifestIds = new Map(source.manifests.map(manifest => [manifest.id, stableUuid(projectId, 'manifest', manifest.id)]));
+  const attachmentIds = new Map(source.attachments.map(attachment => [attachment.id, stableUuid(projectId, 'attachment', attachment.id)]));
+  const auditIds = new Map(source.auditEvents.map(event => [event.id, stableUuid(projectId, 'audit', event.id)]));
+  const activeNodeId = nodeIds.get(source.activeNodeId) || stableUuid(projectId, 'node', source.activeNodeId);
+  const mapSource = (value: string | undefined) => value ? nodeIds.get(value) || segmentIds.get(value) || attachmentIds.get(value) || value : undefined;
   return {
-    ...seed,
+    ...source,
     projectId,
     nodeId: activeNodeId,
     activeNodeId,
-    discussionNodes: seed.discussionNodes.map(node => ({ ...node, id: nodeIds.get(node.id)!, sourceNodeId: node.sourceNodeId ? nodeIds.get(node.sourceNodeId) : undefined, sourceMessageId: node.sourceMessageId ? messageIds.get(node.sourceMessageId) : undefined })),
-    messages: seed.messages.map(message => ({ ...message, id: messageIds.get(message.id)!, nodeId: nodeIds.get(message.nodeId)!, segmentId: message.segmentId ? segmentIds.get(message.segmentId) : undefined, sourceMessageId: message.sourceMessageId ? messageIds.get(message.sourceMessageId) : undefined, replyToMessageId: message.replyToMessageId ? messageIds.get(message.replyToMessageId) : undefined })),
-    segments: seed.segments.map(segment => ({ ...segment, id: segmentIds.get(segment.id)!, nodeId: nodeIds.get(segment.nodeId)! })),
+    contextItems: source.contextItems.map(item => ({ ...item, sourceId: mapSource(item.sourceId), sourceNodeId: item.sourceNodeId ? nodeIds.get(item.sourceNodeId) || item.sourceNodeId : undefined })),
+    discussionNodes: source.discussionNodes.map(node => ({ ...node, id: nodeIds.get(node.id)!, sourceNodeId: node.sourceNodeId ? nodeIds.get(node.sourceNodeId) : undefined, sourceMessageId: node.sourceMessageId ? messageIds.get(node.sourceMessageId) : undefined })),
+    messages: source.messages.map(message => ({ ...message, id: messageIds.get(message.id)!, nodeId: nodeIds.get(message.nodeId)!, segmentId: message.segmentId ? segmentIds.get(message.segmentId) : undefined, manifestId: message.manifestId ? manifestIds.get(message.manifestId) : undefined, sourceMessageId: message.sourceMessageId ? messageIds.get(message.sourceMessageId) : undefined, replyToMessageId: message.replyToMessageId ? messageIds.get(message.replyToMessageId) : undefined, attachmentIds: message.attachmentIds?.map(id => attachmentIds.get(id) || id) })),
+    segments: source.segments.map(segment => ({ ...segment, id: segmentIds.get(segment.id)!, nodeId: nodeIds.get(segment.nodeId)! })),
+    anchors: source.anchors.map(anchor => ({ ...anchor, id: anchorIds.get(anchor.id)!, nodeId: nodeIds.get(anchor.nodeId)!, messageId: anchor.messageId ? messageIds.get(anchor.messageId) : undefined, segmentId: anchor.segmentId ? segmentIds.get(anchor.segmentId) : undefined })),
+    discussionEdges: source.discussionEdges.map(edge => ({ ...edge, id: edgeIds.get(edge.id)!, source: nodeIds.get(edge.source)!, target: nodeIds.get(edge.target)!, anchorId: edge.anchorId ? anchorIds.get(edge.anchorId) : undefined })),
+    manifests: source.manifests.map(manifest => ({ ...manifest, id: manifestIds.get(manifest.id)!, projectId, nodeId: nodeIds.get(manifest.nodeId)!, requestId: stableUuid(projectId, 'request', manifest.requestId), sourceMessageId: manifest.sourceMessageId ? messageIds.get(manifest.sourceMessageId) : undefined, attachmentIds: manifest.attachmentIds.map(id => attachmentIds.get(id) || id), contextItems: manifest.contextItems.map(item => ({ ...item, sourceId: mapSource(item.sourceId) || item.sourceId, sourceNodeId: item.sourceNodeId ? nodeIds.get(item.sourceNodeId) || item.sourceNodeId : undefined })) })),
+    attachments: source.attachments.map(attachment => ({ ...attachment, id: attachmentIds.get(attachment.id)! })),
+    fileChunks: source.fileChunks.map(chunk => ({ ...chunk, attachmentId: attachmentIds.get(chunk.attachmentId) || chunk.attachmentId })),
+    auditEvents: source.auditEvents.map(event => ({ ...event, id: auditIds.get(event.id)!, projectId, nodeId: event.nodeId ? nodeIds.get(event.nodeId) : undefined, entityId: nodeIds.get(event.entityId) || messageIds.get(event.entityId) || event.entityId })),
   };
+}
+
+function relationalSeed(projectId: string): WorkspaceData {
+  return relationalizeWorkspace(createSeedWorkspace(), projectId);
 }
 
 export class PostgresWorkspaceStore implements WorkspaceRepository {
   private queue: Promise<void> = Promise.resolve();
+  private readonly scoped = new Map<string, PostgresWorkspaceStore>();
 
   constructor(private readonly database: TransactionalSql, readonly defaultWorkspaceId = DEFAULT_PROJECT_ID) {}
 
   forWorkspace(workspaceId: string): WorkspaceRepository {
-    return workspaceId === this.defaultWorkspaceId ? this : new PostgresWorkspaceStore(this.database, workspaceId);
+    if (workspaceId === this.defaultWorkspaceId) return this;
+    let scoped = this.scoped.get(workspaceId);
+    if (!scoped) { scoped = new PostgresWorkspaceStore(this.database, workspaceId); this.scoped.set(workspaceId, scoped); }
+    return scoped;
   }
 
   async initialize(workspace: WorkspaceData): Promise<WorkspaceData> {
-    const initial = /^[0-9a-f-]{36}$/i.test(workspace.activeNodeId) ? workspace : { ...relationalSeed(workspace.projectId), projectTitle: workspace.projectTitle };
+    const initial = relationalizeWorkspace(workspace, this.defaultWorkspaceId);
     return this.inTransaction(async database => {
       await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace:init:' || $1))", [this.defaultWorkspaceId]);
       const existing = await this.readFrom(database, true);
@@ -159,6 +193,238 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     });
     await this.queue;
     return result;
+  }
+
+  async executeWorkspaceLifecycle(context: import('./domain-journal').CommandFactContext, command: WorkspaceLifecycleCommand): Promise<WorkspaceRecord> {
+    const target = command.workspaceId === this.defaultWorkspaceId ? this : this.forWorkspace(command.workspaceId) as PostgresWorkspaceStore;
+    if (target !== this) return target.executeWorkspaceLifecycle(context, command);
+    let result!: WorkspaceRecord;
+    let failure: unknown;
+    this.queue = this.queue.catch(() => undefined).then(async () => {
+      try { result = await this.executeWorkspaceLifecycleNow(context, command); }
+      catch (error) { failure = error; }
+    });
+    await this.queue;
+    if (failure) throw failure;
+    return result;
+  }
+
+  private async executeWorkspaceLifecycleNow(context: import('./domain-journal').CommandFactContext, command: WorkspaceLifecycleCommand): Promise<WorkspaceRecord> {
+    return this.inTransaction(async database => {
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:command:' || $1 || ':' || $2))", [command.workspaceId, context.commandId]);
+      const receipt = await database.query<Record<string, unknown>>('SELECT * FROM command_receipts WHERE workspace_id=$1 AND command_id=$2', [command.workspaceId, context.commandId]);
+      if (receipt.rows[0]) {
+        if (receipt.rows[0].status === 'rejected') {
+          const rejection = asJson<{ message: string; code: string; status: number }>(receipt.rows[0].error);
+          throw Object.assign(new Error(rejection.message), rejection, { storedReceipt: true });
+        }
+        return asJson<WorkspaceRecord>(receipt.rows[0].result);
+      }
+
+      let record: WorkspaceRecord;
+      let eventType: DomainEventEnvelope['eventType'];
+      if (command.kind === 'create') {
+        await database.query("INSERT INTO users (user_id,display_name) VALUES ($1,'Local user') ON CONFLICT (user_id) DO NOTHING", [command.createdBy]);
+        const collision = await database.query<{ workspace_id: string }>('SELECT workspace_id FROM workspaces WHERE workspace_id=$1', [command.workspaceId]);
+        if (collision.rows[0]) throw Object.assign(new Error('Workspace 已存在。'), { code: 'WORKSPACE_ALREADY_EXISTS', status: 409 });
+        const seed = { ...relationalSeed(command.workspaceId), projectTitle: command.name };
+        await this.persist(database, seed);
+        await database.query("INSERT INTO workspaces (workspace_id,name,status,created_by,settings) VALUES ($1,$2,'active',$3,$4::jsonb)", [command.workspaceId, command.name, command.createdBy, JSON.stringify({ revision: 1 })]);
+        await database.query("INSERT INTO workspace_members (workspace_id,user_id,role) VALUES ($1,$2,'owner')", [command.workspaceId, command.createdBy]);
+        record = { workspaceId: command.workspaceId, name: command.name, status: 'active', createdBy: command.createdBy, revision: 1 };
+        eventType = 'workspace.created';
+      } else {
+        const current = await database.query<{ workspace_id: string; name: string; status: 'active' | 'archived'; created_by: string; revision: number }>("SELECT workspace_id,name,status,created_by,COALESCE((settings->>'revision')::integer,1) revision FROM workspaces WHERE workspace_id=$1 FOR UPDATE", [command.workspaceId]);
+        const existing = current.rows[0];
+        if (!existing) throw Object.assign(new Error('Workspace 不存在。'), { code: 'WORKSPACE_NOT_FOUND', status: 404 });
+        if (existing.revision !== command.expectedRevision) throw Object.assign(new Error('工作区版本已变化，请刷新后重试。'), { code: 'WORKSPACE_REVISION_CONFLICT', status: 409 });
+        const name = command.kind === 'rename' ? command.name : existing.name;
+        const status = command.kind === 'archive' ? 'archived' as const : command.kind === 'restore' ? 'active' as const : existing.status;
+        const revision = existing.revision + 1;
+        await database.query("UPDATE workspaces SET name=$2,status=$3,settings=jsonb_set(settings,'{revision}',to_jsonb($4::int),true),updated_at=now() WHERE workspace_id=$1", [command.workspaceId, name, status, revision]);
+        if (command.kind === 'rename') await database.query('UPDATE rhiza_projects SET title=$2,updated_at=now() WHERE id=$1', [command.workspaceId, name]);
+        record = { workspaceId: command.workspaceId, name, status, createdBy: existing.created_by, revision };
+        eventType = command.kind === 'rename' ? 'workspace.renamed' : command.kind === 'archive' ? 'workspace.archived' : 'workspace.restored';
+      }
+
+      const head = await database.query<{ last_sequence: number }>(`
+        INSERT INTO workspace_event_heads (workspace_id,last_sequence) VALUES ($1,1)
+        ON CONFLICT (workspace_id) DO UPDATE SET last_sequence=workspace_event_heads.last_sequence+1,updated_at=now()
+        RETURNING last_sequence
+      `, [command.workspaceId]);
+      const sequence = Number(head.rows[0]!.last_sequence);
+      await database.query(`
+        INSERT INTO workspace_events
+          (event_id,workspace_id,sequence,event_type,schema_version,aggregate_type,aggregate_id,actor,scope,command_id,correlation_id,payload,occurred_at)
+        VALUES ($1,$2,$3,$4,$5,'workspace',$6,$7::jsonb,$8::jsonb,$9,$10,$11::jsonb,$12)
+      `, [randomUUID(), command.workspaceId, sequence, eventType, DOMAIN_EVENT_SCHEMA_VERSION, command.workspaceId,
+        JSON.stringify(context.actor), JSON.stringify({ scopeType: 'workspace', scopeId: command.workspaceId }), context.commandId,
+        context.correlationId || null, JSON.stringify({ name: record.name, status: record.status, revision: record.revision }), context.occurredAt]);
+      await database.query(`
+        INSERT INTO command_receipts (workspace_id,command_id,command_type,status,first_sequence,last_sequence,result)
+        VALUES ($1,$2,$3,'committed',$4,$4,$5::jsonb)
+      `, [command.workspaceId, context.commandId, context.commandType, sequence, JSON.stringify(record)]);
+      return record;
+    });
+  }
+
+  async executeCommand<T>(command: TransactionalWorkspaceCommand<T>): Promise<TransactionalWorkspaceCommandResult<T>> {
+    let result!: TransactionalWorkspaceCommandResult<T>;
+    let failure: unknown;
+    this.queue = this.queue.catch(() => undefined).then(async () => {
+      try { result = await this.executeCommandNow(command); }
+      catch (error) { failure = error; }
+    });
+    await this.queue;
+    if (failure) throw failure;
+    return result;
+  }
+
+  private async executeCommandNow<T>(command: TransactionalWorkspaceCommand<T>): Promise<TransactionalWorkspaceCommandResult<T>> {
+    try {
+      return await this.inTransaction(async database => {
+        await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:command:' || $1 || ':' || $2))", [this.defaultWorkspaceId, command.context.commandId]);
+        const existing = await database.query<Record<string, unknown>>('SELECT * FROM command_receipts WHERE workspace_id=$1 AND command_id=$2', [this.defaultWorkspaceId, command.context.commandId]);
+        if (existing.rows[0]) {
+          const receipt = existing.rows[0];
+          if (receipt.status === 'rejected') {
+            const rejection = asJson<{ message: string; code: string; status: number }>(receipt.error);
+            throw Object.assign(new Error(rejection.message), rejection, { storedReceipt: true });
+          }
+          const workspace = await this.readFrom(database, true);
+          if (!workspace) throw new Error(`Committed receipt exists without Workspace state for ${this.defaultWorkspaceId}`);
+          return { workspace, value: asJson<T>(receipt.result), duplicate: true };
+        }
+
+        let current = await this.readFrom(database, true);
+        if (!current) {
+          current = relationalSeed(this.defaultWorkspaceId);
+          await this.persist(database, current);
+          await database.query('SELECT id FROM rhiza_projects WHERE id=$1 FOR UPDATE', [this.defaultWorkspaceId]);
+        }
+        const result = await command.apply(structuredClone(current));
+        validateWorkspaceHistoryUpdate(current, result.next, command.options);
+        const next = { ...result.next, updatedAt: new Date().toISOString() };
+        const audit: AuditEvent = {
+          id: randomUUID(), projectId: next.projectId, nodeId: next.activeNodeId,
+          action: 'workspace.updated', entityType: 'workspace', entityId: next.projectId,
+          metadata: { backend: 'transaction-facts', commandType: command.context.commandType }, createdAt: next.updatedAt,
+        };
+        next.auditEvents = [...next.auditEvents, audit];
+        const events = command.events(current, next, result.value);
+        if (!events.length) throw new Error(`Persistent command ${command.context.commandType} produced no Domain Event`);
+        await this.persist(database, next, current, command.options);
+        const recovered = await this.readFrom(database);
+        if (!recovered || semanticChecksum(recovered) !== semanticChecksum(next)) throw new Error('Shadow reconcile mismatch after transactional Workspace write');
+
+        const head = await database.query<{ last_sequence: number }>(`
+          INSERT INTO workspace_event_heads (workspace_id,last_sequence) VALUES ($1,$2)
+          ON CONFLICT (workspace_id) DO UPDATE
+          SET last_sequence=workspace_event_heads.last_sequence + $2,updated_at=now()
+          RETURNING last_sequence
+        `, [this.defaultWorkspaceId, events.length]);
+        const lastSequence = Number(head.rows[0]!.last_sequence);
+        const firstSequence = lastSequence - events.length + 1;
+        for (const [offset, event] of events.entries()) {
+          await database.query(`
+            INSERT INTO workspace_events
+              (event_id,workspace_id,sequence,event_type,schema_version,aggregate_type,aggregate_id,actor,scope,command_id,correlation_id,payload,occurred_at)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12::jsonb,$13)
+          `, [randomUUID(), this.defaultWorkspaceId, firstSequence + offset, event.eventType, DOMAIN_EVENT_SCHEMA_VERSION,
+            event.aggregateType, event.aggregateId, JSON.stringify(command.context.actor), JSON.stringify(command.context.scope),
+            command.context.commandId, command.context.correlationId || null,
+            JSON.stringify({ ...event.payload, reconcileChecksum: semanticChecksum(next) }), command.context.occurredAt]);
+        }
+        await database.query(`
+          INSERT INTO command_receipts
+            (workspace_id,command_id,command_type,status,first_sequence,last_sequence,result)
+          VALUES ($1,$2,$3,'committed',$4,$5,$6::jsonb)
+        `, [this.defaultWorkspaceId, command.context.commandId, command.context.commandType, firstSequence, lastSequence, JSON.stringify(result.value ?? null)]);
+        return { workspace: recovered, value: result.value, duplicate: false };
+      });
+    } catch (error) {
+      if (!(error && typeof error === 'object' && 'storedReceipt' in error)) await this.recordRejected(command, error);
+      throw error;
+    }
+  }
+
+  private async recordRejected<T>(command: TransactionalWorkspaceCommand<T>, error: unknown): Promise<void> {
+    const candidate = error as { message?: string; code?: string; status?: number; details?: { code?: string; status?: number } };
+    const status = Number(candidate.details?.status ?? candidate.status ?? 500);
+    const code = String(candidate.details?.code ?? candidate.code ?? 'COMMAND_REJECTED');
+    if (status < 400 || status >= 500) return;
+    await this.inTransaction(async database => {
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:command:' || $1 || ':' || $2))", [this.defaultWorkspaceId, command.context.commandId]);
+      await database.query(`
+        INSERT INTO command_receipts (workspace_id,command_id,command_type,status,error)
+        VALUES ($1,$2,$3,'rejected',$4::jsonb)
+        ON CONFLICT (workspace_id,command_id) DO NOTHING
+      `, [this.defaultWorkspaceId, command.context.commandId, command.context.commandType, JSON.stringify({ message: candidate.message || 'Command rejected', code, status })]);
+    });
+  }
+
+  async readJournal(limit = 50): Promise<DomainEventEnvelope[]> {
+    const result = await this.database.query<Record<string, unknown>>(`
+      SELECT * FROM workspace_events WHERE workspace_id=$1 ORDER BY sequence DESC LIMIT $2
+    `, [this.defaultWorkspaceId, Math.min(100, Math.max(1, limit))]);
+    return result.rows.map(row => ({
+      eventId: String(row.event_id), workspaceId: String(row.workspace_id), sequence: Number(row.sequence),
+      eventType: String(row.event_type) as DomainEventEnvelope['eventType'], schemaVersion: DOMAIN_EVENT_SCHEMA_VERSION,
+      aggregateType: String(row.aggregate_type), aggregateId: String(row.aggregate_id), actor: asJson(row.actor), scope: asJson(row.scope),
+      commandId: String(row.command_id), correlationId: row.correlation_id ? String(row.correlation_id) : undefined,
+      payload: asJson(row.payload), occurredAt: asIso(row.occurred_at), recordedAt: asIso(row.recorded_at),
+    }));
+  }
+
+  async readCommandReceipt(commandId: string): Promise<CommandReceipt | undefined> {
+    const result = await this.database.query<Record<string, unknown>>('SELECT * FROM command_receipts WHERE workspace_id=$1 AND command_id=$2', [this.defaultWorkspaceId, commandId]);
+    const row = result.rows[0];
+    if (!row) return undefined;
+    return {
+      workspaceId: String(row.workspace_id), commandId: String(row.command_id), commandType: String(row.command_type),
+      status: row.status as CommandReceipt['status'], firstSequence: row.first_sequence === null ? undefined : Number(row.first_sequence),
+      lastSequence: row.last_sequence === null ? undefined : Number(row.last_sequence), result: row.result === null ? undefined : asJson(row.result),
+      error: row.error === null ? undefined : asJson(row.error), createdAt: asIso(row.created_at),
+    };
+  }
+
+  async listWorkspaceIds(): Promise<string[]> {
+    const result = await this.database.query<{ id: string }>('SELECT id FROM rhiza_projects ORDER BY id');
+    return result.rows.map(row => String(row.id));
+  }
+
+  async backfillJournal(): Promise<{ checksum: string; created: boolean; eventCount: number }> {
+    return this.inTransaction(async database => {
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:journal-backfill:' || $1))", [this.defaultWorkspaceId]);
+      const workspace = await this.readFrom(database, true);
+      if (!workspace) throw new Error(`Workspace ${this.defaultWorkspaceId} does not exist`);
+      const checksum = semanticChecksum(workspace);
+      const existing = await database.query<{ count: number }>('SELECT count(*)::int count FROM workspace_events WHERE workspace_id=$1', [this.defaultWorkspaceId]);
+      if (Number(existing.rows[0]?.count || 0) > 0) return { checksum, created: false, eventCount: Number(existing.rows[0]!.count) };
+      const sequence = 1;
+      await database.query('INSERT INTO workspace_event_heads (workspace_id,last_sequence) VALUES ($1,$2) ON CONFLICT (workspace_id) DO NOTHING', [this.defaultWorkspaceId, sequence]);
+      const commandId = 'backfill:workspace-baseline:v1';
+      const occurredAt = workspace.updatedAt;
+      const payload = {
+        checksum,
+        counts: {
+          nodes: workspace.discussionNodes.length, messages: workspace.messages.length, manifests: workspace.manifests.length,
+          resources: workspace.resources.length, resourceVersions: workspace.resourceVersions.length,
+        },
+      };
+      await database.query(`
+        INSERT INTO workspace_events
+          (event_id,workspace_id,sequence,event_type,schema_version,aggregate_type,aggregate_id,actor,scope,command_id,payload,occurred_at)
+        VALUES ($1,$2,1,'workspace.baseline.backfilled',$3,'workspace',$9,$4::jsonb,$5::jsonb,$6,$7::jsonb,$8)
+      `, [randomUUID(), this.defaultWorkspaceId, DOMAIN_EVENT_SCHEMA_VERSION,
+        JSON.stringify({ actorType: 'system', actorId: 'journal-backfill-v1' }),
+        JSON.stringify({ scopeType: 'workspace', scopeId: this.defaultWorkspaceId }), commandId, JSON.stringify(payload), occurredAt, this.defaultWorkspaceId]);
+      await database.query(`
+        INSERT INTO command_receipts (workspace_id,command_id,command_type,status,first_sequence,last_sequence,result)
+        VALUES ($1,$2,'BackfillWorkspaceBaseline','committed',1,1,$3::jsonb)
+      `, [this.defaultWorkspaceId, commandId, JSON.stringify({ checksum })]);
+      return { checksum, created: true, eventCount: 1 };
+    });
   }
 
   private async readFrom(database: SqlQueryable, lock = false): Promise<WorkspaceData | undefined> {

@@ -17,6 +17,6 @@
     "rootDir": "server",
     "types": ["node"]
   },
-  "include": ["server/domain.ts", "server/domain/**/*.ts", "server/provider-domain.ts"],
+  "include": ["server/domain.ts", "server/domain-journal.ts", "server/domain/**/*.ts", "server/provider-domain.ts"],
   "exclude": ["server/**/*.test.ts"]
 }

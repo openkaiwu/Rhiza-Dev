@@ -36,6 +36,16 @@ describe('M02 architecture boundary gate', () => {
     await expect(collectM02BoundaryViolations(root)).resolves.toEqual([]);
   });
 
+  it('treats the root Domain Journal contract as domain code', async () => {
+    const root = await fixture({
+      'server/domain.ts': 'export type Workspace = { id: string };',
+      'server/domain-journal.ts': "import type { Workspace } from './domain'; export type Event = { workspace: Workspace };",
+      'server/application/ports/journal.ts': "import type { Event } from '../../domain-journal'; export interface Journal { append(event: Event): void; }",
+      'scripts/boundary-gates/boundary-exceptions.json': '{"exceptions":[]}',
+    });
+    await expect(collectM02BoundaryViolations(root)).resolves.toEqual([]);
+  });
+
   it('keeps identity isolated from infrastructure adapters', async () => {
     const root = await fixture({
       'server/infrastructure/store.ts': 'export const store = {};',

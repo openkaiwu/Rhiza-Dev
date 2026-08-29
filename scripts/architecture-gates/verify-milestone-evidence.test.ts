@@ -15,6 +15,10 @@ import {
   M04_FIXTURES,
   M04_PATHS,
   m04ObservedMetrics,
+  M05_COMMANDS,
+  M05_FIXTURES,
+  M05_PATHS,
+  m05ObservedMetrics,
   validateEvidence,
   validateKnownExceptions,
   type MilestoneEvidence,
@@ -122,6 +126,13 @@ describe('milestone evidence validation', () => {
   it('requires M04 V4.2 severity and recovery evidence', () => {
     const evidence = base(); evidence.milestone = 'M04'; evidence.architecture_version = 'V4.2';
     expect(() => validateEvidence(evidence, undefined, 'M04')).toThrow(/command set drift|severity|thresholds/);
+  });
+
+  it('configures M05 as a V4.2 blocking transaction facts gate', () => {
+    expect(M05_COMMANDS).toEqual(expect.arrayContaining([expect.stringContaining('e2e/m05-journal.e2e.test.ts')]));
+    expect(M05_PATHS).toEqual(expect.arrayContaining(['db/migrations/0007_domain_journal_facts.up.sql', 'docs/adr/ADR-005-domain-event-catalog.md', 'docs/architecture-gates/M05/journal-fixture.json']));
+    expect(M05_FIXTURES.every(fixture => M05_PATHS.includes(fixture.path))).toBe(true);
+    expect(m05ObservedMetrics()).toMatchObject({ missing_semantic_events: 0, retry_100_new_events_after_first: 0, three_write_half_commits: 0, concurrent_duplicate_sequences: 0, backfill_checksum_drift: 0, activity_timeline: 'pass', real_postgres_e2e: { status: 'skipped' } });
   });
 
   it('rejects a reduced M02 command set', () => {

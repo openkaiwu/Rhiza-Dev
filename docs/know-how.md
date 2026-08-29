@@ -26,6 +26,10 @@
 - orphan GC 只能在调用方提供覆盖整个 BlobStore 的完整 active-reference set 后执行；不得用当前用户或单个 Workspace 的局部引用集合扫描全局 store。
 - versioned blob 读取失败或 digest 不匹配必须返回稳定 `BLOB_INTEGRITY_ERROR`，不能静默回退旧 UUID 附件。旧路径只服务尚未回填的 legacy attachment；运行 `pnpm run resources:backfill` 后 dangling 必须为 0 且重复运行 checksum 一致。
 - M04 的 HostRuntimePort 只包含当前 Chat 所需 file/path/blob/credential seam。spawn/PTY/process supervision 属于 M24，Desktop 与真实跨平台 host matrix 属于 M29；不要为这些延后能力在 M04 建兼容层或 fake matrix。
+- M05 的 `WorkspaceUnitOfWork` 是 State + Event + Receipt 唯一事务 seam。命令处理器只提供 mutation；adapter 负责 command lock、receipt lookup、sequence reservation、Journal append、shadow checksum 与 commit。不得把这些步骤散落到 HTTP 或各个 command handler。
+- Domain Journal 只记录 ADR-005 的低频语义事实。token、SSE chunk、stdout/stderr、file-read、heartbeat 与 telemetry 不得进入 `workspace_events`；M25 之前不得创建 `workflow.*` catalog。
+- 历史 Workspace 回填只写 `workspace.baseline.backfilled` 与 semantic checksum，不伪造过去的细粒度行为。固定 command id `backfill:workspace-baseline:v1` 保证脚本可中断、可重跑。
+- 无 `DATABASE_URL` 时默认使用 embedded PGlite；JSON WorkspaceStore 只作为 fixture/importer。旧 JSON 数据必须通过 `pnpm run workspace:import-json` 显式导入，再运行/确认 Journal baseline。
 - Workspace 更新通过串行队列与临时文件替换，避免多个请求交错造成 JSON 部分写入。
 - M03 的 HTTP identity 是确定性 local actor seam，不是认证实现；旧 `/api/*` 只能映射到 configured default Workspace，scoped 路径的 ScopeRef 必须从 `/api/v1/workspaces/:workspaceId` 派生，不能信任 body 中的 workspace id。
 - 已存在但不属于 local actor 的 configured default Workspace 不得被 bootstrap 自动授予 membership；只有缺失的 default Workspace 才可按 local owner 初始化。

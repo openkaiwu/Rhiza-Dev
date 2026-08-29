@@ -6,6 +6,20 @@ import type { AuditEvent, WorkspaceData } from './domain';
 import { createSeedWorkspace } from './seed';
 import type { WorkspaceDirectoryPort } from './identity/workspace-directory';
 import type { WorkspaceRecord } from './contracts/application';
+import type { CommandFactContext, DomainEventDraft, DomainEventEnvelope } from './domain-journal';
+
+export interface TransactionalWorkspaceCommand<T> {
+  context: CommandFactContext;
+  options?: WorkspaceUpdateOptions;
+  apply(current: WorkspaceData): Promise<{ next: WorkspaceData; value: T }>;
+  events(previous: WorkspaceData, next: WorkspaceData, value: T): DomainEventDraft[];
+}
+
+export interface TransactionalWorkspaceCommandResult<T> {
+  workspace: WorkspaceData;
+  value: T;
+  duplicate: boolean;
+}
 
 export interface WorkspaceRepository {
   read(): Promise<WorkspaceData>;
@@ -15,6 +29,11 @@ export interface WorkspaceRepository {
   forWorkspace?(workspaceId: string): WorkspaceRepository;
   initialize?(workspace: WorkspaceData): Promise<WorkspaceData>;
   defaultWorkspaceId?: string;
+  executeCommand?<T>(command: TransactionalWorkspaceCommand<T>): Promise<TransactionalWorkspaceCommandResult<T>>;
+  readJournal?(limit?: number): Promise<DomainEventEnvelope[]>;
+  backfillJournal?(): Promise<{ checksum: string; created: boolean; eventCount: number }>;
+  readCommandReceipt?(commandId: string): Promise<import('./domain-journal').CommandReceipt | undefined>;
+  executeWorkspaceLifecycle?(context: CommandFactContext, command: import('./application/ports/workspace-unit-of-work').WorkspaceLifecycleCommand): Promise<WorkspaceRecord>;
 }
 
 export interface WorkspacePurgeCapability {

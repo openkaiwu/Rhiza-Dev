@@ -65,7 +65,7 @@ function importsIn(file: string): { specifier: string; node: ts.Node }[] {
 function layerFor(root: string, file: string): string | undefined {
   const parts = relativeFile(root, file).split('/');
   if (parts[0] !== 'server') return undefined;
-  if (parts.length === 2 && ['domain.ts', 'provider-domain.ts'].includes(parts[1])) return 'domain';
+  if (parts.length === 2 && ['domain.ts', 'domain-journal.ts', 'provider-domain.ts'].includes(parts[1])) return 'domain';
   return layerOrder[parts[1]] ? parts[1] : undefined;
 }
 
@@ -226,7 +226,7 @@ export async function collectM02BoundaryViolations(root = resolve('.'), strict =
   const layers = ['contracts', 'domain', 'context-runtime', 'execution-runtime', 'application', 'identity', 'http', 'runtime-adapters', 'infrastructure', 'host-node'];
   const layerFiles = new Map<string, string[]>();
   for (const layer of layers) layerFiles.set(layer, await filesUnder(resolve(server, layer)));
-  layerFiles.set('domain', [...(layerFiles.get('domain') ?? []), ...['domain.ts', 'provider-domain.ts'].map(file => resolve(server, file)).filter(existsSync)]);
+  layerFiles.set('domain', [...(layerFiles.get('domain') ?? []), ...['domain.ts', 'domain-journal.ts', 'provider-domain.ts'].map(file => resolve(server, file)).filter(existsSync)]);
 
   for (const layer of ['domain', 'application'] as const) {
     for (const file of layerFiles.get(layer) ?? []) {

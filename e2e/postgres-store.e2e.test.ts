@@ -19,6 +19,7 @@ async function migratedDatabase() {
   }
   await database.exec(await readFile(resolve('db/migrations/0005_identity_workspace_scope.up.sql'), 'utf8'));
   await database.exec(await readFile(resolve('db/migrations/0006_resource_blob_host.up.sql'), 'utf8'));
+  await database.exec(await readFile(resolve('db/migrations/0007_domain_journal_facts.up.sql'), 'utf8'));
   return database;
 }
 
@@ -41,6 +42,18 @@ function legacyApp(database: PGlite, defaultWorkspaceId: string) {
 }
 
 describe('PostgreSQL workspace persistence', () => {
+  it('serves committed Domain Journal facts through the Workspace activity endpoint', async () => {
+    const database = await migratedDatabase();
+    const workspaceId = randomUUID();
+    try {
+      const { app } = legacyApp(database, workspaceId);
+      await request(app).get('/api/workspace').expect(200);
+      await request(app).post('/api/graph/nodes').send({ title: 'Timeline node', summary: 'M05', x: 120, y: 80 }).expect(201);
+      const timeline = await request(app).get('/api/workspace/activity').expect(200);
+      expect(timeline.body.activity).toEqual([expect.objectContaining({ sequence: 1, type: 'graph.node.created', title: '创建讨论节点' })]);
+    } finally { await database.close(); }
+  });
+
   it('bootstraps the migrated default through legacy HTTP reads exactly once', async () => {
     const database = await migratedDatabase();
     const workspaceId = '00000000-0000-4000-8000-000000000099';

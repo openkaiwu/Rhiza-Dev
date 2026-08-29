@@ -5,21 +5,23 @@ import { createRhizaApplication } from './create-application';
 import { WorkspaceDirectory } from '../identity/workspace-directory';
 import { LOCAL_USER_ID } from '../identity/workspace-scope';
 
-function fixture(options: { failMutation?: boolean; ensureWorkspaceInitialized?: (workspaceId: string, name: string) => Promise<import('../domain').WorkspaceData>; blobPut?: (bytes: Uint8Array) => Promise<{ digestAlgorithm: 'sha256'; digest: string; blobRef: string; size: number }>; blobRead?: (blobRef: string, digest: string) => Promise<Uint8Array>; workspaceDirectory?: WorkspaceDirectory; defaultWorkspaceId?: string } = {}) {
+function fixture(options: { failMutation?: boolean; committedRun?: import('../contracts/application').CreateConversationRunResult; ensureWorkspaceInitialized?: (workspaceId: string, name: string) => Promise<import('../domain').WorkspaceData>; blobPut?: (bytes: Uint8Array) => Promise<{ digestAlgorithm: 'sha256'; digest: string; blobRef: string; size: number }>; blobRead?: (blobRef: string, digest: string) => Promise<Uint8Array>; workspaceDirectory?: WorkspaceDirectory; defaultWorkspaceId?: string } = {}) {
   let workspace = createSeedWorkspace();
   let sequence = 0;
   const commits: string[] = [];
+  const runtimeCalls: string[] = [];
   const providerSnapshot = { filePolicy: { maxFileSizeBytes: 1_000_000, supportedMimeTypes: [], disabled: false, maxFiles: 1, maxTotalSizeBytes: 1_000_000, fileTokenLimit: 1 }, providers: [], models: [], activeModelId: null, modelSpecs: [] };
   const application = createRhizaApplication({
     unitOfWork: {
       read: async reader => reader(workspace),
       execute: async mutation => { commits.push(mutation.policy.kind); if (options.failMutation) throw new Error('workspace write failed'); const result = await mutation.apply(workspace); workspace = result.next; return { workspace, value: result.value }; },
+      readCommittedResult: async <T,>() => options.committedRun ? { found: true as const, value: options.committedRun as unknown as T } : { found: false as const },
       ensureWorkspaceInitialized: options.ensureWorkspaceInitialized,
     },
     runtime: {
       kind: 'provider-adapter',
       listModels: async () => [{ id: 'model-1', model: 'gpt-test', provider: 'test', displayName: 'Test', active: true }],
-      async *generate() { yield { type: 'RUN_START', requestId: 'request', manifestId: 'manifest', model: 'gpt-test', provider: 'test' } as const; yield { type: 'RUN_END', requestId: 'request', text: 'answer', model: 'gpt-test', provider: 'test' } as const; },
+      async *generate() { runtimeCalls.push('generate'); yield { type: 'RUN_START', requestId: 'request', manifestId: 'manifest', model: 'gpt-test', provider: 'test' } as const; yield { type: 'RUN_END', requestId: 'request', text: 'answer', model: 'gpt-test', provider: 'test' } as const; },
     },
     providers: {
       snapshot: async () => providerSnapshot,
@@ -47,7 +49,7 @@ function fixture(options: { failMutation?: boolean; ensureWorkspaceInitialized?:
     workspaceDirectory: options.workspaceDirectory,
     defaultWorkspaceId: options.defaultWorkspaceId,
   });
-  return { application, commits, workspace: () => workspace };
+  return { application, commits, runtimeCalls, workspace: () => workspace };
 }
 
 describe('Rhiza Application', () => {
@@ -57,6 +59,18 @@ describe('Rhiza Application', () => {
     expect(ready).toBe(true); expect(events).toEqual(['RUN_START', 'RUN_END']); expect(commits).toEqual(['normal']);
     expect(result.userMessage.versionGroupId).toBe(result.userMessage.id); expect(result.assistantMessage.replyToMessageId).toBe(result.userMessage.id);
     expect(workspace().messages).toHaveLength(4); expect(workspace().manifests).toHaveLength(1);
+  });
+
+  it('returns a committed run receipt before invoking the external Runtime again', async () => {
+    const existing = {
+      userMessage: { id: 'prior-user', nodeId: 'information-architecture', kind: 'user' as const, text: 'prior', createdAt: '2026-08-23T00:00:00.000Z' },
+      assistantMessage: { id: 'prior-assistant', nodeId: 'information-architecture', kind: 'assistant' as const, text: 'prior answer', createdAt: '2026-08-23T00:00:00.000Z' },
+      manifest: { id: 'prior-manifest' } as import('../domain').ContextManifest,
+    };
+    const { application, runtimeCalls, commits } = fixture({ committedRun: existing });
+    await expect(application.execute(createLegacyCommandEnvelope('same-run', 'CreateConversationRun', { prompt: 'hello', operation: 'send', attachmentIds: [], generation: { temperature: 0.4, topP: 1, maxTokens: 50 } }))).resolves.toBe(existing);
+    expect(runtimeCalls).toEqual([]);
+    expect(commits).toEqual([]);
   });
 
   it('uses commands for representative workspace changes and serves queries', async () => {

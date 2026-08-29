@@ -8,6 +8,7 @@
     "GET /api/v1/workspaces",
     "GET /api/v1/workspaces/:workspaceId",
     "GET /api/workspace",
+    "GET /api/workspace/activity",
     "PATCH /api/models/:id",
     "PATCH /api/nodes/:id/position",
     "PATCH /api/nodes/:id/status",

@@ -1,4 +1,5 @@
 import type { AuditEvent, ChatOperation, ContextMode, ContextStatus, GenerationOptions, StoredAttachment, StoredMessage, WorkspaceData } from '../domain';
+import type { WorkspaceActivityItem } from '../domain-journal';
 import type { ActorRef, RequestIdentity, ScopeRef } from './references';
 
 export type CommandType = keyof CommandMap;
@@ -83,6 +84,7 @@ export interface QueryMap {
   ListWorkspaces: { payload: { includeArchived?: boolean }; result: WorkspaceRecord[] };
   GetHealth: { payload: Empty; result: { ok: true } };
   GetWorkspace: { payload: Empty; result: WorkspaceData };
+  GetWorkspaceActivity: { payload: { limit?: number }; result: WorkspaceActivityItem[] };
   GetProviders: { payload: Empty; result: unknown };
   GetProviderStatus: { payload: Empty; result: { configured: boolean; name: string; model: string; baseUrl: string } };
   ListModels: { payload: Empty; result: Array<{ id: string; provider: string; displayName: string; active: boolean }> };

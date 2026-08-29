@@ -238,10 +238,24 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
   const dispatch = async (envelope: AnyCommandEnvelope, options?: CommandExecutionOptions): Promise<unknown> => {
     try {
       if (!envelope.actor || !envelope.scope || !envelope.workspaceId) throw legacyError('写命令必须提供 ActorRef 与 ScopeRef。', 403, 'MISSING_ACTOR_OR_SCOPE');
+      const factContext = {
+        commandId: envelope.commandId,
+        commandType: envelope.commandType,
+        actor: envelope.actor,
+        scope: envelope.scope,
+        correlationId: envelope.correlationId,
+        expectedRevision: envelope.expectedRevision,
+        occurredAt: now(),
+      };
       if (envelope.commandType === 'CreateWorkspace') {
         const name = String((envelope.payload as { name?: string }).name || '').trim();
         if (!name || name.length > 200) throw legacyError('工作区名称不能为空且不能超过 200 字符。', 400, 'INVALID_WORKSPACE_NAME');
         const workspaceId = String((envelope.payload as { workspaceId?: string }).workspaceId || id());
+        const transactional = await unitOfWork.executeWorkspaceLifecycle?.(
+          { ...factContext, scope: { scopeType: 'workspace', scopeId: workspaceId } },
+          { kind: 'create', workspaceId, name, createdBy: envelope.actor.actorId },
+        );
+        if (transactional) return transactional;
         const created = await workspaceDirectory.create(envelope.actor, workspaceId, name);
         await unitOfWork.ensureWorkspaceInitialized?.(workspaceId, created.record.name);
         return created.record;
@@ -249,13 +263,24 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
       await ensureDefaultWorkspace(envelope.actor, envelope.workspaceId, envelope.scope);
       const record = await workspaceDirectory.require(envelope.actor, envelope.workspaceId, envelope.scope);
       if (record.status === 'archived' && !['RestoreWorkspace'].includes(envelope.commandType)) throw legacyError('归档工作区为只读，请先恢复。', 409, 'WORKSPACE_ARCHIVED');
+      if (envelope.commandType === 'RenameWorkspace' || envelope.commandType === 'ArchiveWorkspace' || envelope.commandType === 'RestoreWorkspace') {
+        const expectedRevision = envelope.expectedRevision ?? record.revision;
+        const kind = envelope.commandType === 'RenameWorkspace' ? 'rename' as const : envelope.commandType === 'ArchiveWorkspace' ? 'archive' as const : 'restore' as const;
+        const transactional = await unitOfWork.executeWorkspaceLifecycle?.(factContext, kind === 'rename'
+          ? { kind, workspaceId: envelope.workspaceId, expectedRevision, name: String((envelope.payload as { name?: string }).name || '').trim() }
+          : { kind, workspaceId: envelope.workspaceId, expectedRevision });
+        if (transactional) return transactional;
+      }
       if (envelope.expectedRevision !== undefined && envelope.expectedRevision !== record.revision) throw legacyError('工作区版本已变化，请刷新后重试。', 409, 'WORKSPACE_REVISION_CONFLICT');
       if (envelope.commandType === 'RenameWorkspace') return workspaceDirectory.rename(record, String((envelope.payload as { name?: string }).name || '').trim());
       if (envelope.commandType === 'ArchiveWorkspace') return workspaceDirectory.status(record, 'archived');
       if (envelope.commandType === 'RestoreWorkspace') return workspaceDirectory.status(record, 'active');
       if (envelope.commandType === 'SwitchWorkspace') return record;
-      if (unitOfWork.withWorkspace) return unitOfWork.withWorkspace(envelope.workspaceId, () => dispatchScoped(envelope, options));
-      return dispatchScoped(envelope, options);
+      const executeCommand = () => unitOfWork.withCommand
+        ? unitOfWork.withCommand(factContext, () => dispatchScoped(envelope, options))
+        : dispatchScoped(envelope, options);
+      if (unitOfWork.withWorkspace) return unitOfWork.withWorkspace(envelope.workspaceId, executeCommand);
+      return executeCommand();
     } catch (error) { throw asApplicationError(error); }
   };
 
@@ -278,6 +303,8 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
           return await registerResourceVersion({ ...payload, name: existing.name, mimeType: existing.mimeType }, existing.id);
         }
         case 'CreateConversationRun': {
+          const previous = await unitOfWork.readCommittedResult?.<CommandMap['CreateConversationRun']['result']>();
+          if (previous?.found) return previous.value;
           const run = await prepareRun(payload); run.request.signal = options?.signal; await options?.onReady?.();
           for await (const event of runtime.generate(run.request)) {
             if (event.type === 'RUN_ERROR') {
@@ -331,6 +358,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
       switch (envelope.queryType) {
         case 'GetHealth': return { ok: true };
         case 'GetWorkspace': return unitOfWork.read(workspace => workspace);
+        case 'GetWorkspaceActivity': return unitOfWork.readActivity?.(Math.min(100, Math.max(1, Number((envelope.payload as { limit?: number }).limit || 50)))) ?? [];
         case 'GetProviders': return providers.snapshot();
         case 'GetProviderStatus': {
           if (runtime.kind !== 'librechat') return providers.activeStatus();

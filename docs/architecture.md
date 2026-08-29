@@ -4,7 +4,7 @@
 
 ## 1. Overview
 
-根系（Rhiza）是基于产品设计书构建的全栈网页端 MVP。它验证“对话网络 + 显式上下文 + 当前知识状态”的核心产品命题，并通过动态 Provider Registry 连接多个 OpenAI-compatible 模型供应商。当前实现具备确定性 local user、Workspace membership、多个 Workspace 的创建/切换/归档与路径级 scope 隔离；领域数据由可按 Workspace 寻址的 JSON 或 PostgreSQL Repository 持久化，模型目录仍使用原子 JSON，API Key 使用本机 AES-256-GCM 密钥加密。
+根系（Rhiza）是基于产品设计书构建的全栈网页端 MVP。它验证“对话网络 + 显式上下文 + 当前知识状态”的核心产品命题，并通过动态 Provider Registry 连接多个 OpenAI-compatible 模型供应商。当前实现具备确定性 local user、Workspace membership、多个 Workspace 的创建/切换/归档与路径级 scope 隔离；领域数据默认由 embedded PGlite 持久化，也可连接 PostgreSQL。成功 Application Command 通过 WorkspaceUnitOfWork 在同一事务写 Current State、append-only Domain Journal 与 CommandReceipt；模型目录仍使用原子 JSON，API Key 使用本机 AES-256-GCM 密钥加密。
 
 当前仓库不是 LibreChat fork。按 V4.1 基线，现有 `server/provider-*` 承担当前 API 配置的 Runtime Adapter 职责；`librechat-data-provider` 提供共享 Model Spec 与文件策略，Rhiza 的 Project、Node、Edge、Context 与 State 语义保持独立。后续迁移仍应扩展 Runtime 能力，而不是让 LibreChat Conversation/Mongo schema 进入 Rhiza Domain。旧映射仅见 `docs/archive/librechat-migration.md`，不定义当前架构。
 
@@ -15,8 +15,9 @@
 - Express：Workspace、Context 与 Chat API
 - OpenAI-compatible Provider：第三方模型适配、超时和错误归一化
 - librechat-data-provider：LibreChat Model Spec、endpoint 枚举与文件能力策略
-- JSON 原子存储：默认本地持久化 Workspace 目录以及按 Workspace 隔离的消息、Context 状态与 Manifest
-- 可选 PostgreSQL Repository：`users`、`workspaces`、`workspace_members`、不可变 `ResourceVersion` 与 Workspace 领域表的事务更新、migration checksum 防篡改和 CI 真库验证；默认本地运行仍使用 JSON Repository
+- Embedded PGlite：无 `DATABASE_URL` 时的默认真实事务后端，启动时按 checksum 自动执行同一套 PostgreSQL migration
+- PostgreSQL Repository：`users`、`workspaces`、`workspace_members`、不可变 `ResourceVersion`、`workspace_events` 与 `command_receipts` 的事务更新、migration checksum 防篡改和 CI 真库验证
+- JSON WorkspaceStore：仅保留 characterization fixture 与显式 `workspace:import-json` 迁移输入，不再作为生产默认后端
 - content-addressed BlobStore：SHA-256 内容身份、temp write → verify → atomic promote，以及 grace-period orphan GC
 - Lucide React：统一图标系统
 - react-markdown / remark-gfm：Markdown 与 GitHub Flavored Markdown
@@ -44,6 +45,8 @@
 - `server/infrastructure/node-host-runtime.ts`：Node/headless Host adapter 与本机 content-addressed BlobStore
 - `server/infrastructure/resource-backfill.ts`、`scripts/backfill-resources.ts`：旧 UUID 附件到 Resource/ResourceVersion 的幂等回填；BlobStore 的 GC 只接受调用方提供的完整 active-reference set，避免按单一 Workspace 误删共享 blob
 - `server/store.ts`：Workspace directory、按 Workspace 寻址的串行更新和临时文件原子替换
+- `server/domain-journal.ts`：V4.2 M05 Event Catalog、Event Envelope、Receipt、semantic checksum 与活动时间线映射
+- `server/embedded-store.ts`：PGlite 默认 adapter 与自动 migration；`scripts/backfill-journal.ts` 建立幂等历史 baseline
 - `server/config.ts`：安全读取 Provider 环境配置
 - `server/feature-flags.ts`：默认关闭、未知值快速失败的 M0 功能开关
 - `db/migrations/`、`scripts/migrate.ts`：Rhiza 自有 PostgreSQL schema 与迁移器
@@ -67,6 +70,7 @@
 - `ContextPanel` 显示 Active、Recommended、Excluded Context 和预算。
 - `GraphView` 从 Workspace 渲染真实讨论节点与语义边，支持 Pointer Events 节点拖拽、空白画布平移、滚轮/按钮缩放、关系连接，以及节点归档/恢复与关系编辑；归档节点从主视图隐藏且只读，坐标和编辑结果都通过 API 持久化。
 - `StateView` 区分当前有效事实、约束、决策与开放问题。
+- `ActivityView` 从 Domain Journal 显示 workspace-local sequence 排序的低噪声语义活动，不展示 Runtime trace 或 transient stream。
 
 ## 5. Frontend Architecture
 
