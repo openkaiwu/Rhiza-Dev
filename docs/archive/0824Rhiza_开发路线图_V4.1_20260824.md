@@ -1,13 +1,15 @@
 # Rhiza 开发路线图
 
+> **Superseded(2026-08-29)**:本文档已被 Rhiza Architecture & Roadmap Baseline V4.2 取代,不再定义当前架构或开发计划,仅作 Historical Evidence 保留。现行基线:`docs/Rhiza_技术架构设计书_V4.2_20260829.md` 与 `docs/Rhiza_开发路线图_V4.2_20260829.md`。
+
 ```text
 Version: V4.1
 Release Date: 2026-08-24
 Baseline: Rhiza Architecture & Roadmap Baseline V4.1
-Status: Active
+Status: Superseded (by V4.2, 2026-08-29)
 ```
 
-> 本文档与《Rhiza 技术架构设计书 V4.1》共同构成唯一生效的 **Rhiza Architecture & Roadmap Baseline V4.1**。
+> 本文档与《Rhiza 技术架构设计书 V4.1》共同构成已被 V4.2 取代的 **Rhiza Architecture & Roadmap Baseline V4.1**(不再生效,见文首 Superseded 说明)。
 > 架构书回答"系统是什么、为什么这样设计";本文回答"如何从当前代码逐步实现该架构"。
 > 本文引用的所有章节号(§)与不变量编号(I-xx)均指向架构书;两份文档术语、对象模型与 Milestone 编号完全一致。
 

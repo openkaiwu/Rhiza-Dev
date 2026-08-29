@@ -1,6 +1,6 @@
 # Project Architecture
 
-> **文档地位(2026-08-22 起)**:本文是 **Current Implementation Snapshot**,仅描述已部署实现的现状,不承载目标架构设计。目标架构与开发计划的唯一权威是 `docs/Rhiza_技术架构设计书_V4.1_20260824.md` 与 `docs/Rhiza_开发路线图_V4.1_20260824.md`。本文存在若干与代码不一致的过时表述(如 M2 完成度、PostgreSQL 事务边界、G0 状态等),逐项核对以 `docs/项目现状.md` 与代码为准;本文的系统性修订属于路线图 M01。
+> **文档地位(2026-08-22 起)**:本文是 **Current Implementation Snapshot**,仅描述已部署实现的现状,不承载目标架构设计。目标架构与开发计划的唯一权威是 `docs/Rhiza_技术架构设计书_V4.2_20260829.md` 与 `docs/Rhiza_开发路线图_V4.2_20260829.md`。本文存在若干与代码不一致的过时表述(如 M2 完成度、PostgreSQL 事务边界、G0 状态等),逐项核对以 `docs/项目现状.md` 与代码为准;本文的系统性修订属于路线图 M01。
 
 ## 1. Overview
 
