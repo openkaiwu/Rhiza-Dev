@@ -6,9 +6,13 @@ export interface ModelInfo {
   model: string;
   displayName: string;
   active: boolean;
+  providerEndpointRef?: string;
+  endpointVersion?: string;
+  endpoint?: { baseUrl: string; chatPath: string; allowNoKey: boolean };
 }
 
 export interface RuntimeRequest {
+  modelSnapshot?: ModelInfo;
   requestId: string;
   manifestId: string;
   projectId: string;
@@ -64,6 +68,6 @@ export async function collectRuntimeResult(runtime: AIRuntime, request: RuntimeR
       throw new RuntimeExecutionError(event.message, event.status, event.code);
     }
   }
-  if (!result) throw new Error('AI Runtime 未返回 RUN_END 事件。');
+  if (!result) throw new RuntimeExecutionError('AI Runtime 未返回 RUN_END 事件。', 502, 'INCOMPLETE_RUNTIME_STREAM');
   return result;
 }

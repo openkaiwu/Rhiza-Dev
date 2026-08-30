@@ -19,6 +19,7 @@ import {
   M05_FIXTURES,
   M05_PATHS,
   m05ObservedMetrics,
+  m06ObservedMetrics,
   validateEvidence,
   validateKnownExceptions,
   type MilestoneEvidence,
@@ -40,6 +41,14 @@ describe('milestone evidence validation', () => {
     commit: '0000000000000000000000000000000000000000', fixtures: [{ id: 'registry', path: 'docs/architecture-gates/fixture-registry.json', role: 'fixture_registry' }, { id: 'map', path: 'docs/architecture-gates/G0/characterization-map.json', role: 'characterization_map' }],
     commands: [{ command: 'pnpm run lint', result: 'pass' }], checksums: { 'docs/architecture-gates/fixture-registry.json': { algorithm: 'sha256', current: '0'.repeat(64), recorded_commit: '0'.repeat(64) }, 'docs/architecture-gates/G0/characterization-map.json': { algorithm: 'sha256', current: '0'.repeat(64), recorded_commit: '0'.repeat(64) } },
     failure_classification: { classification: 'none', rationale: 'pass' }, known_exceptions: [], environment: { node: 'v1', os: 'test', cpu: 'test', memory_bytes: 1 }, started_at: '2026-08-23T00:00:00.000Z', completed_at: '2026-08-23T00:00:01.000Z', result: 'pass',
+  });
+
+  it('rejects M06 evidence with a canceled late-result commit', () => {
+    const evidence = base();
+    evidence.milestone = 'M06';
+    evidence.observed_metrics = { ...m06ObservedMetrics(''), late_result_commits: 1 };
+    expect(() => validateEvidence(evidence)).toThrow('M06 observed metric late_result_commits must equal 0');
+    expect(m06ObservedMetrics('').real_postgres_e2e).toMatchObject({ status: 'skipped', reason: expect.stringContaining('DATABASE_URL') });
   });
 
   it('rejects a missing recorded commit before accepting checksums', () => {

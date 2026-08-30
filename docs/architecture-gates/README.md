@@ -102,3 +102,6 @@ checksums. Verification recomputes every fixture, snapshot, and
 performance-profile checksum, resolves every artifact reference, and retains
 20 warm-ups, 200 samples, and zero recorded errors. Raw latency values are
 observational and may differ between environments.
+
+
+M06 uses V4.2. Run `pnpm run m06:checks` for the full current gate, then commit implementation and refreshed G0 snapshots/evidence before `pnpm run m06:evidence`. `pnpm run verify:m06:closure` additionally checks the current files against commit-bound evidence. Real PostgreSQL cases in `e2e/m06-runs.e2e.test.ts` are explicitly skipped without DATABASE_URL; embedded tests are mandatory. No M07 scope is included.

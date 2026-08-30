@@ -341,12 +341,34 @@ const M05_CONFIG: MilestoneConfig = {
   recoveryCommand: 'pnpm vitest run e2e/m05-journal.e2e.test.ts --maxWorkers=1 --testTimeout=30000',
 };
 
+export const M06_COMMANDS = [...M02_COMMANDS.slice(0, -1), 'pnpm run verify:m04:host-boundary', 'pnpm run build'];
+export const M06_PATHS = [...new Set([...M05_PATHS,
+  'app/static/css/app.css', 'server/ai-runtime.ts', 'server/provider-service.ts', 'server/provider-runtime.test.ts',
+  'db/migrations/0008_execution_runs.up.sql', 'db/migrations/0008_execution_runs.down.sql',
+  'docs/adr/ADR-006-chat-execution-run.md', 'docs/architecture-gates/M06/run-fixture.json', 'docs/know-how.md',
+  'server/application/run-lifecycle.ts', 'server/execution-runtime/run.ts', 'server/execution-runtime/run.test.ts',
+  'e2e/m06-runs.e2e.test.ts', 'src/components/RunHistory.tsx', 'src/components/RunHistory.test.tsx',
+])];
+const M06_CONFIG: MilestoneConfig = {
+  architectureVersion: 'V4.2', commands: M06_COMMANDS, paths: M06_PATHS,
+  fixtures: [...M05_FIXTURES, { id: 'm06-chat-run-v1', path: 'docs/architecture-gates/M06/run-fixture.json', role: 'acceptance_fixture' }],
+  failureClassification: { classification: 'none', rationale: 'M06 Chat Run persistence, guarded commit/cancel, retry lineage, crash recovery, trace isolation and UI regression checks passed. Real PostgreSQL tests are skipped when DATABASE_URL is unavailable.' },
+  knownExceptions: [], severity: 'blocking',
+  thresholds: { untracked_chat_calls: 0, late_result_commits: 0, trace_journal_events: 0, overwritten_parent_runs: 0, recovered_active_runs: 0 },
+  failureInjectionCheckpoint: { checkpoint: 'created, dispatching, running and message persistence', injection_command: 'pnpm vitest run e2e/m06-runs.e2e.test.ts --maxWorkers=1 --testTimeout=30000', expected: 'terminal tracking, no canceled late result, rollback of successful status on message failure, restart convergence' },
+  recoveryCommand: 'pnpm vitest run e2e/m06-runs.e2e.test.ts --maxWorkers=1 --testTimeout=30000',
+};
+export function m06ObservedMetrics(databaseUrl = process.env.DATABASE_URL): Record<string, unknown> {
+  return { ...M06_CONFIG.thresholds, real_postgres_e2e: databaseUrl ? { status: 'pass' } : { status: 'skipped', reason: 'DATABASE_URL is not configured' } };
+}
+
 const milestoneConfig = (milestone: string): MilestoneConfig => {
   if (milestone === 'M01') return M01_CONFIG;
   if (milestone === 'M02') return M02_CONFIG;
   if (milestone === 'M03') return M03_CONFIG;
   if (milestone === 'M04') return M04_CONFIG;
   if (milestone === 'M05') return M05_CONFIG;
+  if (milestone === 'M06') return M06_CONFIG;
   return fail(`no verifier is configured for ${milestone}`);
 };
 
@@ -412,6 +434,12 @@ export function validateEvidence(
     if (postgres?.status === 'skipped' && (!postgres.reason || !String(postgres.reason).includes('DATABASE_URL'))) fail('M05 skipped real PostgreSQL E2E metric must explain DATABASE_URL');
   }
   validateKnownExceptions(evidence.known_exceptions);
+  if (evidence.milestone === 'M06') {
+    for (const [key, expected] of Object.entries(M06_CONFIG.thresholds!)) if (evidence.observed_metrics?.[key] !== expected) fail(`M06 observed metric ${key} must equal ${String(expected)}`);
+    const postgres = evidence.observed_metrics?.real_postgres_e2e as { status?: string; reason?: string };
+    if (!postgres || !['pass', 'skipped'].includes(String(postgres.status))) fail('M06 real PostgreSQL metric must be pass or skipped');
+    if (postgres.status === 'skipped' && !postgres.reason?.includes('DATABASE_URL')) fail('M06 skipped PostgreSQL must explain DATABASE_URL');
+  }
   for (const fixture of evidence.fixtures) {
     if (!(fixture.path in evidence.checksums)) fail(`fixture is not checksummed: ${fixture.path}`);
   }
@@ -454,7 +482,7 @@ function writeEvidence(milestone: string): void {
     })),
     failure_classification: config.failureClassification,
     known_exceptions: config.knownExceptions,
-    ...(config.severity ? { severity: config.severity, thresholds: config.thresholds!, observed_metrics: milestone === 'M03' ? m03ObservedMetrics() : milestone === 'M04' ? m04ObservedMetrics() : m05ObservedMetrics(), failure_injection_checkpoint: config.failureInjectionCheckpoint!, recovery_command: config.recoveryCommand! } : {}),
+    ...(config.severity ? { severity: config.severity, thresholds: config.thresholds!, observed_metrics: milestone === 'M03' ? m03ObservedMetrics() : milestone === 'M04' ? m04ObservedMetrics() : milestone === 'M06' ? m06ObservedMetrics() : m05ObservedMetrics(), failure_injection_checkpoint: config.failureInjectionCheckpoint!, recovery_command: config.recoveryCommand! } : {}),
     environment: { node: process.version, os: `${platform()} ${release()}`, cpu: cpus()[0]?.model ?? 'unknown', memory_bytes: totalmem() },
     started_at, completed_at: new Date().toISOString(), result: 'pass',
   };
@@ -468,7 +496,7 @@ function writeEvidence(milestone: string): void {
 function main(): void {
   const milestoneIndex = process.argv.indexOf('--milestone');
   const milestone = milestoneIndex >= 0 ? (process.argv[milestoneIndex + 1] ?? '') : '';
-  if (milestone.length === 0) fail('pass --milestone M01, M02, M03, M04, or M05 and optionally --write');
+  if (milestone.length === 0) fail('pass --milestone M01, M02, M03, M04, M05, or M06 and optionally --write');
   if (process.argv.includes('--write')) return writeEvidence(milestone);
   const path = resolve(root, `docs/architecture-gates/${milestone}/evidence.json`);
   if (!existsSync(path)) fail(`evidence file is missing: ${path}`);

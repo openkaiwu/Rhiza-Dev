@@ -15,7 +15,7 @@ export const providerPresets: Record<Exclude<ProviderPreset, 'custom'>, { name: 
   ollama: { name: 'Ollama', baseUrl: 'http://127.0.0.1:11434/v1', allowNoKey: true },
 };
 
-interface CompletionRequest { prompt: string; history: StoredMessage[]; contextItems: ContextItem[]; mode: string; attachments?: import('./domain').StoredAttachment[]; generation?: import('./domain').GenerationOptions; signal?: AbortSignal }
+interface CompletionRequest { modelSnapshot?: import('./execution-runtime/runtime').RuntimeModel; prompt: string; history: StoredMessage[]; contextItems: ContextItem[]; mode: string; attachments?: import('./domain').StoredAttachment[]; generation?: import('./domain').GenerationOptions; signal?: AbortSignal }
 interface ProviderInput { preset: ProviderPreset; name: string; baseUrl: string; apiKey?: string; allowNoKey: boolean; modelId?: string; displayName?: string }
 
 export class ProviderService {
@@ -131,7 +131,9 @@ export class ProviderService {
     const model = data.models.find(item => item.id === modelRecordId);
     const provider = data.providers.find(item => item.id === model?.providerId);
     if (!model || !provider) throw new ProviderError('请先在模型设置中选择一个模型。', 503, 'MODEL_NOT_SELECTED');
-    const ai = new OpenAiCompatibleProvider({ ...this.envConfig, baseUrl: provider.baseUrl, chatPath: provider.chatPath, providerName: provider.name, model: model.modelId, apiKey: await this.vault.decrypt(provider.apiKey), allowNoKey: provider.allowNoKey }, this.fetcher);
+    const frozen = request.modelSnapshot;
+    if (frozen && (frozen.providerEndpointRef !== provider.id || frozen.endpointVersion !== provider.updatedAt || frozen.model !== model.modelId || frozen.endpoint?.baseUrl !== provider.baseUrl || frozen.endpoint?.chatPath !== provider.chatPath || frozen.endpoint?.allowNoKey !== provider.allowNoKey)) throw new ProviderError('模型或供应商配置已变化，请创建新的执行。', 409, 'PROVIDER_CONFIGURATION_CHANGED');
+    const ai = new OpenAiCompatibleProvider({ ...this.envConfig, baseUrl: request.modelSnapshot?.endpoint?.baseUrl ?? provider.baseUrl, chatPath: request.modelSnapshot?.endpoint?.chatPath ?? provider.chatPath, providerName: request.modelSnapshot?.provider ?? provider.name, model: request.modelSnapshot?.model ?? model.modelId, apiKey: await this.vault.decrypt(provider.apiKey), allowNoKey: request.modelSnapshot?.endpoint?.allowNoKey ?? provider.allowNoKey }, this.fetcher);
     return { stream: ai.stream(request), model: model.modelId, provider: provider.name };
   }
 

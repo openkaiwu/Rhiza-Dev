@@ -102,3 +102,11 @@
 - 本机 Clash 当前 HTTP 代理端口为 `127.0.0.1:9095`；Git 全局 `http.proxy` 与 `https.proxy` 必须和该端口一致，否则 Smart HTTP 会继续尝试失效的旧端口。
 - GitHub 连通性应使用 `git ls-remote` 验证，而不是只看浏览器或 `curl`；该命令能覆盖 Git 实际使用的 Smart HTTP 路径。
 - 当前仓库的 `upstream` 指向 LibreChat 官方仓库，用于锁定 Runtime 参考版本；Rhiza 自有 `origin` 需要明确的仓库地址后再配置，不能用 upstream 代替。
+
+## 9. Chat Run persistence
+
+- 创建 Run 必须早于任何模型调用；成功终态必须与消息/Manifest 同事务。不能先写 completed，再另行提交消息。
+- 取消先持久化终态再 abort；成功提交与取消的胜者由数据库 guarded update 决定。不可依赖 Provider 一定遵守 AbortSignal。
+- Retry/Regenerate 使用新 Run + parentRunRef。相同 command id 只用于幂等重放，不能用它发起新的外部调用。
+- 临时 Chat 不写正式消息/节点，但保留执行输入与终态。不得为了沿用“临时不落盘”概念绕过执行审计。
+- PostgreSQL 启动恢复必须在取得 runtime ownership 且尚未接受请求时运行，不能在在线查询中扫全库并中断其他活跃请求。

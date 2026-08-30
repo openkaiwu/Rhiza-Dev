@@ -10,9 +10,13 @@ export interface RuntimeModel {
   model: string;
   displayName: string;
   active: boolean;
+  providerEndpointRef?: string;
+  endpointVersion?: string;
+  endpoint?: { baseUrl: string; chatPath: string; allowNoKey: boolean };
 }
 
 export interface RuntimeRequest {
+  modelSnapshot?: RuntimeModel;
   requestId: string;
   manifestId: string;
   projectId: string;

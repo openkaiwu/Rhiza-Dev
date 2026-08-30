@@ -3,8 +3,33 @@ import { describe, expect, it, vi } from 'vitest';
 import { collectRuntimeResult } from './ai-runtime';
 import { ProviderRuntime } from './provider-runtime';
 import type { ProviderService } from './provider-service';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { ProviderService as CatalogService } from './provider-service';
+import { ProviderStore } from './provider-store';
+import { SecretVault } from './secret-vault';
 
 describe('ProviderRuntime', () => {
+  it('keeps existing model/endpoint IDs stable and refuses a changed endpoint before resolving its credentials', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-model-identity-'));
+    try {
+      const fetcher = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({ choices: [{ message: { content: 'answer' } }] }), { headers: { 'Content-Type': 'application/json' } }));
+      const providers = new CatalogService(new ProviderStore(join(directory, 'providers.json')), new SecretVault(join(directory, 'key')), { baseUrl: 'https://one.test/v1', apiKey: 'secret', model: 'shared', providerName: 'One', chatPath: '/chat/completions', timeoutMs: 1000, temperature: 0.4, extraHeaders: {}, allowNoKey: false }, fetcher);
+      await providers.snapshot();
+      await providers.saveProvider({ preset: 'custom', name: 'Two', baseUrl: 'https://two.test/v1', modelId: 'shared', apiKey: 'secret-two', allowNoKey: false });
+      const runtime = new ProviderRuntime(providers);
+      const models = await runtime.listModels();
+      expect(models).toHaveLength(2);
+      expect(new Set(models.map(model => model.id)).size).toBe(2);
+      expect(new Set(models.map(model => model.providerEndpointRef)).size).toBe(2);
+      expect(await runtime.listModels()).toEqual(models);
+      const frozen = models.find(model => model.provider === 'One')!;
+      await providers.saveProvider({ preset: 'custom', name: 'Renamed', baseUrl: 'https://changed.test/v1', allowNoKey: false }, frozen.providerEndpointRef);
+      await expect(collectRuntimeResult(runtime, { requestId: 'request', manifestId: 'manifest', projectId: 'workspace', nodeId: 'node', modelId: frozen.id, modelSnapshot: frozen, prompt: 'hello', history: [], contextItems: [], mode: 'Strict' })).rejects.toMatchObject({ code: 'PROVIDER_CONFIGURATION_CHANGED' });
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
   it('maps a frozen Rhiza request onto the runtime event protocol', async () => {
     const providers = {
       snapshot: vi.fn().mockResolvedValue({

@@ -9,7 +9,7 @@
     "sequence": { "type": "integer", "minimum": 1 },
     "ceSpecversion": { "const": "1.0" },
     "envelopeVersion": { "const": "1.0.0" },
-    "eventType": { "enum": ["workspace.baseline.backfilled", "workspace.created", "workspace.renamed", "workspace.archived", "workspace.restored", "conversation.run.committed", "context.mode.changed", "context.selection.changed", "context.source.added", "graph.node.created", "graph.node.activated", "graph.node.status_changed", "graph.layout.updated", "graph.relation.created", "graph.relation.removed", "segment.created", "branch.created", "message.merge_revision.created", "resource.registered", "resource.version.created", "object.archived", "object.purged"] },
+    "eventType": { "enum": ["run.created", "run.status.changed", "workspace.baseline.backfilled", "workspace.created", "workspace.renamed", "workspace.archived", "workspace.restored", "conversation.run.committed", "context.mode.changed", "context.selection.changed", "context.source.added", "graph.node.created", "graph.node.activated", "graph.node.status_changed", "graph.layout.updated", "graph.relation.created", "graph.relation.removed", "segment.created", "branch.created", "message.merge_revision.created", "resource.registered", "resource.version.created", "object.archived", "object.purged"] },
     "eventSource": { "type": "string", "format": "uri" },
     "subject": { "type": "string", "minLength": 1 },
     "dataSchema": { "type": "string", "format": "uri" },

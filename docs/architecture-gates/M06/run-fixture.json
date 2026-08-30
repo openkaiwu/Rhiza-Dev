@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0.0",
+  "baseline": "V4.2",
+  "tests": [
+    "e2e/m06-runs.e2e.test.ts",
+    "server/execution-runtime/run.test.ts",
+    "src/components/RunHistory.test.tsx"
+  ],
+  "checkpoints": [
+    "created",
+    "dispatching",
+    "running",
+    "message-commit",
+    "missing-RUN_END",
+    "provider-timeout"
+  ],
+  "trace_count": 10000,
+  "max_domain_events_per_run": 10,
+  "terminal_tracking": "all production Chat and temporary Chat calls",
+  "postgres": "same E2E suite enabled by DATABASE_URL; skipped when unavailable"
+}

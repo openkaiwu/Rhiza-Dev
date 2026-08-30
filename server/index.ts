@@ -19,6 +19,9 @@ if (process.env.DATABASE_URL || featureFlags.postgresPersistence) {
 } else {
   store = await openEmbeddedWorkspaceStore(process.env.RHIZA_EMBEDDED_DATA_DIR, process.env.RHIZA_PROJECT_ID);
 }
+if (!(store instanceof PostgresWorkspaceStore)) throw new Error('Chat execution requires transactional persistence');
+await store.acquireRuntimeOwnership();
+await store.reconcileRuns();
 const serveFrontend = process.env.SERVE_FRONTEND !== 'false';
 const runtime = new ProviderRuntime(provider);
 const app = createApp(store, provider, serveFrontend, runtime, featureFlags);

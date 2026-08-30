@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
+import type { ExecutionRun, RunMutation, RunTrace } from './execution-runtime/run';
+import { semanticStateChecksum } from './infrastructure/workspace-semantic-checksum';
 import type { Anchor, AuditEvent, ContextManifest, DiscussionEdge, DiscussionNode, FileChunk, Resource, ResourceMaterialization, ResourceVersion, Segment, StoredAttachment, StoredMessage, WorkspaceData } from './domain';
 import { createSeedWorkspace } from './seed';
 import { validateWorkspaceHistoryUpdate, type WorkspaceRepository, type WorkspaceUpdateOptions } from './store';
@@ -78,6 +80,7 @@ function relationalSeed(projectId: string): WorkspaceData {
 }
 
 export class PostgresWorkspaceStore implements WorkspaceRepository {
+  private runtimeOwner?: SqlQueryable & { release(): void };
   private queue: Promise<void> = Promise.resolve();
   private readonly scoped = new Map<string, PostgresWorkspaceStore>();
 
@@ -136,7 +139,19 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     return new PostgresWorkspaceStore(new Pool({ connectionString, max: 10, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 5_000 }), projectId);
   }
 
+  /** PostgreSQL hosts admit one Chat runtime per database; a second host must not reconcile live work. */
+  async acquireRuntimeOwnership(): Promise<void> {
+    if (!this.database.connect || this.runtimeOwner) return;
+    const client = await this.database.connect();
+    try {
+      const result = await client.query<{ acquired: boolean }>("SELECT pg_try_advisory_lock(hashtext('rhiza:chat-runtime')) AS acquired");
+      if (!result.rows[0]?.acquired) throw new Error('Another Rhiza Chat runtime is active for this database');
+      this.runtimeOwner = client;
+    } catch (error) { client.release(); throw error; }
+  }
+
   async close(): Promise<void> {
+    if (this.runtimeOwner) { await this.runtimeOwner.query("SELECT pg_advisory_unlock(hashtext('rhiza:chat-runtime'))"); this.runtimeOwner.release(); this.runtimeOwner = undefined; }
     if (this.database.end) await this.database.end();
     else if (this.database.close) await this.database.close();
   }
@@ -317,7 +332,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
         await database.query('SELECT id FROM rhiza_projects WHERE id=$1 FOR UPDATE', [this.defaultWorkspaceId]);
       }
       const directoryRevision = await database.query<{ revision: number; status: string }>("SELECT COALESCE((settings->>'revision')::integer,1) revision,status FROM workspaces WHERE workspace_id=$1 FOR UPDATE", [this.defaultWorkspaceId]);
-      if (directoryRevision.rows[0]?.status === 'archived') throw Object.assign(new Error('归档工作区为只读，请先恢复。'), { code: 'WORKSPACE_ARCHIVED', status: 409 });
+      if (directoryRevision.rows[0]?.status === 'archived' && !(command.options?.run?.kind === 'transition' && ['failed', 'canceled', 'interrupted'].includes(command.options.run.patch.status))) throw Object.assign(new Error('归档工作区为只读，请先恢复。'), { code: 'WORKSPACE_ARCHIVED', status: 409 });
       let aggregateRevision = Number(directoryRevision.rows[0]?.revision || 0);
       if (command.context.expectedRevision !== undefined) {
         if (!directoryRevision.rows[0] || aggregateRevision !== command.context.expectedRevision) {
@@ -328,6 +343,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
         aggregateRevision += 1;
         await database.query("UPDATE workspaces SET settings=jsonb_set(settings,'{revision}',to_jsonb($2::int),true),updated_at=now() WHERE workspace_id=$1", [this.defaultWorkspaceId, aggregateRevision]);
       }
+      if (command.options?.run) await this.applyRunMutation(database, command.options.run);
       const result = await command.apply(structuredClone(current));
       validateWorkspaceHistoryUpdate(current, result.next, command.options);
       const next = { ...result.next, updatedAt: new Date().toISOString() };
@@ -399,6 +415,57 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     });
     if (rejection) throw rejection;
     return result!;
+  }
+
+  /** Call once at exclusive server startup, before accepting requests. Never retry external calls. */
+  async reconcileRuns(): Promise<number> {
+    const stale = await this.database.query<{ workspace_id: string; run_id: string; attempt: number; record: ExecutionRun; trace_count: number }>("SELECT workspace_id,run_id,attempt,record,(SELECT count(*)::int FROM execution_run_traces t WHERE t.run_id=r.run_id AND t.attempt=r.attempt) trace_count FROM execution_runs r WHERE status IN ('created','dispatching','running')");
+    let count = 0;
+    for (const row of stale.rows) {
+      const target = this.forWorkspace(row.workspace_id) as PostgresWorkspaceStore;
+      const at = new Date().toISOString();
+      await target.executeCommand({
+        context: { commandId: `run:recover:${row.run_id}`, commandType: 'ReconcileExecutionRun', actor: { actorType: 'system', actorId: 'rhiza-startup' }, scope: { scopeType: 'workspace', scopeId: row.workspace_id }, occurredAt: at },
+        options: { run: { kind: 'transition', runId: row.run_id, attempt: row.attempt, from: ['created','dispatching','running'], patch: { status: 'interrupted', terminalAt: at, telemetry: { ...asJson<ExecutionRun>(row.record).telemetry, traceCount: Number(row.trace_count), durationMs: Math.max(0, Date.parse(at) - Date.parse(asJson<ExecutionRun>(row.record).createdAt)) }, error: { code: 'PROCESS_INTERRUPTED', class: 'interrupted', message: '服务重启，无法确认外部执行完成；请手动重试。' } } } },
+        apply: async current => ({ next: current, value: { runId: row.run_id } }),
+        events: () => [{ eventType: 'run.status.changed', aggregateType: 'run', aggregateId: row.run_id, payload: { status: 'interrupted' } }],
+      });
+      count += 1;
+    }
+    return count;
+  }
+
+  async listRuns(limit = 50): Promise<ExecutionRun[]> {
+    const result = await this.database.query<{ record: ExecutionRun }>(`SELECT record FROM execution_runs WHERE workspace_id=$1 ORDER BY record->>'createdAt' DESC, run_id LIMIT $2`, [this.defaultWorkspaceId, Math.min(10000, Math.max(1, limit))]);
+    return result.rows.map(row => asJson<ExecutionRun>(row.record));
+  }
+
+  async getRun(runId: string): Promise<ExecutionRun | undefined> {
+    const result = await this.database.query<{ record: ExecutionRun }>('SELECT record FROM execution_runs WHERE workspace_id=$1 AND run_id=$2', [this.defaultWorkspaceId, runId]);
+    return result.rows[0] ? asJson<ExecutionRun>(result.rows[0].record) : undefined;
+  }
+
+  async writeRunTraces(runId: string, attempt: number, traces: RunTrace[]) {
+    await this.database.query(`INSERT INTO execution_run_traces (run_id,attempt,sequence,record)
+      SELECT r.run_id,$3,(t->>'sequence')::int,t FROM execution_runs r, jsonb_array_elements($4::jsonb) t
+      WHERE r.workspace_id=$1 AND r.run_id=$2 AND r.attempt=$3
+      ON CONFLICT (run_id,attempt,sequence) DO NOTHING`, [this.defaultWorkspaceId, runId, attempt, JSON.stringify(traces)]);
+  }
+
+  private async applyRunMutation(database: SqlQueryable, mutation: RunMutation) {
+    if (mutation.kind === 'create') {
+      const run = mutation.run;
+      if (run.workspaceId !== this.defaultWorkspaceId || run.status !== 'created' || semanticStateChecksum(run.input as unknown as Record<string, unknown>) !== run.inputHash) throw new Error('Invalid ExecutionRun input');
+      await database.query(`INSERT INTO execution_runs
+        (run_id,workspace_id,command_id,node_id,status,attempt,parent_run_ref,input_envelope,input_hash,model_spec_ref,provider_endpoint_ref,record)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12::jsonb)`,
+        [run.id,run.workspaceId,run.commandId,run.nodeId,run.status,run.attempt,run.parentRunRef ?? null,JSON.stringify(run.input),run.inputHash,run.input.executor.modelSpecRef,run.input.executor.providerEndpointRef,JSON.stringify(run)]);
+      return;
+    }
+    const result = await database.query(`UPDATE execution_runs SET status=$4,record=record || $5::jsonb
+      WHERE workspace_id=$1 AND run_id=$2 AND attempt=$3 AND status=ANY($6::text[]) RETURNING run_id`,
+      [this.defaultWorkspaceId,mutation.runId,mutation.attempt,mutation.patch.status,JSON.stringify(mutation.patch),mutation.from]);
+    if (!result.rows.length) throw Object.assign(new Error('执行已终止或状态已变化，迟到结果未写入。'), { code: 'RUN_STATE_CONFLICT', status: 409 });
   }
 
   async readJournal(limit = 50): Promise<DomainEventEnvelope[]> {

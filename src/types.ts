@@ -1,4 +1,4 @@
-export type View = 'chat' | 'graph' | 'state' | 'activity';
+export type View = 'chat' | 'graph' | 'state' | 'activity' | 'runs';
 export interface WorkspaceActivityItem {
   id: string; sequence: number; type: string; title: string; detail: string; occurredAt: string; aggregateType: string; aggregateId: string;
 }
@@ -160,4 +160,12 @@ export interface WorkspaceSnapshot {
   segments: Segment[];
   fileChunks?: unknown[];
   updatedAt: string;
+}
+
+export interface ExecutionRun {
+  id: string; workspaceId: string; nodeId: string; status: string; attempt: number;
+  parentRunRef?: string; inputHash: string; createdAt: string; terminalAt?: string;
+  input: { executor: { runtime: string; modelSpecRef: string; providerEndpointRef: string; model: string; provider: string }; request: { prompt: string; manifestId: string; attachments?: Array<{ id: string }>; generation?: GenerationOptions; operation?: ChatOperation } };
+  error?: { code: string; class: string; message: string };
+  telemetry: { durationMs?: number; ttftMs?: number; traceCount: number; usage?: TokenUsage };
 }

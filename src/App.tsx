@@ -8,6 +8,7 @@ import { GraphView } from './components/GraphView';
 import { StateView } from './components/StateView';
 import { ContextPanel } from './components/ContextPanel';
 import { ProviderSettings, type ProviderFormState } from './components/ProviderSettings';
+import { RunHistory } from './components/RunHistory';
 import { ActivityView } from './components/ActivityView';
 
 export function App() {
@@ -397,12 +398,13 @@ export function App() {
       provider={provider} providerCatalog={providerCatalog} syncError={syncError} online={online} focusComposerRequest={focusComposerRequest} onSend={sendMessage}
       onUpload={uploadAttachment} onTempSend={sendTemporaryMessage} onCreateBranch={createBranch}
       onActivateNode={id => activateNode(id, true)} onMerge={mergeNode} onSelectModel={selectModel}
-      onSettings={openSettings} onOpenContext={() => setContextOpen(open => !open)} onGraph={() => setView('graph')}
+      onSettings={openSettings} onOpenContext={() => setContextOpen(open => !open)} onGraph={() => setView('graph')} onRuns={() => setView('runs')}
     />}
     {discussionNodes.length > 0 && view === 'graph' && (
       <GraphView nodes={discussionNodes} edges={discussionEdges} activeNodeId={activeNode.id} onMove={moveNode} onActivate={id => activateNode(id, true)} onCreateNode={createGraphNode} onArchiveNode={archiveGraphNode} onRestoreNode={restoreGraphNode} onCreateEdge={createGraphEdge} onDeleteEdge={deleteGraphEdge}/>
     )}
     {discussionNodes.length > 0 && view === 'state' && <StateView/>}
+    {view === 'runs' && <RunHistory key={currentWorkspaceId} onChanged={() => void loadWorkspace(true)}/>}
     {discussionNodes.length > 0 && view === 'activity' && <ActivityView activity={activity} loading={activityLoading} error={activityError} onRefresh={() => void loadActivity()}/>}
     <button className="context-backdrop" aria-label="关闭上下文面板" onClick={() => setContextOpen(false)}/>
     <ContextPanel items={contextItems} mode={mode} nodes={discussionNodes} segments={segments} attachments={attachments} onMode={updateMode} onStatus={updateStatus} onPin={updatePin} onAddSource={addContextSource}/>

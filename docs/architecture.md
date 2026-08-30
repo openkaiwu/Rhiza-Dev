@@ -147,3 +147,9 @@ Express 后端暴露以下边界：
 - 模型自动发现要求供应商实现 OpenAI-compatible `/models`；不支持时可手动添加模型 ID。
 - 临时支线不跨刷新恢复，这是当前“未保留即丢弃”的明确产品语义；正式支线与 Graph 布局已持久化，Project State 编辑仍未接入持久化 API。
 - Mermaid 与 KaTeX 会增加前端资源体积；Mermaid 采用动态加载，后续可继续拆分 Markdown 渲染入口或按消息能力加载。
+
+## M06 Chat execution history
+
+普通与临时 Chat 经 `server/application/run-lifecycle.ts` 创建 durable ExecutionRun，再调用 Runtime。`WorkspaceUnitOfWork` 的 RunMutation 与原有 Workspace mutation 共用事务：成功 Run、消息、Manifest、Journal 和 Receipt 原子提交，取消/失败单独留下终态。数据库 migration 0008 保护输入与终态不可变，trace 独立存储。
+
+`GET /api/v1/workspaces/:workspaceId/runs` 与详情查询遵守现有 membership；同一 scope 的 `POST .../runs/:runId/cancel` 提供服务端取消，也提供 `POST /api/v1/runs/:runId/cancel`（显式 workspaceId）。RunHistory 显示状态、hash、模型/endpoint、错误、telemetry 与新 Run 重试入口。启动恢复在接收请求前执行；PostgreSQL 使用单 runtime advisory lock。语义边界见 ADR-006。

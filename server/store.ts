@@ -22,6 +22,9 @@ export interface TransactionalWorkspaceCommandResult<T> {
 }
 
 export interface WorkspaceRepository {
+  listRuns?(limit?: number): Promise<import('./execution-runtime/run').ExecutionRun[]>;
+  getRun?(runId: string): Promise<import('./execution-runtime/run').ExecutionRun | undefined>;
+  writeRunTraces?(runId: string, attempt: number, traces: import('./execution-runtime/run').RunTrace[]): Promise<void>;
   read(): Promise<WorkspaceData>;
   update(mutator: (current: WorkspaceData) => WorkspaceData | Promise<WorkspaceData>, options?: WorkspaceUpdateOptions): Promise<WorkspaceData>;
   close?(): Promise<void>;
@@ -42,6 +45,7 @@ export interface WorkspacePurgeCapability {
 }
 
 export interface WorkspaceUpdateOptions {
+  run?: import('./execution-runtime/run').RunMutation;
   purge?: WorkspacePurgeCapability;
 }
 

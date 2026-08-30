@@ -41,6 +41,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 type RuntimeStreamEvent =
+  | { type: 'RUN_CREATED'; runId: string }
   | { type: 'RUN_START'; requestId: string; manifestId: string; model: string; provider: string }
   | { type: 'CONTENT_DELTA'; requestId: string; delta: string }
   | { type: 'REASONING_DELTA'; requestId: string; delta: string }
@@ -52,6 +53,8 @@ type RuntimeStreamEvent =
 type ChatCommit = { type: 'COMMIT'; userMessage: Message; assistantMessage: Message; manifest: ContextManifest };
 
 export interface ChatRequestOptions {
+  parentRunRef?: string;
+  onRunCreated?: (runId: string) => void;
   signal?: AbortSignal;
   attachmentIds?: string[];
   generation?: GenerationOptions;
@@ -62,7 +65,7 @@ export interface ChatRequestOptions {
 async function streamMessage(message: string, onEvent: (event: RuntimeStreamEvent) => void, options: ChatRequestOptions = {}): Promise<Omit<ChatCommit, 'type'>> {
   let response: Response;
   try {
-    response = await fetch(scopedPath('/api/chat/stream'), { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' }, body: JSON.stringify({ message, attachmentIds: options.attachmentIds, generation: options.generation, operation: options.operation, sourceMessageId: options.sourceMessageId }), signal: options.signal });
+    response = await fetch(scopedPath('/api/chat/stream'), { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' }, body: JSON.stringify({ message, attachmentIds: options.attachmentIds, generation: options.generation, operation: options.operation, sourceMessageId: options.sourceMessageId, parentRunRef: options.parentRunRef }), signal: options.signal });
   } catch (error) {
     if (options.signal?.aborted) throw new ApiError('生成已停止，本轮未写入历史。', 'GENERATION_STOPPED', 499);
     throw error;
@@ -88,6 +91,7 @@ async function streamMessage(message: string, onEvent: (event: RuntimeStreamEven
     try { payload = JSON.parse(data) as RuntimeStreamEvent | ChatCommit; } catch { return; }
     if (eventName === 'commit' && payload.type === 'COMMIT') commit = payload;
     if (eventName === 'runtime' && payload.type !== 'COMMIT') {
+      if (payload.type === 'RUN_CREATED') options.onRunCreated?.(payload.runId);
       onEvent(payload);
       if (payload.type === 'RUN_ERROR') streamError = payload;
     }
@@ -121,6 +125,9 @@ async function uploadAttachment(file: File): Promise<Attachment> {
 }
 
 export const api = {
+  listRuns: () => request<{ runs: import('./types').ExecutionRun[] }>('/api/runs'),
+  getRun: (runId: string) => request<{ run: import('./types').ExecutionRun }>(`/api/runs/${encodeURIComponent(runId)}`),
+  cancelRun: (runId: string) => request<{ run: import('./types').ExecutionRun }>(`/api/runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST' }),
   setWorkspace: (workspaceId?: string) => { currentWorkspaceId = workspaceId; },
   listWorkspaces: (includeArchived = false) => request<{ workspaces: WorkspaceRecord[] }>(`/api/v1/workspaces${includeArchived ? '?includeArchived=true' : ''}`),
   createWorkspace: (name: string, idempotencyKey?: string) => request<{ workspace: WorkspaceRecord }>('/api/v1/workspaces', { method: 'POST', headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined, body: JSON.stringify({ name }) }),
