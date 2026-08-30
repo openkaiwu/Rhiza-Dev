@@ -34,6 +34,7 @@ export interface CommandFactContext {
   actor: JournalActorRef;
   scope: JournalScopeRef;
   correlationId?: string;
+  causationId?: string;
   expectedRevision?: number;
   occurredAt: string;
 }
@@ -49,10 +50,17 @@ export interface DomainEventEnvelope extends DomainEventDraft {
   eventId: string;
   workspaceId: string;
   sequence: number;
-  schemaVersion: typeof DOMAIN_EVENT_SCHEMA_VERSION;
+  ceSpecversion: '1.0';
+  envelopeVersion: typeof DOMAIN_EVENT_SCHEMA_VERSION;
+  eventSource: string;
+  subject: string;
+  dataSchema: string;
+  aggregateRevision: number;
   actor: JournalActorRef;
   scope: JournalScopeRef;
   commandId: string;
+  eventIndex: number;
+  causationId?: string;
   correlationId?: string;
   occurredAt: string;
   recordedAt: string;
@@ -132,20 +140,31 @@ export function eventForCommand(context: CommandFactContext, previous: Workspace
 }
 
 export function workspaceSemanticSnapshot(workspace: WorkspaceData): Record<string, unknown> {
+  const byId = <T extends { id: string }>(items: T[]): T[] => [...items].sort((left, right) => left.id.localeCompare(right.id));
   return {
     projectId: workspace.projectId,
     projectTitle: workspace.projectTitle,
     activeNodeId: workspace.activeNodeId,
     mode: workspace.mode,
-    nodes: workspace.discussionNodes.map(item => [item.id, item.title, item.status, item.x, item.y]),
-    messages: workspace.messages.map(item => [item.id, item.nodeId, item.kind, item.text, item.manifestId]),
-    segments: workspace.segments.map(item => [item.id, item.nodeId, item.ordinal, item.title]),
-    edges: workspace.discussionEdges.map(item => [item.id, item.source, item.target, item.relation]),
-    manifests: workspace.manifests.map(item => item.id),
-    attachments: workspace.attachments.map(item => [item.id, item.resourceId, item.resourceVersionId]),
-    resources: workspace.resources.map(item => [item.id, item.logicalName]),
-    resourceVersions: workspace.resourceVersions.map(item => [item.id, item.resourceId, item.version, item.digest]),
+    contextItems: byId(workspace.contextItems),
+    nodes: byId(workspace.discussionNodes).map(({ createdAt: _createdAt, updatedAt: _updatedAt, ...item }) => item),
+    messages: byId(workspace.messages).map(({ createdAt: _createdAt, ...item }) => ({ ...item, operation: item.operation ?? 'send', version: item.version ?? 1, attachmentIds: item.attachmentIds ?? [] })),
+    segments: byId(workspace.segments).map(({ createdAt: _createdAt, ...item }) => item),
+    anchors: byId(workspace.anchors).map(({ createdAt: _createdAt, ...item }) => item),
+    edges: byId(workspace.discussionEdges).map(({ createdAt: _createdAt, ...item }) => item),
+    manifests: byId(workspace.manifests).map(({ createdAt: _createdAt, ...item }) => item),
+    attachments: byId(workspace.attachments).map(({ createdAt: _createdAt, ...item }) => item),
+    resources: byId(workspace.resources).map(({ createdAt: _createdAt, ...item }) => item),
+    resourceVersions: byId(workspace.resourceVersions).map(({ createdAt: _createdAt, ...item }) => item),
+    materializations: byId(workspace.materializations).map(({ createdAt: _createdAt, ...item }) => item),
+    fileChunks: byId(workspace.fileChunks),
   };
+}
+
+/** Changed semantic sections for baseline + tail verification; Current State remains authoritative. */
+export function workspaceSemanticChanges(previous: WorkspaceData, next: WorkspaceData): Record<string, unknown> {
+  const before = workspaceSemanticSnapshot(previous);
+  return Object.fromEntries(Object.entries(workspaceSemanticSnapshot(next)).filter(([key, value]) => JSON.stringify(before[key]) !== JSON.stringify(value)));
 }
 
 const activityTitles: Record<DomainEventType, string> = {

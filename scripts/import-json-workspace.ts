@@ -6,8 +6,8 @@ import { semanticChecksum } from '../server/infrastructure/workspace-semantic-ch
 import { WorkspaceStore } from '../server/store';
 import { DEFAULT_WORKSPACE_ID } from '../server/identity/workspace-scope';
 
-const sourcePath = resolve(process.env.RHIZA_JSON_IMPORT_PATH || 'var/workspace.json');
-const legacy = new WorkspaceStore(sourcePath);
+const sourcePath = resolve((process.argv[2] === '--' ? process.argv[3] : process.argv[2]) || process.env.RHIZA_JSON_IMPORT_PATH || 'var/workspace.json');
+const legacy = new WorkspaceStore(sourcePath, true);
 const workspace = await legacy.read();
 const workspaceId = process.env.RHIZA_PROJECT_ID || (/^[0-9a-f-]{36}$/i.test(workspace.projectId) ? workspace.projectId : DEFAULT_WORKSPACE_ID);
 const embedded = await openEmbeddedWorkspaceStore(process.env.RHIZA_EMBEDDED_DATA_DIR, workspaceId);

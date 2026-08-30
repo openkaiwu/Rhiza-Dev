@@ -13,7 +13,7 @@
     "db/migrations/0005_identity_workspace_scope.up.sql": "sha256:2f8e37e2ec719023eafec81037a7bb3a5a5e34cf1710a50d3aef06312f8ee083",
     "db/migrations/0006_resource_blob_host.down.sql": "sha256:ed1a19051935feb16cce06a61ee58cf4214eacd3e6ad244b6629542d85f4e923",
     "db/migrations/0006_resource_blob_host.up.sql": "sha256:2fc7e73e77b97540ec5515ad2813312800dbe9e911ac3decfd2a066df90e55fb",
-    "db/migrations/0007_domain_journal_facts.down.sql": "sha256:2cb8163f298e0c5428cf938ae6aad73bb5bf3951d7e251ec62b8543aa50bf28e",
-    "db/migrations/0007_domain_journal_facts.up.sql": "sha256:a3f9d61fc3dc9f5efee5c64f960591396e37311a9b6631a390a1d6e106ed335a"
+    "db/migrations/0007_domain_journal_facts.down.sql": "sha256:4c58f216c4de0d4ef9f4a29bb64e70c06b0b5c5d6b3f887265c554c8ec990cf5",
+    "db/migrations/0007_domain_journal_facts.up.sql": "sha256:5cba7592018ef7a9dbb60e2064b1a5512ee9212fa379933324aaa80dc7c8a08b"
   }
 }

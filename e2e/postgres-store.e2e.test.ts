@@ -54,6 +54,23 @@ describe('PostgreSQL workspace persistence', () => {
     } finally { await database.close(); }
   });
 
+  it('honors HTTP idempotency keys, including replay after Workspace archive', async () => {
+    const database = await migratedDatabase();
+    const workspaceId = randomUUID();
+    try {
+      const { app, store } = legacyApp(database, workspaceId);
+      await request(app).get('/api/workspace').expect(200);
+      for (let retry = 0; retry < 2; retry += 1) await request(app).post('/api/graph/nodes').set('Idempotency-Key', 'same-node').set('If-Match', '1').send({ title: 'Once' }).expect(201);
+      expect((await store.read()).discussionNodes.filter(node => node.title === 'Once')).toHaveLength(1);
+      const archived = await request(app).patch(`/api/v1/workspaces/${workspaceId}`).set('Idempotency-Key', 'same-archive').set('If-Match', '2').send({ action: 'archive' }).expect(200);
+      const replay = await request(app).patch(`/api/v1/workspaces/${workspaceId}`).set('Idempotency-Key', 'same-archive').set('If-Match', '2').send({ action: 'archive' }).expect(200);
+      expect(replay.body).toEqual(archived.body);
+      expect(await store.readJournal()).toHaveLength(2);
+      const conflict = await request(app).patch(`/api/v1/workspaces/${workspaceId}`).set('Idempotency-Key', 'same-archive').send({ action: 'restore' }).expect(409);
+      expect(conflict.body.error.code).toBe('COMMAND_ID_CONFLICT');
+    } finally { await database.close(); }
+  });
+
   it('bootstraps the migrated default through legacy HTTP reads exactly once', async () => {
     const database = await migratedDatabase();
     const workspaceId = '00000000-0000-4000-8000-000000000099';

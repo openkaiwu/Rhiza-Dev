@@ -77,7 +77,7 @@ export async function migrationStatus(databaseUrl: string) {
   await client.connect();
   try {
     const migrations = await loadMigrations();
-    const table = await client.query<{ exists: boolean }>("SELECT to_regclass('public.rhiza_schema_migrations') IS NOT NULL AS exists");
+    const table = await client.query<{ exists: boolean }>("SELECT to_regclass('rhiza_schema_migrations') IS NOT NULL AS exists");
     if (!table.rows[0]?.exists) return migrations.map(item => ({ ...item, applied: false }));
     const applied = await client.query<{ version: string }>('SELECT version FROM rhiza_schema_migrations');
     const versions = new Set(applied.rows.map(row => row.version));

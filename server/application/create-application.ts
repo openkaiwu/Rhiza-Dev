@@ -262,8 +262,12 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
       }
       await ensureDefaultWorkspace(envelope.actor, envelope.workspaceId, envelope.scope);
       const record = await workspaceDirectory.require(envelope.actor, envelope.workspaceId, envelope.scope);
-      if (record.status === 'archived' && !['RestoreWorkspace'].includes(envelope.commandType)) throw legacyError('归档工作区为只读，请先恢复。', 409, 'WORKSPACE_ARCHIVED');
+      const prior = unitOfWork.withWorkspace && unitOfWork.withCommand && unitOfWork.readCommittedResult
+        ? await unitOfWork.withWorkspace(envelope.workspaceId, () => unitOfWork.withCommand!(factContext, () => unitOfWork.readCommittedResult!()))
+        : undefined;
+      if (!prior?.found && record.status === 'archived' && !['RestoreWorkspace'].includes(envelope.commandType)) throw legacyError('归档工作区为只读，请先恢复。', 409, 'WORKSPACE_ARCHIVED');
       if (envelope.commandType === 'RenameWorkspace' || envelope.commandType === 'ArchiveWorkspace' || envelope.commandType === 'RestoreWorkspace') {
+        if (prior?.found) return prior.value;
         const expectedRevision = envelope.expectedRevision ?? record.revision;
         const kind = envelope.commandType === 'RenameWorkspace' ? 'rename' as const : envelope.commandType === 'ArchiveWorkspace' ? 'archive' as const : 'restore' as const;
         const transactional = await unitOfWork.executeWorkspaceLifecycle?.(factContext, kind === 'rename'
@@ -271,7 +275,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
           : { kind, workspaceId: envelope.workspaceId, expectedRevision });
         if (transactional) return transactional;
       }
-      if (envelope.expectedRevision !== undefined && envelope.expectedRevision !== record.revision) throw legacyError('工作区版本已变化，请刷新后重试。', 409, 'WORKSPACE_REVISION_CONFLICT');
+      if (!prior?.found && envelope.expectedRevision !== undefined && envelope.expectedRevision !== record.revision) throw legacyError('工作区版本已变化，请刷新后重试。', 409, 'WORKSPACE_REVISION_CONFLICT');
       if (envelope.commandType === 'RenameWorkspace') return workspaceDirectory.rename(record, String((envelope.payload as { name?: string }).name || '').trim());
       if (envelope.commandType === 'ArchiveWorkspace') return workspaceDirectory.status(record, 'archived');
       if (envelope.commandType === 'RestoreWorkspace') return workspaceDirectory.status(record, 'active');

@@ -80,6 +80,8 @@
 
 Express 后端暴露以下边界：
 
+- PostgreSQL/PGlite 的 `executeCommand` 在同一事务内完成 command lock、receipt lookup、scope/revision guard、relational state 写入、完整 semantic reread/checksum、workspace sequence 预留、CloudEvents-compatible Journal append 和 committed receipt。相同 command id 直接返回既有 receipt。
+
 - `GET /api/health`：服务与安全裁剪后的 Provider 状态
 - `GET/POST /api/v1/workspaces`：按 local actor 列出或创建 Workspace
 - `GET/PATCH /api/v1/workspaces/:workspaceId`、`POST /api/v1/workspaces/:workspaceId/switch`：读取、重命名、归档、恢复与切换 Workspace
@@ -123,6 +125,7 @@ Express 后端暴露以下边界：
 - `pnpm run licenses:verify`：确保提交的生产依赖许可证报告可重复生成。
 - `pnpm run build`：执行全量 TypeScript 严格检查、Vite 前端构建和 tsup 服务端构建。
 - `pnpm run m04:checks`：在完整回归之上验证 Resource backfill/digest/fault injection、Node Host contract、Domain/Application OS import=0 与 M04 evidence 前置条件。
+- `pnpm run verify:m05:closure`：完整回归、同一套 PGlite/可选真 PostgreSQL 事务 contract、100 重放/100 并发、三写点故障、append-only、baseline+tail checksum、HTTP 幂等与 strict-current evidence。真 PostgreSQL 未配置时明确 skipped。
 - 浏览器人工验证：检查三栏布局、移动断点、滚动、抽屉、Graph 缩放/平移、节点/关系编辑和关键交互。
 - Graph 组件与 API 测试：验证缩放、节点创建、归档/恢复、归档只读、受控 Purge、关系编辑及后端持久化。
 - Markdown 组件测试：验证 GFM 表格/任务列表、KaTeX 公式和 Mermaid SVG 输出。
@@ -138,7 +141,7 @@ Express 后端暴露以下边界：
 
 - AI 回复已连接真实 Provider；Context Planner 推荐与冲突检测仍为演示数据。
 - Graph 已支持缩放、平移、节点拖拽、节点归档/恢复、关系编辑与坐标持久化；框选、自动布局和超大图虚拟化仍未实现。
-- 当前运行时默认使用本机 JSON 存储，已支持 local user 下的多个 Workspace、membership 校验、跨 Workspace 隔离以及 Resource/ResourceVersion 元数据；尚不支持密码/OAuth/会话、成员协作或通用权限引擎。PostgreSQL identity/workspace/resource migrations 与 Repository 已实现，默认仍需显式开启 `postgresPersistence`。
+- 当前运行时在未配置 `DATABASE_URL` 时默认使用本机持久化 PGlite，配置后使用外部 PostgreSQL；两者共享 relational Repository、Domain Journal 与 migration。JSON 仅保留为测试 fixture 和显式 legacy import 输入。已支持 local user 下的多个 Workspace、membership 校验、跨 Workspace 隔离以及 Resource/ResourceVersion 元数据；尚不支持密码/OAuth/会话、成员协作或通用权限引擎。
 - 已 fetch 并验证技术设计书指定 LibreChat v0.8.7 tag，`librechat-v0.8.7` 分支固定指向 commit `9e74cc0e...`，Rhiza 集成工作位于 `codex/rhiza-librechat-runtime`。当前 Provider/API Key 仍是唯一模型执行配置；已接入固定的 `librechat-data-provider@0.8.509` Model Spec 和文件策略。完整 Agent/MCP、实际文件上传与解析、运行时 PostgreSQL Repository、统一 Auth 与 SBOM 属于后续里程碑；M0 已具备许可证报告及 PostgreSQL migration 基线。
 - Provider 适配范围是 OpenAI-compatible Chat Completions；非兼容协议需要新增 Adapter。
 - 模型自动发现要求供应商实现 OpenAI-compatible `/models`；不支持时可手动添加模型 ID。

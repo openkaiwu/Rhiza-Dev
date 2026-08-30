@@ -1,3 +1,6 @@
+ALTER TABLE rhiza_attachments ADD COLUMN summary text;
+ALTER TABLE rhiza_attachments ADD COLUMN chunk_count integer CHECK (chunk_count IS NULL OR chunk_count >= 0);
+
 CREATE TABLE workspace_event_heads (
   workspace_id uuid PRIMARY KEY REFERENCES rhiza_projects(id) ON DELETE CASCADE,
   last_sequence bigint NOT NULL DEFAULT 0 CHECK (last_sequence >= 0),
@@ -8,18 +11,27 @@ CREATE TABLE workspace_events (
   event_id uuid PRIMARY KEY,
   workspace_id uuid NOT NULL REFERENCES rhiza_projects(id) ON DELETE CASCADE,
   sequence bigint NOT NULL CHECK (sequence >= 1),
-  event_type text NOT NULL CHECK (event_type !~ '^workflow\\.'),
-  schema_version text NOT NULL,
+  ce_specversion text NOT NULL DEFAULT '1.0' CHECK (ce_specversion = '1.0'),
+  rhiza_envelope_version text NOT NULL,
+  event_type text NOT NULL CHECK (event_type NOT LIKE 'workflow.%'),
+  event_source text NOT NULL,
+  subject text NOT NULL,
+  data_schema text NOT NULL,
   aggregate_type text NOT NULL,
   aggregate_id text NOT NULL,
-  actor jsonb NOT NULL,
-  scope jsonb NOT NULL,
+  aggregate_revision bigint NOT NULL CHECK (aggregate_revision >= 0),
+  actor_ref jsonb NOT NULL,
+  scope_ref jsonb NOT NULL,
   command_id text NOT NULL,
+  event_index integer NOT NULL CHECK (event_index >= 0),
+  causation_id text,
   correlation_id text,
   payload jsonb NOT NULL,
   occurred_at timestamptz NOT NULL,
   recorded_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (workspace_id, sequence)
+  UNIQUE (workspace_id, sequence),
+  UNIQUE (workspace_id, command_id, event_index),
+  UNIQUE (event_source, event_id)
 );
 
 CREATE TABLE command_receipts (
@@ -51,3 +63,9 @@ $$;
 CREATE TRIGGER workspace_events_append_only
 BEFORE UPDATE OR DELETE ON workspace_events
 FOR EACH ROW EXECUTE FUNCTION rhiza_reject_workspace_event_mutation();
+
+CREATE TRIGGER workspace_events_reject_truncate
+BEFORE TRUNCATE ON workspace_events
+FOR EACH STATEMENT EXECUTE FUNCTION rhiza_reject_workspace_event_mutation();
+
+REVOKE UPDATE, DELETE, TRUNCATE ON workspace_events FROM PUBLIC;

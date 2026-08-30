@@ -20,6 +20,7 @@
     "db:status": "tsx scripts/migrate.ts status",
     "resources:backfill": "tsx scripts/backfill-resources.ts",
     "journal:backfill": "tsx scripts/backfill-journal.ts",
+    "journal:reconcile": "tsx scripts/reconcile-workspace.ts",
     "workspace:import-json": "tsx scripts/import-json-workspace.ts",
     "licenses:generate": "node scripts/generate-license-report.mjs",
     "licenses:verify": "node scripts/generate-license-report.mjs --check",

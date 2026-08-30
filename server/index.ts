@@ -13,7 +13,7 @@ const port = Number(process.env.API_PORT || process.env.PORT || 8787);
 const provider = new ProviderService(new ProviderStore(), new SecretVault(), loadAiConfig());
 const featureFlags = loadFeatureFlags();
 let store: WorkspaceRepository;
-if (featureFlags.postgresPersistence) {
+if (process.env.DATABASE_URL || featureFlags.postgresPersistence) {
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required when postgresPersistence is enabled');
   store = PostgresWorkspaceStore.fromConnectionString(process.env.DATABASE_URL, process.env.RHIZA_PROJECT_ID);
 } else {

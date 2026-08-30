@@ -76,7 +76,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
 .activity-timeline code, .activity-timeline time { color: var(--ink-3); font-size: 8px; }
 .activity-timeline .activity-empty { grid-template-columns: auto 1fr; }
 .activity-empty span { grid-column: 2; color: var(--ink-3); font-size: 9px; }
-.activity-error { margin: 16px 24px; color: #a94f46; }
+.activity-error { margin: 16px 24px; color: var(--warning); }
 @media (max-width: 1120px) { .activity-view { grid-column: auto; } }
 @media (max-width: 760px) { .activity-timeline { margin: 12px; margin-bottom: 80px; } .activity-timeline li { grid-template-columns: 44px 1fr; } .activity-timeline time { grid-column: 2; } }
 @media (max-width: 760px) {

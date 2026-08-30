@@ -4,7 +4,7 @@ import type { Anchor, AuditEvent, ContextManifest, DiscussionEdge, DiscussionNod
 import { createSeedWorkspace } from './seed';
 import { validateWorkspaceHistoryUpdate, type WorkspaceRepository, type WorkspaceUpdateOptions } from './store';
 import type { WorkspaceDirectoryPort } from './identity/workspace-directory';
-import { DOMAIN_EVENT_SCHEMA_VERSION, type CommandReceipt, type DomainEventEnvelope } from './domain-journal';
+import { DOMAIN_EVENT_SCHEMA_VERSION, workspaceSemanticChanges, workspaceSemanticSnapshot, type CommandFactContext, type CommandReceipt, type DomainEventEnvelope } from './domain-journal';
 import { semanticChecksum } from './infrastructure/workspace-semantic-checksum';
 import type { TransactionalWorkspaceCommand, TransactionalWorkspaceCommandResult } from './store';
 import type { WorkspaceLifecycleCommand } from './application/ports/workspace-unit-of-work';
@@ -26,6 +26,9 @@ const asIso = (value: unknown) => value instanceof Date ? value.toISOString() : 
 const asJson = <T>(value: unknown): T => typeof value === 'string' ? JSON.parse(value) as T : value as T;
 const relationFromDb = (value: string): DiscussionEdge['relation'] => value.toLowerCase().replaceAll('_', '-') as DiscussionEdge['relation'];
 const relationToDb = (value: DiscussionEdge['relation']) => value.toUpperCase().replaceAll('-', '_');
+const journalSource = (workspaceId: string) => `urn:rhiza:workspace:${workspaceId}`;
+const journalSubject = (aggregateType: string, aggregateId: string) => `${aggregateType}/${aggregateId}`;
+const journalDataSchema = (eventType: string) => `https://rhiza.dev/schemas/events/${eventType}/v1`;
 const changedItems = <T extends { id: string }>(items: T[], previous?: T[]): T[] => {
   if (!previous) return items;
   const before = new Map(previous.map(item => [item.id, JSON.stringify(item)]));
@@ -168,6 +171,10 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     });
   }
 
+  async readExisting(): Promise<WorkspaceData | undefined> {
+    return this.inTransaction(database => this.readFrom(database, true));
+  }
+
   async update(mutator: (current: WorkspaceData) => WorkspaceData | Promise<WorkspaceData>, options?: WorkspaceUpdateOptions): Promise<WorkspaceData> {
     let result!: WorkspaceData;
     this.queue = this.queue.catch(() => undefined).then(async () => {
@@ -210,8 +217,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   }
 
   private async executeWorkspaceLifecycleNow(context: import('./domain-journal').CommandFactContext, command: WorkspaceLifecycleCommand): Promise<WorkspaceRecord> {
-    return this.inTransaction(async database => {
-      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:command:' || $1 || ':' || $2))", [command.workspaceId, context.commandId]);
+    return this.inCommandTransaction(context, async database => {
       const receipt = await database.query<Record<string, unknown>>('SELECT * FROM command_receipts WHERE workspace_id=$1 AND command_id=$2', [command.workspaceId, context.commandId]);
       if (receipt.rows[0]) {
         if (receipt.rows[0].status === 'rejected') {
@@ -253,13 +259,23 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
         RETURNING last_sequence
       `, [command.workspaceId]);
       const sequence = Number(head.rows[0]!.last_sequence);
+      const currentState = await this.readFrom(database);
+      if (!currentState) throw new Error('Workspace lifecycle committed without state');
+      const lifecyclePayload = {
+        name: record.name, status: record.status, revision: record.revision,
+        reconcileChecksum: semanticChecksum(currentState), stateSchema: 'rhiza.workspace-semantic.v1',
+        ...(command.kind === 'create'
+          ? { snapshot: { stateSchema: 'rhiza.workspace-semantic.v1', sourceSequence: sequence, state: workspaceSemanticSnapshot(currentState) } }
+          : { stateChanges: command.kind === 'rename' ? { projectTitle: record.name } : {} }),
+      };
       await database.query(`
         INSERT INTO workspace_events
-          (event_id,workspace_id,sequence,event_type,schema_version,aggregate_type,aggregate_id,actor,scope,command_id,correlation_id,payload,occurred_at)
-        VALUES ($1,$2,$3,$4,$5,'workspace',$6,$7::jsonb,$8::jsonb,$9,$10,$11::jsonb,$12)
-      `, [randomUUID(), command.workspaceId, sequence, eventType, DOMAIN_EVENT_SCHEMA_VERSION, command.workspaceId,
+          (event_id,workspace_id,sequence,ce_specversion,rhiza_envelope_version,event_type,event_source,subject,data_schema,aggregate_type,aggregate_id,aggregate_revision,actor_ref,scope_ref,command_id,event_index,causation_id,correlation_id,payload,occurred_at)
+        VALUES ($1,$2::uuid,$3,'1.0',$4,$5,$6,$7,$8,'workspace',$2::text,$9,$10::jsonb,$11::jsonb,$12,0,$13,$14,$15::jsonb,$16)
+      `, [randomUUID(), command.workspaceId, sequence, DOMAIN_EVENT_SCHEMA_VERSION, eventType,
+        journalSource(command.workspaceId), journalSubject('workspace', command.workspaceId), journalDataSchema(eventType), record.revision,
         JSON.stringify(context.actor), JSON.stringify({ scopeType: 'workspace', scopeId: command.workspaceId }), context.commandId,
-        context.correlationId || null, JSON.stringify({ name: record.name, status: record.status, revision: record.revision }), context.occurredAt]);
+        context.causationId || null, context.correlationId || null, JSON.stringify(lifecyclePayload), context.occurredAt]);
       await database.query(`
         INSERT INTO command_receipts (workspace_id,command_id,command_type,status,first_sequence,last_sequence,result)
         VALUES ($1,$2,$3,'committed',$4,$4,$5::jsonb)
@@ -281,86 +297,108 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   }
 
   private async executeCommandNow<T>(command: TransactionalWorkspaceCommand<T>): Promise<TransactionalWorkspaceCommandResult<T>> {
-    try {
-      return await this.inTransaction(async database => {
-        await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:command:' || $1 || ':' || $2))", [this.defaultWorkspaceId, command.context.commandId]);
-        const existing = await database.query<Record<string, unknown>>('SELECT * FROM command_receipts WHERE workspace_id=$1 AND command_id=$2', [this.defaultWorkspaceId, command.context.commandId]);
-        if (existing.rows[0]) {
-          const receipt = existing.rows[0];
-          if (receipt.status === 'rejected') {
-            const rejection = asJson<{ message: string; code: string; status: number }>(receipt.error);
-            throw Object.assign(new Error(rejection.message), rejection, { storedReceipt: true });
-          }
-          const workspace = await this.readFrom(database, true);
-          if (!workspace) throw new Error(`Committed receipt exists without Workspace state for ${this.defaultWorkspaceId}`);
-          return { workspace, value: asJson<T>(receipt.result), duplicate: true };
+    return this.inCommandTransaction(command.context, async database => {
+      const existing = await database.query<Record<string, unknown>>('SELECT * FROM command_receipts WHERE workspace_id=$1 AND command_id=$2', [this.defaultWorkspaceId, command.context.commandId]);
+      if (existing.rows[0]) {
+        const receipt = existing.rows[0];
+        if (receipt.status === 'rejected') {
+          const rejection = asJson<{ message: string; code: string; status: number }>(receipt.error);
+          throw Object.assign(new Error(rejection.message), rejection, { storedReceipt: true });
         }
+        const workspace = await this.readFrom(database, true);
+        if (!workspace) throw new Error(`Committed receipt exists without Workspace state for ${this.defaultWorkspaceId}`);
+        return { workspace, value: asJson<T>(receipt.result), duplicate: true };
+      }
 
-        let current = await this.readFrom(database, true);
-        if (!current) {
-          current = relationalSeed(this.defaultWorkspaceId);
-          await this.persist(database, current);
-          await database.query('SELECT id FROM rhiza_projects WHERE id=$1 FOR UPDATE', [this.defaultWorkspaceId]);
+      let current = await this.readFrom(database, true);
+      if (!current) {
+        current = relationalSeed(this.defaultWorkspaceId);
+        await this.persist(database, current);
+        await database.query('SELECT id FROM rhiza_projects WHERE id=$1 FOR UPDATE', [this.defaultWorkspaceId]);
+      }
+      const directoryRevision = await database.query<{ revision: number; status: string }>("SELECT COALESCE((settings->>'revision')::integer,1) revision,status FROM workspaces WHERE workspace_id=$1 FOR UPDATE", [this.defaultWorkspaceId]);
+      if (directoryRevision.rows[0]?.status === 'archived') throw Object.assign(new Error('归档工作区为只读，请先恢复。'), { code: 'WORKSPACE_ARCHIVED', status: 409 });
+      let aggregateRevision = Number(directoryRevision.rows[0]?.revision || 0);
+      if (command.context.expectedRevision !== undefined) {
+        if (!directoryRevision.rows[0] || aggregateRevision !== command.context.expectedRevision) {
+          throw Object.assign(new Error('工作区版本已变化，请刷新后重试。'), { code: 'WORKSPACE_REVISION_CONFLICT', status: 409 });
         }
-        const result = await command.apply(structuredClone(current));
-        validateWorkspaceHistoryUpdate(current, result.next, command.options);
-        const next = { ...result.next, updatedAt: new Date().toISOString() };
-        const audit: AuditEvent = {
-          id: randomUUID(), projectId: next.projectId, nodeId: next.activeNodeId,
-          action: 'workspace.updated', entityType: 'workspace', entityId: next.projectId,
-          metadata: { backend: 'transaction-facts', commandType: command.context.commandType }, createdAt: next.updatedAt,
-        };
-        next.auditEvents = [...next.auditEvents, audit];
-        const events = command.events(current, next, result.value);
-        if (!events.length) throw new Error(`Persistent command ${command.context.commandType} produced no Domain Event`);
-        await this.persist(database, next, current, command.options);
-        const recovered = await this.readFrom(database);
-        if (!recovered || semanticChecksum(recovered) !== semanticChecksum(next)) throw new Error('Shadow reconcile mismatch after transactional Workspace write');
+      }
+      if (directoryRevision.rows[0]) {
+        aggregateRevision += 1;
+        await database.query("UPDATE workspaces SET settings=jsonb_set(settings,'{revision}',to_jsonb($2::int),true),updated_at=now() WHERE workspace_id=$1", [this.defaultWorkspaceId, aggregateRevision]);
+      }
+      const result = await command.apply(structuredClone(current));
+      validateWorkspaceHistoryUpdate(current, result.next, command.options);
+      const next = { ...result.next, updatedAt: new Date().toISOString() };
+      const audit: AuditEvent = {
+        id: randomUUID(), projectId: next.projectId, nodeId: next.activeNodeId,
+        action: 'workspace.updated', entityType: 'workspace', entityId: next.projectId,
+        metadata: { backend: 'transaction-facts', commandType: command.context.commandType }, createdAt: next.updatedAt,
+      };
+      next.auditEvents = [...next.auditEvents, audit];
+      const events = command.events(current, next, result.value);
+      if (!events.length) throw new Error(`Persistent command ${command.context.commandType} produced no Domain Event`);
+      await this.persist(database, next, current, command.options);
+      const recovered = await this.readFrom(database);
+      if (!recovered || semanticChecksum(recovered) !== semanticChecksum(next)) throw new Error('Shadow reconcile mismatch after transactional Workspace write');
 
-        const head = await database.query<{ last_sequence: number }>(`
-          INSERT INTO workspace_event_heads (workspace_id,last_sequence) VALUES ($1,$2)
-          ON CONFLICT (workspace_id) DO UPDATE
-          SET last_sequence=workspace_event_heads.last_sequence + $2,updated_at=now()
-          RETURNING last_sequence
-        `, [this.defaultWorkspaceId, events.length]);
-        const lastSequence = Number(head.rows[0]!.last_sequence);
-        const firstSequence = lastSequence - events.length + 1;
-        for (const [offset, event] of events.entries()) {
-          await database.query(`
-            INSERT INTO workspace_events
-              (event_id,workspace_id,sequence,event_type,schema_version,aggregate_type,aggregate_id,actor,scope,command_id,correlation_id,payload,occurred_at)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12::jsonb,$13)
-          `, [randomUUID(), this.defaultWorkspaceId, firstSequence + offset, event.eventType, DOMAIN_EVENT_SCHEMA_VERSION,
-            event.aggregateType, event.aggregateId, JSON.stringify(command.context.actor), JSON.stringify(command.context.scope),
-            command.context.commandId, command.context.correlationId || null,
-            JSON.stringify({ ...event.payload, reconcileChecksum: semanticChecksum(next) }), command.context.occurredAt]);
-        }
+      const head = await database.query<{ last_sequence: number }>(`
+        INSERT INTO workspace_event_heads (workspace_id,last_sequence) VALUES ($1,$2)
+        ON CONFLICT (workspace_id) DO UPDATE
+        SET last_sequence=workspace_event_heads.last_sequence + $2,updated_at=now()
+        RETURNING last_sequence
+      `, [this.defaultWorkspaceId, events.length]);
+      const lastSequence = Number(head.rows[0]!.last_sequence);
+      const firstSequence = lastSequence - events.length + 1;
+      for (const [offset, event] of events.entries()) {
         await database.query(`
-          INSERT INTO command_receipts
-            (workspace_id,command_id,command_type,status,first_sequence,last_sequence,result)
-          VALUES ($1,$2,$3,'committed',$4,$5,$6::jsonb)
-        `, [this.defaultWorkspaceId, command.context.commandId, command.context.commandType, firstSequence, lastSequence, JSON.stringify(result.value ?? null)]);
-        return { workspace: recovered, value: result.value, duplicate: false };
-      });
-    } catch (error) {
-      if (!(error && typeof error === 'object' && 'storedReceipt' in error)) await this.recordRejected(command, error);
-      throw error;
-    }
+          INSERT INTO workspace_events
+            (event_id,workspace_id,sequence,ce_specversion,rhiza_envelope_version,event_type,event_source,subject,data_schema,aggregate_type,aggregate_id,aggregate_revision,actor_ref,scope_ref,command_id,event_index,causation_id,correlation_id,payload,occurred_at)
+          VALUES ($1,$2,$3,'1.0',$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb,$14,$15,$16,$17,$18::jsonb,$19)
+        `, [randomUUID(), this.defaultWorkspaceId, firstSequence + offset, DOMAIN_EVENT_SCHEMA_VERSION, event.eventType,
+          journalSource(this.defaultWorkspaceId), journalSubject(event.aggregateType, event.aggregateId), journalDataSchema(event.eventType),
+          event.aggregateType, event.aggregateId, aggregateRevision, JSON.stringify(command.context.actor), JSON.stringify(command.context.scope),
+          command.context.commandId, offset, command.context.causationId || null, command.context.correlationId || null,
+          JSON.stringify({ ...event.payload, reconcileChecksum: semanticChecksum(next), stateSchema: 'rhiza.workspace-semantic.v1', ...(offset === events.length - 1 ? { stateChanges: workspaceSemanticChanges(current, next) } : {}) }), command.context.occurredAt]);
+      }
+      await database.query(`
+        INSERT INTO command_receipts
+          (workspace_id,command_id,command_type,status,first_sequence,last_sequence,result)
+        VALUES ($1,$2,$3,'committed',$4,$5,$6::jsonb)
+      `, [this.defaultWorkspaceId, command.context.commandId, command.context.commandType, firstSequence, lastSequence, JSON.stringify(result.value ?? null)]);
+      return { workspace: recovered, value: result.value, duplicate: false };
+    });
   }
 
-  private async recordRejected<T>(command: TransactionalWorkspaceCommand<T>, error: unknown): Promise<void> {
-    const candidate = error as { message?: string; code?: string; status?: number; details?: { code?: string; status?: number } };
-    const status = Number(candidate.details?.status ?? candidate.status ?? 500);
-    const code = String(candidate.details?.code ?? candidate.code ?? 'COMMAND_REJECTED');
-    if (status < 400 || status >= 500) return;
-    await this.inTransaction(async database => {
-      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:command:' || $1 || ':' || $2))", [this.defaultWorkspaceId, command.context.commandId]);
-      await database.query(`
-        INSERT INTO command_receipts (workspace_id,command_id,command_type,status,error)
-        VALUES ($1,$2,$3,'rejected',$4::jsonb)
-        ON CONFLICT (workspace_id,command_id) DO NOTHING
-      `, [this.defaultWorkspaceId, command.context.commandId, command.context.commandType, JSON.stringify({ message: candidate.message || 'Command rejected', code, status })]);
+  private async inCommandTransaction<T>(context: CommandFactContext, operation: (database: SqlQueryable) => Promise<T>): Promise<T> {
+    let rejection: unknown;
+    const result = await this.inTransaction(async database => {
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:command:' || $1 || ':' || $2))", [this.defaultWorkspaceId, context.commandId]);
+      // All command kinds acquire workspace locks in the same order, including lifecycle writes.
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
+      const prior = await database.query<{ command_type: string }>('SELECT command_type FROM command_receipts WHERE workspace_id=$1 AND command_id=$2', [this.defaultWorkspaceId, context.commandId]);
+      if (prior.rows[0] && prior.rows[0].command_type !== context.commandType) throw Object.assign(new Error('Command id 已被其他命令使用。'), { code: 'COMMAND_ID_CONFLICT', status: 409 });
+      await database.query('SAVEPOINT command_mutation');
+      try {
+        return await operation(database);
+      } catch (error) {
+        const candidate = error as { message?: string; code?: string; status?: number; storedReceipt?: boolean; details?: { code?: string; status?: number } };
+        const status = Number(candidate.details?.status ?? candidate.status ?? 500);
+        if (candidate.storedReceipt || status < 400 || status >= 500) throw error;
+        await database.query('ROLLBACK TO SAVEPOINT command_mutation');
+        const code = String(candidate.details?.code ?? candidate.code ?? 'COMMAND_REJECTED');
+        await database.query(`
+          INSERT INTO command_receipts (workspace_id,command_id,command_type,status,error)
+          SELECT id,$2,$3,'rejected',$4::jsonb FROM rhiza_projects WHERE id=$1
+          ON CONFLICT (workspace_id,command_id) DO NOTHING
+        `, [this.defaultWorkspaceId, context.commandId, context.commandType, JSON.stringify({ message: candidate.message || 'Command rejected', code, status })]);
+        rejection = error;
+        return undefined;
+      }
     });
+    if (rejection) throw rejection;
+    return result!;
   }
 
   async readJournal(limit = 50): Promise<DomainEventEnvelope[]> {
@@ -369,9 +407,10 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     `, [this.defaultWorkspaceId, Math.min(100, Math.max(1, limit))]);
     return result.rows.map(row => ({
       eventId: String(row.event_id), workspaceId: String(row.workspace_id), sequence: Number(row.sequence),
-      eventType: String(row.event_type) as DomainEventEnvelope['eventType'], schemaVersion: DOMAIN_EVENT_SCHEMA_VERSION,
-      aggregateType: String(row.aggregate_type), aggregateId: String(row.aggregate_id), actor: asJson(row.actor), scope: asJson(row.scope),
-      commandId: String(row.command_id), correlationId: row.correlation_id ? String(row.correlation_id) : undefined,
+      eventType: String(row.event_type) as DomainEventEnvelope['eventType'], ceSpecversion: '1.0', envelopeVersion: DOMAIN_EVENT_SCHEMA_VERSION,
+      eventSource: String(row.event_source), subject: String(row.subject), dataSchema: String(row.data_schema),
+      aggregateType: String(row.aggregate_type), aggregateId: String(row.aggregate_id), aggregateRevision: Number(row.aggregate_revision), actor: asJson(row.actor_ref), scope: asJson(row.scope_ref),
+      commandId: String(row.command_id), eventIndex: Number(row.event_index), causationId: row.causation_id ? String(row.causation_id) : undefined, correlationId: row.correlation_id ? String(row.correlation_id) : undefined,
       payload: asJson(row.payload), occurredAt: asIso(row.occurred_at), recordedAt: asIso(row.recorded_at),
     }));
   }
@@ -396,17 +435,21 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   async backfillJournal(): Promise<{ checksum: string; created: boolean; eventCount: number }> {
     return this.inTransaction(async database => {
       await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:journal-backfill:' || $1))", [this.defaultWorkspaceId]);
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
       const workspace = await this.readFrom(database, true);
       if (!workspace) throw new Error(`Workspace ${this.defaultWorkspaceId} does not exist`);
       const checksum = semanticChecksum(workspace);
-      const existing = await database.query<{ count: number }>('SELECT count(*)::int count FROM workspace_events WHERE workspace_id=$1', [this.defaultWorkspaceId]);
-      if (Number(existing.rows[0]?.count || 0) > 0) return { checksum, created: false, eventCount: Number(existing.rows[0]!.count) };
+      const existing = await database.query<{ count: number; baseline_count: number }>("SELECT count(*)::int count,count(*) FILTER (WHERE sequence=1 AND event_type IN ('workspace.baseline.backfilled','workspace.created') AND payload->'snapshot' IS NOT NULL)::int baseline_count FROM workspace_events WHERE workspace_id=$1", [this.defaultWorkspaceId]);
+      const eventCount = Number(existing.rows[0]?.count || 0);
+      if (Number(existing.rows[0]?.baseline_count || 0) === 1) return { checksum, created: false, eventCount };
+      if (eventCount > 0) throw Object.assign(new Error(`Workspace ${this.defaultWorkspaceId} has Journal events but no sequence-1 baseline`), { code: 'JOURNAL_BASELINE_ORDER_CONFLICT', status: 409 });
       const sequence = 1;
       await database.query('INSERT INTO workspace_event_heads (workspace_id,last_sequence) VALUES ($1,$2) ON CONFLICT (workspace_id) DO NOTHING', [this.defaultWorkspaceId, sequence]);
       const commandId = 'backfill:workspace-baseline:v1';
       const occurredAt = workspace.updatedAt;
       const payload = {
         checksum,
+        snapshot: { stateSchema: 'rhiza.workspace-semantic.v1', sourceSequence: 0, state: workspaceSemanticSnapshot(workspace) },
         counts: {
           nodes: workspace.discussionNodes.length, messages: workspace.messages.length, manifests: workspace.manifests.length,
           resources: workspace.resources.length, resourceVersions: workspace.resourceVersions.length,
@@ -414,11 +457,12 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       };
       await database.query(`
         INSERT INTO workspace_events
-          (event_id,workspace_id,sequence,event_type,schema_version,aggregate_type,aggregate_id,actor,scope,command_id,payload,occurred_at)
-        VALUES ($1,$2,1,'workspace.baseline.backfilled',$3,'workspace',$9,$4::jsonb,$5::jsonb,$6,$7::jsonb,$8)
+          (event_id,workspace_id,sequence,ce_specversion,rhiza_envelope_version,event_type,event_source,subject,data_schema,aggregate_type,aggregate_id,aggregate_revision,actor_ref,scope_ref,command_id,event_index,payload,occurred_at)
+        VALUES ($1,$2::uuid,1,'1.0',$3,'workspace.baseline.backfilled',$4,$5,$6,'workspace',$2::text,0,$7::jsonb,$8::jsonb,$9,0,$10::jsonb,$11)
       `, [randomUUID(), this.defaultWorkspaceId, DOMAIN_EVENT_SCHEMA_VERSION,
+        journalSource(this.defaultWorkspaceId), journalSubject('workspace', this.defaultWorkspaceId), journalDataSchema('workspace.baseline.backfilled'),
         JSON.stringify({ actorType: 'system', actorId: 'journal-backfill-v1' }),
-        JSON.stringify({ scopeType: 'workspace', scopeId: this.defaultWorkspaceId }), commandId, JSON.stringify(payload), occurredAt, this.defaultWorkspaceId]);
+        JSON.stringify({ scopeType: 'workspace', scopeId: this.defaultWorkspaceId }), commandId, JSON.stringify(payload), occurredAt]);
       await database.query(`
         INSERT INTO command_receipts (workspace_id,command_id,command_type,status,first_sequence,last_sequence,result)
         VALUES ($1,$2,'BackfillWorkspaceBaseline','committed',1,1,$3::jsonb)
@@ -459,7 +503,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       manifests: manifestsResult.rows.map(row => asJson<ContextManifest>(row.manifest)),
       attachments: attachmentsResult.rows.map(row => {
         const version = resourceVersionsResult.rows.find(item => String(item.resource_version_id) === String(row.resource_version_id));
-        return { id: String(row.id), name: String(row.name), mimeType: String(row.mime_type), size: Number(row.size_bytes), kind: row.kind as StoredAttachment['kind'], extractedText: row.extracted_text ? String(row.extracted_text) : undefined, resourceId: row.resource_id ? String(row.resource_id) : undefined, resourceVersionId: row.resource_version_id ? String(row.resource_version_id) : undefined, digest: version ? String(version.digest) : undefined, blobRef: version ? String(version.blob_ref) : undefined, createdAt: asIso(row.created_at) };
+        return { id: String(row.id), name: String(row.name), mimeType: String(row.mime_type), size: Number(row.size_bytes), kind: row.kind as StoredAttachment['kind'], extractedText: row.extracted_text ? String(row.extracted_text) : undefined, summary: row.summary ? String(row.summary) : undefined, chunkCount: row.chunk_count === null ? undefined : Number(row.chunk_count), resourceId: row.resource_id ? String(row.resource_id) : undefined, resourceVersionId: row.resource_version_id ? String(row.resource_version_id) : undefined, digest: version ? String(version.digest) : undefined, blobRef: version ? String(version.blob_ref) : undefined, createdAt: asIso(row.created_at) };
       }),
       resources: resourcesResult.rows.map(row => ({ id: String(row.resource_id), workspaceId: String(row.workspace_id), kind: row.kind as Resource['kind'], logicalName: String(row.logical_name), createdAt: asIso(row.created_at) })),
       resourceVersions: resourceVersionsResult.rows.map(row => ({ id: String(row.resource_version_id), resourceId: String(row.resource_id), version: Number(row.version), digestAlgorithm: row.digest_algorithm as ResourceVersion['digestAlgorithm'], digest: String(row.digest), canonicalization: row.canonicalization as ResourceVersion['canonicalization'], mediaType: String(row.media_type), size: Number(row.size_bytes), blobRef: String(row.blob_ref), createdAt: asIso(row.created_at) })),
@@ -489,7 +533,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     for (const resource of resources) await database.query(`INSERT INTO rhiza_resources (resource_id,workspace_id,kind,logical_name,created_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (resource_id) DO NOTHING`, [resource.id,resource.workspaceId,resource.kind,resource.logicalName,resource.createdAt]);
     for (const version of resourceVersions) await database.query(`INSERT INTO rhiza_resource_versions (resource_version_id,resource_id,version,digest_algorithm,digest,canonicalization,media_type,size_bytes,blob_ref,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [version.id,version.resourceId,version.version,version.digestAlgorithm,version.digest,version.canonicalization,version.mediaType,version.size,version.blobRef,version.createdAt]);
     for (const materialization of materializations) await database.query(`INSERT INTO rhiza_resource_materializations (materialization_id,resource_version_id,kind,generator,created_at) VALUES ($1,$2,$3,$4,$5)`, [materialization.id,materialization.resourceVersionId,materialization.kind,materialization.generator,materialization.createdAt]);
-    for (const attachment of attachments) await database.query(`INSERT INTO rhiza_attachments (id,project_id,name,mime_type,size_bytes,kind,storage_key,extracted_text,created_at,resource_id,resource_version_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name,mime_type=EXCLUDED.mime_type,size_bytes=EXCLUDED.size_bytes,kind=EXCLUDED.kind,extracted_text=EXCLUDED.extracted_text,resource_id=EXCLUDED.resource_id,resource_version_id=EXCLUDED.resource_version_id`, [attachment.id,workspace.projectId,attachment.name,attachment.mimeType,attachment.size,attachment.kind,attachment.blobRef || attachment.id,attachment.extractedText || null,attachment.createdAt,attachment.resourceId || null,attachment.resourceVersionId || null]);
+    for (const attachment of attachments) await database.query(`INSERT INTO rhiza_attachments (id,project_id,name,mime_type,size_bytes,kind,storage_key,extracted_text,created_at,resource_id,resource_version_id,summary,chunk_count) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name,mime_type=EXCLUDED.mime_type,size_bytes=EXCLUDED.size_bytes,kind=EXCLUDED.kind,extracted_text=EXCLUDED.extracted_text,resource_id=EXCLUDED.resource_id,resource_version_id=EXCLUDED.resource_version_id,summary=EXCLUDED.summary,chunk_count=EXCLUDED.chunk_count`, [attachment.id,workspace.projectId,attachment.name,attachment.mimeType,attachment.size,attachment.kind,attachment.blobRef || attachment.id,attachment.extractedText || null,attachment.createdAt,attachment.resourceId || null,attachment.resourceVersionId || null,attachment.summary || null,attachment.chunkCount ?? null]);
     for (const message of messages) await database.query(`INSERT INTO rhiza_messages (id,node_id,segment_id,kind,body,manifest_id,created_at,operation,version_group_id,version,usage,reasoning,tool_calls) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13::jsonb) ON CONFLICT (id) DO UPDATE SET segment_id=EXCLUDED.segment_id,body=EXCLUDED.body,manifest_id=EXCLUDED.manifest_id,operation=EXCLUDED.operation,version_group_id=EXCLUDED.version_group_id,version=EXCLUDED.version,usage=EXCLUDED.usage,reasoning=EXCLUDED.reasoning,tool_calls=EXCLUDED.tool_calls`, [message.id,message.nodeId,message.segmentId || null,message.kind,message.text,message.manifestId || null,message.createdAt,message.operation || 'send',message.versionGroupId || null,message.version || 1,JSON.stringify(message.usage || null),message.reasoning || null,JSON.stringify(message.toolCalls || null)]);
     for (const node of nodes) await database.query('UPDATE rhiza_nodes SET source_node_id=$2, source_message_id=$3 WHERE id=$1', [node.id,node.sourceNodeId || null,node.sourceMessageId || null]);
     for (const message of messages) await database.query('UPDATE rhiza_messages SET source_message_id=$2, reply_to_message_id=$3 WHERE id=$1', [message.id,message.sourceMessageId || null,message.replyToMessageId || null]);

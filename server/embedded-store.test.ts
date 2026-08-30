@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { access, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -9,6 +9,20 @@ import { semanticChecksum } from './infrastructure/workspace-semantic-checksum';
 import { randomUUID } from 'node:crypto';
 
 describe('embedded Workspace backend', () => {
+  it('does not create an absent database or Workspace during reconciliation', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-reconcile-'));
+    const data = join(directory, 'database');
+    try {
+      await expect(openEmbeddedWorkspaceStore(data, undefined, 'verify')).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(access(data)).rejects.toMatchObject({ code: 'ENOENT' });
+      const store = await openEmbeddedWorkspaceStore(data);
+      try {
+        expect(await store.readExisting()).toBeUndefined();
+        expect(await store.listWorkspaceIds()).toEqual([]);
+      } finally { await store.close(); }
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
   it('auto-migrates, persists state, and reopens the same Journal', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'rhiza-pglite-'));
     const data = join(directory, 'database');
@@ -18,7 +32,7 @@ describe('embedded Workspace backend', () => {
       const baseline = await first.backfillJournal();
       await first.close();
 
-      const reopened = await openEmbeddedWorkspaceStore(data);
+      const reopened = await openEmbeddedWorkspaceStore(data, undefined, 'verify');
       expect(await reopened.read()).toMatchObject({ projectId: seeded.projectId, activeNodeId: seeded.activeNodeId });
       expect(await reopened.backfillJournal()).toEqual({ checksum: baseline.checksum, created: false, eventCount: 1 });
       await reopened.close();

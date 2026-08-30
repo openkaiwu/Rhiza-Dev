@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { Client } from 'pg';
+import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { loadMigrations, migrate, migrationStatus } from '../scripts/migrate';
 
@@ -9,7 +10,13 @@ const legacyProjectId = '00000000-0000-4000-8000-000000000001';
 
 describe.skipIf(!databaseUrl)('PostgreSQL migration E2E', () => {
   it('backfills a legacy project into the default workspace exactly once', async () => {
-    const client = new Client({ connectionString: databaseUrl });
+    const admin = new Client({ connectionString: databaseUrl });
+    await admin.connect();
+    const schema = `migration_${randomUUID().replaceAll('-', '')}`;
+    await admin.query(`CREATE SCHEMA ${schema}`);
+    const scopedUrl = new URL(databaseUrl!);
+    scopedUrl.searchParams.set('options', `-c search_path=${schema}`);
+    const client = new Client({ connectionString: scopedUrl.href });
     await client.connect();
     try {
       const migrations = await loadMigrations();
@@ -50,13 +57,16 @@ describe.skipIf(!databaseUrl)('PostgreSQL migration E2E', () => {
         WHERE w.workspace_id IS NULL OR u.user_id IS NULL
       `);
       expect(dangling.rows[0]?.count).toBe(0);
+      await apply('0006');
+      await apply('0007');
+      expect(await migrate(scopedUrl.href)).toEqual([]);
+      expect((await migrationStatus(scopedUrl.href)).map(({ version, applied }) => ({ version, applied }))).toEqual([
+        { version: '0001', applied: true }, { version: '0002', applied: true }, { version: '0003', applied: true }, { version: '0004', applied: true }, { version: '0005', applied: true }, { version: '0006', applied: true }, { version: '0007', applied: true },
+      ]);
     } finally {
       await client.end();
+      await admin.query(`DROP SCHEMA ${schema} CASCADE`);
+      await admin.end();
     }
-
-    expect(await migrate(databaseUrl!)).toEqual([]);
-    expect((await migrationStatus(databaseUrl!)).map(({ version, applied }) => ({ version, applied }))).toEqual([
-      { version: '0001', applied: true }, { version: '0002', applied: true }, { version: '0003', applied: true }, { version: '0004', applied: true }, { version: '0005', applied: true },
-    ]);
   });
 });

@@ -106,7 +106,7 @@ describe('milestone evidence validation', () => {
   });
 
   it('records the real PostgreSQL E2E result from the evidence environment', () => {
-    expect(m03ObservedMetrics()).toMatchObject({ real_postgres_e2e: { status: 'skipped', reason: expect.stringContaining('DATABASE_URL') } });
+    expect(m03ObservedMetrics('')).toMatchObject({ real_postgres_e2e: { status: 'skipped', reason: expect.stringContaining('DATABASE_URL') } });
     expect(m03ObservedMetrics('postgres://fixture')).toMatchObject({ real_postgres_e2e: { status: 'pass' } });
   });
 
@@ -120,7 +120,7 @@ describe('milestone evidence validation', () => {
     expect(M04_COMMANDS).toEqual(expect.arrayContaining(['pnpm run verify:m04:host-boundary', expect.stringContaining('e2e/resource-backfill.e2e.test.ts')]));
     expect(M04_PATHS).toEqual(expect.arrayContaining(['db/migrations/0006_resource_blob_host.up.sql', 'server/application/ports/host-runtime.ts', 'docs/architecture-gates/M04/resource-fixture.json']));
     expect(M04_FIXTURES.every(fixture => M04_PATHS.includes(fixture.path))).toBe(true);
-    expect(m04ObservedMetrics()).toMatchObject({ committed_dangling_blob_refs: 0, digest_corruption_silent_fallbacks: 0, domain_application_os_imports: 0, current_host_contract: 'pass', real_postgres_e2e: { status: 'skipped' } });
+    expect(m04ObservedMetrics('')).toMatchObject({ committed_dangling_blob_refs: 0, digest_corruption_silent_fallbacks: 0, domain_application_os_imports: 0, current_host_contract: 'pass', real_postgres_e2e: { status: 'skipped' } });
   });
 
   it('requires M04 V4.2 severity and recovery evidence', () => {
@@ -132,7 +132,8 @@ describe('milestone evidence validation', () => {
     expect(M05_COMMANDS).toEqual(expect.arrayContaining([expect.stringContaining('e2e/m05-journal.e2e.test.ts')]));
     expect(M05_PATHS).toEqual(expect.arrayContaining(['db/migrations/0007_domain_journal_facts.up.sql', 'docs/adr/ADR-005-domain-event-catalog.md', 'docs/architecture-gates/M05/journal-fixture.json']));
     expect(M05_FIXTURES.every(fixture => M05_PATHS.includes(fixture.path))).toBe(true);
-    expect(m05ObservedMetrics()).toMatchObject({ missing_semantic_events: 0, retry_100_new_events_after_first: 0, three_write_half_commits: 0, concurrent_duplicate_sequences: 0, backfill_checksum_drift: 0, activity_timeline: 'pass', real_postgres_e2e: { status: 'skipped' } });
+    expect(m05ObservedMetrics('')).toMatchObject({ missing_semantic_events: 0, retry_100_new_events_after_first: 0, three_write_half_commits: 0, concurrent_duplicate_sequences: 0, backfill_checksum_drift: 0, activity_timeline: 'pass', real_postgres_e2e: { status: 'skipped' } });
+    expect(m05ObservedMetrics('postgres://fixture')).toMatchObject({ real_postgres_e2e: { status: 'pass' } });
   });
 
   it('rejects a reduced M02 command set', () => {

@@ -107,15 +107,21 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
     executionOptions?: CommandExecutionOptions,
   ): Promise<CommandResult<K>> => {
     const scoped = response.locals.workspaceIdentity as ReturnType<typeof workspaceIdentity> | undefined;
-    return application.execute({ ...createLegacyCommandEnvelope(options.id(), commandType, payload, correlationId(response)), ...(scoped || {}) }, executionOptions);
+    return application.execute({ ...createLegacyCommandEnvelope(response.locals.commandId || options.id(), commandType, payload, correlationId(response)), ...(scoped || {}), ...(response.locals.expectedRevision === undefined ? {} : { expectedRevision: response.locals.expectedRevision }) }, executionOptions);
   };
   const query = <K extends QueryType>(response: express.Response, queryType: K, payload: QueryMap[K]['payload']): Promise<QueryResult<K>> =>
     application.query({ ...createLegacyQueryEnvelope(options.id(), queryType, payload, correlationId(response)), ...(response.locals.workspaceIdentity || {}) });
   const workspaceIdentity = (workspaceId: string) => ({ workspaceId, actor: { actorType: 'human' as const, actorId: '00000000-0000-4000-8000-000000000002' }, scope: { scopeType: 'workspace' as const, scopeId: workspaceId } });
-  const executeScoped = <K extends CommandType>(response: express.Response, workspaceId: string, commandType: K, payload: CommandMap[K]['payload'], revision?: number) => application.execute({ ...createLegacyCommandEnvelope(options.id(), commandType, payload, correlationId(response)), ...workspaceIdentity(workspaceId), ...(revision === undefined ? {} : { expectedRevision: revision }) });
+  const executeScoped = <K extends CommandType>(response: express.Response, workspaceId: string, commandType: K, payload: CommandMap[K]['payload'], revision?: number) => application.execute({ ...createLegacyCommandEnvelope(response.locals.commandId || options.id(), commandType, payload, correlationId(response)), ...workspaceIdentity(workspaceId), ...(revision === undefined ? {} : { expectedRevision: revision }) });
   const queryScoped = <K extends QueryType>(response: express.Response, workspaceId: string, queryType: K, payload: QueryMap[K]['payload']) => application.query({ ...createLegacyQueryEnvelope(options.id(), queryType, payload, correlationId(response)), ...workspaceIdentity(workspaceId) });
 
   app.use((request, response, next) => {
+    const key = request.get('Idempotency-Key');
+    if (key !== undefined) {
+      if (!key.trim() || key.length > 200) return next(applicationError('Idempotency-Key 必须为 1–200 字符。', 'INVALID_IDEMPOTENCY_KEY', 'validation'));
+      response.locals.commandId = idempotentWorkspaceId('00000000-0000-4000-8000-000000000002', key);
+    }
+    response.locals.expectedRevision = expectedRevision(request);
     const requestId = options.id();
     response.setHeader('X-Request-Id', requestId);
     const startedAt = Date.now();

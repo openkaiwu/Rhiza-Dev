@@ -86,6 +86,8 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
     const defaultWorkspaceId = this.repository.defaultWorkspaceId ?? '00000000-0000-4000-8000-000000000001';
     const target = workspaceId && workspaceId !== defaultWorkspaceId ? this.repository.forWorkspace?.(workspaceId) : this.repository;
     const receipt = await target?.readCommandReceipt?.(context.commandId);
+    if (receipt && receipt.commandType !== context.commandType) throw Object.assign(new Error('Command id 已被其他命令使用。'), { code: 'COMMAND_ID_CONFLICT', status: 409 });
+    if (receipt?.status === 'rejected') throw Object.assign(new Error(receipt.error!.message), receipt.error);
     if (!receipt || receipt.status !== 'committed') return { found: false };
     return { found: true, value: receipt.result as T };
   }
