@@ -90,6 +90,7 @@ export class RunLifecycle {
       await this.change(envelope, { kind: 'transition', runId: run.id, attempt: 1, from: ['created'], patch: { status: 'dispatching', dispatchingAt: this.now() } }, null);
       if (controller.signal.aborted) throw stopped();
       await this.change(envelope, { kind: 'transition', runId: run.id, attempt: 1, from: ['dispatching'], patch: { status: 'running', runningAt: this.now() } }, null);
+      if (controller.signal.aborted) throw stopped();
       iterator = this.runtime.generate({ ...structuredClone(run.input.request), signal: controller.signal })[Symbol.asyncIterator]();
       for (;;) {
         const next = await Promise.race([iterator.next(), aborted]);

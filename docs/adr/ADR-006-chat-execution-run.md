@@ -27,3 +27,5 @@ TraceSink 每 128 条等待批量写入 `execution_run_traces`，唯一键为 `(
 0008 是 additive migration。生产 PostgreSQL 先运行 `pnpm run db:migrate`，embedded 启动自动迁移。部署前备份数据库；应用回滚保留新表，禁止自动 down 删除执行历史。临时对话仍不创建正式节点或消息；它的 Run 输入与终态属于持久执行审计，因此会保留在本地数据库。
 
 本阶段仅支持 `side_effects=false` Chat。Assignment、RunGroup、pause/resume、CLI/Agent 的 lease/fencing/approval 不进入状态机，留给 M24–M26。
+
+Run 输入可能保留节点消息和 Context 副本。存在 Run 直接关联或输入引用的节点，Purge 返回 `PURGE_HAS_EXECUTION_HISTORY`，不宣称已经物理清除；Archive 保持可用。完整执行历史擦除需要显式 retention/purge 设计，M06 不绕过不可变历史保护。

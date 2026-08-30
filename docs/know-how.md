@@ -110,3 +110,4 @@
 - Retry/Regenerate 使用新 Run + parentRunRef。相同 command id 只用于幂等重放，不能用它发起新的外部调用。
 - 临时 Chat 不写正式消息/节点，但保留执行输入与终态。不得为了沿用“临时不落盘”概念绕过执行审计。
 - PostgreSQL 启动恢复必须在取得 runtime ownership 且尚未接受请求时运行，不能在在线查询中扫全库并中断其他活跃请求。
+- 有 Run 关联或输入引用的节点不能仅删除原节点后宣称物理清除；Purge 以 `PURGE_HAS_EXECUTION_HISTORY` 拒绝，使用 Archive 保留可解释历史。

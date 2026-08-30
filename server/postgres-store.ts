@@ -582,6 +582,14 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   }
 
   private async persist(database: SqlQueryable, workspace: WorkspaceData, previous?: WorkspaceData, options?: WorkspaceUpdateOptions): Promise<void> {
+    if (options?.purge) {
+      const nodeId = options.purge.nodeId;
+      const retained = await database.query(`SELECT run_id FROM execution_runs WHERE workspace_id=$1 AND (
+        node_id=$2 OR node_id='temp:' || $2 OR input_envelope->'request'->'history' @> $3::jsonb
+        OR input_envelope->'request'->'contextItems' @> $4::jsonb OR input_envelope->'request'->'contextItems' @> $5::jsonb) LIMIT 1`,
+        [workspace.projectId, nodeId, JSON.stringify([{ nodeId }]), JSON.stringify([{ sourceNodeId: nodeId }]), JSON.stringify([{ sourceType: 'node', sourceId: nodeId }])]);
+      if (retained.rows.length) throw Object.assign(new Error('该节点仍被不可变执行历史引用，请使用归档；物理删除需要统一的执行历史清理策略。'), { code: 'PURGE_HAS_EXECUTION_HISTORY', status: 409 });
+    }
     const nodes = changedItems(workspace.discussionNodes, previous?.discussionNodes);
     const segments = changedItems(workspace.segments, previous?.segments);
     const manifests = changedItems(workspace.manifests, previous?.manifests);

@@ -110,7 +110,7 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     await request(app).post(`/api/runs/${run.id}/cancel`).expect(200);
   });
 
-  it.each(['created', 'dispatching'] as const)('cancels during %s before any external call', async status => {
+  it.each(['created', 'dispatching', 'running'] as const)('cancels during %s before any external call', async status => {
     let entered!: () => void;
     let release!: () => void;
     const ready = new Promise<void>(resolve => { entered = resolve; });
@@ -121,7 +121,7 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     store.executeCommand = async command => {
       const result = await execute(command);
       const mutation = command.options?.run;
-      if ((status === 'created' && mutation?.kind === 'create') || (status === 'dispatching' && mutation?.kind === 'transition' && mutation.patch.status === status)) { entered(); await hold; }
+      if ((status === 'created' && mutation?.kind === 'create') || (status !== 'created' && mutation?.kind === 'transition' && mutation.patch.status === status)) { entered(); await hold; }
       return result;
     };
     const running = request(app).post('/api/chat').send({ message: 'cancel before dispatch' }).then(response => response);
@@ -145,6 +145,18 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     expect(run.error?.class).toBe('commit');
     expect((await store.read()).messages).toEqual(before);
     expect((await store.readJournal()).some(event => event.eventType === 'conversation.run.committed')).toBe(false);
+  });
+
+  it('keeps archive available but rejects purge while immutable Run input retains the node', async () => {
+    const { app, store } = await setup(success);
+    await request(app).post('/api/chat').send({ message: 'retain provenance' }).expect(201);
+    const [run] = await store.listRuns();
+    await request(app).post('/api/graph/nodes').send({ title: 'Other node' }).expect(201);
+    await request(app).patch(`/api/nodes/${run.nodeId}/status`).send({ status: 'archived' }).expect(200);
+    const response = await request(app).post(`/api/graph/nodes/${run.nodeId}/purge`).send({ confirmation: `PURGE ${run.nodeId}`, reason: 'remove' }).expect(409);
+    expect(response.body.error.code).toBe('PURGE_HAS_EXECUTION_HISTORY');
+    expect((await store.read()).discussionNodes.some(node => node.id === run.nodeId)).toBe(true);
+    expect(await store.getRun(run.id)).toEqual(run);
   });
 
   it('rejects cross-workspace reads/cancels and unrelated retry parents', async () => {
