@@ -1,0 +1,712 @@
+{
+  "$schema": "https://rhiza.dev/architecture-gates/milestone-evidence/1.0.0",
+  "schema_version": "1.0.0",
+  "milestone": "M05",
+  "architecture_version": "V4.2",
+  "commit": "2bb698daa5b91d6769447c35152e3c68f85de714",
+  "fixtures": [
+    {
+      "id": "g0-fixture-registry-v1",
+      "path": "docs/architecture-gates/fixture-registry.json",
+      "role": "fixture_registry"
+    },
+    {
+      "id": "g0-characterization-map-v1",
+      "path": "docs/architecture-gates/G0/characterization-map.json",
+      "role": "characterization_map"
+    },
+    {
+      "id": "g0-blocking-evidence-v1",
+      "path": "docs/architecture-gates/G0/evidence.json",
+      "role": "acceptance_fixture"
+    },
+    {
+      "id": "m02-empty-boundary-exception-registry-v1",
+      "path": "scripts/boundary-gates/boundary-exceptions.json",
+      "role": "acceptance_fixture"
+    },
+    {
+      "id": "m04-legacy-resource-v1",
+      "path": "docs/architecture-gates/M04/resource-fixture.json",
+      "role": "acceptance_fixture"
+    },
+    {
+      "id": "m05-transaction-journal-v1",
+      "path": "docs/architecture-gates/M05/journal-fixture.json",
+      "role": "acceptance_fixture"
+    }
+  ],
+  "commands": [
+    {
+      "command": "pnpm run lint",
+      "result": "pass"
+    },
+    {
+      "command": "pnpm run typecheck",
+      "result": "pass"
+    },
+    {
+      "command": "pnpm run test:unit",
+      "result": "pass"
+    },
+    {
+      "command": "pnpm run test:e2e",
+      "result": "pass"
+    },
+    {
+      "command": "pnpm run licenses:verify",
+      "result": "pass"
+    },
+    {
+      "command": "pnpm run verify:g0",
+      "result": "pass"
+    },
+    {
+      "command": "pnpm run verify:m02:boundaries",
+      "result": "pass"
+    },
+    {
+      "command": "pnpm vitest run e2e/m05-journal.e2e.test.ts e2e/postgres-schema.e2e.test.ts e2e/postgres-store.e2e.test.ts server/application/create-application.test.ts server/embedded-store.test.ts src/App.test.tsx scripts/migrate.test.ts --maxWorkers=1 --testTimeout=30000",
+      "result": "pass"
+    },
+    {
+      "command": "pnpm run build",
+      "result": "pass"
+    }
+  ],
+  "checksums": {
+    ".github/workflows/ci.yml": {
+      "algorithm": "sha256",
+      "current": "99c09313220047945996770cb21f2f35eb47c09170dee2612d7d8112cfe54b6b",
+      "recorded_commit": "99c09313220047945996770cb21f2f35eb47c09170dee2612d7d8112cfe54b6b"
+    },
+    ".gitignore": {
+      "algorithm": "sha256",
+      "current": "7bdbf4ab91600cd679cee2077d389934aad1e633ffa7d70cd0b7cde501e74db7",
+      "recorded_commit": "7bdbf4ab91600cd679cee2077d389934aad1e633ffa7d70cd0b7cde501e74db7"
+    },
+    "eslint.config.js": {
+      "algorithm": "sha256",
+      "current": "60df5e0941a56d11542076792a3f36c729d3cf3f30a70fb490bc48184b65ee24",
+      "recorded_commit": "60df5e0941a56d11542076792a3f36c729d3cf3f30a70fb490bc48184b65ee24"
+    },
+    "package.json": {
+      "algorithm": "sha256",
+      "current": "c3f2f9b08151b2a544fb603498f1efdc424895deb8aceb08bfb4bd9180e6e945",
+      "recorded_commit": "c3f2f9b08151b2a544fb603498f1efdc424895deb8aceb08bfb4bd9180e6e945"
+    },
+    "docs/architecture-gates/README.md": {
+      "algorithm": "sha256",
+      "current": "8fa3246aa10a6289c40febdc5abd2c67a9c075fe5d6faabf66bf05b7c5dd2c1a",
+      "recorded_commit": "8fa3246aa10a6289c40febdc5abd2c67a9c075fe5d6faabf66bf05b7c5dd2c1a"
+    },
+    "docs/architecture-gates/fixture-registry.json": {
+      "algorithm": "sha256",
+      "current": "7f220bcbc564af7e09dd51906548cde05b3e6b504d031bce4518108f081696be",
+      "recorded_commit": "7f220bcbc564af7e09dd51906548cde05b3e6b504d031bce4518108f081696be"
+    },
+    "docs/architecture-gates/G0/characterization-map.json": {
+      "algorithm": "sha256",
+      "current": "0f77dd5b31b26dacff9525c672ff5197e63fe173e5653367e4a4126c700fd933",
+      "recorded_commit": "0f77dd5b31b26dacff9525c672ff5197e63fe173e5653367e4a4126c700fd933"
+    },
+    "docs/architecture-gates/G0/evidence.json": {
+      "algorithm": "sha256",
+      "current": "424b03b16198cf576dbdcf93112134d005277bb098cdd871ccbe182c36c9e869",
+      "recorded_commit": "424b03b16198cf576dbdcf93112134d005277bb098cdd871ccbe182c36c9e869"
+    },
+    "scripts/architecture-gates/verify-g0.ts": {
+      "algorithm": "sha256",
+      "current": "2cf94049dd8397535371e16b7c246f50f80b6cc8faaff68024060d2d3934e07a",
+      "recorded_commit": "2cf94049dd8397535371e16b7c246f50f80b6cc8faaff68024060d2d3934e07a"
+    },
+    "scripts/architecture-gates/verify-m02-boundaries.test.ts": {
+      "algorithm": "sha256",
+      "current": "b790f26bf4f11dd624842345236e44b03d234cbba83078ae1a024c13d6018a89",
+      "recorded_commit": "b790f26bf4f11dd624842345236e44b03d234cbba83078ae1a024c13d6018a89"
+    },
+    "scripts/architecture-gates/verify-m02-boundaries.ts": {
+      "algorithm": "sha256",
+      "current": "b10a6cf5da97873a701e81fae52bd9c05c7559ef87a49f55aa93281f2f4ae0fb",
+      "recorded_commit": "b10a6cf5da97873a701e81fae52bd9c05c7559ef87a49f55aa93281f2f4ae0fb"
+    },
+    "scripts/architecture-gates/verify-milestone-evidence.test.ts": {
+      "algorithm": "sha256",
+      "current": "ef3819ade76b44d6876523b19ee404ded4030b893eab27dd4615186bddac7958",
+      "recorded_commit": "ef3819ade76b44d6876523b19ee404ded4030b893eab27dd4615186bddac7958"
+    },
+    "scripts/architecture-gates/verify-milestone-evidence.ts": {
+      "algorithm": "sha256",
+      "current": "2846b003cebf6176f4e109a03987f93a37f1ce542edf7418c6fbdace9f3b0a35",
+      "recorded_commit": "2846b003cebf6176f4e109a03987f93a37f1ce542edf7418c6fbdace9f3b0a35"
+    },
+    "scripts/boundary-gates/boundary-exceptions.json": {
+      "algorithm": "sha256",
+      "current": "1471a956c5cad0ecdf4b1390e76af9dc826eb3d5525bc0843d3d1b2054fc1ba3",
+      "recorded_commit": "1471a956c5cad0ecdf4b1390e76af9dc826eb3d5525bc0843d3d1b2054fc1ba3"
+    },
+    "scripts/boundary-gates/boundary-lint.test.ts": {
+      "algorithm": "sha256",
+      "current": "21339d00f1a42d37185e8b80da10512680f8a3d25f68388b2c4c5b4003c8eda2",
+      "recorded_commit": "21339d00f1a42d37185e8b80da10512680f8a3d25f68388b2c4c5b4003c8eda2"
+    },
+    "server/app.ts": {
+      "algorithm": "sha256",
+      "current": "f313212bc5ada06df3591d49604e8deb3def30d77360bb4a829a232f75035412",
+      "recorded_commit": "f313212bc5ada06df3591d49604e8deb3def30d77360bb4a829a232f75035412"
+    },
+    "server/app.test.ts": {
+      "algorithm": "sha256",
+      "current": "5318e22a97ffe580ddab7f844a3d3a890b96c4ea12b14e1eb3fcbe0f7440f2c7",
+      "recorded_commit": "5318e22a97ffe580ddab7f844a3d3a890b96c4ea12b14e1eb3fcbe0f7440f2c7"
+    },
+    "server/ai-provider.test.ts": {
+      "algorithm": "sha256",
+      "current": "dfde1c1843d818e5028236a0a74cd5d3b35fb8bd3ab3a6384ac0f117d1ec3bae",
+      "recorded_commit": "dfde1c1843d818e5028236a0a74cd5d3b35fb8bd3ab3a6384ac0f117d1ec3bae"
+    },
+    "server/ai-provider.ts": {
+      "algorithm": "sha256",
+      "current": "47175d3a02cdd2b03041a439dc69de591465ceee00e7fa4d2380521b4a77b267",
+      "recorded_commit": "47175d3a02cdd2b03041a439dc69de591465ceee00e7fa4d2380521b4a77b267"
+    },
+    "server/application/create-application.test.ts": {
+      "algorithm": "sha256",
+      "current": "ea27dcdf1fba79af36adcfb95c0c91ce3b8baa6c511926e595f35f0545f23bca",
+      "recorded_commit": "ea27dcdf1fba79af36adcfb95c0c91ce3b8baa6c511926e595f35f0545f23bca"
+    },
+    "server/application/create-application.ts": {
+      "algorithm": "sha256",
+      "current": "3faff682aa6abb94b1625de7d2a6e25476c633e64fbfbf84dedb5fecc4bc68e9",
+      "recorded_commit": "3faff682aa6abb94b1625de7d2a6e25476c633e64fbfbf84dedb5fecc4bc68e9"
+    },
+    "server/application/ports/legacy-upload.ts": {
+      "algorithm": "sha256",
+      "current": "d3998e7a9e0eed0e055d816fa88a8848ed03d5b4c5f27fd0388c81394a5bda46",
+      "recorded_commit": "d3998e7a9e0eed0e055d816fa88a8848ed03d5b4c5f27fd0388c81394a5bda46"
+    },
+    "server/application/ports/provider-management.ts": {
+      "algorithm": "sha256",
+      "current": "b4f497e3366ad349dcc1dc34cb390466eedae2f820742f5b43457d40f4127cd2",
+      "recorded_commit": "b4f497e3366ad349dcc1dc34cb390466eedae2f820742f5b43457d40f4127cd2"
+    },
+    "server/application/ports/runtime.ts": {
+      "algorithm": "sha256",
+      "current": "585f3e02444a551addf9e994fa348090e33e6d92343f61a14f5db94da67b83c7",
+      "recorded_commit": "585f3e02444a551addf9e994fa348090e33e6d92343f61a14f5db94da67b83c7"
+    },
+    "server/application/ports/workspace-unit-of-work.ts": {
+      "algorithm": "sha256",
+      "current": "1dd25787721c9e1868e38ea4e75072b60e424733e54b252ed2d3a51e310928fb",
+      "recorded_commit": "1dd25787721c9e1868e38ea4e75072b60e424733e54b252ed2d3a51e310928fb"
+    },
+    "server/context-runtime/legacy-planner.ts": {
+      "algorithm": "sha256",
+      "current": "ba5adfa09f2431dd7b9b36a6cb54131188df679b3175b6e14138a10db44ddde1",
+      "recorded_commit": "ba5adfa09f2431dd7b9b36a6cb54131188df679b3175b6e14138a10db44ddde1"
+    },
+    "server/context-runtime/port.ts": {
+      "algorithm": "sha256",
+      "current": "cb93df0823262e328d2d2afa932745d651c7c45a7083fcffbbd5f273a3667558",
+      "recorded_commit": "cb93df0823262e328d2d2afa932745d651c7c45a7083fcffbbd5f273a3667558"
+    },
+    "server/contracts/application-error.test.ts": {
+      "algorithm": "sha256",
+      "current": "341e046c3ca36b8f83c3b249111f7e63e008771c730372010e55db1a2d4a5a76",
+      "recorded_commit": "341e046c3ca36b8f83c3b249111f7e63e008771c730372010e55db1a2d4a5a76"
+    },
+    "server/contracts/application-error.ts": {
+      "algorithm": "sha256",
+      "current": "4eaa337f878fb03e5a9522146877f9310ae492fc519ed470a61e0da6c0ba4c91",
+      "recorded_commit": "4eaa337f878fb03e5a9522146877f9310ae492fc519ed470a61e0da6c0ba4c91"
+    },
+    "server/contracts/application.ts": {
+      "algorithm": "sha256",
+      "current": "4dc58ba0a043c775774fb042b2e33e84eab14e34ad6124e758d63f9904a2898d",
+      "recorded_commit": "4dc58ba0a043c775774fb042b2e33e84eab14e34ad6124e758d63f9904a2898d"
+    },
+    "server/contracts/references.ts": {
+      "algorithm": "sha256",
+      "current": "aad89dabca3db2369e55e0d97a02e32a1963959a19b99ae03b404ef8e5859106",
+      "recorded_commit": "aad89dabca3db2369e55e0d97a02e32a1963959a19b99ae03b404ef8e5859106"
+    },
+    "server/domain/message-version.test.ts": {
+      "algorithm": "sha256",
+      "current": "92da30f69526542de12d160644593f174a58effa4ac0e90c3496e22a02288eab",
+      "recorded_commit": "92da30f69526542de12d160644593f174a58effa4ac0e90c3496e22a02288eab"
+    },
+    "server/domain/message-version.ts": {
+      "algorithm": "sha256",
+      "current": "d657e0e145d323f1a585c0fd1af8a172a5aa96053e40649173c18b4dcb07db10",
+      "recorded_commit": "d657e0e145d323f1a585c0fd1af8a172a5aa96053e40649173c18b4dcb07db10"
+    },
+    "server/execution-runtime/runtime.ts": {
+      "algorithm": "sha256",
+      "current": "9026b9b6ca30790d49788f1fa3973308c5558720037521d4c88a1e30899685f8",
+      "recorded_commit": "9026b9b6ca30790d49788f1fa3973308c5558720037521d4c88a1e30899685f8"
+    },
+    "server/host-node/create-app.ts": {
+      "algorithm": "sha256",
+      "current": "c04de645c0f25d91da59ebb8152ebb11bc51bdca33e80999a576705859af2324",
+      "recorded_commit": "c04de645c0f25d91da59ebb8152ebb11bc51bdca33e80999a576705859af2324"
+    },
+    "server/http/app.ts": {
+      "algorithm": "sha256",
+      "current": "65f5b349ae6d109d8cc0c07f5da03db6d2de43b1e2a3aad420d5464defbd6806",
+      "recorded_commit": "65f5b349ae6d109d8cc0c07f5da03db6d2de43b1e2a3aad420d5464defbd6806"
+    },
+    "server/infrastructure/node-filesystem-legacy-upload.test.ts": {
+      "algorithm": "sha256",
+      "current": "3dffbcbee3c294a57b9e2332245ba4459424afb15e0de4bc2549473e1b2aab8e",
+      "recorded_commit": "3dffbcbee3c294a57b9e2332245ba4459424afb15e0de4bc2549473e1b2aab8e"
+    },
+    "server/infrastructure/node-filesystem-legacy-upload.ts": {
+      "algorithm": "sha256",
+      "current": "902a04fe106133eb3309788205ed809cc2529647ff8e263e0988f05def9c5705",
+      "recorded_commit": "902a04fe106133eb3309788205ed809cc2529647ff8e263e0988f05def9c5705"
+    },
+    "server/infrastructure/workspace-repository-unit-of-work.test.ts": {
+      "algorithm": "sha256",
+      "current": "990e224734c5e331d5ab8d5e4d8153d8e952c3dc2711663aac74b6325dfe01cc",
+      "recorded_commit": "990e224734c5e331d5ab8d5e4d8153d8e952c3dc2711663aac74b6325dfe01cc"
+    },
+    "server/infrastructure/workspace-repository-unit-of-work.ts": {
+      "algorithm": "sha256",
+      "current": "88898a7e35b47518d6719a1893f6d37217ba3a3c5ef0ab494800ac3ae2522ee2",
+      "recorded_commit": "88898a7e35b47518d6719a1893f6d37217ba3a3c5ef0ab494800ac3ae2522ee2"
+    },
+    "server/provider-runtime.ts": {
+      "algorithm": "sha256",
+      "current": "ee1fbab6e5e7d6394b4c7a202f0751fa7a2dcf0dcd9213fda66d1d8d3f050e72",
+      "recorded_commit": "ee1fbab6e5e7d6394b4c7a202f0751fa7a2dcf0dcd9213fda66d1d8d3f050e72"
+    },
+    "server/runtime-adapters/provider-runtime.ts": {
+      "algorithm": "sha256",
+      "current": "6ecaab7212c628a0ffb012486d053b5895adb51bc0b0433188097c439e014371",
+      "recorded_commit": "6ecaab7212c628a0ffb012486d053b5895adb51bc0b0433188097c439e014371"
+    },
+    "src/App.test.tsx": {
+      "algorithm": "sha256",
+      "current": "0150ae732133d19bc221a6ffb74e552c54b94e7304dcb07e1c239d3b54cec0e4",
+      "recorded_commit": "0150ae732133d19bc221a6ffb74e552c54b94e7304dcb07e1c239d3b54cec0e4"
+    },
+    "src/App.tsx": {
+      "algorithm": "sha256",
+      "current": "1d5aa5d6dcd7397bbbd88e2d82df71e45b1080cde3597ffbcde14c63aedf1ea2",
+      "recorded_commit": "1d5aa5d6dcd7397bbbd88e2d82df71e45b1080cde3597ffbcde14c63aedf1ea2"
+    },
+    "src/api.ts": {
+      "algorithm": "sha256",
+      "current": "2618a81438169889f3ac16cc33b7d15a0a46298f6234be62ddbeea5ed0a675cd",
+      "recorded_commit": "2618a81438169889f3ac16cc33b7d15a0a46298f6234be62ddbeea5ed0a675cd"
+    },
+    "src/components/ChatView.tsx": {
+      "algorithm": "sha256",
+      "current": "e822bca81ea9e567e2d7e3b69c07e194fa9207535b3a8e1b03ec178320b034fd",
+      "recorded_commit": "e822bca81ea9e567e2d7e3b69c07e194fa9207535b3a8e1b03ec178320b034fd"
+    },
+    "src/components/GraphView.tsx": {
+      "algorithm": "sha256",
+      "current": "5adff9e254d1c6e82c311eae11d19c0e7245a4da399c5295a145205b9672e2d8",
+      "recorded_commit": "5adff9e254d1c6e82c311eae11d19c0e7245a4da399c5295a145205b9672e2d8"
+    },
+    "src/components/MarkdownRenderer.tsx": {
+      "algorithm": "sha256",
+      "current": "20316906fecf3c784e5e9f317a59f3806643b6563997420636f60ed32b78e0d7",
+      "recorded_commit": "20316906fecf3c784e5e9f317a59f3806643b6563997420636f60ed32b78e0d7"
+    },
+    "src/components/ProviderSettings.tsx": {
+      "algorithm": "sha256",
+      "current": "7d703da3e5b8148360824a9d998594873263a33afac69a1afb980c2b15a0c976",
+      "recorded_commit": "7d703da3e5b8148360824a9d998594873263a33afac69a1afb980c2b15a0c976"
+    },
+    "src/error-presentation.test.ts": {
+      "algorithm": "sha256",
+      "current": "12598f7081d1b6cc29b189a50ed1d680101bbd845aa222d1ec5ff5128ce12a69",
+      "recorded_commit": "12598f7081d1b6cc29b189a50ed1d680101bbd845aa222d1ec5ff5128ce12a69"
+    },
+    "src/error-presentation.ts": {
+      "algorithm": "sha256",
+      "current": "a535075f408a6522edce3a2bd61b4e1b1b7bd6b941765cf68d78b10888e4f314",
+      "recorded_commit": "a535075f408a6522edce3a2bd61b4e1b1b7bd6b941765cf68d78b10888e4f314"
+    },
+    "tsconfig.application-layer.json": {
+      "algorithm": "sha256",
+      "current": "79ad786250f5feecf103c46e732bac92f24b3c55a7303d03c701eff8e59cb76a",
+      "recorded_commit": "79ad786250f5feecf103c46e732bac92f24b3c55a7303d03c701eff8e59cb76a"
+    },
+    "tsconfig.context-runtime.json": {
+      "algorithm": "sha256",
+      "current": "cb1a16d93c4288f926d8dbc62510c481508ac03bc5aa7742abdffda093265658",
+      "recorded_commit": "cb1a16d93c4288f926d8dbc62510c481508ac03bc5aa7742abdffda093265658"
+    },
+    "tsconfig.contracts.json": {
+      "algorithm": "sha256",
+      "current": "7478160af5d8bd9b8bb908784a503978c699aed53c2d55de2056bb6c2fde2b7d",
+      "recorded_commit": "7478160af5d8bd9b8bb908784a503978c699aed53c2d55de2056bb6c2fde2b7d"
+    },
+    "tsconfig.domain.json": {
+      "algorithm": "sha256",
+      "current": "73eed5c693dcbfe21c070dfc5645d6633ce1efede0955e5d59952affc4491ee4",
+      "recorded_commit": "73eed5c693dcbfe21c070dfc5645d6633ce1efede0955e5d59952affc4491ee4"
+    },
+    "tsconfig.execution-runtime.json": {
+      "algorithm": "sha256",
+      "current": "9f5eb326844d066c54193bd59296c467b24382fef905fe1ffe40a878bef71141",
+      "recorded_commit": "9f5eb326844d066c54193bd59296c467b24382fef905fe1ffe40a878bef71141"
+    },
+    "tsconfig.http-layer.json": {
+      "algorithm": "sha256",
+      "current": "0833b4de37fa0f8d6efe30ee50da87d7f019368bad221d9da34f78e18a610539",
+      "recorded_commit": "0833b4de37fa0f8d6efe30ee50da87d7f019368bad221d9da34f78e18a610539"
+    },
+    "tsconfig.json": {
+      "algorithm": "sha256",
+      "current": "c5f381fbded744dce99b09fc1909f259730449d1c41cbb9cbcbb02769125167d",
+      "recorded_commit": "c5f381fbded744dce99b09fc1909f259730449d1c41cbb9cbcbb02769125167d"
+    },
+    "tsconfig.runtime-adapters.json": {
+      "algorithm": "sha256",
+      "current": "d45ae32374e7590b460f4b89c104efa206dd6a20fac725699b894193a803ca4b",
+      "recorded_commit": "d45ae32374e7590b460f4b89c104efa206dd6a20fac725699b894193a803ca4b"
+    },
+    "README.md": {
+      "algorithm": "sha256",
+      "current": "6c29cbf9b0d08120068878d9c9cddc872482d11054fbcebd05fe1ebe54157e46",
+      "recorded_commit": "6c29cbf9b0d08120068878d9c9cddc872482d11054fbcebd05fe1ebe54157e46"
+    },
+    "db/migrations/0005_identity_workspace_scope.up.sql": {
+      "algorithm": "sha256",
+      "current": "2f8e37e2ec719023eafec81037a7bb3a5a5e34cf1710a50d3aef06312f8ee083",
+      "recorded_commit": "2f8e37e2ec719023eafec81037a7bb3a5a5e34cf1710a50d3aef06312f8ee083"
+    },
+    "db/migrations/0005_identity_workspace_scope.down.sql": {
+      "algorithm": "sha256",
+      "current": "403e27e6606e2bd18cb0b0991ec9c02854044df4eb936b45a5d1cf4ce8133acd",
+      "recorded_commit": "403e27e6606e2bd18cb0b0991ec9c02854044df4eb936b45a5d1cf4ce8133acd"
+    },
+    "docs/architecture-gates/G0/snapshots/api.json": {
+      "algorithm": "sha256",
+      "current": "71bc5c30b8f4c3e4a991f96dbdbbfdbdf8de78d7e6d948693d6871ae96ac6236",
+      "recorded_commit": "71bc5c30b8f4c3e4a991f96dbdbbfdbdf8de78d7e6d948693d6871ae96ac6236"
+    },
+    "docs/architecture-gates/G0/snapshots/db.json": {
+      "algorithm": "sha256",
+      "current": "ea6183fc3b0a35c916ab11845aca2fe098f97d072dcd48616cce2b603421f915",
+      "recorded_commit": "ea6183fc3b0a35c916ab11845aca2fe098f97d072dcd48616cce2b603421f915"
+    },
+    "docs/architecture-gates/G0/snapshots/schema-index.json": {
+      "algorithm": "sha256",
+      "current": "96fb56aa5d108e95408038cdb1aae23fe55cb8a52545e4579acbfb8cfd5219d3",
+      "recorded_commit": "96fb56aa5d108e95408038cdb1aae23fe55cb8a52545e4579acbfb8cfd5219d3"
+    },
+    "docs/architecture-gates/milestone-evidence.schema.json": {
+      "algorithm": "sha256",
+      "current": "602768402035e3e1ce51e4350ac889047f5f64e14861103fd87f5dde5b5650ab",
+      "recorded_commit": "602768402035e3e1ce51e4350ac889047f5f64e14861103fd87f5dde5b5650ab"
+    },
+    "e2e/postgres-schema.e2e.test.ts": {
+      "algorithm": "sha256",
+      "current": "cff49cb631fe6a98e571bf8390c32ff87134a1edda6fa4324052cf7ee1d94e89",
+      "recorded_commit": "cff49cb631fe6a98e571bf8390c32ff87134a1edda6fa4324052cf7ee1d94e89"
+    },
+    "e2e/postgres-migration.e2e.test.ts": {
+      "algorithm": "sha256",
+      "current": "a9e1da7701b21d0de00c8cebbf823b180c4fbbbfebca4924f69cd5daf1411349",
+      "recorded_commit": "a9e1da7701b21d0de00c8cebbf823b180c4fbbbfebca4924f69cd5daf1411349"
+    },
+    "e2e/postgres-store.e2e.test.ts": {
+      "algorithm": "sha256",
+      "current": "68795b16a49c36bff7d07ac443d6de2cde8004d08d5300977d7a3008349c1ba0",
+      "recorded_commit": "68795b16a49c36bff7d07ac443d6de2cde8004d08d5300977d7a3008349c1ba0"
+    },
+    "scripts/migrate.test.ts": {
+      "algorithm": "sha256",
+      "current": "57503ea690d42a5fe3e5756a830e4086d9c640b75818b620e77c416cbd94303a",
+      "recorded_commit": "57503ea690d42a5fe3e5756a830e4086d9c640b75818b620e77c416cbd94303a"
+    },
+    "server/context-planner.test.ts": {
+      "algorithm": "sha256",
+      "current": "65602b025436b588153996596e79bbe07aaa792940a41ab22ac9d2bc6354f507",
+      "recorded_commit": "65602b025436b588153996596e79bbe07aaa792940a41ab22ac9d2bc6354f507"
+    },
+    "server/identity/workspace-directory.ts": {
+      "algorithm": "sha256",
+      "current": "032044b93e82709c60943d7839834473e492178ae3a1b5c52d2832495967ddf8",
+      "recorded_commit": "032044b93e82709c60943d7839834473e492178ae3a1b5c52d2832495967ddf8"
+    },
+    "server/identity/workspace-scope.ts": {
+      "algorithm": "sha256",
+      "current": "4673dad30e20fdc18a00598c369ad316f1d97e861faca86c5169b928bcb2ea44",
+      "recorded_commit": "4673dad30e20fdc18a00598c369ad316f1d97e861faca86c5169b928bcb2ea44"
+    },
+    "server/index.ts": {
+      "algorithm": "sha256",
+      "current": "54a1fe79eff3362497429b169265707561e7009926188c295060e4671c483788",
+      "recorded_commit": "54a1fe79eff3362497429b169265707561e7009926188c295060e4671c483788"
+    },
+    "server/postgres-store.ts": {
+      "algorithm": "sha256",
+      "current": "1a1ce77625c9be3ef8d7b37ce0d56782c13172f2fe4aefc978804716710a9d54",
+      "recorded_commit": "1a1ce77625c9be3ef8d7b37ce0d56782c13172f2fe4aefc978804716710a9d54"
+    },
+    "server/store.ts": {
+      "algorithm": "sha256",
+      "current": "718bf149e05aaf490c94929ce6f80e0daaf8bc682b89a4cf82cb37545f06c5bd",
+      "recorded_commit": "718bf149e05aaf490c94929ce6f80e0daaf8bc682b89a4cf82cb37545f06c5bd"
+    },
+    "src/api.test.ts": {
+      "algorithm": "sha256",
+      "current": "76382fcd546ee73257fceb2cfef38ad216d3128356bacca844739ca92d42e7d8",
+      "recorded_commit": "76382fcd546ee73257fceb2cfef38ad216d3128356bacca844739ca92d42e7d8"
+    },
+    "src/components/GraphView.test.tsx": {
+      "algorithm": "sha256",
+      "current": "95c8d0049327ba26fe072ea66b032c0f8ccc7681fdadea751c060376be2d0b2b",
+      "recorded_commit": "95c8d0049327ba26fe072ea66b032c0f8ccc7681fdadea751c060376be2d0b2b"
+    },
+    "src/components/Sidebar.tsx": {
+      "algorithm": "sha256",
+      "current": "04d4d53e6c94a6986083ae29ef92e722294e5bb313661151384955593bed6006",
+      "recorded_commit": "04d4d53e6c94a6986083ae29ef92e722294e5bb313661151384955593bed6006"
+    },
+    "src/types.ts": {
+      "algorithm": "sha256",
+      "current": "5b6b84e4b49580b60313ef55e28ad1ca9700ffb88432156759bf6d8d16e02e35",
+      "recorded_commit": "5b6b84e4b49580b60313ef55e28ad1ca9700ffb88432156759bf6d8d16e02e35"
+    },
+    "db/migrations/0006_resource_blob_host.up.sql": {
+      "algorithm": "sha256",
+      "current": "2fc7e73e77b97540ec5515ad2813312800dbe9e911ac3decfd2a066df90e55fb",
+      "recorded_commit": "2fc7e73e77b97540ec5515ad2813312800dbe9e911ac3decfd2a066df90e55fb"
+    },
+    "db/migrations/0006_resource_blob_host.down.sql": {
+      "algorithm": "sha256",
+      "current": "ed1a19051935feb16cce06a61ee58cf4214eacd3e6ad244b6629542d85f4e923",
+      "recorded_commit": "ed1a19051935feb16cce06a61ee58cf4214eacd3e6ad244b6629542d85f4e923"
+    },
+    "docs/Rhiza_开发路线图_V4.2_20260829.md": {
+      "algorithm": "sha256",
+      "current": "29d0eed0b7e68e5890f4bc22f652d7a209c8ffb6a96cccd6f09aa22b13c32f6e",
+      "recorded_commit": "29d0eed0b7e68e5890f4bc22f652d7a209c8ffb6a96cccd6f09aa22b13c32f6e"
+    },
+    "docs/Rhiza_技术架构设计书_V4.2_20260829.md": {
+      "algorithm": "sha256",
+      "current": "4b5e94a941f965ac25c976e038e5880a63a3536d67cc6dbe6c24866f7d705621",
+      "recorded_commit": "4b5e94a941f965ac25c976e038e5880a63a3536d67cc6dbe6c24866f7d705621"
+    },
+    "docs/adr/ADR-003-resource-identity-and-content-hash.md": {
+      "algorithm": "sha256",
+      "current": "e25a8248ee52011d90216767acde1c7e5d31df71cfe4523fe9ec6c67cdf23647",
+      "recorded_commit": "e25a8248ee52011d90216767acde1c7e5d31df71cfe4523fe9ec6c67cdf23647"
+    },
+    "docs/architecture-gates/M04/resource-fixture.json": {
+      "algorithm": "sha256",
+      "current": "a38b4be249aa5627b2d88a11ee2aea82f8134f30f74c4e4946541586ef00d0a0",
+      "recorded_commit": "a38b4be249aa5627b2d88a11ee2aea82f8134f30f74c4e4946541586ef00d0a0"
+    },
+    "docs/architecture.md": {
+      "algorithm": "sha256",
+      "current": "24c050c6eedf9f329d27237a51379de3ac26e538a01f25f84580c528106a0932",
+      "recorded_commit": "24c050c6eedf9f329d27237a51379de3ac26e538a01f25f84580c528106a0932"
+    },
+    "docs/know-how.md": {
+      "algorithm": "sha256",
+      "current": "df2146a47c985ead64da93e8305ebf15b585d07ca11447363d071fc74a07ca5d",
+      "recorded_commit": "df2146a47c985ead64da93e8305ebf15b585d07ca11447363d071fc74a07ca5d"
+    },
+    "e2e/resource-backfill.e2e.test.ts": {
+      "algorithm": "sha256",
+      "current": "a69fe1624e24fc63d5261a25ecf9f4e1c78041299ade9be46e05a5168db2264e",
+      "recorded_commit": "a69fe1624e24fc63d5261a25ecf9f4e1c78041299ade9be46e05a5168db2264e"
+    },
+    "scripts/backfill-resources.ts": {
+      "algorithm": "sha256",
+      "current": "5c67408501b7ef9f20828b341d846070e2292460aff5a80d6516a5803d221ad6",
+      "recorded_commit": "5c67408501b7ef9f20828b341d846070e2292460aff5a80d6516a5803d221ad6"
+    },
+    "scripts/architecture-gates/verify-m04-host-boundary.ts": {
+      "algorithm": "sha256",
+      "current": "340e8469c603a22eb7e95d21d5e180110d3f19d21b44802a121b809510f85890",
+      "recorded_commit": "340e8469c603a22eb7e95d21d5e180110d3f19d21b44802a121b809510f85890"
+    },
+    "scripts/architecture-gates/verify-m04-host-boundary.test.ts": {
+      "algorithm": "sha256",
+      "current": "3664b59ca929a86fe9431292a551c77e3b068f31311b2fe12f12e36890f75dea",
+      "recorded_commit": "3664b59ca929a86fe9431292a551c77e3b068f31311b2fe12f12e36890f75dea"
+    },
+    "server/application/ports/host-runtime.ts": {
+      "algorithm": "sha256",
+      "current": "acf29ce7a836a4d0c66a1200b079c3673444fa00ce25d0baa7be192800166bc5",
+      "recorded_commit": "acf29ce7a836a4d0c66a1200b079c3673444fa00ce25d0baa7be192800166bc5"
+    },
+    "server/domain.ts": {
+      "algorithm": "sha256",
+      "current": "bf2ec49580f125e2390cce3ab9ca4b2759d9f625bd712dfd8765cd8fbd6c4e46",
+      "recorded_commit": "bf2ec49580f125e2390cce3ab9ca4b2759d9f625bd712dfd8765cd8fbd6c4e46"
+    },
+    "server/infrastructure/node-host-runtime.ts": {
+      "algorithm": "sha256",
+      "current": "7f993be2ee957dc01600b5711c3c48126d628c1d8c9b2735070283a6ae64ebdf",
+      "recorded_commit": "7f993be2ee957dc01600b5711c3c48126d628c1d8c9b2735070283a6ae64ebdf"
+    },
+    "server/infrastructure/node-host-runtime.test.ts": {
+      "algorithm": "sha256",
+      "current": "e885449ea4279bfe32a26849e834e9ee6f945f0340822a43804949511c9b7ec7",
+      "recorded_commit": "e885449ea4279bfe32a26849e834e9ee6f945f0340822a43804949511c9b7ec7"
+    },
+    "server/infrastructure/resource-backfill.ts": {
+      "algorithm": "sha256",
+      "current": "d1834698ebdb9a15bb21ee56047eb38801874fee7ed579d1efc28e1cc0a5e6ce",
+      "recorded_commit": "d1834698ebdb9a15bb21ee56047eb38801874fee7ed579d1efc28e1cc0a5e6ce"
+    },
+    "server/infrastructure/resource-backfill.test.ts": {
+      "algorithm": "sha256",
+      "current": "6309fea3e9f689984692f150d9a55a09e5ef93fae760b750b9ae807252e8259b",
+      "recorded_commit": "6309fea3e9f689984692f150d9a55a09e5ef93fae760b750b9ae807252e8259b"
+    },
+    "db/migrations/0007_domain_journal_facts.up.sql": {
+      "algorithm": "sha256",
+      "current": "5cba7592018ef7a9dbb60e2064b1a5512ee9212fa379933324aaa80dc7c8a08b",
+      "recorded_commit": "5cba7592018ef7a9dbb60e2064b1a5512ee9212fa379933324aaa80dc7c8a08b"
+    },
+    "db/migrations/0007_domain_journal_facts.down.sql": {
+      "algorithm": "sha256",
+      "current": "4c58f216c4de0d4ef9f4a29bb64e70c06b0b5c5d6b3f887265c554c8ec990cf5",
+      "recorded_commit": "4c58f216c4de0d4ef9f4a29bb64e70c06b0b5c5d6b3f887265c554c8ec990cf5"
+    },
+    "docs/adr/ADR-005-domain-event-catalog.md": {
+      "algorithm": "sha256",
+      "current": "4133bc8e681d8d4089ab87184cf4d96d29d8b0d81e6e2a83be6e953b7e910636",
+      "recorded_commit": "4133bc8e681d8d4089ab87184cf4d96d29d8b0d81e6e2a83be6e953b7e910636"
+    },
+    "docs/runbooks/m05-domain-journal-migration.md": {
+      "algorithm": "sha256",
+      "current": "3091c075a1ba581c2456531d2d7df1ef696f39e6dcc3074c0eb06f099aeefad2",
+      "recorded_commit": "3091c075a1ba581c2456531d2d7df1ef696f39e6dcc3074c0eb06f099aeefad2"
+    },
+    "docs/architecture-gates/M05/journal-fixture.json": {
+      "algorithm": "sha256",
+      "current": "aff30a96fdeeae62b86f14cfd09640c21a161e417659d9e665d8a7b6cd5e3b91",
+      "recorded_commit": "aff30a96fdeeae62b86f14cfd09640c21a161e417659d9e665d8a7b6cd5e3b91"
+    },
+    "e2e/m05-journal.e2e.test.ts": {
+      "algorithm": "sha256",
+      "current": "826d1356aa71743e5a80bba5f4e9b532ea345c34c29997f4f2e28c5de0a54d88",
+      "recorded_commit": "826d1356aa71743e5a80bba5f4e9b532ea345c34c29997f4f2e28c5de0a54d88"
+    },
+    "server/domain-journal.ts": {
+      "algorithm": "sha256",
+      "current": "868fceeb35a6dd8a6d0f9a7f6f845283733a0cdb42314d6dd6a3ed4ad1f10fcc",
+      "recorded_commit": "868fceeb35a6dd8a6d0f9a7f6f845283733a0cdb42314d6dd6a3ed4ad1f10fcc"
+    },
+    "server/embedded-store.ts": {
+      "algorithm": "sha256",
+      "current": "b34dc889897e74e6585b43e95f529a0a80a40aa6fa8bda7ab204f417e0d4f27a",
+      "recorded_commit": "b34dc889897e74e6585b43e95f529a0a80a40aa6fa8bda7ab204f417e0d4f27a"
+    },
+    "server/contracts/domain-event-envelope.schema.json": {
+      "algorithm": "sha256",
+      "current": "d5acd37088b37452c48fcba136ae6ff6f431289441d16d86fa1fe5f339e93810",
+      "recorded_commit": "d5acd37088b37452c48fcba136ae6ff6f431289441d16d86fa1fe5f339e93810"
+    },
+    "server/embedded-store.test.ts": {
+      "algorithm": "sha256",
+      "current": "1ead37f7854e4be0ffa5571d5cd68f80c1d8fa0f65c8d364b9a5cf0f529d159b",
+      "recorded_commit": "1ead37f7854e4be0ffa5571d5cd68f80c1d8fa0f65c8d364b9a5cf0f529d159b"
+    },
+    "server/infrastructure/workspace-semantic-checksum.ts": {
+      "algorithm": "sha256",
+      "current": "14576a0fdcba521f3aebb313f21a3716b923d9a56f50764a72827ed3976d1f72",
+      "recorded_commit": "14576a0fdcba521f3aebb313f21a3716b923d9a56f50764a72827ed3976d1f72"
+    },
+    "server/infrastructure/workspace-semantic-checksum.test.ts": {
+      "algorithm": "sha256",
+      "current": "7d36c7aea4df838a7783f52e4abfc04422270e83616fea0f9f63c8fd232707e8",
+      "recorded_commit": "7d36c7aea4df838a7783f52e4abfc04422270e83616fea0f9f63c8fd232707e8"
+    },
+    "docs/项目现状.md": {
+      "algorithm": "sha256",
+      "current": "f51391fdd911080142be92b7bdd321a6cf6e77d5051f5b0433aad1d43c2a33f4",
+      "recorded_commit": "f51391fdd911080142be92b7bdd321a6cf6e77d5051f5b0433aad1d43c2a33f4"
+    },
+    "scripts/backfill-journal.ts": {
+      "algorithm": "sha256",
+      "current": "9028e8ed65b4fbfd1015b43148bf5386410adfda0085487035b0ee1e835e9c35",
+      "recorded_commit": "9028e8ed65b4fbfd1015b43148bf5386410adfda0085487035b0ee1e835e9c35"
+    },
+    "scripts/reconcile-workspace.ts": {
+      "algorithm": "sha256",
+      "current": "b543c2866971b7265ece8a912995c412d2cd72d98f7303b6950482a5259c2571",
+      "recorded_commit": "b543c2866971b7265ece8a912995c412d2cd72d98f7303b6950482a5259c2571"
+    },
+    "scripts/import-json-workspace.ts": {
+      "algorithm": "sha256",
+      "current": "4499c00b85e30ada8c386f88c2053a03f96b319cd3ce4969fc3d47a68e882fee",
+      "recorded_commit": "4499c00b85e30ada8c386f88c2053a03f96b319cd3ce4969fc3d47a68e882fee"
+    },
+    "scripts/workspace-journal-tools.test.ts": {
+      "algorithm": "sha256",
+      "current": "e0c9c23d5c87648e320663f7fb37d6560ca92332327bc7990f30df6ddf70ea72",
+      "recorded_commit": "e0c9c23d5c87648e320663f7fb37d6560ca92332327bc7990f30df6ddf70ea72"
+    },
+    "scripts/migrate.ts": {
+      "algorithm": "sha256",
+      "current": "ea076ceb29983f87445bd7e7bb320004334e058babe89a641a93b474e8a72b81",
+      "recorded_commit": "ea076ceb29983f87445bd7e7bb320004334e058babe89a641a93b474e8a72b81"
+    },
+    "src/components/ActivityView.tsx": {
+      "algorithm": "sha256",
+      "current": "bffdbec782e23283f0fc88ea24873a6cf40b7760931b5a3f041641a8fdf8eed4",
+      "recorded_commit": "bffdbec782e23283f0fc88ea24873a6cf40b7760931b5a3f041641a8fdf8eed4"
+    }
+  },
+  "failure_classification": {
+    "classification": "none",
+    "rationale": "M05 transaction facts, committed/rejected receipts, sequence concurrency, three-write rollback, append-only Journal, baseline backfill, embedded backend and activity timeline gates passed; the real PostgreSQL E2E is conditionally skipped without DATABASE_URL and is not claimed as passed."
+  },
+  "known_exceptions": [],
+  "severity": "blocking",
+  "thresholds": {
+    "missing_semantic_events": 0,
+    "retry_100_new_events_after_first": 0,
+    "three_write_half_commits": 0,
+    "concurrent_duplicate_sequences": 0,
+    "concurrent_out_of_order_sequences": 0,
+    "backfill_checksum_drift": 0,
+    "high_frequency_journal_events": 0,
+    "journal_mutation_database_rejections": 3,
+    "activity_timeline": "pass"
+  },
+  "observed_metrics": {
+    "required_gate_commands": 9,
+    "missing_semantic_events": 0,
+    "retry_100_new_events_after_first": 0,
+    "three_write_half_commits": 0,
+    "concurrent_duplicate_sequences": 0,
+    "concurrent_out_of_order_sequences": 0,
+    "backfill_checksum_drift": 0,
+    "high_frequency_journal_events": 0,
+    "journal_mutation_database_rejections": 3,
+    "activity_timeline": "pass",
+    "real_postgres_e2e": {
+      "status": "skipped",
+      "reason": "DATABASE_URL is not configured in this evidence environment"
+    }
+  },
+  "failure_injection_checkpoint": {
+    "checkpoint": "state, event and receipt writes",
+    "injection_command": "pnpm vitest run e2e/m05-journal.e2e.test.ts -t \"checkpoint fails\" --maxWorkers=1 --testTimeout=30000",
+    "expected": "every injected checkpoint failure rolls back state, event and receipt with half commit count zero"
+  },
+  "recovery_command": "pnpm vitest run e2e/m05-journal.e2e.test.ts --maxWorkers=1 --testTimeout=30000",
+  "environment": {
+    "node": "v26.7.0",
+    "os": "darwin 25.5.0",
+    "cpu": "Apple A18 Pro",
+    "memory_bytes": 8589934592
+  },
+  "started_at": "2026-08-30T15:58:38.941Z",
+  "completed_at": "2026-08-30T16:01:46.756Z",
+  "result": "pass"
+}
