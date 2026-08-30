@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { chunkText, extractPdfText, planContext, summarizeChunks } from './context-planner';
 import { createSeedWorkspace } from './seed';
@@ -12,10 +13,11 @@ function withFile(text: string, chunkCharacters = 80): WorkspaceData {
 
 describe('Context Planner M5', () => {
   it('chunks long resources with provenance instead of retaining extractedText on the file', () => {
-    const workspace = withFile('检索证据与来源追踪。\n'.repeat(480_000), 4_000);
-    expect(workspace.attachments[0].size).toBeGreaterThan(5_000_000);
-    expect(workspace.fileChunks.length).toBeGreaterThan(1_000);
-    expect(Math.max(...workspace.fileChunks.map(chunk => chunk.text.length))).toBeLessThanOrEqual(4_100);
+    // Large-file throughput remains observed by benchmark:m5; this checks the chunk contract.
+    const workspace = withFile('检索证据与来源追踪。\n'.repeat(1_200), 400);
+    expect(workspace.attachments[0].size).toBeGreaterThan(10_000);
+    expect(workspace.fileChunks.length).toBeGreaterThan(10);
+    expect(Math.max(...workspace.fileChunks.map(chunk => chunk.text.length))).toBeLessThanOrEqual(500);
     expect(workspace.fileChunks[1]).toMatchObject({ attachmentId: 'file-research', ordinal: 1 });
     expect(workspace.attachments[0]).not.toHaveProperty('extractedText');
   });

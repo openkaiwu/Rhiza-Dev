@@ -4,18 +4,167 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it } from 'vitest';
+import request from 'supertest';
 import type { ContextManifest } from '../server/domain';
+import { createRhizaApplication } from '../server/application/create-application';
+import { createHttpApp } from '../server/http/app';
+import { WorkspaceDirectory } from '../server/identity/workspace-directory';
 import { PostgresWorkspaceStore } from '../server/postgres-store';
+import { RepositoryWorkspaceUnitOfWork } from '../server/infrastructure/workspace-repository-unit-of-work';
 
 async function migratedDatabase() {
   const database = new PGlite();
   for (const migration of ['0001_rhiza_core', '0002_chat_parity', '0003_domain_persistence', '0004_immutable_manifest_history']) {
     await database.exec(await readFile(resolve(`db/migrations/${migration}.up.sql`), 'utf8'));
   }
+  await database.exec(await readFile(resolve('db/migrations/0005_identity_workspace_scope.up.sql'), 'utf8'));
+  await database.exec(await readFile(resolve('db/migrations/0006_resource_blob_host.up.sql'), 'utf8'));
+  await database.exec(await readFile(resolve('db/migrations/0007_domain_journal_facts.up.sql'), 'utf8'));
   return database;
 }
 
+function legacyApp(database: PGlite, defaultWorkspaceId: string) {
+  const store = new PostgresWorkspaceStore(database, defaultWorkspaceId);
+  const application = createRhizaApplication({
+    unitOfWork: new RepositoryWorkspaceUnitOfWork(store), workspaceDirectory: new WorkspaceDirectory(store.workspaceDirectory), defaultWorkspaceId,
+    runtime: { kind: 'provider-adapter', listModels: async () => [{ id: 'model', provider: 'test', model: 'test', displayName: 'test', active: true }], async *generate() { yield { type: 'RUN_END', requestId: 'run', text: 'unused', model: 'test', provider: 'test' } as const; } },
+    providers: { snapshot: async () => ({ filePolicy: { maxFileSizeBytes: 1, supportedMimeTypes: [], disabled: false, maxFiles: 1, maxTotalSizeBytes: 1, fileTokenLimit: 1 }, providers: [], models: [], activeModelId: null, modelSpecs: [] }), activeStatus: async () => ({ configured: true, name: 'test', model: 'test', baseUrl: '' }), saveProvider: async () => ({}) as never, discoverModels: async () => ({}) as never, updateModel: async () => ({}) as never, selectModel: async () => ({}) as never },
+    host: {
+      describe: () => ({ host: 'headless', fileAccess: 'available', pathNormalization: 'available', blobStorage: 'available', credentialAccess: 'unavailable', spawn: 'unavailable', desktop: 'unavailable' }),
+      normalizePath: path => path,
+      blobs: { put: async bytes => ({ digestAlgorithm: 'sha256', digest: 'a'.repeat(64), blobRef: `sha256/aa/${'a'.repeat(64)}`, size: bytes.length }), read: async () => new Uint8Array(), collectOrphans: async () => ({ deleted: [], retained: [] }) },
+      readCredential: async () => ({ state: 'unavailable', reason: 'test' }),
+    }, textExtraction: { extractText: async () => '' },
+    planner: { plan: workspace => ({ items: workspace.contextItems, diagnostics: { candidateCount: 0, selectedCount: 0, elapsedMs: 0, fallback: false, budget: 1, usedTokens: 0 } }), sourceItem: (_workspace, _sourceType, sourceId) => ({ id: sourceId, title: sourceId, detail: sourceId, role: 'Reference', status: 'active', tokens: 1 }), processAttachment: () => ({ chunks: [], summary: '' }) },
+    id: randomUUID, now: () => new Date().toISOString(),
+  });
+  return { app: createHttpApp(application, { id: randomUUID, runtimeKind: 'provider-adapter', featureFlags: {}, providerPresets: {}, defaultWorkspaceId }), store };
+}
+
 describe('PostgreSQL workspace persistence', () => {
+  it('serves committed Domain Journal facts through the Workspace activity endpoint', async () => {
+    const database = await migratedDatabase();
+    const workspaceId = randomUUID();
+    try {
+      const { app } = legacyApp(database, workspaceId);
+      await request(app).get('/api/workspace').expect(200);
+      await request(app).post('/api/graph/nodes').send({ title: 'Timeline node', summary: 'M05', x: 120, y: 80 }).expect(201);
+      const timeline = await request(app).get('/api/workspace/activity').expect(200);
+      expect(timeline.body.activity).toEqual([expect.objectContaining({ sequence: 1, type: 'graph.node.created', title: '创建讨论节点' })]);
+    } finally { await database.close(); }
+  });
+
+  it('honors HTTP idempotency keys, including replay after Workspace archive', async () => {
+    const database = await migratedDatabase();
+    const workspaceId = randomUUID();
+    try {
+      const { app, store } = legacyApp(database, workspaceId);
+      await request(app).get('/api/workspace').expect(200);
+      for (let retry = 0; retry < 2; retry += 1) await request(app).post('/api/graph/nodes').set('Idempotency-Key', 'same-node').set('If-Match', '1').send({ title: 'Once' }).expect(201);
+      expect((await store.read()).discussionNodes.filter(node => node.title === 'Once')).toHaveLength(1);
+      const archived = await request(app).patch(`/api/v1/workspaces/${workspaceId}`).set('Idempotency-Key', 'same-archive').set('If-Match', '2').send({ action: 'archive' }).expect(200);
+      const replay = await request(app).patch(`/api/v1/workspaces/${workspaceId}`).set('Idempotency-Key', 'same-archive').set('If-Match', '2').send({ action: 'archive' }).expect(200);
+      expect(replay.body).toEqual(archived.body);
+      expect(await store.readJournal()).toHaveLength(2);
+      const conflict = await request(app).patch(`/api/v1/workspaces/${workspaceId}`).set('Idempotency-Key', 'same-archive').send({ action: 'restore' }).expect(409);
+      expect(conflict.body.error.code).toBe('COMMAND_ID_CONFLICT');
+    } finally { await database.close(); }
+  });
+
+  it('bootstraps the migrated default through legacy HTTP reads exactly once', async () => {
+    const database = await migratedDatabase();
+    const workspaceId = '00000000-0000-4000-8000-000000000099';
+    try {
+      const first = legacyApp(database, workspaceId);
+      const initial = await request(first.app).get('/api/workspace').expect(200);
+      expect(initial.body.workspace).toMatchObject({ projectId: workspaceId, discussionNodes: [expect.objectContaining({ kind: 'main' })] });
+      expect((await database.query('SELECT user_id FROM users')).rows).toEqual([{ user_id: '00000000-0000-4000-8000-000000000002' }]);
+      expect((await database.query('SELECT workspace_id FROM workspaces')).rows).toEqual([{ workspace_id: workspaceId }]);
+      expect((await database.query('SELECT workspace_id,user_id,role FROM workspace_members')).rows).toEqual([{ workspace_id: workspaceId, user_id: '00000000-0000-4000-8000-000000000002', role: 'owner' }]);
+      const second = legacyApp(database, workspaceId);
+      await expect(request(second.app).get('/api/workspace').expect(200)).resolves.toMatchObject({ body: { workspace: { discussionNodes: [expect.any(Object)] } } });
+      expect((await database.query('SELECT count(*)::int count FROM workspace_members')).rows).toEqual([{ count: 1 }]);
+    } finally { await database.close(); }
+  });
+
+  it('does not grant local membership to an existing configured default', async () => {
+    const database = await migratedDatabase();
+    const workspaceId = '00000000-0000-4000-8000-000000000098';
+    const ownerId = '00000000-0000-4000-8000-000000000003';
+    try {
+      await database.query("INSERT INTO users (user_id,display_name) VALUES ($1,'Other owner')", [ownerId]);
+      await database.query("INSERT INTO rhiza_projects (id,title,state) VALUES ($1,'Existing custom','{}'::jsonb)", [workspaceId]);
+      await database.query("INSERT INTO workspaces (workspace_id,name,status,created_by) VALUES ($1,'Existing custom','active',$2)", [workspaceId, ownerId]);
+      await database.query("INSERT INTO workspace_members (workspace_id,user_id,role) VALUES ($1,$2,'owner')", [workspaceId, ownerId]);
+      await request(legacyApp(database, workspaceId).app).get('/api/workspace').expect(403);
+      expect((await database.query('SELECT workspace_id,user_id,role FROM workspace_members ORDER BY user_id')).rows).toEqual([{ workspace_id: workspaceId, user_id: ownerId, role: 'owner' }]);
+      await database.query("INSERT INTO workspace_members (workspace_id,user_id,role) VALUES ($1,'00000000-0000-4000-8000-000000000002','member')", [workspaceId]);
+      await expect(request(legacyApp(database, workspaceId).app).get('/api/workspace').expect(200)).resolves.toMatchObject({ body: { workspace: { projectId: workspaceId, discussionNodes: [expect.any(Object)] } } });
+    } finally { await database.close(); }
+  });
+  it('seeds a directory-only workspace once and keeps it readable after reconstruction', async () => {
+    const database = await migratedDatabase();
+    try {
+      const workspaceId = randomUUID();
+      const store = new PostgresWorkspaceStore(database);
+      await store.workspaceDirectory!.createWorkspace({ workspaceId, name: 'Directory only', status: 'active', createdBy: '00000000-0000-4000-8000-000000000002', revision: 1 });
+      const unit = new RepositoryWorkspaceUnitOfWork(store);
+      await unit.ensureWorkspaceInitialized(workspaceId, 'Directory only');
+      const restored = new RepositoryWorkspaceUnitOfWork(new PostgresWorkspaceStore(database));
+      await expect(restored.withWorkspace!(workspaceId, () => restored.read(item => item.discussionNodes.length))).resolves.toBeGreaterThan(0);
+    } finally { await database.close(); }
+  });
+
+  it('atomically accepts only one PostgreSQL directory revision update', async () => {
+    const database = await migratedDatabase();
+    try {
+      const store = new PostgresWorkspaceStore(database);
+      const port = store.workspaceDirectory!;
+      const record = { workspaceId: randomUUID(), name: 'Original', status: 'active' as const, createdBy: '00000000-0000-4000-8000-000000000002', revision: 1 };
+      await port.createWorkspace(record);
+      const [first, second] = await Promise.all([
+        port.updateWorkspace({ ...record, name: 'First', revision: 2 }, 1),
+        port.updateWorkspace({ ...record, name: 'Second', revision: 2 }, 1),
+      ]);
+      expect([first, second].filter(Boolean)).toHaveLength(1);
+      expect(await port.listWorkspaces(record.createdBy, true)).toEqual(expect.arrayContaining([expect.objectContaining({ workspaceId: record.workspaceId, revision: 2, name: expect.stringMatching(/First|Second/) })]));
+    } finally { await database.close(); }
+  });
+
+  it('authorizes PostgreSQL workspaces by membership, not creator metadata', async () => {
+    const database = await migratedDatabase();
+    try {
+      const owner = '00000000-0000-4000-8000-000000000002';
+      const member = '00000000-0000-4000-8000-000000000003';
+      const workspaceId = randomUUID();
+      const store = new PostgresWorkspaceStore(database);
+      const directory = new WorkspaceDirectory(store.workspaceDirectory);
+      await store.workspaceDirectory.ensureWorkspace({ workspaceId, name: 'Members', status: 'active', createdBy: owner, revision: 1 });
+      await database.query("INSERT INTO users (user_id,display_name) VALUES ($1,'Member')", [member]);
+      await database.query("INSERT INTO workspace_members (workspace_id,user_id,role) VALUES ($1,$2,'member')", [workspaceId, member]);
+      const actor = { actorType: 'human' as const, actorId: member };
+      await expect(directory.list(actor, true)).resolves.toEqual([expect.objectContaining({ workspaceId })]);
+      await expect(directory.require(actor, workspaceId, { scopeType: 'workspace', scopeId: workspaceId })).resolves.toMatchObject({ workspaceId });
+      await database.query('DELETE FROM workspace_members WHERE workspace_id=$1 AND user_id=$2', [workspaceId, member]);
+      await expect(directory.require(actor, workspaceId, { scopeType: 'workspace', scopeId: workspaceId })).rejects.toMatchObject({ code: 'WORKSPACE_ACCESS_DENIED' });
+      await database.query('DELETE FROM workspace_members WHERE workspace_id=$1 AND user_id=$2', [workspaceId, owner]);
+      await expect(directory.require({ actorType: 'human', actorId: owner }, workspaceId, { scopeType: 'workspace', scopeId: workspaceId })).rejects.toMatchObject({ code: 'WORKSPACE_ACCESS_DENIED' });
+    } finally { await database.close(); }
+  });
+
+  it('persists a scoped aggregate across reconstructed UoWs without changing default', async () => {
+    const database = await migratedDatabase();
+    try {
+      const defaultId = randomUUID(); const scopedId = randomUUID();
+      const unit = new RepositoryWorkspaceUnitOfWork(new PostgresWorkspaceStore(database, defaultId));
+      await unit.read(item => item.projectId);
+      await unit.ensureWorkspaceInitialized(scopedId, 'Second workspace');
+      await unit.withWorkspace!(scopedId, () => unit.execute({ policy: { kind: 'normal' }, apply: current => ({ next: { ...current, projectTitle: 'Scoped saved' }, value: undefined }) }));
+      const restored = new RepositoryWorkspaceUnitOfWork(new PostgresWorkspaceStore(database, defaultId));
+      await expect(restored.withWorkspace!(scopedId, () => restored.read(item => item.projectTitle))).resolves.toBe('Scoped saved');
+      await expect(restored.read(item => item.projectTitle)).resolves.toBe('Rhiza 产品研究');
+    } finally { await database.close(); }
+  });
   it('transactionally restores Project, Node, Segment, Event and audit state', async () => {
     const database = await migratedDatabase();
     try {

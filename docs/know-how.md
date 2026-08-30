@@ -21,7 +21,22 @@
 - 领域状态由 `App` 统一持有，表现组件通过回调修改，避免 Context 数量和预算显示不一致。
 - Provider 调用必须只发生在服务端；浏览器不得读取 API Key 或直接调用第三方模型。
 - 一次成功 Chat 写入必须同时包含用户消息、AI 消息与 Context Manifest，避免审计记录和消息历史分离。
+- ResourceVersion 是 append-only 历史事实：同一 Resource 的新内容只能新增版本，不得修改或删除旧版本；FileChunk 只能登记为 materialization，不能替代原始 ResourceVersion。
+- Blob 提交顺序固定为 temp write → SHA-256 verify → atomic promote → Workspace/DB commit。DB 失败后保留已 promote blob 给 grace-period GC，不能先提交引用再补文件。
+- orphan GC 只能在调用方提供覆盖整个 BlobStore 的完整 active-reference set 后执行；不得用当前用户或单个 Workspace 的局部引用集合扫描全局 store。
+- versioned blob 读取失败或 digest 不匹配必须返回稳定 `BLOB_INTEGRITY_ERROR`，不能静默回退旧 UUID 附件。旧路径只服务尚未回填的 legacy attachment；运行 `pnpm run resources:backfill` 后 dangling 必须为 0 且重复运行 checksum 一致。
+- M04 的 HostRuntimePort 只包含当前 Chat 所需 file/path/blob/credential seam。spawn/PTY/process supervision 属于 M24，Desktop 与真实跨平台 host matrix 属于 M29；不要为这些延后能力在 M04 建兼容层或 fake matrix。
+- 对生产 relational adapter，M05 的 `WorkspaceUnitOfWork` 是 State + Event + Receipt 唯一事务 seam。命令处理器只提供 mutation；adapter 负责 command lock、receipt lookup、sequence reservation、Journal append、shadow checksum 与 commit。不得把这些步骤散落到 HTTP 或各个 command handler。JSON repository 的无 Journal 更新路径只允许测试 fixture 与显式 legacy import 使用，不得接入生产 composition root。
+- Domain Journal 只记录 ADR-005 的低频语义事实。token、SSE chunk、stdout/stderr、file-read、heartbeat 与 telemetry 不得进入 `workspace_events`；M25 之前不得创建 `workflow.*` catalog。
+- Semantic reconcile 按稳定 ID 规范化顶层实体集合并按 key 规范化对象，不能依赖 SQL 返回顺序或 JSON 属性顺序；嵌套有序值保持顺序敏感，业务字段变化仍必须产生 checksum drift。
+- 历史 Workspace 回填写 `workspace.baseline.backfilled`、内联 versioned semantic snapshot 与 checksum，不伪造过去的细粒度行为。固定 command id `backfill:workspace-baseline:v1` 保证脚本可中断、可重跑；新建 Workspace 的 `workspace.created` 自带初始 snapshot。
+- 确定性拒绝须在命令锁内回滚 savepoint 并提交 rejected receipt；不能先释放锁再用新事务补 receipt，否则并发同 id 重试可能先提交不同结果。生命周期命令与内容命令遵守同一 Workspace 锁顺序。
+- Backfill 必须发生在业务 tail 之前；如果已有 event 却没有 sequence-1 baseline，应以 `JOURNAL_BASELINE_ORDER_CONFLICT` 停止并从启用前备份恢复，不能移动或改写既有 sequence。
+- 无 `DATABASE_URL` 时默认使用 embedded PGlite；JSON WorkspaceStore 只作为 fixture/importer。旧 JSON 数据必须通过 `pnpm run workspace:import-json` 显式导入，再运行/确认 Journal baseline。
 - Workspace 更新通过串行队列与临时文件替换，避免多个请求交错造成 JSON 部分写入。
+- M03 的 HTTP identity 是确定性 local actor seam，不是认证实现；旧 `/api/*` 只能映射到 configured default Workspace，scoped 路径的 ScopeRef 必须从 `/api/v1/workspaces/:workspaceId` 派生，不能信任 body 中的 workspace id。
+- 已存在但不属于 local actor 的 configured default Workspace 不得被 bootstrap 自动授予 membership；只有缺失的 default Workspace 才可按 local owner 初始化。
+- Workspace 切换必须先清空旧 scope 数据，并以 request generation 丢弃乱序响应；失败时宁可显示空状态和错误，也不能短暂回显上一个 Workspace。
 - API Key 使用随机本机密钥进行 AES-256-GCM 加密；安全响应只返回 `hasApiKey`，永不返回密文或明文。
 - Chat 运行时必须从持久化的 `activeModelId` 解析供应商，Manifest 保存真实 Provider model ID。
 - 模型选择必须在生成前冻结为 Runtime `modelId`；不要在请求执行中途再次读取可变的 `activeModelId`。

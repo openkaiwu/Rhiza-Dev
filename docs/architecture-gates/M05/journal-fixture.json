@@ -1,0 +1,17 @@
+{
+  "$schema": "https://rhiza.dev/architecture-gates/m05-journal-fixture/1.0.0",
+  "ce_specversion": "1.0",
+  "rhiza_envelope_version": "1.0.0",
+  "architecture_version": "V4.2",
+  "milestone": "M05",
+  "scenarios": [
+    { "id": "retry-100", "commands": 100, "expected_new_events": 1, "expected_receipts": 1 },
+    { "id": "concurrent-100", "commands": 100, "expected_duplicate_sequences": 0, "expected_out_of_order_sequences": 0 },
+    { "id": "three-write-checkpoints", "checkpoints": ["state", "event", "receipt"], "expected_half_commits": 0 },
+    { "id": "baseline-backfill", "runs": 2, "expected_checksum_drift": 0 },
+    { "id": "append-only", "operations": ["UPDATE", "DELETE", "TRUNCATE"], "expected_database_rejections": 3 },
+    { "id": "baseline-tail-reconcile", "expected_checksum_drift": 0 },
+    { "id": "http-idempotency", "expected_duplicate_mutations": 0 },
+    { "id": "timeline", "forbidden_event_families": ["token", "stdout", "file-read", "workflow.*"] }
+  ]
+}

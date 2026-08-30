@@ -68,6 +68,18 @@ manifest before it is committed separately. `--write` never writes evidence
 after a failed or skipped command. It also requires the worktree inputs to
 match the implementation commit.
 
+For milestone evidence, each `fixtures[].id` is the fixture identifier and its
+`path` is required in `checksums`; that entry's `recorded_commit` SHA-256 is
+the fixture digest. The `environment` record is the observed environment
+profile (Node, OS, CPU, memory) for that exact run. This is the milestone
+equivalent of `fixture_id` + `fixture_digest` + `environment_profile`; the
+verifier rejects a fixture without its commit-bound digest.
+
+The shared schema accepts V4.0 and V4.1, while the verifier fixes the allowed
+architecture version per milestone: M01 and M02 remain historical V4.0
+evidence; M03 is current V4.1 evidence. This keeps historical manifests
+verifiable without allowing a newly written M03 manifest to regress to V4.0.
+
 Ordinary reads, including `pnpm verify:m02:v4` in CI, validate checksums from the recorded Git object so older
 milestones remain verifiable after later milestones legitimately change the
 same files. Run `pnpm verify:m02:closure` once while closing M02 to also require

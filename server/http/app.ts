@@ -1,4 +1,5 @@
 import express from 'express';
+import { createHash } from 'node:crypto';
 import { ApplicationError, applicationError } from '../contracts/application-error';
 import {
   createLegacyCommandEnvelope,
@@ -33,6 +34,7 @@ export interface HttpAppOptions {
   runtimeKind: 'provider-adapter' | 'librechat';
   featureFlags: unknown;
   providerPresets: unknown;
+  defaultWorkspaceId?: string;
   frontendDirectory?: string;
   log?: {
     info(message: string): void;
@@ -82,6 +84,16 @@ function writeSse(response: express.Response, event: string, payload: unknown): 
   response.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
 }
 
+function expectedRevision(request: express.Request): number | undefined {
+  const value = request.get('If-Match')?.replaceAll('"', '').trim();
+  return value && /^\d+$/.test(value) ? Number(value) : undefined;
+}
+
+function idempotentWorkspaceId(actorId: string, key: string): string {
+  const hex = createHash('sha256').update(`${actorId}:${key}`).digest('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
 export function createHttpApp(application: Application, options: HttpAppOptions): express.Express {
   const app = express();
   const log = options.log ?? console;
@@ -93,18 +105,38 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
     commandType: K,
     payload: CommandMap[K]['payload'],
     executionOptions?: CommandExecutionOptions,
-  ): Promise<CommandResult<K>> => application.execute(
-    createLegacyCommandEnvelope(options.id(), commandType, payload, correlationId(response)),
-    executionOptions,
-  );
+  ): Promise<CommandResult<K>> => {
+    const scoped = response.locals.workspaceIdentity as ReturnType<typeof workspaceIdentity> | undefined;
+    return application.execute({ ...createLegacyCommandEnvelope(response.locals.commandId || options.id(), commandType, payload, correlationId(response)), ...(scoped || {}), ...(response.locals.expectedRevision === undefined ? {} : { expectedRevision: response.locals.expectedRevision }) }, executionOptions);
+  };
   const query = <K extends QueryType>(response: express.Response, queryType: K, payload: QueryMap[K]['payload']): Promise<QueryResult<K>> =>
-    application.query(createLegacyQueryEnvelope(options.id(), queryType, payload, correlationId(response)));
+    application.query({ ...createLegacyQueryEnvelope(options.id(), queryType, payload, correlationId(response)), ...(response.locals.workspaceIdentity || {}) });
+  const workspaceIdentity = (workspaceId: string) => ({ workspaceId, actor: { actorType: 'human' as const, actorId: '00000000-0000-4000-8000-000000000002' }, scope: { scopeType: 'workspace' as const, scopeId: workspaceId } });
+  const executeScoped = <K extends CommandType>(response: express.Response, workspaceId: string, commandType: K, payload: CommandMap[K]['payload'], revision?: number) => application.execute({ ...createLegacyCommandEnvelope(response.locals.commandId || options.id(), commandType, payload, correlationId(response)), ...workspaceIdentity(workspaceId), ...(revision === undefined ? {} : { expectedRevision: revision }) });
+  const queryScoped = <K extends QueryType>(response: express.Response, workspaceId: string, queryType: K, payload: QueryMap[K]['payload']) => application.query({ ...createLegacyQueryEnvelope(options.id(), queryType, payload, correlationId(response)), ...workspaceIdentity(workspaceId) });
 
   app.use((request, response, next) => {
+    const key = request.get('Idempotency-Key');
+    if (key !== undefined) {
+      if (!key.trim() || key.length > 200) return next(applicationError('Idempotency-Key 必须为 1–200 字符。', 'INVALID_IDEMPOTENCY_KEY', 'validation'));
+      response.locals.commandId = idempotentWorkspaceId('00000000-0000-4000-8000-000000000002', key);
+    }
+    response.locals.expectedRevision = expectedRevision(request);
     const requestId = options.id();
     response.setHeader('X-Request-Id', requestId);
     const startedAt = Date.now();
     response.on('finish', () => log.info(`[api] ${request.method} ${request.path} ${response.statusCode} ${Date.now() - startedAt}ms request=${requestId}`));
+    next();
+  });
+  app.use((_request, response, next) => {
+    response.locals.workspaceIdentity = workspaceIdentity(options.defaultWorkspaceId ?? '00000000-0000-4000-8000-000000000001');
+    next();
+  });
+  app.use((request, response, next) => {
+    const match = request.url.match(/^\/api\/v1\/workspaces\/([^/]+)\/(.+)$/);
+    if (!match || match[2] === 'switch') return next();
+    response.locals.workspaceIdentity = workspaceIdentity(match[1]);
+    request.url = `/api/${match[2]}`;
     next();
   });
 
@@ -126,6 +158,51 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
       const provider = await query(response, 'GetProviderStatus', {});
       const providerCatalog = await query(response, 'GetProviders', {});
       response.json({ workspace, provider, providerCatalog });
+    } catch (error) { next(error); }
+  });
+
+  app.get('/api/v1/workspaces', async (request, response, next) => {
+    try { response.json({ workspaces: await query(response, 'ListWorkspaces', { includeArchived: request.query.includeArchived === 'true' }) }); } catch (error) { next(error); }
+  });
+  app.post('/api/v1/workspaces', async (request, response, next) => {
+    try {
+      const name = typeof request.body?.name === 'string' ? request.body.name.trim() : '';
+      const actorId = '00000000-0000-4000-8000-000000000002';
+      const key = request.get('Idempotency-Key');
+      const workspace = await execute(response, 'CreateWorkspace', { name, ...(key ? { workspaceId: idempotentWorkspaceId(actorId, key) } : {}) });
+      response.status(201).json({ workspace });
+    } catch (error) { next(error); }
+  });
+  app.get('/api/v1/workspaces/:workspaceId', async (request, response, next) => {
+    try { response.json({ workspace: await queryScoped(response, request.params.workspaceId, 'GetWorkspace', {}) }); } catch (error) { next(error); }
+  });
+  app.get('/api/workspace/activity', async (request, response, next) => {
+    try {
+      const limit = Number(request.query.limit || 50);
+      response.json({ activity: await query(response, 'GetWorkspaceActivity', { limit: Number.isFinite(limit) ? limit : 50 }) });
+    } catch (error) { next(error); }
+  });
+  app.patch('/api/v1/workspaces/:workspaceId', async (request, response, next) => {
+    try {
+      const action = request.body?.action;
+      const command = action === 'archive' ? 'ArchiveWorkspace' : action === 'restore' ? 'RestoreWorkspace' : action === 'rename' ? 'RenameWorkspace' : undefined;
+      if (!command) rejectInput('无效的工作区操作。', 'INVALID_WORKSPACE_OPERATION');
+      const payload = command === 'RenameWorkspace' ? { name: typeof request.body?.name === 'string' ? request.body.name.trim() : '' } : {};
+      response.json({ workspace: await executeScoped(response, request.params.workspaceId, command, payload as never, expectedRevision(request)) });
+    } catch (error) { next(error); }
+  });
+  app.post('/api/v1/workspaces/:workspaceId/switch', async (request, response, next) => {
+    try { response.json({ workspace: await executeScoped(response, request.params.workspaceId, 'SwitchWorkspace', {}) }); } catch (error) { next(error); }
+  });
+  app.post('/api/v1/workspaces/:workspaceId/graph/nodes', async (request, response, next) => {
+    try {
+      const title = typeof request.body?.title === 'string' ? request.body.title.trim() : '';
+      const summary = typeof request.body?.summary === 'string' ? request.body.summary.trim().slice(0, 500) : '';
+      const x = Number(request.body?.x ?? 180); const y = Number(request.body?.y ?? 140);
+      if (!title || title.length > 120) rejectInput('节点标题不能为空且不能超过 120 字符。', 'INVALID_NODE_TITLE');
+      if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x > 5000 || y > 5000) rejectInput('节点坐标无效。', 'INVALID_POSITION');
+      const workspace = await executeScoped(response, request.params.workspaceId, 'CreateGraphNode', { title, summary, x, y });
+      response.status(201).json({ workspace });
     } catch (error) { next(error); }
   });
 
@@ -174,7 +251,7 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
       const encoded = typeof request.body?.dataBase64 === 'string' ? request.body.dataBase64 : '';
       if (!name || !encoded || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) rejectInput('附件名称或内容无效。', 'INVALID_ATTACHMENT');
       const bytes = Buffer.from(encoded, 'base64');
-      response.status(201).json(await execute(response, 'RegisterLegacyAttachment', { name, mimeType, bytes }));
+      response.status(201).json(await execute(response, 'RegisterResource', { name, mimeType, bytes }));
     } catch (error) { next(error); }
   });
 

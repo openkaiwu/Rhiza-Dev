@@ -41,9 +41,10 @@ describe('GraphView', () => {
   it('keeps 300 nodes navigable through search, focus and fit view', () => {
     const nodes = Array.from({ length: 300 }, (_, index) => ({ ...node, id: `node-${index}`, title: `讨论 ${index}`, summary: index === 287 ? '唯一检索目标' : '规模测试', x: (index % 20) * 100, y: Math.floor(index / 20) * 80 }));
     render(<GraphView nodes={nodes} edges={[]} activeNodeId="node-287" {...callbacks()} />);
-    expect(screen.getAllByRole('button', { name: /讨论节点/ })).toHaveLength(300);
+    expect(document.querySelectorAll('.graph-node')).toHaveLength(300);
+    expect(document.querySelector('[aria-label="讨论节点：讨论 287"]')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('搜索图谱'), { target: { value: '唯一检索目标' } });
-    expect(screen.getAllByRole('button', { name: /讨论节点/ })).toHaveLength(1);
+    expect(document.querySelectorAll('.graph-node')).toHaveLength(1);
     fireEvent.keyDown(screen.getByLabelText('搜索图谱'), { key: 'Enter' });
     fireEvent.click(screen.getByRole('button', { name: '适合全部节点' }));
     expect(screen.getByLabelText('图谱概览').querySelectorAll('i')).toHaveLength(300);

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { Archive, ChevronDown, ChevronRight, ChevronsUp, CornerDownRight, FolderKanban, GitFork, ListTree, MessageSquareMore, Search, Settings2, Shapes } from 'lucide-react';
-import type { DiscussionNode, Message, View } from '../types';
+import { Archive, ChevronDown, ChevronRight, ChevronsUp, CornerDownRight, FolderKanban, GitFork, History, ListTree, MessageSquareMore, Search, Settings2, Shapes } from 'lucide-react';
+import type { DiscussionNode, Message, View, WorkspaceRecord } from '../types';
 import { ParticleMark } from './ParticleMark';
 
 function pathFor(nodeId: string, nodes: DiscussionNode[]) {
@@ -14,7 +14,7 @@ function pathFor(nodeId: string, nodes: DiscussionNode[]) {
   return path;
 }
 
-export function Sidebar({ view, nodes, messages, activeNodeId, onView, onNode, onSettings, onCommand, onHelp }: { view: View; nodes: DiscussionNode[]; messages: Message[]; activeNodeId: string; onView: (view: View) => void; onNode: (id: string) => void; onSettings: () => void; onCommand: () => void; onHelp: () => void }) {
+export function Sidebar({ view, nodes, messages, activeNodeId, onView, onNode, onSettings, onCommand, onHelp, workspaces = [], currentWorkspaceId, onWorkspace, onCreateWorkspace, onRenameWorkspace, onArchiveWorkspace, onRestoreWorkspace }: { view: View; nodes: DiscussionNode[]; messages: Message[]; activeNodeId: string; onView: (view: View) => void; onNode: (id: string) => void; onSettings: () => void; onCommand: () => void; onHelp: () => void; workspaces?: WorkspaceRecord[]; currentWorkspaceId?: string; onWorkspace?: (id: string) => void; onCreateWorkspace?: () => void; onRenameWorkspace?: () => void; onArchiveWorkspace?: () => void; onRestoreWorkspace?: () => void }) {
   const activePath = useMemo(() => pathFor(activeNodeId, nodes), [activeNodeId, nodes]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [focusPath, setFocusPath] = useState(false);
@@ -65,9 +65,9 @@ export function Sidebar({ view, nodes, messages, activeNodeId, onView, onNode, o
   const compactPath = activePath.length <= 3 ? activePath : [activePath[0], null, ...activePath.slice(-2)];
   return <aside className="sidebar">
     <div className="brand"><ParticleMark compact/><span><strong>根系</strong><small>Rhiza</small></span><button className="icon-button quiet" aria-label="模型与 API 设置" onClick={onSettings}><Settings2 size={15}/></button></div>
-    <button className="project-switch"><span className="project-avatar">根</span><span><strong>Rhiza 产品研究</strong><small>Context-native workspace</small></span><ChevronDown size={15}/></button>
+    <div className="project-switch"><span className="project-avatar">根</span><span><strong>{workspaces.find(item => item.workspaceId === currentWorkspaceId)?.name || 'Rhiza 产品研究'}</strong><small>Context-native workspace</small></span><ChevronDown size={15}/>{workspaces.length > 1 && <select aria-label="切换工作区" value={currentWorkspaceId} onChange={event => onWorkspace?.(event.target.value)}>{workspaces.map(item => <option key={item.workspaceId} value={item.workspaceId}>{item.name}</option>)}</select>}<div><button onClick={onCreateWorkspace}>新建</button><button onClick={onRenameWorkspace}>重命名</button>{workspaces.find(item => item.workspaceId === currentWorkspaceId)?.status === 'archived' ? <button onClick={onRestoreWorkspace}>恢复</button> : <button onClick={onArchiveWorkspace}>归档</button>}</div></div>
     <button className="search-button" onClick={onCommand}><Search size={15}/><span>搜索或运行命令</span><kbd>⌘ K</kbd></button>
-    <div className="side-section"><div className="section-label"><span>工作空间</span></div><button className={view === 'chat' ? 'nav-item active' : 'nav-item'} onClick={() => onView('chat')}><span className="nav-glyph"><MessageSquareMore size={15}/></span>当前讨论<span className="count">{nodes.length}</span></button><button className={view === 'graph' ? 'nav-item active' : 'nav-item'} onClick={() => onView('graph')}><span className="nav-glyph"><GitFork size={15}/></span>对话图谱</button><button className={view === 'state' ? 'nav-item active' : 'nav-item'} onClick={() => onView('state')}><span className="nav-glyph"><Shapes size={15}/></span>知识状态<span className="status-dot warning"/></button></div>
+    <div className="side-section"><div className="section-label"><span>工作空间</span></div><button className={view === 'chat' ? 'nav-item active' : 'nav-item'} onClick={() => onView('chat')}><span className="nav-glyph"><MessageSquareMore size={15}/></span>当前讨论<span className="count">{nodes.length}</span></button><button className={view === 'graph' ? 'nav-item active' : 'nav-item'} onClick={() => onView('graph')}><span className="nav-glyph"><GitFork size={15}/></span>对话图谱</button><button className={view === 'state' ? 'nav-item active' : 'nav-item'} onClick={() => onView('state')}><span className="nav-glyph"><Shapes size={15}/></span>知识状态<span className="status-dot warning"/></button><button className={view === 'activity' ? 'nav-item active' : 'nav-item'} onClick={() => onView('activity')}><span className="nav-glyph"><History size={15}/></span>活动时间线</button></div>
     <div className="side-section threads hierarchical-threads">
       <div className="section-label"><span>讨论节点</span><button aria-label={focusPath ? '显示全部节点' : '聚焦当前路径'} onClick={() => setFocusPath(value => !value)}>{focusPath ? <ListTree size={14}/> : <ChevronsUp size={14}/>}</button></div>
       <div className="active-path-card"><span>当前位置 · L{activePath.length}</span><div>{compactPath.map((node, index) => node ? <button key={node.id} onClick={() => onNode(node.id)}>{node.title}{index < compactPath.length - 1 && <ChevronRight size={10}/>}</button> : <i key="ellipsis">…</i>)}</div>{activePath.length > 3 && <small>缩进已压缩，使用路径导航避免深层迷失</small>}</div>

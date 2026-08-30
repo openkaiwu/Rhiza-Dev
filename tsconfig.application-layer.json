@@ -23,6 +23,6 @@
     { "path": "./tsconfig.context-runtime.json" },
     { "path": "./tsconfig.execution-runtime.json" }
   ],
-  "include": ["server/application/**/*.ts"],
+  "include": ["server/application/**/*.ts", "server/identity/**/*.ts"],
   "exclude": ["server/**/*.test.ts"]
 }

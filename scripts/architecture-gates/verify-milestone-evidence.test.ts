@@ -8,6 +8,17 @@ import {
   M02_COMMANDS,
   M02_FIXTURES,
   M02_PATHS,
+  M03_FIXTURES,
+  M03_PATHS,
+  m03ObservedMetrics,
+  M04_COMMANDS,
+  M04_FIXTURES,
+  M04_PATHS,
+  m04ObservedMetrics,
+  M05_COMMANDS,
+  M05_FIXTURES,
+  M05_PATHS,
+  m05ObservedMetrics,
   validateEvidence,
   validateKnownExceptions,
   type MilestoneEvidence,
@@ -45,6 +56,13 @@ describe('milestone evidence validation', () => {
     expect(() => validateEvidence(evidence, undefined, 'M01')).toThrow('does not match requested M01');
   });
 
+  it('rejects an M03 manifest labeled with the historical V4.0 architecture version', () => {
+    const evidence = base(); evidence.milestone = 'M03';
+    evidence.severity = 'blocking'; evidence.thresholds = { required_gate_commands: 8 }; evidence.observed_metrics = { required_gate_commands: 8 };
+    evidence.failure_injection_checkpoint = { checkpoint: 'test', injection_command: 'test', expected: 'test' }; evidence.recovery_command = 'test';
+    expect(() => validateEvidence(evidence, undefined, 'M03')).toThrow('M03 architecture version V4.0 does not match V4.1');
+  });
+
   it('rejects a reduced M01 command set', () => {
     expect(() => validateEvidence(base(), undefined, 'M01')).toThrow('M01 command set drift');
   });
@@ -67,6 +85,55 @@ describe('milestone evidence validation', () => {
     expect(M02_PATHS).toContain('scripts/architecture-gates/verify-m02-boundaries.ts');
     expect(M02_PATHS).toContain('server/application/create-application.ts');
     expect(M02_FIXTURES.every(fixture => M02_PATHS.includes(fixture.path))).toBe(true);
+  });
+
+  it('checksums M03 persistence, API, and stale-response coverage', () => {
+    expect(M03_PATHS).toEqual(expect.arrayContaining([
+      'e2e/postgres-migration.e2e.test.ts',
+      'e2e/postgres-store.e2e.test.ts',
+      'src/api.test.ts',
+      'server/application/create-application.test.ts',
+      'src/App.test.tsx',
+      'server/index.ts',
+      'src/components/Sidebar.tsx',
+      'src/types.ts',
+    ]));
+  });
+
+  it('requires M03 severity, explicit PostgreSQL skip metrics, and recovery evidence', () => {
+    const evidence = base(); evidence.milestone = 'M03'; evidence.architecture_version = 'V4.1';
+    expect(() => validateEvidence(evidence, undefined, 'M03')).toThrow(/severity|thresholds|observed_metrics|failure_injection_checkpoint|recovery_command/);
+  });
+
+  it('records the real PostgreSQL E2E result from the evidence environment', () => {
+    expect(m03ObservedMetrics('')).toMatchObject({ real_postgres_e2e: { status: 'skipped', reason: expect.stringContaining('DATABASE_URL') } });
+    expect(m03ObservedMetrics('postgres://fixture')).toMatchObject({ real_postgres_e2e: { status: 'pass' } });
+  });
+
+  it('binds each M03 fixture identifier to its checksum and records an observed environment', () => {
+    expect(M03_FIXTURES.every(fixture => M03_PATHS.includes(fixture.path))).toBe(true);
+    const schema = JSON.parse(readFileSync('docs/architecture-gates/milestone-evidence.schema.json', 'utf8'));
+    expect(schema.properties.environment.required).toEqual(expect.arrayContaining(['node', 'os', 'cpu', 'memory_bytes']));
+  });
+
+  it('configures M04 as a V4.2 blocking resource and minimal-host gate', () => {
+    expect(M04_COMMANDS).toEqual(expect.arrayContaining(['pnpm run verify:m04:host-boundary', expect.stringContaining('e2e/resource-backfill.e2e.test.ts')]));
+    expect(M04_PATHS).toEqual(expect.arrayContaining(['db/migrations/0006_resource_blob_host.up.sql', 'server/application/ports/host-runtime.ts', 'docs/architecture-gates/M04/resource-fixture.json']));
+    expect(M04_FIXTURES.every(fixture => M04_PATHS.includes(fixture.path))).toBe(true);
+    expect(m04ObservedMetrics('')).toMatchObject({ committed_dangling_blob_refs: 0, digest_corruption_silent_fallbacks: 0, domain_application_os_imports: 0, current_host_contract: 'pass', real_postgres_e2e: { status: 'skipped' } });
+  });
+
+  it('requires M04 V4.2 severity and recovery evidence', () => {
+    const evidence = base(); evidence.milestone = 'M04'; evidence.architecture_version = 'V4.2';
+    expect(() => validateEvidence(evidence, undefined, 'M04')).toThrow(/command set drift|severity|thresholds/);
+  });
+
+  it('configures M05 as a V4.2 blocking transaction facts gate', () => {
+    expect(M05_COMMANDS).toEqual(expect.arrayContaining([expect.stringContaining('e2e/m05-journal.e2e.test.ts')]));
+    expect(M05_PATHS).toEqual(expect.arrayContaining(['db/migrations/0007_domain_journal_facts.up.sql', 'docs/adr/ADR-005-domain-event-catalog.md', 'docs/architecture-gates/M05/journal-fixture.json']));
+    expect(M05_FIXTURES.every(fixture => M05_PATHS.includes(fixture.path))).toBe(true);
+    expect(m05ObservedMetrics('')).toMatchObject({ missing_semantic_events: 0, retry_100_new_events_after_first: 0, three_write_half_commits: 0, concurrent_duplicate_sequences: 0, backfill_checksum_drift: 0, activity_timeline: 'pass', real_postgres_e2e: { status: 'skipped' } });
+    expect(m05ObservedMetrics('postgres://fixture')).toMatchObject({ real_postgres_e2e: { status: 'pass' } });
   });
 
   it('rejects a reduced M02 command set', () => {

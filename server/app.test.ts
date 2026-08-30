@@ -19,10 +19,10 @@ afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map(directory => rm(directory, { recursive: true, force: true })));
 });
 
-async function testApp(runtime?: AIRuntime) {
+async function testApp(runtime?: AIRuntime, defaultWorkspaceId?: string) {
   const directory = await mkdtemp(join(tmpdir(), 'rhiza-'));
   temporaryDirectories.push(directory);
-  const store = new WorkspaceStore(join(directory, 'workspace.json'));
+  const store = new WorkspaceStore(join(directory, 'workspace.json'), false, defaultWorkspaceId);
   const fetcher = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({ choices: [{ message: { content: '后端生成的回答' } }] }), { status: 200 })) as unknown as typeof fetch;
   const provider = new ProviderService(new ProviderStore(join(directory, 'providers.json')), new SecretVault(join(directory, '.provider-key')), { baseUrl: 'https://example.test/v1', apiKey: 'test-key', model: 'test-model', providerName: 'Test', chatPath: '/chat/completions', timeoutMs: 1000, temperature: 0.4, extraHeaders: {}, allowNoKey: false }, fetcher);
   const server = createServer(createApp(store, provider, false, runtime, undefined, join(directory, 'uploads')));
@@ -32,6 +32,110 @@ async function testApp(runtime?: AIRuntime) {
 }
 
 describe('Rhiza API', () => {
+  it('uses the configured default workspace for legacy HTTP envelopes', async () => {
+    const workspaceId = '00000000-0000-4000-8000-000000000099';
+    const { app, filePath } = await testApp(undefined, workspaceId);
+    const legacy = await request(app).get('/api/workspace').expect(200);
+    expect(legacy.body.workspace).toMatchObject({ projectId: workspaceId, discussionNodes: expect.arrayContaining([expect.objectContaining({ kind: 'main' })]) });
+    expect((await request(app).get('/api/v1/workspaces').expect(200)).body.workspaces).toEqual(expect.arrayContaining([expect.objectContaining({ workspaceId })]));
+    await request(app).post(`/api/v1/workspaces/${workspaceId}/graph/nodes`).send({ title: 'Configured default' }).expect(201);
+    expect(JSON.parse(await readFile(filePath, 'utf8'))).toMatchObject({ projectId: workspaceId });
+  });
+
+  it('scopes workspace lifecycle to the v1 path, not request body', async () => {
+    const { app } = await testApp();
+    const created = await request(app).post('/api/v1/workspaces').send({ name: 'Second', workspaceId: 'forged' }).expect(201);
+    const id = created.body.workspace.workspaceId as string;
+    expect(id).not.toBe('forged');
+    await request(app).patch(`/api/v1/workspaces/${id}`).send({ action: 'rename', name: 'Renamed', workspaceId: 'forged' }).expect(200);
+    await request(app).post(`/api/v1/workspaces/${id}/switch`).send({ workspaceId: 'forged' }).expect(200);
+    await request(app).patch(`/api/v1/workspaces/${id}`).send({ action: 'archive' }).expect(200);
+    await request(app).patch(`/api/v1/workspaces/${id}`).send({ action: 'restore' }).expect(200);
+    const listed = await request(app).get('/api/v1/workspaces').expect(200);
+    expect(listed.body.workspaces).toEqual(expect.arrayContaining([expect.objectContaining({ workspaceId: id, name: 'Renamed', status: 'active' })]));
+  });
+  it('makes workspace creation idempotent and revision writes atomic', async () => {
+    const { app } = await testApp();
+    const first = await request(app).post('/api/v1/workspaces').set('Idempotency-Key', 'same-key').send({ name: 'First', workspaceId: 'forged' }).expect(201);
+    const id = first.body.workspace.workspaceId as string;
+    await request(app).post(`/api/v1/workspaces/${id}/graph/nodes`).send({ title: 'Retained' }).expect(201);
+    const repeated = await request(app).post('/api/v1/workspaces').set('Idempotency-Key', 'same-key').send({ name: 'Overwritten?' }).expect(201);
+    expect(repeated.body.workspace).toEqual(first.body.workspace);
+    expect((await request(app).get(`/api/v1/workspaces/${id}`)).body.workspace.discussionNodes).toEqual(expect.arrayContaining([expect.objectContaining({ title: 'Retained' })]));
+    const different = await request(app).post('/api/v1/workspaces').set('Idempotency-Key', 'different-key').send({ name: 'Different' }).expect(201);
+    expect(different.body.workspace.workspaceId).not.toBe(id);
+    const concurrent = await Promise.all([
+      request(app).post('/api/v1/workspaces').set('Idempotency-Key', 'concurrent-key').send({ name: 'Concurrent' }).expect(201),
+      request(app).post('/api/v1/workspaces').set('Idempotency-Key', 'concurrent-key').send({ name: 'Concurrent' }).expect(201),
+    ]);
+    const concurrentId = concurrent[0].body.workspace.workspaceId as string;
+    expect(concurrent[1].body.workspace.workspaceId).toBe(concurrentId);
+    expect((await request(app).get(`/api/v1/workspaces/${concurrentId}`)).body.workspace.discussionNodes).not.toHaveLength(0);
+    const [archived, stale] = await Promise.all([
+      request(app).patch(`/api/v1/workspaces/${id}`).set('If-Match', '1').send({ action: 'archive' }),
+      request(app).patch(`/api/v1/workspaces/${id}`).set('If-Match', '1').send({ action: 'archive' }),
+    ]);
+    expect([archived.status, stale.status].sort()).toEqual([200, 409]);
+    expect((await request(app).get('/api/v1/workspaces?includeArchived=true')).body.workspaces).toEqual(expect.arrayContaining([expect.objectContaining({ workspaceId: id, status: 'archived', revision: 2 })]));
+    await request(app).patch(`/api/v1/workspaces/${id}`).set('If-Match', '2').send({ action: 'restore' }).expect(200);
+  });
+  it('recovers an idempotent workspace creation after scoped JSON initialization fails once', async () => {
+    const { app, store } = await testApp();
+    const original = store.forWorkspace.bind(store);
+    let failOnce = true;
+    store.forWorkspace = workspaceId => {
+      const target = original(workspaceId) as WorkspaceStore;
+      const initialize = target.initialize.bind(target);
+      target.initialize = async workspace => {
+        if (failOnce) { failOnce = false; throw new Error('simulated initialize failure'); }
+        return initialize(workspace);
+      };
+      return target;
+    };
+    const first = await request(app).post('/api/v1/workspaces').set('Idempotency-Key', 'retry-after-init-failure').send({ name: 'Retry' }).expect(500);
+    expect(first.body.error.code).toBe('INTERNAL_ERROR');
+    const retried = await request(app).post('/api/v1/workspaces').set('Idempotency-Key', 'retry-after-init-failure').send({ name: 'Retry' }).expect(201);
+    await request(app).post(`/api/v1/workspaces/${retried.body.workspace.workspaceId}/switch`).expect(200);
+  });
+  it('keeps scoped writes invisible across workspaces and preserves legacy default', async () => {
+    const { app } = await testApp();
+    const legacyBefore = await request(app).get('/api/workspace').expect(200);
+    const created = await request(app).post('/api/v1/workspaces').send({ name: 'Isolation' }).expect(201);
+    const id = created.body.workspace.workspaceId as string;
+    await request(app).post(`/api/v1/workspaces/${id}/graph/nodes`).send({ title: 'Only here' }).expect(201);
+    expect((await request(app).get(`/api/v1/workspaces/${id}`)).body.workspace.discussionNodes.map((node: { title: string }) => node.title)).toContain('Only here');
+    expect((await request(app).get('/api/workspace')).body.workspace.discussionNodes.map((node: { title: string }) => node.title)).not.toContain('Only here');
+    expect((await request(app).get('/api/workspace')).body.workspace.projectId).toBe(legacyBefore.body.workspace.projectId);
+    await request(app).patch(`/api/v1/workspaces/${id}`).send({ action: 'archive' }).expect(200);
+    await request(app).post(`/api/v1/workspaces/${id}/graph/nodes`).send({ title: 'Denied' }).expect(409);
+    await request(app).patch(`/api/v1/workspaces/${id}`).send({ action: 'restore' }).expect(200);
+  });
+  it('applies legacy graph node validation to scoped graph creates', async () => {
+    const { app } = await testApp();
+    const id = (await request(app).post('/api/v1/workspaces').send({ name: 'Validation' }).expect(201)).body.workspace.workspaceId;
+    await request(app).post(`/api/v1/workspaces/${id}/graph/nodes`).send({ title: 'x'.repeat(121) }).expect(400).expect(({ body }) => expect(body.error.code).toBe('INVALID_NODE_TITLE'));
+    await request(app).post(`/api/v1/workspaces/${id}/graph/nodes`).send({ title: 'Finite', x: 'NaN', y: 0 }).expect(400).expect(({ body }) => expect(body.error.code).toBe('INVALID_POSITION'));
+    await request(app).post(`/api/v1/workspaces/${id}/graph/nodes`).send({ title: 'Bounds', x: 5001, y: 0 }).expect(400).expect(({ body }) => expect(body.error.code).toBe('INVALID_POSITION'));
+  });
+  it('routes attachment, context, graph and chat writes to the path workspace', async () => {
+    const { app } = await testApp();
+    const id = (await request(app).post('/api/v1/workspaces').send({ name: 'Scoped', workspaceId: 'forged' }).expect(201)).body.workspace.workspaceId;
+    const attachment = await request(app).post(`/api/v1/workspaces/${id}/attachments`).send({ name: 'scope.txt', mimeType: 'text/plain', dataBase64: Buffer.from('scoped').toString('base64'), workspaceId: 'forged' }).expect(201);
+    const node = (await request(app).post(`/api/v1/workspaces/${id}/graph/nodes`).send({ title: 'Scoped graph' }).expect(201)).body.workspace.discussionNodes.at(-1);
+    await request(app).post(`/api/v1/workspaces/${id}/workspace/context`).send({ sourceType: 'node', sourceId: node.id, workspaceId: 'forged' }).expect(201);
+    await request(app).post(`/api/v1/workspaces/${id}/chat`).send({ message: 'scoped chat', workspaceId: 'forged' }).expect(201);
+    const stream = await request(app).post(`/api/v1/workspaces/${id}/chat/stream`).send({ message: 'scoped stream', workspaceId: 'forged' }).expect(200).expect('Content-Type', /text\/event-stream/);
+    expect(stream.text).toContain('event: commit');
+    const scoped = (await request(app).get(`/api/v1/workspaces/${id}`).expect(200)).body.workspace;
+    const legacy = (await request(app).get('/api/workspace').expect(200)).body.workspace;
+    expect(scoped.attachments).toEqual(expect.arrayContaining([expect.objectContaining({ id: attachment.body.attachment.id })]));
+    expect(scoped.discussionNodes).toEqual(expect.arrayContaining([expect.objectContaining({ title: 'Scoped graph' })]));
+    expect(scoped.messages).toEqual(expect.arrayContaining([expect.objectContaining({ text: 'scoped chat' })]));
+    expect(scoped.messages).toEqual(expect.arrayContaining([expect.objectContaining({ text: 'scoped stream' })]));
+    expect(legacy.attachments).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: attachment.body.attachment.id })]));
+    expect(legacy.discussionNodes).not.toEqual(expect.arrayContaining([expect.objectContaining({ title: 'Scoped graph' })]));
+    expect(legacy.messages).not.toEqual(expect.arrayContaining([expect.objectContaining({ text: 'scoped chat' }), expect.objectContaining({ text: 'scoped stream' })]));
+  });
   it('never serializes upstream runtime secrets in JSON or SSE errors', async () => {
     const upstreamSecret = 'upstream-secret-token-123';
     const failedRuntime: AIRuntime = {
@@ -102,7 +206,7 @@ describe('Rhiza API', () => {
     expect(response.body.assistantMessage.text).toBe('后端生成的回答');
     expect(response.body.manifest.contextItemIds).toEqual(['c1', 'c2']);
     expect(response.body.manifest).toMatchObject({
-      projectId: 'rhiza-product-research', nodeId: 'information-architecture',
+      projectId: '00000000-0000-4000-8000-000000000001', nodeId: 'information-architecture',
       provider: 'Test', model: 'test-model', runtime: 'provider-adapter', excludedItemIds: ['c4'],
     });
     expect(response.body.manifest.requestId).toEqual(expect.any(String));

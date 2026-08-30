@@ -45,6 +45,8 @@ jobs:
         run: pnpm exec tsx scripts/architecture-gates/verify-milestone-evidence.ts --milestone M01
       - name: Verify M02 blocking gate and committed evidence
         run: pnpm run verify:m02:v4
+      - name: Verify M03 historical evidence chain
+        run: pnpm exec tsx scripts/architecture-gates/verify-milestone-evidence.ts --milestone M03
   observational:
     needs: blocking
     if: ${{ always() }}

@@ -32,6 +32,39 @@ export interface StoredAttachment {
   extractedText?: string;
   summary?: string;
   chunkCount?: number;
+  resourceId?: string;
+  resourceVersionId?: string;
+  digest?: string;
+  blobRef?: string;
+  createdAt: string;
+}
+
+export interface Resource {
+  id: string;
+  workspaceId: string;
+  kind: 'attachment';
+  logicalName: string;
+  createdAt: string;
+}
+
+export interface ResourceVersion {
+  id: string;
+  resourceId: string;
+  version: number;
+  digestAlgorithm: 'sha256';
+  digest: string;
+  canonicalization: 'raw-v1';
+  mediaType: string;
+  size: number;
+  blobRef: string;
+  createdAt: string;
+}
+
+export interface ResourceMaterialization {
+  id: string;
+  resourceVersionId: string;
+  kind: 'file-chunks';
+  generator: 'legacy-context-planner-v1';
   createdAt: string;
 }
 
@@ -63,6 +96,7 @@ export interface FileChunk {
   tokens: number;
   terms: string[];
   embedding: number[];
+  resourceVersionId?: string;
 }
 
 export interface StoredMessage {
@@ -190,6 +224,9 @@ export interface WorkspaceData {
   contextItems: ContextItem[];
   messages: StoredMessage[];
   attachments: StoredAttachment[];
+  resources: Resource[];
+  resourceVersions: ResourceVersion[];
+  materializations: ResourceMaterialization[];
   fileChunks: FileChunk[];
   discussionNodes: DiscussionNode[];
   discussionEdges: DiscussionEdge[];

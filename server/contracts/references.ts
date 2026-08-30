@@ -13,8 +13,8 @@ export interface ScopeRef {
  * Compatibility references used until M03 installs authenticated workspace
  * resolution. They are explicit so callers cannot silently omit tenancy.
  */
-export const legacyActorRef: ActorRef = { actorType: 'human', actorId: 'legacy-local' };
-export const legacyScopeRef: ScopeRef = { scopeType: 'workspace', scopeId: 'legacy-default-workspace' };
+export const legacyActorRef: ActorRef = { actorType: 'human', actorId: '00000000-0000-4000-8000-000000000002' };
+export const legacyScopeRef: ScopeRef = { scopeType: 'workspace', scopeId: '00000000-0000-4000-8000-000000000001' };
 
 export interface RequestIdentity {
   schemaVersion: '1.0.0';

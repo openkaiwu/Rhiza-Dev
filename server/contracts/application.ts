@@ -1,4 +1,5 @@
 import type { AuditEvent, ChatOperation, ContextMode, ContextStatus, GenerationOptions, StoredAttachment, StoredMessage, WorkspaceData } from '../domain';
+import type { WorkspaceActivityItem } from '../domain-journal';
 import type { ActorRef, RequestIdentity, ScopeRef } from './references';
 
 export type CommandType = keyof CommandMap;
@@ -41,9 +42,15 @@ export interface CreateConversationRunResult {
 export type LegacyAttachmentView = Omit<StoredAttachment, 'extractedText'>;
 
 type Empty = Record<string, never>;
+export interface WorkspaceRecord { workspaceId: string; name: string; status: 'active' | 'archived'; createdBy: string; revision: number }
 
 /** Versioned operation registry. Additive changes receive a new command key. */
 export interface CommandMap {
+  CreateWorkspace: { payload: { name: string; workspaceId?: string }; result: WorkspaceRecord };
+  RenameWorkspace: { payload: { name: string }; result: WorkspaceRecord };
+  ArchiveWorkspace: { payload: Empty; result: WorkspaceRecord };
+  RestoreWorkspace: { payload: Empty; result: WorkspaceRecord };
+  SwitchWorkspace: { payload: Empty; result: WorkspaceRecord };
   SaveProvider: { payload: { providerId?: string; body: unknown }; result: unknown };
   DiscoverProviderModels: { payload: { providerId: string }; result: unknown };
   UpdateModelPreference: { payload: { modelId: string; favorite?: boolean; pinned?: boolean }; result: unknown };
@@ -68,14 +75,16 @@ export interface CommandMap {
   RemoveRelation: { payload: { edgeId: string }; result: WorkspaceData };
   UpdateGraphLayout: { payload: { positions: Array<{ nodeId: string; x: number; y: number }> }; result: WorkspaceData };
   CreateMergeRevision: { payload: { sourceNodeId: string; targetNodeId?: string; summary?: string }; result: WorkspaceData };
-  RegisterResource: { payload: { name: string; mimeType: string; bytes: Uint8Array }; result: WorkspaceData };
-  CreateResourceVersion: { payload: { attachmentId: string; bytes: Uint8Array }; result: WorkspaceData };
+  RegisterResource: { payload: { name: string; mimeType: string; bytes: Uint8Array }; result: { attachment: LegacyAttachmentView } };
+  CreateResourceVersion: { payload: { attachmentId: string; bytes: Uint8Array }; result: { attachment: LegacyAttachmentView } };
   UpdateProviderProfile: { payload: { name: string; model: string; baseUrl: string; apiKey?: string }; result: unknown };
 }
 
 export interface QueryMap {
+  ListWorkspaces: { payload: { includeArchived?: boolean }; result: WorkspaceRecord[] };
   GetHealth: { payload: Empty; result: { ok: true } };
   GetWorkspace: { payload: Empty; result: WorkspaceData };
+  GetWorkspaceActivity: { payload: { limit?: number }; result: WorkspaceActivityItem[] };
   GetProviders: { payload: Empty; result: unknown };
   GetProviderStatus: { payload: Empty; result: { configured: boolean; name: string; model: string; baseUrl: string } };
   ListModels: { payload: Empty; result: Array<{ id: string; provider: string; displayName: string; active: boolean }> };
@@ -86,9 +95,9 @@ export function withLegacyIdentity<T extends { commandId?: string; queryId?: str
   return {
     ...request,
     schemaVersion: '1.0.0',
-    workspaceId: 'legacy-default-workspace',
-    actor: { actorType: 'human', actorId: 'legacy-local' },
-    scope: { scopeType: 'workspace', scopeId: 'legacy-default-workspace' },
+    workspaceId: '00000000-0000-4000-8000-000000000001',
+    actor: { actorType: 'human', actorId: '00000000-0000-4000-8000-000000000002' },
+    scope: { scopeType: 'workspace', scopeId: '00000000-0000-4000-8000-000000000001' },
   };
 }
 

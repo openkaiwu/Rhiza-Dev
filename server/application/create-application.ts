@@ -1,12 +1,15 @@
 import { ApplicationError, applicationError } from '../contracts/application-error';
 import type { Application, CommandEnvelope, CommandExecutionOptions, CommandMap, CommandResult, CommandType, QueryEnvelope, QueryMap, QueryResult, QueryType } from '../contracts/application';
-import type { AuditEvent, ChatOperation, ContextManifest, ContextMode, ContextStatus, GenerationOptions, StoredAttachment, StoredMessage, WorkspaceData } from '../domain';
+import type { AuditEvent, ChatOperation, ContextManifest, ContextMode, ContextStatus, GenerationOptions, Resource, ResourceMaterialization, ResourceVersion, StoredAttachment, StoredMessage, WorkspaceData } from '../domain';
 import { deriveVersionIdentity } from '../domain/message-version';
 import type { ContextPlannerPort } from '../context-runtime/port';
-import type { LegacyTextExtractionPort, LegacyUploadPort } from './ports/legacy-upload';
+import type { LegacyTextExtractionPort } from './ports/legacy-upload';
 import type { ProviderManagementPort } from './ports/provider-management';
 import type { RuntimePort, RuntimeRequest } from './ports/runtime';
 import type { WorkspaceUnitOfWork } from './ports/workspace-unit-of-work';
+import type { HostRuntimePort } from './ports/host-runtime';
+import { WorkspaceDirectory } from '../identity/workspace-directory';
+import { DEFAULT_WORKSPACE_ID, LOCAL_USER_ID } from '../identity/workspace-scope';
 
 const nodeStatuses = new Set(['draft', 'active', 'resolved', 'stale', 'archived']);
 const textMimeTypes = new Set(['text/plain', 'text/markdown', 'text/csv', 'application/json', 'application/xml', 'text/xml', 'application/javascript', 'text/javascript']);
@@ -15,13 +18,15 @@ export interface RhizaApplicationDependencies {
   unitOfWork: WorkspaceUnitOfWork;
   runtime: RuntimePort;
   providers: ProviderManagementPort;
-  uploads: LegacyUploadPort;
+  host: HostRuntimePort;
   textExtraction: LegacyTextExtractionPort;
   planner: ContextPlannerPort;
   id: () => string;
   now: () => string;
   log?: { error(message: string, error?: unknown): void };
   contextTokenBudget?: number;
+  workspaceDirectory?: WorkspaceDirectory;
+  defaultWorkspaceId?: string;
 }
 
 type Completion = { text: string; model: string; provider: string; reasoning?: string; toolCalls?: StoredMessage['toolCalls']; usage?: StoredMessage['usage'] };
@@ -61,6 +66,7 @@ function asApplicationError(error: unknown): ApplicationError {
   if (error instanceof ApplicationError) return error;
   if (error && typeof error === 'object' && 'message' in error && 'code' in error && 'status' in error) {
     const legacy = error as { message: string; code: string; status: number };
+    if (legacy.code === 'BLOB_INTEGRITY_ERROR') return legacyError('附件内容校验失败，系统未使用可能损坏的数据。请重新上传该附件。', 409, legacy.code);
     return legacy.status >= 500 || /^(?:PROVIDER_|RUNTIME_|GENERATION_)/.test(legacy.code)
       ? runtimeError(legacy.message, legacy.status, legacy.code)
       : legacyError(legacy.message, legacy.status, legacy.code);
@@ -79,7 +85,33 @@ function withCurrentNodeContext(workspace: WorkspaceData, nodeId: string, planne
 }
 
 export function createRhizaApplication(dependencies: RhizaApplicationDependencies): Application {
-  const { unitOfWork, runtime, providers, uploads, textExtraction, planner, id, now, log } = dependencies;
+  const { unitOfWork, runtime, providers, host, textExtraction, planner, id, now, log } = dependencies;
+  const fallbackWorkspaces = new Map<string, import('../contracts/application').WorkspaceRecord>([['00000000-0000-4000-8000-000000000001', { workspaceId: '00000000-0000-4000-8000-000000000001', name: 'Rhiza 产品研究', status: 'active', createdBy: '00000000-0000-4000-8000-000000000002', revision: 1 }]]);
+  const workspaceDirectory = dependencies.workspaceDirectory ?? new WorkspaceDirectory({
+    listWorkspaces: async (userId, includeArchived = false) => [...fallbackWorkspaces.values()].filter(item => item.createdBy === userId && (includeArchived || item.status === 'active')),
+    createWorkspace: async record => {
+      const existing = fallbackWorkspaces.get(record.workspaceId);
+      if (existing) return { record: existing, created: false };
+      fallbackWorkspaces.set(record.workspaceId, record); return { record, created: true };
+    },
+    updateWorkspace: async (record, expectedRevision) => {
+      const existing = fallbackWorkspaces.get(record.workspaceId);
+      if (!existing || existing.revision !== expectedRevision) return undefined;
+      fallbackWorkspaces.set(record.workspaceId, record); return record;
+    },
+    ensureWorkspace: async record => {
+      const existing = fallbackWorkspaces.get(record.workspaceId);
+      if (existing) return existing;
+      fallbackWorkspaces.set(record.workspaceId, record); return record;
+    },
+  });
+  const defaultWorkspaceId = dependencies.defaultWorkspaceId ?? DEFAULT_WORKSPACE_ID;
+  const ensureDefaultWorkspace = async (actor: import('../contracts/references').ActorRef, workspaceId: string, scope: import('../contracts/references').ScopeRef) => {
+    if (workspaceId !== defaultWorkspaceId || actor.actorType !== 'human' || actor.actorId !== LOCAL_USER_ID) return;
+    const record = await workspaceDirectory.ensure(actor, workspaceId, 'Rhiza 产品研究');
+    await workspaceDirectory.require(actor, workspaceId, scope);
+    await unitOfWork.ensureWorkspaceInitialized?.(workspaceId, record.name);
+  };
   const budget = dependencies.contextTokenBudget ?? 32_000;
   const activeModel = async () => {
     const model = (await runtime.listModels()).find(item => item.active);
@@ -119,6 +151,11 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
     const version = deriveVersionIdentity({ operation: payload.operation, userMessageId, source, messages: current.messages });
     const attachments = payload.attachmentIds.map(attachmentId => current.attachments.find(item => item.id === attachmentId));
     if (attachments.some(item => !item)) throw legacyError('存在无效附件，请重新选择文件。', 400, 'ATTACHMENT_NOT_FOUND');
+    await Promise.all(attachments.filter((item): item is StoredAttachment => Boolean(item)).map(async attachment => {
+      if (attachment.blobRef && attachment.digest) await host.blobs.read(attachment.blobRef, attachment.digest);
+      else if (host.readLegacyAttachment) await host.readLegacyAttachment(attachment.id);
+      else throw legacyError('附件尚未完成 ResourceVersion 回填。', 409, 'RESOURCE_BACKFILL_REQUIRED');
+    }));
     const model = await activeModel(); const createdAt = now(); const requestId = id(); const manifestId = id();
     const manifest: ContextManifest = {
       id: manifestId, projectId: current.projectId, nodeId, requestId, createdAt, mode: current.mode, model: model.model, provider: model.provider, runtime: runtime.kind || 'provider-adapter',
@@ -143,7 +180,115 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
     return committed.value;
   };
 
+  const registerResourceVersion = async (payload: Pick<DispatchPayload, 'name' | 'mimeType' | 'bytes' | 'attachmentId'>, existingAttachmentId?: string) => {
+    const snapshot = await providers.snapshot();
+    if (!payload.name || !payload.bytes.length) throw legacyError('附件名称或内容无效。', 400, 'INVALID_ATTACHMENT');
+    if (payload.bytes.length > snapshot.filePolicy.maxFileSizeBytes) throw legacyError(`附件大小必须在 1 字节到 ${snapshot.filePolicy.maxFileSizeBytes} 字节之间。`, 413, 'ATTACHMENT_TOO_LARGE');
+    if (snapshot.filePolicy.supportedMimeTypes.length && !snapshot.filePolicy.supportedMimeTypes.includes(payload.mimeType)) throw legacyError(`当前模型不支持 ${payload.mimeType}。`, 415, 'UNSUPPORTED_ATTACHMENT');
+    const stored = await host.blobs.put(payload.bytes);
+    const indexable = textMimeTypes.has(payload.mimeType) || payload.mimeType.startsWith('text/') || payload.mimeType === 'application/pdf';
+    const extracted = indexable ? await textExtraction.extractText(payload.mimeType, payload.bytes) : '';
+    const attachmentId = existingAttachmentId || id();
+    const resourceVersionId = id();
+    const processed = planner.processAttachment(attachmentId, payload.name, payload.mimeType, extracted);
+    const createdAt = now();
+    const committed = await mutate(current => {
+      const existing = existingAttachmentId ? current.attachments.find(item => item.id === existingAttachmentId) : undefined;
+      if (existingAttachmentId && !existing) throw legacyError('Resource 不存在。', 404, 'RESOURCE_NOT_FOUND');
+      const resourceId = existing?.resourceId || attachmentId;
+      const resource: Resource = current.resources.find(item => item.id === resourceId) || { id: resourceId, workspaceId: current.projectId, kind: 'attachment', logicalName: payload.name, createdAt };
+      const version: ResourceVersion = {
+        id: resourceVersionId,
+        resourceId,
+        version: Math.max(0, ...current.resourceVersions.filter(item => item.resourceId === resourceId).map(item => item.version)) + 1,
+        digestAlgorithm: stored.digestAlgorithm,
+        digest: stored.digest,
+        canonicalization: 'raw-v1',
+        mediaType: payload.mimeType,
+        size: stored.size,
+        blobRef: stored.blobRef,
+        createdAt,
+      };
+      const attachment: StoredAttachment = {
+        id: attachmentId, name: payload.name, mimeType: payload.mimeType, size: payload.bytes.length,
+        kind: payload.mimeType.startsWith('image/') ? 'image' : 'file', summary: processed.summary,
+        chunkCount: processed.chunks.length, resourceId, resourceVersionId, digest: stored.digest, blobRef: stored.blobRef,
+        ...(extracted && payload.bytes.length <= 100_000 ? { extractedText: extracted } : {}), createdAt: existing?.createdAt || createdAt,
+      };
+      const materialization: ResourceMaterialization = { id: id(), resourceVersionId, kind: 'file-chunks', generator: 'legacy-context-planner-v1', createdAt };
+      const nextAttachments = existing ? current.attachments.map(item => item.id === attachmentId ? attachment : item) : [...current.attachments, attachment];
+      const nextChunks = [...current.fileChunks.filter(item => item.attachmentId !== attachmentId), ...processed.chunks.map(item => ({ ...item, resourceVersionId }))];
+      return { next: {
+        ...current,
+        attachments: nextAttachments,
+        resources: current.resources.some(item => item.id === resource.id) ? current.resources : [...current.resources, resource],
+        resourceVersions: [...current.resourceVersions, version],
+        materializations: [...current.materializations, materialization],
+        fileChunks: nextChunks,
+      }, value: attachment };
+    });
+    const attachment = committed.value;
+    return { attachment: {
+      id: attachment.id, name: attachment.name, mimeType: attachment.mimeType, size: attachment.size, kind: attachment.kind,
+      summary: attachment.summary, chunkCount: attachment.chunkCount, resourceId: attachment.resourceId,
+      resourceVersionId: attachment.resourceVersionId, digest: attachment.digest, blobRef: attachment.blobRef, createdAt: attachment.createdAt,
+    } };
+  };
+
   const dispatch = async (envelope: AnyCommandEnvelope, options?: CommandExecutionOptions): Promise<unknown> => {
+    try {
+      if (!envelope.actor || !envelope.scope || !envelope.workspaceId) throw legacyError('写命令必须提供 ActorRef 与 ScopeRef。', 403, 'MISSING_ACTOR_OR_SCOPE');
+      const factContext = {
+        commandId: envelope.commandId,
+        commandType: envelope.commandType,
+        actor: envelope.actor,
+        scope: envelope.scope,
+        correlationId: envelope.correlationId,
+        expectedRevision: envelope.expectedRevision,
+        occurredAt: now(),
+      };
+      if (envelope.commandType === 'CreateWorkspace') {
+        const name = String((envelope.payload as { name?: string }).name || '').trim();
+        if (!name || name.length > 200) throw legacyError('工作区名称不能为空且不能超过 200 字符。', 400, 'INVALID_WORKSPACE_NAME');
+        const workspaceId = String((envelope.payload as { workspaceId?: string }).workspaceId || id());
+        const transactional = await unitOfWork.executeWorkspaceLifecycle?.(
+          { ...factContext, scope: { scopeType: 'workspace', scopeId: workspaceId } },
+          { kind: 'create', workspaceId, name, createdBy: envelope.actor.actorId },
+        );
+        if (transactional) return transactional;
+        const created = await workspaceDirectory.create(envelope.actor, workspaceId, name);
+        await unitOfWork.ensureWorkspaceInitialized?.(workspaceId, created.record.name);
+        return created.record;
+      }
+      await ensureDefaultWorkspace(envelope.actor, envelope.workspaceId, envelope.scope);
+      const record = await workspaceDirectory.require(envelope.actor, envelope.workspaceId, envelope.scope);
+      const prior = unitOfWork.withWorkspace && unitOfWork.withCommand && unitOfWork.readCommittedResult
+        ? await unitOfWork.withWorkspace(envelope.workspaceId, () => unitOfWork.withCommand!(factContext, () => unitOfWork.readCommittedResult!()))
+        : undefined;
+      if (!prior?.found && record.status === 'archived' && !['RestoreWorkspace'].includes(envelope.commandType)) throw legacyError('归档工作区为只读，请先恢复。', 409, 'WORKSPACE_ARCHIVED');
+      if (envelope.commandType === 'RenameWorkspace' || envelope.commandType === 'ArchiveWorkspace' || envelope.commandType === 'RestoreWorkspace') {
+        if (prior?.found) return prior.value;
+        const expectedRevision = envelope.expectedRevision ?? record.revision;
+        const kind = envelope.commandType === 'RenameWorkspace' ? 'rename' as const : envelope.commandType === 'ArchiveWorkspace' ? 'archive' as const : 'restore' as const;
+        const transactional = await unitOfWork.executeWorkspaceLifecycle?.(factContext, kind === 'rename'
+          ? { kind, workspaceId: envelope.workspaceId, expectedRevision, name: String((envelope.payload as { name?: string }).name || '').trim() }
+          : { kind, workspaceId: envelope.workspaceId, expectedRevision });
+        if (transactional) return transactional;
+      }
+      if (!prior?.found && envelope.expectedRevision !== undefined && envelope.expectedRevision !== record.revision) throw legacyError('工作区版本已变化，请刷新后重试。', 409, 'WORKSPACE_REVISION_CONFLICT');
+      if (envelope.commandType === 'RenameWorkspace') return workspaceDirectory.rename(record, String((envelope.payload as { name?: string }).name || '').trim());
+      if (envelope.commandType === 'ArchiveWorkspace') return workspaceDirectory.status(record, 'archived');
+      if (envelope.commandType === 'RestoreWorkspace') return workspaceDirectory.status(record, 'active');
+      if (envelope.commandType === 'SwitchWorkspace') return record;
+      const executeCommand = () => unitOfWork.withCommand
+        ? unitOfWork.withCommand(factContext, () => dispatchScoped(envelope, options))
+        : dispatchScoped(envelope, options);
+      if (unitOfWork.withWorkspace) return unitOfWork.withWorkspace(envelope.workspaceId, executeCommand);
+      return executeCommand();
+    } catch (error) { throw asApplicationError(error); }
+  };
+
+  const dispatchScoped = async (envelope: AnyCommandEnvelope, options?: CommandExecutionOptions): Promise<unknown> => {
     try {
       // The public generic envelope cannot be narrowed by a switch in TS 6;
       // dispatch remains exhaustive while each runtime key maps to its contract payload.
@@ -153,30 +298,17 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
         case 'DiscoverProviderModels': return providers.discoverModels(payload.providerId!);
         case 'UpdateModelPreference': return providers.updateModel(payload.modelId, { favorite: payload.favorite, pinned: payload.pinned });
         case 'SelectModel': return providers.selectModel(payload.modelId);
-        case 'RegisterLegacyAttachment': {
-          const snapshot = await providers.snapshot();
-          if (!payload.name || !payload.bytes.length) throw legacyError('附件名称或内容无效。', 400, 'INVALID_ATTACHMENT');
-          if (payload.bytes.length > snapshot.filePolicy.maxFileSizeBytes) throw legacyError(`附件大小必须在 1 字节到 ${snapshot.filePolicy.maxFileSizeBytes} 字节之间。`, 413, 'ATTACHMENT_TOO_LARGE');
-          if (snapshot.filePolicy.supportedMimeTypes.length && !snapshot.filePolicy.supportedMimeTypes.includes(payload.mimeType)) throw legacyError(`当前模型不支持 ${payload.mimeType}。`, 415, 'UNSUPPORTED_ATTACHMENT');
-          const attachmentId = id();
-          try {
-            await uploads.put(attachmentId, payload.bytes);
-            const indexable = textMimeTypes.has(payload.mimeType) || payload.mimeType.startsWith('text/') || payload.mimeType === 'application/pdf';
-            const extracted = indexable ? await textExtraction.extractText(payload.mimeType, payload.bytes) : '';
-            const processed = planner.processAttachment(attachmentId, payload.name, payload.mimeType, extracted);
-            const attachment: StoredAttachment = { id: attachmentId, name: payload.name, mimeType: payload.mimeType, size: payload.bytes.length, kind: payload.mimeType.startsWith('image/') ? 'image' : 'file', summary: processed.summary, chunkCount: processed.chunks.length, ...(extracted && payload.bytes.length <= 100_000 ? { extractedText: extracted } : {}), createdAt: now() };
-            await mutate(current => ({ next: { ...current, attachments: [...current.attachments, attachment], fileChunks: [...current.fileChunks, ...processed.chunks] }, value: attachment }));
-            const safeAttachment = {
-              id: attachment.id, name: attachment.name, mimeType: attachment.mimeType, size: attachment.size,
-              kind: attachment.kind, summary: attachment.summary, chunkCount: attachment.chunkCount, createdAt: attachment.createdAt,
-            };
-            return { attachment: safeAttachment };
-          } catch (error) {
-            try { await uploads.delete?.(attachmentId); } catch (cleanupError) { log?.error('[attachment] cleanup failed', cleanupError); }
-            throw error;
-          }
+        case 'RegisterLegacyAttachment':
+        case 'RegisterResource': return await registerResourceVersion(payload);
+        case 'CreateResourceVersion': {
+          const current = await unitOfWork.read(workspace => workspace);
+          const existing = current.attachments.find(item => item.id === payload.attachmentId);
+          if (!existing) throw legacyError('Resource 不存在。', 404, 'RESOURCE_NOT_FOUND');
+          return await registerResourceVersion({ ...payload, name: existing.name, mimeType: existing.mimeType }, existing.id);
         }
         case 'CreateConversationRun': {
+          const previous = await unitOfWork.readCommittedResult?.<CommandMap['CreateConversationRun']['result']>();
+          if (previous?.found) return previous.value;
           const run = await prepareRun(payload); run.request.signal = options?.signal; await options?.onReady?.();
           for await (const event of runtime.generate(run.request)) {
             if (event.type === 'RUN_ERROR') {
@@ -218,9 +350,19 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
 
   const dispatchQuery = async (envelope: AnyQueryEnvelope): Promise<unknown> => {
     try {
+      if (envelope.queryType === 'ListWorkspaces') return workspaceDirectory.list(envelope.actor, Boolean((envelope.payload as { includeArchived?: boolean }).includeArchived));
+      await ensureDefaultWorkspace(envelope.actor, envelope.workspaceId, envelope.scope);
+      await workspaceDirectory.require(envelope.actor, envelope.workspaceId, envelope.scope);
+      if (unitOfWork.withWorkspace) return unitOfWork.withWorkspace(envelope.workspaceId, () => dispatchQueryScoped(envelope));
+      return dispatchQueryScoped(envelope);
+    } catch (error) { throw asApplicationError(error); }
+  };
+  const dispatchQueryScoped = async (envelope: AnyQueryEnvelope): Promise<unknown> => {
+    try {
       switch (envelope.queryType) {
         case 'GetHealth': return { ok: true };
         case 'GetWorkspace': return unitOfWork.read(workspace => workspace);
+        case 'GetWorkspaceActivity': return unitOfWork.readActivity?.(Math.min(100, Math.max(1, Number((envelope.payload as { limit?: number }).limit || 50)))) ?? [];
         case 'GetProviders': return providers.snapshot();
         case 'GetProviderStatus': {
           if (runtime.kind !== 'librechat') return providers.activeStatus();

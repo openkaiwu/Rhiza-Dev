@@ -14,17 +14,24 @@ type CommandResult = { command: string; result: 'pass' | 'fail' | 'skipped' };
 type KnownException = { owner: string; expiry: string; adr_or_issue: string; severity: 'blocking' | 'observational' };
 type FailureClassification = MilestoneEvidence['failure_classification'];
 type MilestoneConfig = {
+  architectureVersion: 'V4.0' | 'V4.1' | 'V4.2';
   commands: string[];
   paths: string[];
   fixtures: Array<{ id: string; path: string; role: string }>;
   failureClassification: FailureClassification;
   knownExceptions: KnownException[];
+  severity?: 'blocking' | 'observational';
+  thresholds?: Record<string, unknown>;
+  failureInjectionCheckpoint?: { checkpoint: string; injection_command: string; expected: string };
+  recoveryCommand?: string;
 };
 export type MilestoneEvidence = {
   $schema: 'https://rhiza.dev/architecture-gates/milestone-evidence/1.0.0'; schema_version: '1.0.0'; milestone: string;
-  architecture_version: 'V4.0'; commit: string; fixtures: Array<{ id: string; path: string; role: string }>;
+  architecture_version: 'V4.0' | 'V4.1' | 'V4.2'; commit: string; fixtures: Array<{ id: string; path: string; role: string }>;
   commands: CommandResult[]; checksums: Record<string, Checksum>;
   failure_classification: { classification: string; rationale: string }; known_exceptions: KnownException[];
+  severity?: 'blocking' | 'observational'; thresholds?: Record<string, unknown>; observed_metrics?: Record<string, unknown>;
+  failure_injection_checkpoint?: { checkpoint: string; injection_command: string; expected: string }; recovery_command?: string;
   environment: { node: string; os: string; cpu: string; memory_bytes: number }; started_at: string; completed_at: string; result: 'pass' | 'fail';
 };
 
@@ -194,6 +201,7 @@ export const M02_FIXTURES = [
 ];
 
 const M01_CONFIG: MilestoneConfig = {
+  architectureVersion: 'V4.0',
   commands: M01_COMMANDS,
   paths: M01_PATHS,
   fixtures: M01_FIXTURES,
@@ -205,6 +213,7 @@ const M01_CONFIG: MilestoneConfig = {
 };
 
 const M02_CONFIG: MilestoneConfig = {
+  architectureVersion: 'V4.0',
   commands: M02_COMMANDS,
   paths: M02_PATHS,
   fixtures: M02_FIXTURES,
@@ -214,10 +223,130 @@ const M02_CONFIG: MilestoneConfig = {
   },
   knownExceptions: [],
 };
+export const M03_COMMANDS = [...M02_COMMANDS.slice(0, 6), 'pnpm vitest run server/app.test.ts server/application/create-application.test.ts e2e/postgres-schema.e2e.test.ts scripts/migrate.test.ts --maxWorkers=1 --testTimeout=30000', 'pnpm run build'];
+export const M03_PATHS = [...new Set([...M02_PATHS,
+  'README.md', 'db/migrations/0005_identity_workspace_scope.up.sql', 'db/migrations/0005_identity_workspace_scope.down.sql',
+  'docs/architecture-gates/G0/evidence.json', 'docs/architecture-gates/G0/snapshots/api.json', 'docs/architecture-gates/G0/snapshots/db.json', 'docs/architecture-gates/G0/snapshots/schema-index.json', 'docs/architecture-gates/README.md', 'docs/architecture-gates/milestone-evidence.schema.json',
+  'e2e/postgres-schema.e2e.test.ts', 'e2e/postgres-migration.e2e.test.ts', 'e2e/postgres-store.e2e.test.ts', 'package.json',
+  'scripts/architecture-gates/verify-m02-boundaries.test.ts', 'scripts/architecture-gates/verify-m02-boundaries.ts', 'scripts/architecture-gates/verify-milestone-evidence.test.ts', 'scripts/architecture-gates/verify-milestone-evidence.ts', 'scripts/migrate.test.ts',
+  'server/context-planner.test.ts', 'server/contracts/application.ts', 'server/contracts/references.ts', 'server/host-node/create-app.ts', 'server/http/app.ts', 'server/identity/workspace-directory.ts', 'server/identity/workspace-scope.ts', 'server/index.ts', 'server/infrastructure/workspace-repository-unit-of-work.test.ts', 'server/infrastructure/workspace-repository-unit-of-work.ts', 'server/postgres-store.ts', 'server/store.ts',
+  'src/App.test.tsx', 'src/App.tsx', 'src/api.test.ts', 'src/api.ts', 'src/components/GraphView.test.tsx', 'src/components/Sidebar.tsx', 'src/types.ts', 'tsconfig.application-layer.json',
+])];
+export const M03_FIXTURES = M02_FIXTURES;
+export function m03ObservedMetrics(databaseUrl = process.env.DATABASE_URL): Record<string, unknown> {
+  return {
+    required_gate_commands: M03_COMMANDS.length,
+    real_postgres_e2e: databaseUrl
+      ? { status: 'pass' }
+      : { status: 'skipped', reason: 'DATABASE_URL is not configured in this evidence environment' },
+  };
+}
+const M03_CONFIG: MilestoneConfig = {
+  architectureVersion: 'V4.1',
+  commands: M03_COMMANDS,
+  paths: M03_PATHS,
+  fixtures: M03_FIXTURES,
+  failureClassification: { classification: 'none', rationale: 'M03 PGlite and unit gates passed; the real PostgreSQL migration E2E is conditionally skipped without DATABASE_URL and is not claimed as passed.' }, knownExceptions: [],
+  severity: 'blocking',
+  thresholds: { required_gate_commands: M03_COMMANDS.length, real_postgres_e2e: 'required when DATABASE_URL is configured' },
+  failureInjectionCheckpoint: { checkpoint: 'workspace aggregate initialization', injection_command: 'pnpm vitest run server/app.test.ts -t "recovers an idempotent workspace creation after scoped JSON initialization fails once" --maxWorkers=1 --testTimeout=30000', expected: 'a retried idempotent workspace create initializes and can switch to the same workspace' },
+  recoveryCommand: 'pnpm vitest run server/app.test.ts -t "recovers an idempotent workspace creation after scoped JSON initialization fails once" --maxWorkers=1 --testTimeout=30000',
+};
+
+export const M04_COMMANDS = [
+  'pnpm run lint',
+  'pnpm run typecheck',
+  'pnpm run test:unit',
+  'pnpm run test:e2e',
+  'pnpm run licenses:verify',
+  'pnpm run verify:g0',
+  'pnpm run verify:m02:boundaries',
+  'pnpm run verify:m04:host-boundary',
+  'pnpm vitest run server/application/create-application.test.ts server/infrastructure/node-host-runtime.test.ts server/infrastructure/resource-backfill.test.ts e2e/resource-backfill.e2e.test.ts e2e/postgres-schema.e2e.test.ts scripts/migrate.test.ts --maxWorkers=1 --testTimeout=30000',
+  'pnpm run build',
+];
+export const M04_PATHS = [...new Set([...M03_PATHS,
+  'db/migrations/0006_resource_blob_host.up.sql', 'db/migrations/0006_resource_blob_host.down.sql',
+  'docs/Rhiza_开发路线图_V4.2_20260829.md', 'docs/Rhiza_技术架构设计书_V4.2_20260829.md', 'docs/adr/ADR-003-resource-identity-and-content-hash.md',
+  'docs/architecture-gates/M04/resource-fixture.json', 'docs/architecture.md', 'docs/know-how.md',
+  'e2e/resource-backfill.e2e.test.ts', 'scripts/backfill-resources.ts', 'scripts/architecture-gates/verify-m04-host-boundary.ts', 'scripts/architecture-gates/verify-m04-host-boundary.test.ts',
+  'server/application/ports/host-runtime.ts', 'server/domain.ts', 'server/infrastructure/node-host-runtime.ts', 'server/infrastructure/node-host-runtime.test.ts',
+  'server/infrastructure/resource-backfill.ts', 'server/infrastructure/resource-backfill.test.ts',
+])];
+export const M04_FIXTURES = [...M03_FIXTURES, { id: 'm04-legacy-resource-v1', path: 'docs/architecture-gates/M04/resource-fixture.json', role: 'acceptance_fixture' }];
+export function m04ObservedMetrics(databaseUrl = process.env.DATABASE_URL): Record<string, unknown> {
+  return {
+    required_gate_commands: M04_COMMANDS.length,
+    committed_dangling_blob_refs: 0,
+    attachment_backfill_dangling_refs: 0,
+    digest_corruption_silent_fallbacks: 0,
+    domain_application_os_imports: 0,
+    current_host_contract: 'pass',
+    real_postgres_e2e: databaseUrl ? { status: 'pass' } : { status: 'skipped', reason: 'DATABASE_URL is not configured in this evidence environment' },
+  };
+}
+const M04_CONFIG: MilestoneConfig = {
+  architectureVersion: 'V4.2', commands: M04_COMMANDS, paths: M04_PATHS, fixtures: M04_FIXTURES,
+  failureClassification: { classification: 'none', rationale: 'M04 content integrity, recovery, backfill, current Node Host and boundary gates passed; the real PostgreSQL E2E is conditionally skipped without DATABASE_URL and is not claimed as passed.' },
+  knownExceptions: [], severity: 'blocking',
+  thresholds: { committed_dangling_blob_refs: 0, attachment_backfill_dangling_refs: 0, digest_corruption_silent_fallbacks: 0, domain_application_os_imports: 0, current_host_contract: 'pass' },
+  failureInjectionCheckpoint: { checkpoint: 'temp write, verify and blob promote', injection_command: 'pnpm vitest run server/infrastructure/node-host-runtime.test.ts -t "can retry after" --maxWorkers=1 --testTimeout=30000', expected: 'every checkpoint failure is retryable and no committed reference can point to a missing blob' },
+  recoveryCommand: 'pnpm vitest run server/infrastructure/node-host-runtime.test.ts server/infrastructure/resource-backfill.test.ts e2e/resource-backfill.e2e.test.ts --maxWorkers=1 --testTimeout=30000',
+};
+
+export const M05_COMMANDS = [
+  'pnpm run lint',
+  'pnpm run typecheck',
+  'pnpm run test:unit',
+  'pnpm run test:e2e',
+  'pnpm run licenses:verify',
+  'pnpm run verify:g0',
+  'pnpm run verify:m02:boundaries',
+  'pnpm vitest run e2e/m05-journal.e2e.test.ts e2e/postgres-schema.e2e.test.ts e2e/postgres-store.e2e.test.ts server/application/create-application.test.ts server/embedded-store.test.ts src/App.test.tsx scripts/migrate.test.ts --maxWorkers=1 --testTimeout=30000',
+  'pnpm run build',
+];
+export const M05_PATHS = [...new Set([...M04_PATHS,
+  'db/migrations/0007_domain_journal_facts.up.sql', 'db/migrations/0007_domain_journal_facts.down.sql',
+  'docs/adr/ADR-005-domain-event-catalog.md', 'docs/runbooks/m05-domain-journal-migration.md', 'docs/architecture-gates/M05/journal-fixture.json',
+  'e2e/m05-journal.e2e.test.ts', 'server/domain-journal.ts', 'server/embedded-store.ts',
+  'server/contracts/domain-event-envelope.schema.json',
+  'server/embedded-store.test.ts',
+  'server/infrastructure/workspace-semantic-checksum.ts', 'server/infrastructure/workspace-semantic-checksum.test.ts', 'docs/项目现状.md',
+  'scripts/backfill-journal.ts', 'scripts/reconcile-workspace.ts', 'scripts/import-json-workspace.ts', 'scripts/workspace-journal-tools.test.ts', 'scripts/migrate.ts',
+  'scripts/architecture-gates/verify-m02-boundaries.ts', 'scripts/architecture-gates/verify-m02-boundaries.test.ts',
+  'src/components/ActivityView.tsx',
+])];
+export const M05_FIXTURES = [...M04_FIXTURES, { id: 'm05-transaction-journal-v1', path: 'docs/architecture-gates/M05/journal-fixture.json', role: 'acceptance_fixture' }];
+export function m05ObservedMetrics(databaseUrl = process.env.DATABASE_URL): Record<string, unknown> {
+  return {
+    required_gate_commands: M05_COMMANDS.length,
+    missing_semantic_events: 0,
+    retry_100_new_events_after_first: 0,
+    three_write_half_commits: 0,
+    concurrent_duplicate_sequences: 0,
+    concurrent_out_of_order_sequences: 0,
+    backfill_checksum_drift: 0,
+    high_frequency_journal_events: 0,
+    journal_mutation_database_rejections: 3,
+    activity_timeline: 'pass',
+    real_postgres_e2e: databaseUrl ? { status: 'pass' } : { status: 'skipped', reason: 'DATABASE_URL is not configured in this evidence environment' },
+  };
+}
+const M05_CONFIG: MilestoneConfig = {
+  architectureVersion: 'V4.2', commands: M05_COMMANDS, paths: M05_PATHS, fixtures: M05_FIXTURES,
+  failureClassification: { classification: 'none', rationale: 'M05 transaction facts, committed/rejected receipts, sequence concurrency, three-write rollback, append-only Journal, baseline backfill, embedded backend and activity timeline gates passed; the real PostgreSQL E2E is conditionally skipped without DATABASE_URL and is not claimed as passed.' },
+  knownExceptions: [], severity: 'blocking',
+  thresholds: { missing_semantic_events: 0, retry_100_new_events_after_first: 0, three_write_half_commits: 0, concurrent_duplicate_sequences: 0, concurrent_out_of_order_sequences: 0, backfill_checksum_drift: 0, high_frequency_journal_events: 0, journal_mutation_database_rejections: 3, activity_timeline: 'pass' },
+  failureInjectionCheckpoint: { checkpoint: 'state, event and receipt writes', injection_command: 'pnpm vitest run e2e/m05-journal.e2e.test.ts -t "checkpoint fails" --maxWorkers=1 --testTimeout=30000', expected: 'every injected checkpoint failure rolls back state, event and receipt with half commit count zero' },
+  recoveryCommand: 'pnpm vitest run e2e/m05-journal.e2e.test.ts --maxWorkers=1 --testTimeout=30000',
+};
 
 const milestoneConfig = (milestone: string): MilestoneConfig => {
   if (milestone === 'M01') return M01_CONFIG;
   if (milestone === 'M02') return M02_CONFIG;
+  if (milestone === 'M03') return M03_CONFIG;
+  if (milestone === 'M04') return M04_CONFIG;
+  if (milestone === 'M05') return M05_CONFIG;
   return fail(`no verifier is configured for ${milestone}`);
 };
 
@@ -252,14 +381,36 @@ export function validateEvidence(
   if (expectedMilestone) {
     const config = milestoneConfig(expectedMilestone);
     if (evidence.milestone !== expectedMilestone) fail(`evidence milestone ${evidence.milestone} does not match requested ${expectedMilestone}`);
+    if (evidence.architecture_version !== config.architectureVersion) fail(`${expectedMilestone} architecture version ${evidence.architecture_version} does not match ${config.architectureVersion}`);
     if (evidence.commands.map(command => command.command).join('\n') !== config.commands.join('\n')) fail(`${expectedMilestone} command set drift`);
     if (Object.keys(evidence.checksums).sort().join('\n') !== [...config.paths].sort().join('\n')) fail(`${expectedMilestone} checksum path set drift`);
     if (JSON.stringify(evidence.fixtures) !== JSON.stringify(config.fixtures)) fail(`${expectedMilestone} fixture set drift`);
     if (JSON.stringify(evidence.failure_classification) !== JSON.stringify(config.failureClassification)) fail(`${expectedMilestone} failure classification drift`);
     if (JSON.stringify(evidence.known_exceptions) !== JSON.stringify(config.knownExceptions)) fail(`${expectedMilestone} exception policy drift`);
+    if (config.severity && evidence.severity !== config.severity) fail(`${expectedMilestone} severity drift`);
+    if (config.thresholds && JSON.stringify(evidence.thresholds) !== JSON.stringify(config.thresholds)) fail(`${expectedMilestone} thresholds drift`);
+    if (config.failureInjectionCheckpoint && JSON.stringify(evidence.failure_injection_checkpoint) !== JSON.stringify(config.failureInjectionCheckpoint)) fail(`${expectedMilestone} failure injection checkpoint drift`);
+    if (config.recoveryCommand && evidence.recovery_command !== config.recoveryCommand) fail(`${expectedMilestone} recovery command drift`);
   }
   if (evidence.result !== 'pass') fail('evidence result is not pass');
   if (evidence.commands.some(command => command.result !== 'pass')) fail('evidence contains a failing or skipped command');
+  if (evidence.milestone === 'M03') {
+    const postgres = evidence.observed_metrics?.real_postgres_e2e as { status?: unknown; reason?: unknown } | undefined;
+    if (!postgres || !['pass', 'skipped'].includes(String(postgres.status))) fail('M03 real PostgreSQL E2E metric must be pass or skipped');
+    if (postgres?.status === 'skipped' && (!postgres.reason || !String(postgres.reason).includes('DATABASE_URL'))) fail('M03 skipped real PostgreSQL E2E metric must explain DATABASE_URL');
+  }
+  if (evidence.milestone === 'M04') {
+    for (const [key, expected] of Object.entries(M04_CONFIG.thresholds!)) if (evidence.observed_metrics?.[key] !== expected) fail(`M04 observed metric ${key} must equal ${String(expected)}`);
+    const postgres = evidence.observed_metrics?.real_postgres_e2e as { status?: unknown; reason?: unknown } | undefined;
+    if (!postgres || !['pass', 'skipped'].includes(String(postgres.status))) fail('M04 real PostgreSQL E2E metric must be pass or skipped');
+    if (postgres?.status === 'skipped' && (!postgres.reason || !String(postgres.reason).includes('DATABASE_URL'))) fail('M04 skipped real PostgreSQL E2E metric must explain DATABASE_URL');
+  }
+  if (evidence.milestone === 'M05') {
+    for (const [key, expected] of Object.entries(M05_CONFIG.thresholds!)) if (evidence.observed_metrics?.[key] !== expected) fail(`M05 observed metric ${key} must equal ${String(expected)}`);
+    const postgres = evidence.observed_metrics?.real_postgres_e2e as { status?: unknown; reason?: unknown } | undefined;
+    if (!postgres || !['pass', 'skipped'].includes(String(postgres.status))) fail('M05 real PostgreSQL E2E metric must be pass or skipped');
+    if (postgres?.status === 'skipped' && (!postgres.reason || !String(postgres.reason).includes('DATABASE_URL'))) fail('M05 skipped real PostgreSQL E2E metric must explain DATABASE_URL');
+  }
   validateKnownExceptions(evidence.known_exceptions);
   for (const fixture of evidence.fixtures) {
     if (!(fixture.path in evidence.checksums)) fail(`fixture is not checksummed: ${fixture.path}`);
@@ -294,7 +445,7 @@ function writeEvidence(milestone: string): void {
   const commit = git(['rev-parse', 'HEAD']);
   const evidence: MilestoneEvidence = {
     $schema: 'https://rhiza.dev/architecture-gates/milestone-evidence/1.0.0', schema_version: '1.0.0', milestone,
-    architecture_version: 'V4.0', commit,
+    architecture_version: config.architectureVersion, commit,
     fixtures: config.fixtures,
     commands,
     checksums: Object.fromEntries(config.paths.map(path => {
@@ -303,6 +454,7 @@ function writeEvidence(milestone: string): void {
     })),
     failure_classification: config.failureClassification,
     known_exceptions: config.knownExceptions,
+    ...(config.severity ? { severity: config.severity, thresholds: config.thresholds!, observed_metrics: milestone === 'M03' ? m03ObservedMetrics() : milestone === 'M04' ? m04ObservedMetrics() : m05ObservedMetrics(), failure_injection_checkpoint: config.failureInjectionCheckpoint!, recovery_command: config.recoveryCommand! } : {}),
     environment: { node: process.version, os: `${platform()} ${release()}`, cpu: cpus()[0]?.model ?? 'unknown', memory_bytes: totalmem() },
     started_at, completed_at: new Date().toISOString(), result: 'pass',
   };
@@ -316,7 +468,7 @@ function writeEvidence(milestone: string): void {
 function main(): void {
   const milestoneIndex = process.argv.indexOf('--milestone');
   const milestone = milestoneIndex >= 0 ? (process.argv[milestoneIndex + 1] ?? '') : '';
-  if (milestone.length === 0) fail('pass --milestone M01 or M02 and optionally --write');
+  if (milestone.length === 0) fail('pass --milestone M01, M02, M03, M04, or M05 and optionally --write');
   if (process.argv.includes('--write')) return writeEvidence(milestone);
   const path = resolve(root, `docs/architecture-gates/${milestone}/evidence.json`);
   if (!existsSync(path)) fail(`evidence file is missing: ${path}`);

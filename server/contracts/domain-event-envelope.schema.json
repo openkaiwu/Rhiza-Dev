@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rhiza.dev/schemas/domain-event-envelope/v1",
+  "type": "object",
+  "required": ["eventId", "workspaceId", "sequence", "ceSpecversion", "envelopeVersion", "eventType", "eventSource", "subject", "dataSchema", "aggregateType", "aggregateId", "aggregateRevision", "actor", "scope", "commandId", "eventIndex", "payload", "occurredAt", "recordedAt"],
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "workspaceId": { "type": "string", "format": "uuid" },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "ceSpecversion": { "const": "1.0" },
+    "envelopeVersion": { "const": "1.0.0" },
+    "eventType": { "enum": ["workspace.baseline.backfilled", "workspace.created", "workspace.renamed", "workspace.archived", "workspace.restored", "conversation.run.committed", "context.mode.changed", "context.selection.changed", "context.source.added", "graph.node.created", "graph.node.activated", "graph.node.status_changed", "graph.layout.updated", "graph.relation.created", "graph.relation.removed", "segment.created", "branch.created", "message.merge_revision.created", "resource.registered", "resource.version.created", "object.archived", "object.purged"] },
+    "eventSource": { "type": "string", "format": "uri" },
+    "subject": { "type": "string", "minLength": 1 },
+    "dataSchema": { "type": "string", "format": "uri" },
+    "aggregateType": { "type": "string", "minLength": 1 },
+    "aggregateId": { "type": "string", "minLength": 1 },
+    "aggregateRevision": { "type": "integer", "minimum": 0 },
+    "actor": { "type": "object", "required": ["actorType", "actorId"], "properties": { "actorType": { "enum": ["human", "system", "executor", "extension"] }, "actorId": { "type": "string", "minLength": 1 } }, "additionalProperties": false },
+    "scope": { "type": "object", "required": ["scopeType", "scopeId"], "properties": { "scopeType": { "enum": ["user", "workspace", "conversation", "run"] }, "scopeId": { "type": "string", "minLength": 1 } }, "additionalProperties": false },
+    "commandId": { "type": "string", "minLength": 1 },
+    "eventIndex": { "type": "integer", "minimum": 0 },
+    "causationId": { "type": "string" },
+    "correlationId": { "type": "string" },
+    "payload": {
+      "type": "object",
+      "properties": {
+        "stateSchema": { "const": "rhiza.workspace-semantic.v1" },
+        "reconcileChecksum": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "stateChanges": { "type": "object" },
+        "snapshot": { "type": "object", "required": ["stateSchema", "sourceSequence", "state"], "properties": { "stateSchema": { "const": "rhiza.workspace-semantic.v1" }, "sourceSequence": { "type": "integer", "minimum": 0 }, "state": { "type": "object" } }, "additionalProperties": false }
+      }
+    },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "recordedAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}
