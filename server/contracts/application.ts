@@ -33,6 +33,14 @@ export interface Application {
   query<K extends QueryType>(envelope: QueryEnvelope<K>): Promise<QueryResult<K>>;
 }
 
+export interface ExecutionRunView {
+  input: { executor: { runtime: string; modelSpecRef: string; providerEndpointRef: string; model: string; provider: string }; request: { prompt: string; manifestId: string; attachments?: StoredAttachment[]; generation?: GenerationOptions; operation?: ChatOperation } };
+  id: string; workspaceId: string; nodeId: string; status: string; attempt: number;
+  parentRunRef?: string; inputHash: string; createdAt: string; terminalAt?: string;
+  error?: { code: string; class: string; message: string };
+  telemetry: { durationMs?: number; ttftMs?: number; usage?: import('../domain').TokenUsage; traceCount: number };
+}
+
 export interface CreateConversationRunResult {
   userMessage: WorkspaceData['messages'][number];
   assistantMessage: WorkspaceData['messages'][number];
@@ -56,8 +64,9 @@ export interface CommandMap {
   UpdateModelPreference: { payload: { modelId: string; favorite?: boolean; pinned?: boolean }; result: unknown };
   SelectModel: { payload: { modelId: string }; result: unknown };
   RegisterLegacyAttachment: { payload: { name: string; mimeType: string; bytes: Uint8Array }; result: { attachment: LegacyAttachmentView } };
+  CancelExecutionRun: { payload: { runId: string }; result: ExecutionRunView };
   CreateConversationRun: {
-    payload: { prompt: string; operation: ChatOperation; sourceMessageId?: string; attachmentIds: string[]; generation: GenerationOptions };
+    payload: { parentRunRef?: string; prompt: string; operation: ChatOperation; sourceMessageId?: string; attachmentIds: string[]; generation: GenerationOptions };
     result: CreateConversationRunResult;
   };
   ChangeContextMode: { payload: { mode: ContextMode }; result: WorkspaceData };
@@ -81,6 +90,8 @@ export interface CommandMap {
 }
 
 export interface QueryMap {
+  ListExecutionRuns: { payload: { limit?: number }; result: ExecutionRunView[] };
+  GetExecutionRun: { payload: { runId: string }; result: ExecutionRunView };
   ListWorkspaces: { payload: { includeArchived?: boolean }; result: WorkspaceRecord[] };
   GetHealth: { payload: Empty; result: { ok: true } };
   GetWorkspace: { payload: Empty; result: WorkspaceData };

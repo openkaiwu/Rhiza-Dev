@@ -1,3 +1,4 @@
+export type { ExecutionRun, RunMutation, RunTrace } from '../../execution-runtime/run';
 import type { WorkspaceData } from '../../domain';
 import type { CommandFactContext, WorkspaceActivityItem } from '../../domain-journal';
 import type { WorkspaceRecord } from '../../contracts/application';
@@ -14,6 +15,7 @@ export type WorkspaceMutationPolicy =
 /** A policy-bound workspace mutation. The policy is known before persistence begins. */
 export interface WorkspaceMutation<T> {
   policy: WorkspaceMutationPolicy;
+  run?: import('../../execution-runtime/run').RunMutation;
   apply(workspace: WorkspaceData): { next: WorkspaceData; value: T } | Promise<{ next: WorkspaceData; value: T }>;
 }
 
@@ -28,6 +30,10 @@ export interface WorkspaceExecutionResult<T> {
  * enforce history rules; commands supply the next aggregate and explicit policy.
  */
 export interface WorkspaceUnitOfWork {
+  readonly tracksRuns?: boolean;
+  listRuns?(limit?: number): Promise<import('../../execution-runtime/run').ExecutionRun[]>;
+  getRun?(runId: string): Promise<import('../../execution-runtime/run').ExecutionRun | undefined>;
+  writeRunTraces?(runId: string, attempt: number, traces: import('../../execution-runtime/run').RunTrace[]): Promise<void>;
   read<T>(reader: (workspace: Readonly<WorkspaceData>) => T | Promise<T>): Promise<T>;
   execute<T>(mutation: WorkspaceMutation<T>): Promise<WorkspaceExecutionResult<T>>;
   /** Binds receipt/event identity without exposing transaction steps to command handlers. */

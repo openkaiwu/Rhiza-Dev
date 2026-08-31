@@ -1,3 +1,4 @@
+import { semanticStateChecksum } from '../infrastructure/workspace-semantic-checksum';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -30,6 +31,7 @@ export function createApp(
   const application = createRhizaApplication({
     unitOfWork: new RepositoryWorkspaceUnitOfWork(store),
     runtime,
+    hashRunInput: input => semanticStateChecksum(input as unknown as Record<string, unknown>),
     providers: provider,
     host,
     textExtraction: upload,

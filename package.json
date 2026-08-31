@@ -58,7 +58,10 @@
     "verify:m3": "pnpm run verify:m2",
     "verify:m4": "pnpm run verify:m3",
     "verify:m5": "pnpm run verify:m4",
-    "verify:m6": "pnpm run verify:m5 && pnpm run typecheck && vitest run src/App.test.tsx"
+    "verify:m6": "pnpm run verify:m5 && pnpm run typecheck && vitest run src/App.test.tsx",
+    "m06:checks": "pnpm run lint && pnpm run typecheck && pnpm run test:unit && pnpm run test:e2e && pnpm run licenses:verify && pnpm run verify:g0 && pnpm run verify:m02:boundaries && pnpm run verify:m04:host-boundary && pnpm run build",
+    "m06:evidence": "tsx scripts/architecture-gates/verify-milestone-evidence.ts --milestone M06 --write",
+    "verify:m06:closure": "pnpm run m06:checks && tsx scripts/architecture-gates/verify-milestone-evidence.ts --milestone M06 --strict-current"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",

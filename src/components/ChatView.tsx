@@ -1,3 +1,4 @@
+import { api } from '../api';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUp, AtSign, BookmarkPlus, Brain, Check, ChevronRight, Copy, Edit3, EyeOff, FilePlus2, FileText, GitBranch, GitMerge, Image, Link2, Paperclip, RefreshCw, RotateCcw, Send, SlidersHorizontal, Sparkles, Square, TextSelect, Trash2, Wrench, X } from 'lucide-react';
 import type { ChatRequestOptions } from '../api';
@@ -36,6 +37,7 @@ interface ChatViewProps {
   onSettings: () => void;
   onOpenContext: () => void;
   onGraph: () => void;
+  onRuns?: () => void;
 }
 
 function nodePath(node: DiscussionNode, nodes: DiscussionNode[]) {
@@ -69,7 +71,7 @@ function ManifestSummary({ manifest }: { manifest: ContextManifest }) {
   </details>;
 }
 
-export function ChatView({ activeNode, nodes, edges, mode, activeCount, messages, manifests, attachments, provider, providerCatalog, syncError, online, focusComposerRequest, onSend, onUpload, onTempSend, onCreateBranch, onActivateNode, onMerge, onSelectModel, onSettings, onOpenContext, onGraph }: ChatViewProps) {
+export function ChatView({ activeNode, nodes, edges, mode, activeCount, messages, manifests, attachments, provider, providerCatalog, syncError, online, focusComposerRequest, onSend, onUpload, onTempSend, onCreateBranch, onActivateNode, onMerge, onSelectModel, onSettings, onOpenContext, onGraph, onRuns }: ChatViewProps) {
   const [draft, setDraft] = useState('');
   const [thinking, setThinking] = useState(false);
   const [chatError, setChatError] = useState('');
@@ -91,6 +93,7 @@ export function ChatView({ activeNode, nodes, edges, mode, activeCount, messages
   const endRef = useRef<HTMLDivElement>(null);
   const tempEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const runIdRef = useRef<string | undefined>(undefined);
   const abortRef = useRef<AbortController | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const path = useMemo(() => nodePath(activeNode, nodes), [activeNode, nodes]);
@@ -110,7 +113,8 @@ export function ChatView({ activeNode, nodes, edges, mode, activeCount, messages
     if (!text.trim() || thinking || !online) return;
     const controller = new AbortController();
     abortRef.current = controller;
-    const requestOptions = { ...options, signal: controller.signal, generation };
+    runIdRef.current = undefined;
+    const requestOptions = { ...options, signal: controller.signal, generation, onRunCreated: (runId: string) => { runIdRef.current = runId; setLastAttempt({ text, options: { ...options, parentRunRef: runId } }); } };
     if (options.operation === 'send' || options.operation === 'retry') setDraft('');
     setThinking(true); setChatError(''); setLastAttempt({ text, options });
     try {
@@ -198,7 +202,7 @@ export function ChatView({ activeNode, nodes, edges, mode, activeCount, messages
   })}</div> : null;
 
   return <main id="workspace-main" tabIndex={-1} className={`workspace chat-view ${temporary ? 'temp-branch-open' : ''}`}>
-    <header className="workspace-header"><div><div className="crumbs node-breadcrumb">{compactPath.map((node, index) => node ? <span key={node.id}>{node.title}{index < compactPath.length - 1 && <ChevronRight size={12}/>}</span> : <span className="path-ellipsis" key="ellipsis">…<ChevronRight size={12}/></span>)}</div><h1>{activeNode.title} <span className={`node-state ${activeNode.status}`}><i/> {activeNode.status}</span></h1></div><div className="header-actions">{activeNode.kind === 'branch' && activeNode.status !== 'resolved' && <button className="ghost-button merge-button" onClick={() => onMerge(activeNode.id)}><GitMerge size={15}/>合并回主线</button>}<button className="ghost-button" aria-expanded={quickGraphOpen} onClick={() => setQuickGraphOpen(open => !open)}><GitBranch size={15}/>快速图谱</button><button className="ghost-button" onClick={onGraph}><GitBranch size={15}/>完整图谱</button><button className="context-chip" onClick={onOpenContext}><span className="context-orb"/>{activeCount} 项上下文 <ChevronRight size={14}/></button></div></header>
+    <header className="workspace-header"><div><div className="crumbs node-breadcrumb">{compactPath.map((node, index) => node ? <span key={node.id}>{node.title}{index < compactPath.length - 1 && <ChevronRight size={12}/>}</span> : <span className="path-ellipsis" key="ellipsis">…<ChevronRight size={12}/></span>)}</div><h1>{activeNode.title} <span className={`node-state ${activeNode.status}`}><i/> {activeNode.status}</span></h1></div><div className="header-actions">{onRuns && <button className="ghost-button" onClick={onRuns}>执行历史</button>}{activeNode.kind === 'branch' && activeNode.status !== 'resolved' && <button className="ghost-button merge-button" onClick={() => onMerge(activeNode.id)}><GitMerge size={15}/>合并回主线</button>}<button className="ghost-button" aria-expanded={quickGraphOpen} onClick={() => setQuickGraphOpen(open => !open)}><GitBranch size={15}/>快速图谱</button><button className="ghost-button" onClick={onGraph}><GitBranch size={15}/>完整图谱</button><button className="context-chip" onClick={onOpenContext}><span className="context-orb"/>{activeCount} 项上下文 <ChevronRight size={14}/></button></div></header>
     {quickGraphOpen && <QuickGraph
       nodes={nodes}
       edges={edges}
@@ -235,7 +239,7 @@ export function ChatView({ activeNode, nodes, edges, mode, activeCount, messages
       {(chatError || syncError || !online) && <div className="composer-error" role="alert"><span>{!online ? '当前离线，恢复网络后即可继续发送。' : chatError || syncError}</span>{lastAttempt && online && <button onClick={() => void retry()}><RotateCcw size={13}/>重试</button>}</div>}
       {renderAttachments(selectedAttachmentIds, true)}
       {controlsOpen && <div className="generation-controls"><label>Temperature <input aria-label="Temperature" type="number" min="0" max="2" step="0.1" value={generation.temperature} onChange={event => setGeneration(current => ({ ...current, temperature: Number(event.target.value) }))}/></label><label>Top P <input aria-label="Top P" type="number" min="0.05" max="1" step="0.05" value={generation.topP} onChange={event => setGeneration(current => ({ ...current, topP: Number(event.target.value) }))}/></label><label>Max tokens <input aria-label="Max tokens" type="number" min="1" max="32768" step="128" value={generation.maxTokens} onChange={event => setGeneration(current => ({ ...current, maxTokens: Number(event.target.value) }))}/></label></div>}
-      <div className="composer"><textarea ref={composerRef} aria-label="输入消息" value={draft} onChange={event => { setDraft(event.target.value); setLastAttempt(null); }} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={online ? '继续这段讨论…' : '离线时不能发送消息'} rows={2} disabled={!online}/><div className="composer-tools"><div><input ref={fileInputRef} className="file-input" type="file" multiple accept={providerCatalog.filePolicy?.supportedMimeTypes.join(',')} onChange={event => void uploadFiles(event.target.files)}/><button aria-label="添加附件" onClick={() => fileInputRef.current?.click()} disabled={!online || uploading || providerCatalog.filePolicy?.disabled}><Paperclip size={16}/></button><button aria-label="引用节点"><AtSign size={16}/></button><button aria-label="添加文件" onClick={() => fileInputRef.current?.click()} disabled={!online || uploading}><FilePlus2 size={16}/></button><button className={controlsOpen ? 'active' : ''} aria-label="生成参数" onClick={() => setControlsOpen(open => !open)}><SlidersHorizontal size={16}/></button></div><div className="send-side"><ModelSelector catalog={providerCatalog} onSelect={onSelectModel} onSettings={onSettings}/><span className={provider.configured && online ? 'provider-online' : 'provider-offline'}><Sparkles size={13}/>{online ? (provider.configured ? 'Ready' : '未连接') : '离线'} · {mode} · {activeCount} sources</span>{thinking ? <button className="send-button stop-button" onClick={() => abortRef.current?.abort()} aria-label="停止生成"><Square size={13} fill="currentColor"/></button> : <button className="send-button" onClick={() => void send()} disabled={!draft.trim() || !provider.configured || !online || uploading} aria-label="发送"><ArrowUp size={17}/></button>}</div></div></div>
+      <div className="composer"><textarea ref={composerRef} aria-label="输入消息" value={draft} onChange={event => { setDraft(event.target.value); setLastAttempt(null); }} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={online ? '继续这段讨论…' : '离线时不能发送消息'} rows={2} disabled={!online}/><div className="composer-tools"><div><input ref={fileInputRef} className="file-input" type="file" multiple accept={providerCatalog.filePolicy?.supportedMimeTypes.join(',')} onChange={event => void uploadFiles(event.target.files)}/><button aria-label="添加附件" onClick={() => fileInputRef.current?.click()} disabled={!online || uploading || providerCatalog.filePolicy?.disabled}><Paperclip size={16}/></button><button aria-label="引用节点"><AtSign size={16}/></button><button aria-label="添加文件" onClick={() => fileInputRef.current?.click()} disabled={!online || uploading}><FilePlus2 size={16}/></button><button className={controlsOpen ? 'active' : ''} aria-label="生成参数" onClick={() => setControlsOpen(open => !open)}><SlidersHorizontal size={16}/></button></div><div className="send-side"><ModelSelector catalog={providerCatalog} onSelect={onSelectModel} onSettings={onSettings}/><span className={provider.configured && online ? 'provider-online' : 'provider-offline'}><Sparkles size={13}/>{online ? (provider.configured ? 'Ready' : '未连接') : '离线'} · {mode} · {activeCount} sources</span>{thinking ? <button className="send-button stop-button" onClick={() => { if (runIdRef.current) void api.cancelRun(runIdRef.current).catch(error => setChatError(presentErrorText(error, { message: '停止失败。', recovery: '请重试。' }))); else abortRef.current?.abort(); }} aria-label="停止生成"><Square size={13} fill="currentColor"/></button> : <button className="send-button" onClick={() => void send()} disabled={!draft.trim() || !provider.configured || !online || uploading} aria-label="发送"><ArrowUp size={17}/></button>}</div></div></div>
       <p className="composer-caption"><span className="live-dot"/> Rhiza Domain 将冻结上下文、附件与生成参数，再交由 AI Runtime 执行</p>
     </div>
   </main>;

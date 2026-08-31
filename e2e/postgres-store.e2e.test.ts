@@ -20,6 +20,7 @@ async function migratedDatabase() {
   await database.exec(await readFile(resolve('db/migrations/0005_identity_workspace_scope.up.sql'), 'utf8'));
   await database.exec(await readFile(resolve('db/migrations/0006_resource_blob_host.up.sql'), 'utf8'));
   await database.exec(await readFile(resolve('db/migrations/0007_domain_journal_facts.up.sql'), 'utf8'));
+  await database.exec(await readFile(resolve('db/migrations/0008_execution_runs.up.sql'), 'utf8'));
   return database;
 }
 

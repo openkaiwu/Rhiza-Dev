@@ -3,6 +3,7 @@ import type { WorkspaceRepository, WorkspaceUpdateOptions } from '../store';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createSeedWorkspace } from '../seed';
 import type { WorkspaceData } from '../domain';
+import type { RunMutation } from '../application/ports/workspace-unit-of-work';
 import type { CommandFactContext } from '../domain-journal';
 import { eventForCommand, toActivityItem } from '../domain-journal';
 
@@ -16,6 +17,15 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
   private readonly scope = new AsyncLocalStorage<string>();
   private readonly command = new AsyncLocalStorage<CommandFactContext>();
   constructor(private readonly repository: WorkspaceRepository) {}
+
+  get tracksRuns() { return Boolean(this.repository.getRun); }
+  private runRepository() {
+    const workspaceId = this.scope.getStore();
+    return workspaceId ? this.repository.forWorkspace?.(workspaceId) ?? this.repository : this.repository;
+  }
+  async listRuns(limit = 50) { return this.runRepository().listRuns?.(limit) ?? []; }
+  async getRun(runId: string) { return this.runRepository().getRun?.(runId); }
+  async writeRunTraces(runId: string, attempt: number, traces: import('../application/ports/workspace-unit-of-work').RunTrace[]) { await this.runRepository().writeRunTraces?.(runId, attempt, traces); }
 
   async withWorkspace<T>(workspaceId: string, operation: () => Promise<T>): Promise<T> {
     return this.scope.run(workspaceId, operation);
@@ -57,9 +67,9 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
     if (context && target.executeCommand) {
       const result = await target.executeCommand({
         context,
-        options: updateOptions(mutation.policy),
+        options: { ...updateOptions(mutation.policy), run: mutation.run },
         apply: async current => mutation.apply(current),
-        events: (previous, next, commandValue) => eventForCommand(context, previous, next, commandValue),
+        events: (previous, next, commandValue) => mutation.run ? runEvents(mutation.run, context, previous, next, commandValue) : eventForCommand(context, previous, next, commandValue),
       });
       return { workspace: result.workspace, value: result.value };
     }
@@ -95,4 +105,11 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
   async executeWorkspaceLifecycle(context: CommandFactContext, command: import('../application/ports/workspace-unit-of-work').WorkspaceLifecycleCommand) {
     return this.repository.executeWorkspaceLifecycle?.(context, command);
   }
+}
+
+function runEvents(run: RunMutation, context: CommandFactContext, previous: import('../domain').WorkspaceData, next: import('../domain').WorkspaceData, value: unknown): import('../domain-journal').DomainEventDraft[] {
+  return [
+    ...(context.commandType === 'CreateConversationRun' ? eventForCommand(context, previous, next, value) : []),
+    { eventType: run.kind === 'create' ? 'run.created' : 'run.status.changed', aggregateType: 'run', aggregateId: run.kind === 'create' ? run.run.id : run.runId, payload: { status: run.kind === 'create' ? 'created' : run.patch.status } },
+  ];
 }

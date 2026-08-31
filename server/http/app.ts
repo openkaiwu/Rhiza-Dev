@@ -77,11 +77,21 @@ function parseChatInput(body: unknown): CommandMap['CreateConversationRun']['pay
     || !Number.isInteger(generation.maxTokens) || generation.maxTokens < 1 || generation.maxTokens > 32_768) {
     rejectInput('生成参数超出允许范围。', 'INVALID_GENERATION_OPTIONS');
   }
-  return { prompt, operation, sourceMessageId, attachmentIds, generation };
+  return { prompt, operation, sourceMessageId, attachmentIds, generation, parentRunRef: typeof input.parentRunRef === 'string' ? input.parentRunRef : undefined };
 }
 
 function writeSse(response: express.Response, event: string, payload: unknown): void {
   response.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+}
+
+async function writeSseWithBackpressure(response: express.Response, event: string, payload: unknown): Promise<void> {
+  if (response.destroyed || response.writableEnded) return;
+  if (response.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`)) return;
+  await new Promise<void>(resolve => {
+    const finish = () => { response.off('drain', finish); response.off('close', finish); resolve(); };
+    response.once('drain', finish);
+    response.once('close', finish);
+  });
 }
 
 function expectedRevision(request: express.Request): number | undefined {
@@ -396,6 +406,23 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
     } catch (error) { next(error); }
   });
 
+  app.get('/api/runs', async (request, response, next) => {
+    try { response.json({ runs: await query(response, 'ListExecutionRuns', { limit: Number(request.query.limit || 50) }) }); } catch (error) { next(error); }
+  });
+  app.get('/api/runs/:runId', async (request, response, next) => {
+    try { response.json({ run: await query(response, 'GetExecutionRun', { runId: request.params.runId }) }); } catch (error) { next(error); }
+  });
+  app.post('/api/runs/:runId/cancel', async (request, response, next) => {
+    try { response.json({ run: await execute(response, 'CancelExecutionRun', { runId: request.params.runId }) }); } catch (error) { next(error); }
+  });
+  // Unscoped v1 requests still require an explicit workspace, then use normal membership checks.
+  app.post('/api/v1/runs/:runId/cancel', async (request, response, next) => {
+    try {
+      const workspaceId = typeof request.body?.workspaceId === 'string' ? request.body.workspaceId : options.defaultWorkspaceId ?? '00000000-0000-4000-8000-000000000001';
+      response.json({ run: await executeScoped(response, workspaceId, 'CancelExecutionRun', { runId: request.params.runId }) });
+    } catch (error) { next(error); }
+  });
+
   app.post('/api/chat/stream', async (request, response, next) => {
     const controller = new AbortController();
     let terminalRuntimeErrorObserved = false;
@@ -414,7 +441,7 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
         onRuntimeEvent: event => {
           terminalRuntimeErrorObserved ||= event.type === 'RUN_ERROR';
           const runtimeError = event as { type: string; status?: number };
-          writeSse(response, 'runtime', event.type === 'RUN_ERROR' ? {
+          return writeSseWithBackpressure(response, 'runtime', event.type === 'RUN_ERROR' ? {
             ...event, category: 'infrastructure', retryable: (runtimeError.status ?? 500) >= 500, correlationId: correlationId(response),
           } : event);
         },

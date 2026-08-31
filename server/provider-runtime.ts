@@ -14,6 +14,9 @@ export class ProviderRuntime implements AIRuntime {
     const catalog = await this.providers.snapshot();
     return catalog.models.map(model => ({
       id: model.id,
+      providerEndpointRef: model.providerId,
+      endpointVersion: catalog.providers.find(provider => provider.id === model.providerId)?.updatedAt,
+      endpoint: (() => { const provider = catalog.providers.find(item => item.id === model.providerId); return provider ? { baseUrl: provider.baseUrl, chatPath: provider.chatPath, allowNoKey: provider.allowNoKey } : undefined; })(),
       provider: catalog.providers.find(provider => provider.id === model.providerId)?.name || 'Unknown',
       model: model.modelId,
       displayName: model.displayName,
@@ -22,7 +25,7 @@ export class ProviderRuntime implements AIRuntime {
   }
 
   async *generate(request: RuntimeRequest) {
-    const profile = (await this.listModels()).find(model => model.id === request.modelId);
+    const profile = request.modelSnapshot ?? (await this.listModels()).find(model => model.id === request.modelId);
     if (!profile) {
       yield { type: 'RUN_ERROR' as const, requestId: request.requestId, code: 'MODEL_NOT_FOUND', message: 'Runtime 模型不存在。', status: 404 };
       return;
@@ -59,7 +62,7 @@ export class ProviderRuntime implements AIRuntime {
         estimated: true,
       };
       usage.totalTokens ||= usage.promptTokens + usage.completionTokens;
-      yield { type: 'RUN_END' as const, requestId: request.requestId, text, model: completion.model, provider: completion.provider, reasoning: reasoning || undefined, toolCalls: tools.size ? [...tools.values()] : undefined, usage };
+      yield { type: 'RUN_END' as const, requestId: request.requestId, text, model: profile.model, provider: profile.provider, reasoning: reasoning || undefined, toolCalls: tools.size ? [...tools.values()] : undefined, usage };
     } catch (error) {
       const providerError = error instanceof ProviderError ? error : new ProviderError('AI Runtime 执行失败。', 502, 'RUNTIME_ERROR', error);
       yield { type: 'RUN_ERROR' as const, requestId: request.requestId, code: providerError.code, message: providerError.message, status: providerError.status };

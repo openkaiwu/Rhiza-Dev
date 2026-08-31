@@ -5,6 +5,8 @@ export type JournalScopeRef = { scopeType: 'user' | 'workspace' | 'conversation'
 export const DOMAIN_EVENT_SCHEMA_VERSION = '1.0.0' as const;
 
 export type DomainEventType =
+  | 'run.created'
+  | 'run.status.changed'
   | 'workspace.baseline.backfilled'
   | 'workspace.created'
   | 'workspace.renamed'
@@ -168,6 +170,8 @@ export function workspaceSemanticChanges(previous: WorkspaceData, next: Workspac
 }
 
 const activityTitles: Record<DomainEventType, string> = {
+  'run.created': '创建执行记录',
+  'run.status.changed': '更新执行状态',
   'workspace.baseline.backfilled': '建立 Workspace 历史基线',
   'workspace.created': '创建 Workspace',
   'workspace.renamed': '重命名 Workspace',

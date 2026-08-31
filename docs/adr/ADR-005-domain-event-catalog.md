@@ -41,3 +41,5 @@ Workspace activity timeline 可直接查询 Journal，不读取 AuditEvent 或�
 ## Migration and rollback
 
 0007 migration 只 expand：新增 heads、events、receipts、索引和 Journal UPDATE/DELETE/TRUNCATE 保护。回滚部署时保留表与事实，旧代码可继续读取 current state；不得以应用回滚为由删除 Journal。M10 contract 阶段之前保留 legacy importer 与 shadow reconciliation。
+
+M06 additive catalog 增加 `run.created` 与 `run.status.changed`，只承载执行生命周期；详细事务和 trace 分离规则见 ADR-006。

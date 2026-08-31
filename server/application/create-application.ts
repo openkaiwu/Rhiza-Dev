@@ -1,3 +1,5 @@
+import { RunLifecycle } from './run-lifecycle';
+import type { ContextEnvelope, RunMutation } from '../execution-runtime/run';
 import { ApplicationError, applicationError } from '../contracts/application-error';
 import type { Application, CommandEnvelope, CommandExecutionOptions, CommandMap, CommandResult, CommandType, QueryEnvelope, QueryMap, QueryResult, QueryType } from '../contracts/application';
 import type { AuditEvent, ChatOperation, ContextManifest, ContextMode, ContextStatus, GenerationOptions, Resource, ResourceMaterialization, ResourceVersion, StoredAttachment, StoredMessage, WorkspaceData } from '../domain';
@@ -16,6 +18,7 @@ const textMimeTypes = new Set(['text/plain', 'text/markdown', 'text/csv', 'appli
 
 export interface RhizaApplicationDependencies {
   unitOfWork: WorkspaceUnitOfWork;
+  hashRunInput?: (input: ContextEnvelope) => string;
   runtime: RuntimePort;
   providers: ProviderManagementPort;
   host: HostRuntimePort;
@@ -86,6 +89,8 @@ function withCurrentNodeContext(workspace: WorkspaceData, nodeId: string, planne
 
 export function createRhizaApplication(dependencies: RhizaApplicationDependencies): Application {
   const { unitOfWork, runtime, providers, host, textExtraction, planner, id, now, log } = dependencies;
+  const runs = new RunLifecycle(unitOfWork, runtime, now, id, dependencies.hashRunInput ?? (() => { throw new Error('Run input hash capability is unavailable'); }));
+  const inputFor = (request: RuntimeRequest): ContextEnvelope => ({ schemaVersion: '1.0.0', request, executor: { runtime: runtime.kind ?? 'provider-adapter', modelSpecRef: request.modelId, providerEndpointRef: request.modelSnapshot?.providerEndpointRef ?? request.modelId, model: request.modelSnapshot?.model ?? request.modelId, provider: request.modelSnapshot?.provider ?? runtime.kind ?? 'unknown' } });
   const fallbackWorkspaces = new Map<string, import('../contracts/application').WorkspaceRecord>([['00000000-0000-4000-8000-000000000001', { workspaceId: '00000000-0000-4000-8000-000000000001', name: 'Rhiza 产品研究', status: 'active', createdBy: '00000000-0000-4000-8000-000000000002', revision: 1 }]]);
   const workspaceDirectory = dependencies.workspaceDirectory ?? new WorkspaceDirectory({
     listWorkspaces: async (userId, includeArchived = false) => [...fallbackWorkspaces.values()].filter(item => item.createdBy === userId && (includeArchived || item.status === 'active')),
@@ -118,8 +123,8 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
     if (!model) throw legacyError('请先在模型设置中选择一个模型。', 503, 'MODEL_NOT_SELECTED');
     return model;
   };
-  const mutate = async <T>(work: (current: WorkspaceData) => { next: WorkspaceData; value: T }, purge?: { nodeId: string; auditReceiptId: string }) =>
-    unitOfWork.execute({ policy: purge ? { kind: 'purge', ...purge } : { kind: 'normal' }, apply: current => work(current) });
+  const mutate = async <T>(work: (current: WorkspaceData) => { next: WorkspaceData; value: T }, purge?: { nodeId: string; auditReceiptId: string }, run?: RunMutation) =>
+    unitOfWork.execute({ run, policy: purge ? { kind: 'purge', ...purge } : { kind: 'normal' }, apply: current => work(current) });
   const mutateWorkspace = async (work: (current: WorkspaceData) => { next: WorkspaceData; value: unknown }) => (await mutate(work)).workspace;
 
   const prepareRun = async (payload: Extract<CommandEnvelope<'CreateConversationRun'>['payload'], object>): Promise<PreparedRun> => {
@@ -163,10 +168,10 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
       contextItems: plan.items.map(item => ({ sourceType: item.sourceType || 'reference', sourceId: item.sourceId || item.id, sourceNodeId: item.sourceNodeId, title: item.title, detail: item.detail, role: item.role, selectionMode: item.selectionMode || 'CURRENT', pinned: Boolean(item.pinned), reason: item.reason || (item.selectionMode === 'CURRENT' ? '当前讨论节点。' : '已加入 Active Context。'), tokenCount: item.tokens, contentVersion: item.contentVersion || 1 })),
       estimatedTokens: plan.items.reduce((sum, item) => sum + item.tokens, 0), generation: payload.generation, operation: payload.operation, sourceMessageId: payload.sourceMessageId, attachmentIds: payload.attachmentIds, planner: plan.diagnostics,
     };
-    return { manifest, createdAt, userMessageId, versionGroupId: version.versionGroupId, version: version.version, request: { requestId, manifestId, projectId: current.projectId, nodeId, modelId: model.id, prompt, history, contextItems: plan.items, mode: current.mode, attachments: attachments.filter((item): item is StoredAttachment => Boolean(item)), generation: payload.generation, operation: payload.operation, sourceMessageId: payload.sourceMessageId } };
+    return { manifest, createdAt, userMessageId, versionGroupId: version.versionGroupId, version: version.version, request: { modelSnapshot: model, requestId, manifestId, projectId: current.projectId, nodeId, modelId: model.id, prompt, history, contextItems: plan.items, mode: current.mode, attachments: attachments.filter((item): item is StoredAttachment => Boolean(item)), generation: payload.generation, operation: payload.operation, sourceMessageId: payload.sourceMessageId } };
   };
 
-  const commitRun = async (run: PreparedRun, completion: Completion) => {
+  const commitRun = async (run: PreparedRun, completion: Completion, mutation?: RunMutation) => {
     const operation = run.request.operation || 'send';
     const userMessage: StoredMessage = { id: run.userMessageId, nodeId: run.request.nodeId, kind: 'user', text: run.request.prompt, createdAt: run.createdAt, attachmentIds: run.manifest.attachmentIds, operation, sourceMessageId: run.request.sourceMessageId, versionGroupId: run.versionGroupId, version: run.version };
     const assistantMessage: StoredMessage = { id: id(), nodeId: run.request.nodeId, kind: 'assistant', text: completion.text, createdAt: run.createdAt, manifestId: run.manifest.id, operation, sourceMessageId: operation === 'regenerate' ? run.request.sourceMessageId : undefined, versionGroupId: run.versionGroupId, version: run.version, replyToMessageId: userMessage.id, usage: completion.usage, reasoning: completion.reasoning, toolCalls: completion.toolCalls };
@@ -176,7 +181,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
       if (!target) throw legacyError('生成期间讨论节点已被删除，结果未写入。', 409, 'NODE_REMOVED_DURING_RUN');
       if (target.status === 'archived') throw legacyError('生成期间讨论节点已归档，结果未写入。', 409, 'NODE_ARCHIVED_DURING_RUN');
       return { next: { ...current, messages: [...current.messages, userMessage, assistantMessage], manifests: [...current.manifests, run.manifest] }, value: { userMessage, assistantMessage, manifest: run.manifest } };
-    });
+    }, undefined, mutation);
     return committed.value;
   };
 
@@ -265,7 +270,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
       const prior = unitOfWork.withWorkspace && unitOfWork.withCommand && unitOfWork.readCommittedResult
         ? await unitOfWork.withWorkspace(envelope.workspaceId, () => unitOfWork.withCommand!(factContext, () => unitOfWork.readCommittedResult!()))
         : undefined;
-      if (!prior?.found && record.status === 'archived' && !['RestoreWorkspace'].includes(envelope.commandType)) throw legacyError('归档工作区为只读，请先恢复。', 409, 'WORKSPACE_ARCHIVED');
+      if (!prior?.found && record.status === 'archived' && !['RestoreWorkspace', 'CancelExecutionRun'].includes(envelope.commandType)) throw legacyError('归档工作区为只读，请先恢复。', 409, 'WORKSPACE_ARCHIVED');
       if (envelope.commandType === 'RenameWorkspace' || envelope.commandType === 'ArchiveWorkspace' || envelope.commandType === 'RestoreWorkspace') {
         if (prior?.found) return prior.value;
         const expectedRevision = envelope.expectedRevision ?? record.revision;
@@ -308,19 +313,15 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
         }
         case 'CreateConversationRun': {
           const previous = await unitOfWork.readCommittedResult?.<CommandMap['CreateConversationRun']['result']>();
-          if (previous?.found) return previous.value;
-          const run = await prepareRun(payload); run.request.signal = options?.signal; await options?.onReady?.();
-          for await (const event of runtime.generate(run.request)) {
-            if (event.type === 'RUN_ERROR') {
-              const error = runtimeError(event.message, event.status, event.code);
-              await options?.onRuntimeEvent?.({ ...event, message: error.message } as { type: string });
-              throw error;
-            }
-            await options?.onRuntimeEvent?.(event);
-            if (event.type === 'RUN_END') return commitRun(run, event);
-          }
-          throw legacyError('AI Runtime 未返回结束事件。', 502, 'INCOMPLETE_RUNTIME_STREAM');
+          if (previous?.found) { await options?.onReady?.(); return previous.value; }
+          const run = await prepareRun(payload);
+          const parentRunRef = (envelope.payload as CommandMap['CreateConversationRun']['payload']).parentRunRef;
+          // Regenerate uses the source message's manifest to find its immutable execution parent.
+          const sourceRunId = payload.sourceMessageId ? await unitOfWork.read(current => { const manifestId = current.messages.find(item => item.id === payload.sourceMessageId)?.manifestId; return current.manifests.find(item => item.id === manifestId)?.requestId; }) : undefined;
+          const lineage = parentRunRef ?? (sourceRunId ? (await unitOfWork.getRun?.(sourceRunId))?.id : undefined);
+          return runs.execute(envelope, run.request, inputFor(run.request), (completion, mutation) => commitRun(run, completion, mutation), options, lineage);
         }
+        case 'CancelExecutionRun': return runs.cancel(envelope, (envelope.payload as { runId: string }).runId);
         case 'ChangeContextMode': {
           if (!['Auto', 'Assisted', 'Strict'].includes(payload.mode)) throw legacyError('无效的 Context 模式。', 400, 'INVALID_MODE');
           return mutateWorkspace(current => ({ next: { ...current, mode: payload.mode }, value: undefined }));
@@ -342,7 +343,15 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
         case 'CreateMergeRevision': return mutateWorkspace(current => { const result = mergeRevision(current, payload.sourceNodeId, payload.targetNodeId || current.discussionNodes.find(node => node.id === payload.sourceNodeId)?.sourceNodeId || '', payload.summary, id, now, planner); return { next: result.next, value: undefined }; });
         case 'PurgeObject': { const receiptId = id(); const committed = await unitOfWork.execute({ policy: { kind: 'purge', nodeId: payload.nodeId, auditReceiptId: receiptId }, apply: currentPurge(payload.nodeId, payload.confirmation, payload.reason, receiptId, now) }); return { workspace: committed.workspace, purgeReceipt: committed.value.purgeReceipt }; }
         case 'CreateBranch': return mutateWorkspace(current => { const result = createBranch(current, payload, id, now, planner); return { next: result.next, value: undefined }; });
-        case 'ExecuteTemporaryConversation': return temporaryConversation(payload, unitOfWork, runtime, activeModel, id, now);
+        case 'ExecuteTemporaryConversation': {
+          const prior = await unitOfWork.readCommittedResult?.<CommandMap['ExecuteTemporaryConversation']['result']>();
+          if (prior?.found) return prior.value;
+          return temporaryConversation(payload, unitOfWork, activeModel, id, now, async (request, resultFor) => runs.execute(envelope, request, inputFor(request), async (completion, mutation) => {
+            const result = resultFor(completion);
+            if (mutation) await unitOfWork.execute({ policy: { kind: 'normal' }, run: mutation, apply: current => ({ next: current, value: result }) });
+            return result;
+          }, options));
+        }
         default: throw new Error('Unhandled application command');
       }
     } catch (error) { throw asApplicationError(error); }
@@ -360,6 +369,8 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
   const dispatchQueryScoped = async (envelope: AnyQueryEnvelope): Promise<unknown> => {
     try {
       switch (envelope.queryType) {
+        case 'ListExecutionRuns': return unitOfWork.listRuns?.(Math.min(100, Math.max(1, Number((envelope.payload as { limit?: number }).limit || 50)))) ?? [];
+        case 'GetExecutionRun': { const run = await unitOfWork.getRun?.((envelope.payload as { runId: string }).runId); if (!run) throw legacyError('执行记录不存在。', 404, 'RUN_NOT_FOUND'); return run; }
         case 'GetHealth': return { ok: true };
         case 'GetWorkspace': return unitOfWork.read(workspace => workspace);
         case 'GetWorkspaceActivity': return unitOfWork.readActivity?.(Math.min(100, Math.max(1, Number((envelope.payload as { limit?: number }).limit || 50)))) ?? [];
@@ -413,13 +424,11 @@ function mergeRevision(current: WorkspaceData, sourceId: string, targetId: strin
   const next = withCurrentNodeContext({ ...current, activeNodeId: target.id, nodeId: target.id, messages: [...current.messages, { id: id(), nodeId: target.id, kind: 'assistant' as const, text: `已从支线「${source.title}」合并引用：\n\n${content}`, createdAt }], discussionNodes: current.discussionNodes.map(node => node.id === source.id ? { ...node, status: 'resolved' as const, updatedAt: createdAt } : node), discussionEdges: [...current.discussionEdges, { id: id(), source: source.id, target: target.id, relation: 'merged-into' as const, label: '选择性合并', createdAt }] }, target.id, planner); return { next, value: next };
 }
 
-async function temporaryConversation(payload: Extract<CommandEnvelope<'ExecuteTemporaryConversation'>['payload'], object>, uow: WorkspaceUnitOfWork, runtime: RuntimePort, activeModel: () => Promise<Awaited<ReturnType<RuntimePort['listModels']>>[number]>, id: () => string, now: () => string) {
+async function temporaryConversation(payload: Extract<CommandEnvelope<'ExecuteTemporaryConversation'>['payload'], object>, uow: WorkspaceUnitOfWork, activeModel: () => Promise<Awaited<ReturnType<RuntimePort['listModels']>>[number]>, id: () => string, now: () => string, execute: (request: RuntimeRequest, resultFor: (completion: Completion) => CommandMap['ExecuteTemporaryConversation']['result']) => Promise<CommandMap['ExecuteTemporaryConversation']['result']>) {
   const current = await uow.read(workspace => workspace); if (!current.discussionNodes.some(node => node.id === payload.sourceNodeId)) throw legacyError('来源讨论节点不存在。', 404, 'NODE_NOT_FOUND');
   const temporaryNodeId = `temp:${payload.sourceNodeId}`; const createdAt = now(); const history = [...current.messages.filter(message => message.nodeId === payload.sourceNodeId).slice(-8), ...(payload.history || []).map(item => ({ id: id(), nodeId: temporaryNodeId, kind: item.kind, text: item.text, createdAt: item.createdAt || createdAt }))]; const model = await activeModel();
-  let completion: Completion | undefined;
-  for await (const event of runtime.generate({ requestId: id(), manifestId: `temporary:${id()}`, projectId: current.projectId, nodeId: temporaryNodeId, modelId: model.id, prompt: `围绕下列选中内容回答临时支线问题。不要偏离锚点：\n\n「${payload.anchorText}」\n\n问题：${payload.prompt}`, history, contextItems: current.contextItems.filter(item => item.status === 'active'), mode: current.mode })) { if (event.type === 'RUN_ERROR') throw runtimeError(event.message, event.status, event.code); if (event.type === 'RUN_END') completion = event; }
-  if (!completion) throw legacyError('AI Runtime 未返回 RUN_END 事件。', 502, 'INCOMPLETE_RUNTIME_STREAM');
-  return { userMessage: { id: id(), nodeId: temporaryNodeId, kind: 'user' as const, text: payload.prompt, createdAt }, assistantMessage: { id: id(), nodeId: temporaryNodeId, kind: 'assistant' as const, text: completion.text, createdAt }, model: completion.model };
+  const request: RuntimeRequest = { modelSnapshot: model, requestId: id(), manifestId: `temporary:${id()}`, projectId: current.projectId, nodeId: temporaryNodeId, modelId: model.id, prompt: `围绕下列选中内容回答临时支线问题。不要偏离锚点：\n\n「${payload.anchorText}」\n\n问题：${payload.prompt}`, history, contextItems: current.contextItems.filter(item => item.status === 'active'), mode: current.mode };
+  return execute(request, completion => ({ userMessage: { id: id(), nodeId: temporaryNodeId, kind: 'user' as const, text: payload.prompt, createdAt }, assistantMessage: { id: id(), nodeId: temporaryNodeId, kind: 'assistant' as const, text: completion.text, createdAt }, model: completion.model }));
 }
 
 function currentPurge(nodeId: string, confirmation: string, reason: string, receiptId: string, now: () => string) {
