@@ -1,0 +1,20 @@
+/* Activity and execution-run history surfaces. */
+.activity-view { grid-column: 2; overflow-y: auto; background: var(--surface); }
+.activity-view .workspace-header { position: sticky; top: 0; z-index: 3; }
+.activity-timeline { list-style: none; margin: 22px 24px; padding: 0; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-raised); box-shadow: var(--shadow-xs); }
+.activity-timeline li { display: grid; grid-template-columns: 58px minmax(0,1fr) auto; gap: 14px; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line-soft); }
+.activity-timeline li:last-child { border-bottom: 0; }
+.activity-sequence { font: 9px var(--font-mono); color: var(--accent); }
+.activity-timeline strong { font-size: 11px; }
+.activity-timeline p { margin: 4px 0; color: var(--ink-3); font-size: 9px; }
+.activity-timeline code, .activity-timeline time { color: var(--ink-3); font-size: 8px; }
+.activity-timeline .activity-empty { grid-template-columns: auto 1fr; }
+.activity-empty span { grid-column: 2; color: var(--ink-3); font-size: 9px; }
+.activity-error { margin: 16px 24px; color: var(--warning); }
+@media (max-width: 1120px) { .activity-view { grid-column: auto; } }
+@media (max-width: 760px) { .activity-timeline { margin: 12px; margin-bottom: 80px; } .activity-timeline li { grid-template-columns: 44px 1fr; } .activity-timeline time { grid-column: 2; } }
+.run-history .activity-timeline li { display: block; }
+.run-history article { min-width: 0; width: 100%; }
+.run-history details { margin: 12px 0; }
+.run-history dd { margin: 4px 0 10px; overflow-wrap: anywhere; }
+.run-history details p { white-space: pre-wrap; overflow-wrap: anywhere; }

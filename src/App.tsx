@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Attachment, ContextManifest, ContextMode, ContextStatus, DiscussionEdge, DiscussionNode, Message, ProviderCatalog, ProviderPresetInfo, ProviderStatus, Segment, View, WorkspaceActivityItem, WorkspaceSnapshot, WorkspaceRecord } from './types';
 import { api, type ChatRequestOptions } from './api';
 import { presentErrorText } from './error-presentation';
@@ -10,6 +10,8 @@ import { ContextPanel } from './components/ContextPanel';
 import { ProviderSettings, type ProviderFormState } from './components/ProviderSettings';
 import { RunHistory } from './components/RunHistory';
 import { ActivityView } from './components/ActivityView';
+import { AppShell } from './components/AppShell';
+import { toGraphPresentationModel } from './components/graph-model';
 
 export function App() {
   const initialNode: DiscussionNode = { id: 'information-architecture', title: '信息架构方向', summary: '探索首屏的内容层级、上下文入口与专业能力的渐进呈现方式。', status: 'active', kind: 'main', x: 350, y: 150, createdAt: '2026-08-09T12:00:00.000Z', updatedAt: '2026-08-09T12:00:00.000Z' };
@@ -380,6 +382,10 @@ export function App() {
   const navigableNodes = discussionNodes.filter(node => node.status !== 'archived');
   const activeNode = navigableNodes.find(node => node.id === activeNodeId) || navigableNodes[0] || initialNode;
   const activeMessages = messages.filter(message => message.nodeId === activeNode.id);
+  const graphModel = useMemo(
+    () => toGraphPresentationModel(discussionNodes, discussionEdges),
+    [discussionNodes, discussionEdges],
+  );
 
   if (boot === 'loading') return <main className="app-loading" aria-busy="true" aria-live="polite"><strong>正在加载工作区…</strong><p>正在同步项目、讨论节点与上下文。</p></main>;
   if (boot === 'error') return <main className="app-loading" role="alert"><strong>工作区加载失败</strong><p>{bootError}</p><button className="primary-button" onClick={() => void loadWorkspace()}>重试</button></main>;
@@ -387,29 +393,33 @@ export function App() {
   const closeOnboarding = () => { localStorage.setItem('rhiza:onboarding-seen', '1'); setOnboardingOpen(false); };
   const runCommand = (action: () => void) => { setPaletteOpen(false); action(); };
 
-  return <div className={`app-shell ${contextOpen ? 'context-open' : ''}`}>
-    <a className="skip-link" href="#workspace-main">跳到主要内容</a>
-    <div className="network-status" aria-live="polite" role="status">{networkNotice}</div>
-    <div className="ambient-grid" aria-hidden="true"/>
-    <Sidebar view={view} nodes={navigableNodes} messages={messages} activeNodeId={activeNode.id} onView={setView} onNode={id => activateNode(id, true)} onSettings={openSettings} onCommand={() => setPaletteOpen(true)} onHelp={() => setOnboardingOpen(true)} workspaces={workspaces} currentWorkspaceId={currentWorkspaceId} onWorkspace={id => void switchWorkspace(id)} onCreateWorkspace={() => void createWorkspace()} onRenameWorkspace={() => void renameWorkspace()} onArchiveWorkspace={() => void archiveWorkspace()} onRestoreWorkspace={() => void restoreWorkspace()}/>
-    {discussionNodes.length === 0 ? <main id="workspace-main" className="workspace-empty"><h1>这个工作区还没有讨论节点</h1><p>请通过项目入口创建第一个节点，然后开始建立上下文。</p></main> : view === 'chat' && <ChatView
-      activeNode={activeNode} nodes={navigableNodes} edges={discussionEdges} mode={mode}
-      activeCount={activeCount} messages={activeMessages} manifests={manifests} attachments={attachments}
-      provider={provider} providerCatalog={providerCatalog} syncError={syncError} online={online} focusComposerRequest={focusComposerRequest} onSend={sendMessage}
-      onUpload={uploadAttachment} onTempSend={sendTemporaryMessage} onCreateBranch={createBranch}
-      onActivateNode={id => activateNode(id, true)} onMerge={mergeNode} onSelectModel={selectModel}
-      onSettings={openSettings} onOpenContext={() => setContextOpen(open => !open)} onGraph={() => setView('graph')} onRuns={() => setView('runs')}
-    />}
-    {discussionNodes.length > 0 && view === 'graph' && (
-      <GraphView nodes={discussionNodes} edges={discussionEdges} activeNodeId={activeNode.id} onMove={moveNode} onActivate={id => activateNode(id, true)} onCreateNode={createGraphNode} onArchiveNode={archiveGraphNode} onRestoreNode={restoreGraphNode} onCreateEdge={createGraphEdge} onDeleteEdge={deleteGraphEdge}/>
-    )}
-    {discussionNodes.length > 0 && view === 'state' && <StateView/>}
-    {view === 'runs' && <RunHistory key={currentWorkspaceId} onChanged={() => void loadWorkspace(true)}/>}
-    {discussionNodes.length > 0 && view === 'activity' && <ActivityView activity={activity} loading={activityLoading} error={activityError} onRefresh={() => void loadActivity()}/>}
-    <button className="context-backdrop" aria-label="关闭上下文面板" onClick={() => setContextOpen(false)}/>
-    <ContextPanel items={contextItems} mode={mode} nodes={discussionNodes} segments={segments} attachments={attachments} onMode={updateMode} onStatus={updateStatus} onPin={updatePin} onAddSource={addContextSource}/>
-    {settingsOpen && <ProviderSettings catalog={providerCatalog} presets={providerPresets} onClose={() => setSettingsOpen(false)} onSave={saveProvider} onDiscover={discoverModels} onToggleModel={updateModel} onSelectModel={selectModel}/>} 
-    {paletteOpen && <div className="dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setPaletteOpen(false); }}><section ref={activeModalRef} className="command-palette" role="dialog" aria-modal="true" aria-label="命令面板"><header><strong>搜索或运行命令</strong><kbd>Esc</kbd></header><button onClick={() => runCommand(() => setView('chat'))}>当前讨论 <kbd>⌘1</kbd></button><button onClick={() => runCommand(() => setView('graph'))}>对话图谱 <kbd>⌘2</kbd></button><button onClick={() => runCommand(() => setView('state'))}>知识状态 <kbd>⌘3</kbd></button><button onClick={() => runCommand(() => setView('activity'))}>活动时间线 <kbd>⌘4</kbd></button><button onClick={() => runCommand(() => setContextOpen(true))}>打开 Context <kbd>⌘⇧C</kbd></button><button onClick={() => runCommand(() => { setView('chat'); setFocusComposerRequest(value => value + 1); })}>聚焦消息输入框 <kbd>/</kbd></button><button onClick={() => runCommand(() => setOnboardingOpen(true))}>帮助与快捷键</button></section></div>}
-    {onboardingOpen && <div className="dialog-backdrop" role="presentation"><section ref={activeModalRef} className="onboarding-dialog" role="dialog" aria-modal="true" aria-labelledby="onboarding-title"><h2 id="onboarding-title">欢迎来到 Rhiza</h2><p>用四个对象把研究和决策留在同一个工作区：</p><dl><div><dt>Project</dt><dd>一个完整的研究或决策空间。</dd></div><div><dt>Node</dt><dd>围绕一个问题持续展开的讨论。</dd></div><div><dt>Graph</dt><dd>展示讨论之间的衍生、引用和合并关系。</dd></div><div><dt>Context</dt><dd>明确控制本轮发送给模型的材料。</dd></div></dl><button className="primary-button" autoFocus onClick={closeOnboarding}>开始使用</button></section></div>}
-  </div>;
+  return <AppShell
+    view={view}
+    hasDiscussionNodes={discussionNodes.length > 0}
+    contextOpen={contextOpen}
+    networkNotice={networkNotice}
+    onCloseContext={() => setContextOpen(false)}
+    sidebar={<Sidebar view={view} nodes={navigableNodes} messages={messages} activeNodeId={activeNode.id} onView={setView} onNode={id => activateNode(id, true)} onSettings={openSettings} onCommand={() => setPaletteOpen(true)} onHelp={() => setOnboardingOpen(true)} workspaces={workspaces} currentWorkspaceId={currentWorkspaceId} onWorkspace={id => void switchWorkspace(id)} onCreateWorkspace={() => void createWorkspace()} onRenameWorkspace={() => void renameWorkspace()} onArchiveWorkspace={() => void archiveWorkspace()} onRestoreWorkspace={() => void restoreWorkspace()}/>}
+    emptySurface={<main id="workspace-main" className="workspace-empty"><h1>这个工作区还没有讨论节点</h1><p>请通过项目入口创建第一个节点，然后开始建立上下文。</p></main>}
+    surfaces={{
+      chat: <ChatView
+        activeNode={activeNode} nodes={navigableNodes} edges={discussionEdges} mode={mode}
+        activeCount={activeCount} messages={activeMessages} manifests={manifests} attachments={attachments}
+        provider={provider} providerCatalog={providerCatalog} syncError={syncError} online={online} focusComposerRequest={focusComposerRequest} onSend={sendMessage}
+        onUpload={uploadAttachment} onTempSend={sendTemporaryMessage} onCreateBranch={createBranch}
+        onActivateNode={id => activateNode(id, true)} onMerge={mergeNode} onSelectModel={selectModel}
+        onSettings={openSettings} onOpenContext={() => setContextOpen(open => !open)} onGraph={() => setView('graph')} onRuns={() => setView('runs')}
+      />,
+      graph: <GraphView nodes={graphModel.nodes} edges={graphModel.edges} activeNodeId={activeNode.id} onMove={moveNode} onActivate={id => activateNode(id, true)} onCreateNode={createGraphNode} onArchiveNode={archiveGraphNode} onRestoreNode={restoreGraphNode} onCreateEdge={createGraphEdge} onDeleteEdge={deleteGraphEdge}/>,
+      state: <StateView/>,
+      runs: <RunHistory key={currentWorkspaceId} onChanged={() => void loadWorkspace(true)}/>,
+      activity: <ActivityView activity={activity} loading={activityLoading} error={activityError} onRefresh={() => void loadActivity()}/>,
+    }}
+    contextSurface={<ContextPanel items={contextItems} mode={mode} nodes={discussionNodes} segments={segments} attachments={attachments} onMode={updateMode} onStatus={updateStatus} onPin={updatePin} onAddSource={addContextSource}/>}
+    overlayLayer={<>
+      {settingsOpen && <ProviderSettings catalog={providerCatalog} presets={providerPresets} onClose={() => setSettingsOpen(false)} onSave={saveProvider} onDiscover={discoverModels} onToggleModel={updateModel} onSelectModel={selectModel}/>}
+      {paletteOpen && <div className="dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setPaletteOpen(false); }}><section ref={activeModalRef} className="command-palette" role="dialog" aria-modal="true" aria-label="命令面板"><header><strong>搜索或运行命令</strong><kbd>Esc</kbd></header><button onClick={() => runCommand(() => setView('chat'))}>当前讨论 <kbd>⌘1</kbd></button><button onClick={() => runCommand(() => setView('graph'))}>对话图谱 <kbd>⌘2</kbd></button><button onClick={() => runCommand(() => setView('state'))}>知识状态 <kbd>⌘3</kbd></button><button onClick={() => runCommand(() => setView('activity'))}>活动时间线 <kbd>⌘4</kbd></button><button onClick={() => runCommand(() => setContextOpen(true))}>打开 Context <kbd>⌘⇧C</kbd></button><button onClick={() => runCommand(() => { setView('chat'); setFocusComposerRequest(value => value + 1); })}>聚焦消息输入框 <kbd>/</kbd></button><button onClick={() => runCommand(() => setOnboardingOpen(true))}>帮助与快捷键</button></section></div>}
+      {onboardingOpen && <div className="dialog-backdrop" role="presentation"><section ref={activeModalRef} className="onboarding-dialog" role="dialog" aria-modal="true" aria-labelledby="onboarding-title"><h2 id="onboarding-title">欢迎来到 Rhiza</h2><p>用四个对象把研究和决策留在同一个工作区：</p><dl><div><dt>Project</dt><dd>一个完整的研究或决策空间。</dd></div><div><dt>Node</dt><dd>围绕一个问题持续展开的讨论。</dd></div><div><dt>Graph</dt><dd>展示讨论之间的衍生、引用和合并关系。</dd></div><div><dt>Context</dt><dd>明确控制本轮发送给模型的材料。</dd></div></dl><button className="primary-button" autoFocus onClick={closeOnboarding}>开始使用</button></section></div>}
+    </>}
+  />;
 }

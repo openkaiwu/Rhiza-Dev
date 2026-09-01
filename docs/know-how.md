@@ -19,6 +19,8 @@
 ## 3. Development Notes
 
 - 领域状态由 `App` 统一持有，表现组件通过回调修改，避免 Context 数量和预算显示不一致。
+- `AppShell` 只组合 Sidebar、Workspace surface、Context 与 overlay；API 调用、持久化 mutation、streaming 和 reconciliation 必须留在 `App` coordinator/application 边界。
+- Graph 前端通过 `graph-model.ts` 的 UI-facing model 消费数据。M07 bounded API 可替换适配器输入，但 projector cursor、projection table schema、Journal sequence 与 hover/zoom/panel 等 UI-only 状态不得进入 `GraphView` 契约或 Domain relation。
 - Provider 调用必须只发生在服务端；浏览器不得读取 API Key 或直接调用第三方模型。
 - 一次成功 Chat 写入必须同时包含用户消息、AI 消息与 Context Manifest，避免审计记录和消息历史分离。
 - ResourceVersion 是 append-only 历史事实：同一 Resource 的新内容只能新增版本，不得修改或删除旧版本；FileChunk 只能登记为 materialization，不能替代原始 ResourceVersion。
@@ -71,6 +73,7 @@
 - 小于 1120px 时 Context Inspector 必须转为可关闭抽屉；小于 760px 时导航转为底部栏。
 - 字体通过 `@fontsource` 本地打包，避免本地部署时因外部字体服务超时产生控制台错误和视觉跳变。
 - 桌面端临时对话采用同一 Chat Workspace 内的 sidecar，不出现在 Sidebar；窄屏下转为底部浮层，仍保持主讨论可返回。
+- 固定 Context 右栏在高密度 Graph 场景仍会占用明显横向空间；`AppShell` 已把 Context 作为独立 surface，未来 Drawer、Tray 或 Bottom Panel 的产品选择留给 M18，并应依据 M12–M17 的真实使用数据决定。
 
 ## 6. Debugging Notes
 

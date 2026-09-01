@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Archive, Check, Focus, Grip, Link2, Maximize2, Minus, Plus, RotateCcw, Search, Trash2, X } from 'lucide-react';
-import type { DiscussionEdge, DiscussionNode, EdgeRelation } from '../types';
 import { presentErrorText } from '../error-presentation';
+import type { GraphEdgeModel, GraphNodeModel, GraphRelation } from './graph-model';
 
 const STAGE_WIDTH = 2200;
 const STAGE_HEIGHT = 1400;
 const NODE_WIDTH = 148;
 const NODE_HEIGHT = 84;
-const EDGE_LABELS: Record<EdgeRelation, string> = { 'derived-from': '衍生支线', references: '引用', 'related-to': '相关', 'merged-into': '选择性合并' };
+const EDGE_LABELS: Record<GraphRelation, string> = { 'derived-from': '衍生支线', references: '引用', 'related-to': '相关', 'merged-into': '选择性合并' };
 
 type Point = { x: number; y: number };
 type Viewport = Point & { scale: number };
@@ -15,15 +15,15 @@ type DragState = { id: string; offsetX: number; offsetY: number; moved: boolean;
 type PanState = { x: number; y: number; startX: number; startY: number };
 
 interface GraphViewProps {
-  nodes: DiscussionNode[];
-  edges: DiscussionEdge[];
+  nodes: GraphNodeModel[];
+  edges: GraphEdgeModel[];
   activeNodeId: string;
   onMove: (id: string, x: number, y: number) => Promise<void>;
   onActivate: (id: string) => Promise<void>;
   onCreateNode: (input: { title: string; summary?: string; x: number; y: number }) => Promise<void>;
   onArchiveNode: (id: string) => Promise<void>;
   onRestoreNode: (id: string) => Promise<void>;
-  onCreateEdge: (input: { source: string; target: string; relation: EdgeRelation; label: string }) => Promise<void>;
+  onCreateEdge: (input: { source: string; target: string; relation: GraphRelation; label: string }) => Promise<void>;
   onDeleteEdge: (id: string) => Promise<void>;
 }
 
@@ -39,19 +39,19 @@ export function GraphView({ nodes, edges, activeNodeId, onMove, onActivate, onCr
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [nodeFormOpen, setNodeFormOpen] = useState(false);
   const [nodeForm, setNodeForm] = useState({ title: '', summary: '' });
-  const [edgeForm, setEdgeForm] = useState<{ source: string; target: string; relation: EdgeRelation; label: string } | null>(null);
-  const [archiveTarget, setArchiveTarget] = useState<DiscussionNode | null>(null);
+  const [edgeForm, setEdgeForm] = useState<{ source: string; target: string; relation: GraphRelation; label: string } | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<GraphNodeModel | null>(null);
   const [actionError, setActionError] = useState('');
   const activeNodes = nodes.filter(node => node.status !== 'archived');
   const archivedNodes = nodes.filter(node => node.status === 'archived');
 
-  const positionOf = (node: DiscussionNode) => positions[node.id] || { x: node.x, y: node.y };
+  const positionOf = (node: GraphNodeModel) => positions[node.id] || { x: node.x, y: node.y };
   const toWorldPoint = (clientX: number, clientY: number): Point | null => {
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return null;
     return { x: (clientX - rect.left - viewport.x) / viewport.scale, y: (clientY - rect.top - viewport.y) / viewport.scale };
   };
-  const focusNode = (node: DiscussionNode) => {
+  const focusNode = (node: GraphNodeModel) => {
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
     const position = positionOf(node);
@@ -109,7 +109,7 @@ export function GraphView({ nodes, edges, activeNodeId, onMove, onActivate, onCr
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
-  const pointerDownNode = (event: React.PointerEvent<HTMLElement>, node: DiscussionNode) => {
+  const pointerDownNode = (event: React.PointerEvent<HTMLElement>, node: GraphNodeModel) => {
     event.stopPropagation();
     const position = positionOf(node);
     const point = toWorldPoint(event.clientX, event.clientY);
@@ -127,7 +127,7 @@ export function GraphView({ nodes, edges, activeNodeId, onMove, onActivate, onCr
     drag.x = Math.round(x); drag.y = Math.round(y);
     setPositions(current => ({ ...current, [drag.id]: { x: drag.x, y: drag.y } }));
   };
-  const pointerUpNode = async (event: React.PointerEvent<HTMLElement>, node: DiscussionNode) => {
+  const pointerUpNode = async (event: React.PointerEvent<HTMLElement>, node: GraphNodeModel) => {
     event.stopPropagation();
     const drag = dragRef.current;
     dragRef.current = null;
@@ -233,7 +233,7 @@ export function GraphView({ nodes, edges, activeNodeId, onMove, onActivate, onCr
     </section>
 
     {nodeFormOpen && <div className="dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setNodeFormOpen(false); }}><form className="graph-dialog" aria-label="新建图谱节点" onSubmit={submitNode}><div className="graph-dialog-head"><div><span className="eyebrow">NEW NODE</span><h2>新建讨论节点</h2></div><button type="button" className="icon-button" aria-label="关闭新建节点" onClick={() => setNodeFormOpen(false)}><X size={16}/></button></div><label><span>节点标题</span><input autoFocus value={nodeForm.title} onChange={event => setNodeForm(current => ({ ...current, title: event.target.value }))} placeholder="例如：验证检索分层" maxLength={120}/></label><label><span>摘要（可选）</span><textarea value={nodeForm.summary} onChange={event => setNodeForm(current => ({ ...current, summary: event.target.value }))} placeholder="说明这个节点要探索的问题" maxLength={500}/></label><div className="dialog-actions"><button type="button" className="ghost-button" onClick={() => setNodeFormOpen(false)}>取消</button><button type="submit" className="primary-button" disabled={!nodeForm.title.trim()}><Check size={14}/>创建节点</button></div></form></div>}
-    {edgeForm && <div className="dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setEdgeForm(null); }}><form className="graph-dialog" aria-label="新建图谱关系" onSubmit={submitEdge}><div className="graph-dialog-head"><div><span className="eyebrow">NEW RELATION</span><h2>连接两个讨论节点</h2></div><button type="button" className="icon-button" aria-label="关闭新建关系" onClick={() => setEdgeForm(null)}><X size={16}/></button></div><p className="graph-dialog-note">{nodes.find(node => node.id === edgeForm.source)?.title} <span>→</span> {nodes.find(node => node.id === edgeForm.target)?.title}</p><label><span>关系类型</span><select value={edgeForm.relation} onChange={event => setEdgeForm(current => current ? { ...current, relation: event.target.value as EdgeRelation, label: EDGE_LABELS[event.target.value as EdgeRelation] } : current)}><option value="related-to">相关（RELATED_TO）</option><option value="references">引用（REFERENCES）</option><option value="derived-from">衍生支线</option><option value="merged-into">选择性合并</option></select></label><label><span>关系标签</span><input value={edgeForm.label} onChange={event => setEdgeForm(current => current ? { ...current, label: event.target.value } : current)} maxLength={120}/></label><div className="dialog-actions"><button type="button" className="ghost-button" onClick={() => setEdgeForm(null)}>取消</button><button type="submit" className="primary-button" disabled={!edgeForm.label.trim()}><Link2 size={14}/>创建关系</button></div></form></div>}
+    {edgeForm && <div className="dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setEdgeForm(null); }}><form className="graph-dialog" aria-label="新建图谱关系" onSubmit={submitEdge}><div className="graph-dialog-head"><div><span className="eyebrow">NEW RELATION</span><h2>连接两个讨论节点</h2></div><button type="button" className="icon-button" aria-label="关闭新建关系" onClick={() => setEdgeForm(null)}><X size={16}/></button></div><p className="graph-dialog-note">{nodes.find(node => node.id === edgeForm.source)?.title} <span>→</span> {nodes.find(node => node.id === edgeForm.target)?.title}</p><label><span>关系类型</span><select value={edgeForm.relation} onChange={event => setEdgeForm(current => current ? { ...current, relation: event.target.value as GraphRelation, label: EDGE_LABELS[event.target.value as GraphRelation] } : current)}><option value="related-to">相关（RELATED_TO）</option><option value="references">引用（REFERENCES）</option><option value="derived-from">衍生支线</option><option value="merged-into">选择性合并</option></select></label><label><span>关系标签</span><input value={edgeForm.label} onChange={event => setEdgeForm(current => current ? { ...current, label: event.target.value } : current)} maxLength={120}/></label><div className="dialog-actions"><button type="button" className="ghost-button" onClick={() => setEdgeForm(null)}>取消</button><button type="submit" className="primary-button" disabled={!edgeForm.label.trim()}><Link2 size={14}/>创建关系</button></div></form></div>}
     {archiveTarget && <div className="dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setArchiveTarget(null); }}><div className="graph-dialog" role="alertdialog" aria-label="归档图谱节点"><div className="graph-dialog-head"><div><span className="eyebrow">ARCHIVE NODE</span><h2>归档讨论节点？</h2></div><button type="button" className="icon-button" aria-label="关闭归档节点" onClick={() => setArchiveTarget(null)}><X size={16}/></button></div><p className="graph-dialog-note">“{archiveTarget.title}” 将从日常导航和图谱中隐藏；消息和关系会保留，之后可在归档区恢复。</p><div className="dialog-actions"><button type="button" className="ghost-button" onClick={() => setArchiveTarget(null)}>取消</button><button type="button" className="primary-button" onClick={() => void archiveNode()}><Archive size={14}/>确认归档</button></div></div></div>}
   </main>;
 }

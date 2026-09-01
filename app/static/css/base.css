@@ -1,0 +1,25 @@
+/* Global primitives and shared presentation utilities. */
+* { box-sizing: border-box; }
+html, body, #root { min-height: 100%; margin: 0; }
+body { background: var(--canvas); color: var(--ink); font-family: var(--font-ui); font-size: 14px; overflow: hidden; }
+button, textarea, input { font: inherit; }
+button { color: inherit; }
+button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 55%, white); outline-offset: 2px; }
+
+.icon-button, .section-label button { display: grid; place-items: center; border: 0; background: transparent; cursor: pointer; padding: 5px; border-radius: var(--radius-sm); }
+.icon-button:hover, .section-label button:hover { background: var(--surface-soft); }
+.quiet { color: var(--ink-3); }
+.eyebrow { font-family: var(--font-mono); font-size: 10px; letter-spacing: .11em; color: var(--ink-3); }
+
+.particle-mark { width: 31px; height: 31px; display: grid; grid-template-columns: repeat(4, 4px); grid-auto-rows: 4px; gap: 3px; place-content: center; position: relative; }
+.particle-mark::after { content: ''; position: absolute; inset: 4px; background: rgba(76, 208, 177, .14); filter: blur(6px); border-radius: 50%; }
+.particle-mark i { width: 4px; height: 4px; border-radius: 50%; background: #4f8065; animation: particle-breathe 2.8s ease-in-out infinite; z-index: 1; }
+.particle-mark i:nth-child(3n) { opacity: .28; animation-delay: -.8s; }.particle-mark i:nth-child(4n+1) { background: #96b29c; animation-delay: -1.7s; }.particle-mark i:nth-child(6), .particle-mark i:nth-child(11) { background: #e9f1e9; box-shadow: 0 0 7px #789d83; }
+.particle-mark.compact { width: 24px; height: 24px; grid-template-columns: repeat(4, 3px); grid-auto-rows: 3px; gap: 2px; }.particle-mark.compact i { width: 3px; height: 3px; }
+@keyframes particle-breathe { 0%, 100% { transform: scale(.72); opacity: .45; } 50% { transform: scale(1.12); opacity: 1; } }
+
+@keyframes reveal { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes dot { 0%, 80%, 100% { transform: translateY(0); opacity: .35; } 40% { transform: translateY(-3px); opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; } }
+

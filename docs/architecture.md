@@ -27,7 +27,9 @@
 
 ## 3. Directory Structure
 
-- `src/App.tsx`：顶层 Workspace 选择与状态、节点激活、Context 与面板控制
+- `src/App.tsx`：顶层 Workspace/application coordinator，负责 Workspace 选择、API orchestration、持久化 mutation、streaming 与 layout-only state
+- `src/components/AppShell.tsx`：纯展示 composition seam，负责 Sidebar、当前 Workspace surface、Context surface、backdrop 与 overlay layer 的空间关系；不得导入 API 或服务端实现
+- `src/components/graph-model.ts`：当前 Workspace Graph 数据到 UI-facing graph model 的适配边界；`GraphView` 不直接消费持久化对象或 projector 内部字段
 - `src/components/`：Chat、Graph、State、Sidebar、Context Inspector 等界面模块
 - `src/data.ts`：MVP 演示数据
 - `src/types.ts`：核心前端类型
@@ -56,19 +58,20 @@
 - `var/data/providers.json`：加密供应商配置、模型收藏与置顶状态
 - `src/test/`：测试环境初始化
 - `app/static/css/tokens.css`：可替换的设计令牌层
-- `app/static/css/app.css`：组件和响应式样式层
+- `app/static/css/app.css`：稳定的样式聚合入口，按明确 cascade 顺序加载 surface 文件
+- `app/static/css/base.css`、`shell.css`、`chat.css`、`graph.css`、`context.css`、`overlays.css`、`state.css`、`activity.css`：按展示 surface 所有权组织的组件与响应式样式
 - `product-design.md`：从原始 Word 设计书提取的工作副本
 - `docs/archive/librechat-migration.md`：历史 MVP 到 LibreChat Runtime clean-base 映射；不定义 V4.1 架构或 Milestone
 
 ## 4. Core Modules
 
-- `App` 管理当前 Workspace 选择、主视图、活动讨论节点、节点/边集合、上下文条目状态与窄屏面板状态；切换时先清空旧 scope 数据，并用 generation guard 丢弃乱序响应。
+- `App` 管理当前 Workspace 选择、主视图、活动讨论节点、节点/边集合、上下文条目状态与窄屏面板状态；切换时先清空旧 scope 数据，并用 generation guard 丢弃乱序响应。纯布局组合交给 `AppShell`，layout-only state 不承担持久化语义。
 - `ChatView` 按活动节点过滤多轮讨论，使用 Selection API 捕获回答划线内容，并在当前讨论旁打开不落盘的临时支线工作台；用户显式保留后才固化为正式节点。
 - `MarkdownContent` 负责 AI 输出的统一渲染：`react-markdown` + GFM、`remark-math` + KaTeX 数学公式，以及懒加载 Mermaid 流程图；消息组件不再直接输出 AI 原文。
 - `Sidebar` 提供 Workspace 切换、创建、重命名、归档/恢复基础入口，并依据 `sourceNodeId` 构建可折叠节点树，提供活动路径、深度标识和深层路径聚焦。
 - `ProviderSettings` 管理供应商连接和模型目录；`ModelSelector` 在调用前选择当前模型。
 - `ContextPanel` 显示 Active、Recommended、Excluded Context 和预算。
-- `GraphView` 从 Workspace 渲染真实讨论节点与语义边，支持 Pointer Events 节点拖拽、空白画布平移、滚轮/按钮缩放、关系连接，以及节点归档/恢复与关系编辑；归档节点从主视图隐藏且只读，坐标和编辑结果都通过 API 持久化。
+- `GraphView` 只消费 `graph-model.ts` 暴露的展示模型，渲染真实讨论节点与语义边，并支持 Pointer Events 节点拖拽、空白画布平移、滚轮/按钮缩放、关系连接，以及节点归档/恢复与关系编辑；当前适配器从 Workspace snapshot 生成该模型，M07 projection API 落地后应在此边界替换数据来源，而不是把 storage/projector 字段穿透到组件。
 - `StateView` 区分当前有效事实、约束、决策与开放问题。
 - `ActivityView` 从 Domain Journal 显示 workspace-local sequence 排序的低噪声语义活动，不展示 Runtime trace 或 transient stream。
 
