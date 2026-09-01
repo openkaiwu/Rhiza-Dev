@@ -83,8 +83,13 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   private runtimeOwner?: SqlQueryable & { release(): void };
   private queue: Promise<void> = Promise.resolve();
   private readonly scoped = new Map<string, PostgresWorkspaceStore>();
+  readonly defaultWorkspaceId: string;
 
-  constructor(private readonly database: TransactionalSql, readonly defaultWorkspaceId = DEFAULT_PROJECT_ID) {}
+  constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: string) {
+    const configuredWorkspaceId = defaultWorkspaceId?.trim();
+    if (configuredWorkspaceId && !uuidPattern.test(configuredWorkspaceId)) throw new Error('RHIZA_PROJECT_ID must be a UUID when set');
+    this.defaultWorkspaceId = configuredWorkspaceId || DEFAULT_PROJECT_ID;
+  }
 
   forWorkspace(workspaceId: string): WorkspaceRepository {
     if (workspaceId === this.defaultWorkspaceId) return this;

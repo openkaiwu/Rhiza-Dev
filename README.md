@@ -128,15 +128,12 @@ Full Auto 需要用户授权。系统应主动处理可自行解决的执行问�
 corepack enable
 pnpm install --frozen-lockfile
 cp .env.example .env
-```
-
-首次本机体验，请将 `.env` 中示例 `DATABASE_URL` 的值清空（`DATABASE_URL=`），保持 `RHIZA_FEATURE_FLAGS` 为空，使用默认嵌入式数据库，无需另行部署 PostgreSQL。然后运行：
-
-```bash
 pnpm run dev
 ```
 
-打开 `http://127.0.0.1:4173`。如果选择外部 PostgreSQL，请配置可用的 `DATABASE_URL` 并先运行 `pnpm run db:migrate`。
+打开 `http://127.0.0.1:4173`。默认配置使用 `var/rhiza.pglite` 中的嵌入式数据库，无需另行部署 PostgreSQL。如果选择外部 PostgreSQL，请在 `.env` 中配置可用的 `DATABASE_URL` 并先运行 `pnpm run db:migrate`。
+
+如果 API 默认端口 8787 被本机占用或被系统保留，可在 `.env` 中设置其他端口，例如 `API_PORT=8790`；开发服务器的 `/api` 代理会自动使用同一端口。
 
 首次进入后，在左上角“模型与 API 设置”中配置 OpenAI、OpenRouter、DeepSeek、SiliconFlow、Ollama 或其他 OpenAI-compatible 服务，并选择一个模型。也可以先在 `.env` 中提供默认服务：
 
