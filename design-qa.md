@@ -3,14 +3,14 @@
 ## Comparison target
 
 - Source visual truth:
-  - `/tmp/rhiza-ui-preview.Fq26oJ/design-qa-evidence/source-sidebar-bug.png`
-  - `/tmp/rhiza-ui-preview.Fq26oJ/design-qa-evidence/source-run-history-bug.png`
+  - `design-qa-evidence/source-sidebar-bug.png`
+  - `design-qa-evidence/source-run-history-bug.png`
 - Browser-rendered implementation:
-  - `/tmp/rhiza-ui-preview.Fq26oJ/design-qa-evidence/sidebar-fixed-1920x1044@2x.png`
-  - `/tmp/rhiza-ui-preview.Fq26oJ/design-qa-evidence/run-history-fixed-1920x1044@2x.png`
+  - `design-qa-evidence/sidebar-fixed-1920x1044@2x.png`
+  - `design-qa-evidence/run-history-fixed-1920x1044@2x.png`
 - Combined comparison evidence:
-  - `/tmp/rhiza-ui-preview.Fq26oJ/design-qa-evidence/sidebar-comparison.png`
-  - `/tmp/rhiza-ui-preview.Fq26oJ/design-qa-evidence/run-history-comparison.png`
+  - `design-qa-evidence/sidebar-comparison.png`
+  - `design-qa-evidence/run-history-comparison.png`
 - Viewport: 1920 x 1044 CSS pixels; browser reported device pixel ratio 2.
 - Pixels: source images are 3840 x 2088 and were normalized to 1920 x 1044 in the combined comparisons. In-app Browser captures are 1849 x 1044 because the Codex browser panel clips the deliverable surface; layout measurements came from the full 1920 x 1044 page viewport.
 - State: desktop layout. The source showed a populated execution history; the isolated local database used for verification had no Run records, so the browser captured the empty row and measured the shared row selector that applies to populated rows.
