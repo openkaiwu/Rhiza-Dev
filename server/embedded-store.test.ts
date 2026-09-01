@@ -1,14 +1,30 @@
 import { access, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it } from 'vitest';
 import { openEmbeddedWorkspaceStore } from './embedded-store';
 import { createSeedWorkspace } from './seed';
-import { relationalizeWorkspace } from './postgres-store';
+import { PostgresWorkspaceStore, relationalizeWorkspace } from './postgres-store';
 import { semanticChecksum } from './infrastructure/workspace-semantic-checksum';
 import { randomUUID } from 'node:crypto';
 
 describe('embedded Workspace backend', () => {
+  it('treats an empty configured Workspace ID as absent', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-empty-workspace-id-'));
+    const store = await openEmbeddedWorkspaceStore(join(directory, 'database'), '');
+    try {
+      await expect(store.read()).resolves.toMatchObject({ projectId: '00000000-0000-4000-8000-000000000001' });
+    } finally { await store.close(); await rm(directory, { recursive: true, force: true }); }
+  }, 30_000);
+
+  it('rejects a non-UUID configured Workspace ID before issuing a query', async () => {
+    const database = new PGlite();
+    try {
+      expect(() => new PostgresWorkspaceStore(database, 'not-a-uuid')).toThrow('RHIZA_PROJECT_ID must be a UUID when set');
+    } finally { await database.close(); }
+  });
+
   it('does not create an absent database or Workspace during reconciliation', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'rhiza-reconcile-'));
     const data = join(directory, 'database');

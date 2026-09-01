@@ -33,6 +33,7 @@
 - 确定性拒绝须在命令锁内回滚 savepoint 并提交 rejected receipt；不能先释放锁再用新事务补 receipt，否则并发同 id 重试可能先提交不同结果。生命周期命令与内容命令遵守同一 Workspace 锁顺序。
 - Backfill 必须发生在业务 tail 之前；如果已有 event 却没有 sequence-1 baseline，应以 `JOURNAL_BASELINE_ORDER_CONFLICT` 停止并从启用前备份恢复，不能移动或改写既有 sequence。
 - 无 `DATABASE_URL` 时默认使用 embedded PGlite；JSON WorkspaceStore 只作为 fixture/importer。旧 JSON 数据必须通过 `pnpm run workspace:import-json` 显式导入，再运行/确认 Journal baseline。
+- 可选的 `RHIZA_PROJECT_ID` 将空字符串和纯空格视为未配置，非空值必须是 UUID；`.env.example` 中的可选持久化配置保持注释状态，确保复制后直接使用 embedded PGlite。开发环境修改 `API_PORT` 时，Vite `/api` 代理必须读取同一配置。
 - Workspace 更新通过串行队列与临时文件替换，避免多个请求交错造成 JSON 部分写入。
 - M03 的 HTTP identity 是确定性 local actor seam，不是认证实现；旧 `/api/*` 只能映射到 configured default Workspace，scoped 路径的 ScopeRef 必须从 `/api/v1/workspaces/:workspaceId` 派生，不能信任 body 中的 workspace id。
 - 已存在但不属于 local actor 的 configured default Workspace 不得被 bootstrap 自动授予 membership；只有缺失的 default Workspace 才可按 local owner 初始化。
