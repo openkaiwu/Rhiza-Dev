@@ -9,4 +9,5 @@ reports/*.tmp
 *.tsbuildinfo
 .tsbuild/
 .env
+.rhiza/
 **/var/data/
