@@ -122,6 +122,26 @@ Full Auto 需要用户授权。系统应主动处理可自行解决的执行问�
 
 ## 在本机体验
 
+### 一键部署（推荐）
+
+部署向导会检查并管理已有的 Rhiza 生产服务、验证 Node.js 与 pnpm、按需在项目内安装便携环境，并引导你选择默认或自定义端口、模型服务与数据库配置。
+
+macOS / Linux：
+
+```bash
+./scripts/deploy.sh
+```
+
+Windows PowerShell：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/deploy.ps1
+```
+
+自动安装的运行时、PID 与日志保存在项目的 `.rhiza/` 目录中，不会修改系统级 Node.js。若检测到的服务不是由部署向导启动，向导会要求你回到原终端停止它，避免误杀其他进程。
+
+### 手动启动
+
 需要 Node.js 24 与 Corepack。克隆仓库后运行：
 
 ```bash
