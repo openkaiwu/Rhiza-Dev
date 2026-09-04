@@ -3,12 +3,13 @@
 - Status: Accepted
 - Date: 2026-08-23
 - Baseline: Rhiza Architecture & Roadmap Baseline V4.0, M01
+- Carried forward: V4.2; implementation accepted through M04 evidence
 - Supersedes: none
 - Superseded by: none
 
 ## Context
 
-当前附件由路由直接写入 `var/uploads/`，没有内容寻址、版本或可移植 identity。V4.0 I-08/I-09 与 §9 要求 Resource identity 与位置解耦，避免绝对路径、数据库 row id、OS 分隔符或 URL 改变破坏 provenance。
+作出本决策时，附件由路由直接写入 `var/uploads/`，没有内容寻址、版本或可移植 identity。V4.0 I-08/I-09 与 §9 要求 Resource identity 与位置解耦，避免绝对路径、数据库 row id、OS 分隔符或 URL 改变破坏 provenance。M04 已以 Resource/ResourceVersion、SHA-256 与 content-addressed BlobStore 落地该决策。
 
 ## Decision
 

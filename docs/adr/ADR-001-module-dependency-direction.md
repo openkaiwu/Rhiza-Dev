@@ -3,12 +3,13 @@
 - Status: Accepted
 - Date: 2026-08-23
 - Baseline: Rhiza Architecture & Roadmap Baseline V4.0, M01
+- Carried forward: V4.2; implementation accepted through M02 boundary evidence
 - Supersedes: none
 - Superseded by: none
 
 ## Context
 
-V4.0 §3 将 Core 定义为 `Application → Domain` 的依赖方向；Infrastructure、Runtime Adapter 与 Host Adapter 只实现 Ports，Web 只经 HTTP/API contracts 到达服务端。当前代码仍是平铺的 `server/`，`server/app.ts` 同时承担 Express 路由、编排和 `WorkspaceRepository` 调用，无法假装已经完成 M02 的 Application 分层。
+作出本决策时，V4.0 §3 将 Core 定义为 `Application → Domain` 的依赖方向；Infrastructure、Runtime Adapter 与 Host Adapter 只实现 Ports，Web 只经 HTTP/API contracts 到达服务端。当时 `server/app.ts` 仍同时承担 Express 路由、编排和 `WorkspaceRepository` 调用。当前实现已将 Application、HTTP 与 Infrastructure 分区；本 ADR 的决策仍由 V4.2 保留。
 
 ## Decision
 

@@ -1,10 +1,10 @@
 # Rhiza AI 可派发开发任务规划 V1.1
 
-> 日期：2026-09-02  
+> 日期：2026-09-04
 > 适用项目：Rhiza Roadmap V4.2  
 > 性质：开发执行规划 / Linear 写回草案
-> 复审：2026-09-02 二次工程可派发性审计（依赖、边界、验收、UI 视觉验证）  
-> 状态：**尚未写入 Linear**  
+> 复审：2026-09-04 仓库基线刷新（依赖、边界、验收、UI 视觉验证）
+> 状态：**M06 已在 Git 接受；本文的 Linear 写回草案仍须以实时 Linear 复核为准**
 > Source of Truth：Linear 负责工程 WBS 与依赖；Git repository 负责实现事实；本文是二者之间的可执行规划草案。
 
 ---
@@ -35,12 +35,12 @@
 
 ---
 
-## 1. 当前 Linear 基线
+## 1. 当前仓库基线与 Linear 前提
 
-截至 2026-09-02，Linear 项目 `Rhiza Roadmap V4.2` 的事实状态为：
+截至 2026-09-04，Git repository 中可确认的 V4.2 基线为：
 
-- M01–M05：Done；
-- M06：下一主线 Milestone；
+- M01–M06：已有接受证据；
+- M07：下一主线 Milestone；
 - M07–M17：Chat 主线；
 - M18–M24：M17 后进入的共享能力与 Workflow 基础；
 - M25 → M26 → M27：Workflow → Multi-Agent → Full Auto，串行推进；
@@ -67,7 +67,7 @@ M23 → M24
 M20 + M22 + M24 → M25 → M26 → M27
 ```
 
-本文**不重开 M01–M05**，只把它们视为当前 repository baseline 和历史 evidence。
+本文**不重开 M01–M06**，只把它们视为当前 repository baseline 和历史 evidence。向 Linear 写回前必须重新读取实时 Issue 状态；本文不据此断言 Linear 已同步 M06。
 
 ---
 
@@ -451,7 +451,7 @@ resolve milestone
 
 | Milestone | Direct-dispatch 最低建议 | 外部阻断 | 备注 |
 |---|---:|---|---|
-| M06 | A | 否 | Run 状态机与 terminal race |
+| M06 | A | 否 | 已接受的 Run 状态机与 terminal race 基线；不重新派发 |
 | M07 | A | 否 | Projection crash/rebuild 与删除语义 |
 | M08 | A | 否 | Context contract / immutable history |
 | M09 | A | 否 | Bundle/Purge/Security/Recovery |
@@ -484,6 +484,8 @@ resolve milestone
 # 7. M06 · ExecutionRun 与 Chat 执行历史
 
 **目标：** 每次 Chat/LLM 外部调用都有 durable、可解释终态。  
+
+> **状态（2026-09-04）：已在 Git 接受。** 本节保留为 M06 的可派发 WBS、依赖和验收模板；除回归修复或 Linear 证据同步外，不应重新开启这些 Issue。
 **Milestone Tier：A。**  
 **当前 Issue 粒度：总体良好，主要需要补内部 DAG 与 AI Tier。**
 
@@ -2219,12 +2221,12 @@ Blocked By：
 
 本文后续如果交给 Agent 写入 Linear，建议分批操作，而不是一次性修改全项目。
 
-## Batch 1 · 只处理 M06–M08
+## Batch 1 · 只处理 M07–M08
 
 目标：
 
 - 创建 AI Tier labels；
-- 给 M06–M08 Active issues 加 Tier；
+- 给 M07–M08 Active issues 加 Tier；
 - 修正内部 blockers；
 - 不改任务内容；
 - 校验无循环依赖。
@@ -2237,7 +2239,7 @@ Blocked By：
 complete INH-xx
 ```
 
-对于 M06–M08 每张票都能回答：
+对于 M07–M08 每张票都能回答：
 
 - 是否 Ready；
 - 最低模型 Tier；
@@ -2302,7 +2304,7 @@ complete INH-xx
 后续如果让 Agent 根据本文修改 Linear，必须：
 
 1. 先读当前 Linear，再 diff 本文；不得假设 Issue 状态没有变化；
-2. M01–M05 不重开；
+2. M01–M06 不重开；
 3. 已 Done Issue 不因为新增 AI Tier 需求而修改 implementation；
 4. 不删除 Duplicate 历史；
 5. 恢复 Duplicate 前确认其工作内容仍未被其他 Done Issue 实现；
@@ -2521,7 +2523,7 @@ MILESTONE_NOT_DISPATCH_READY
 如果要把本文落入实际开发流程，最合理的第一步不是一次性重写整个 Linear，而是：
 
 ```text
-Pilot = M06 + M07
+Pilot = M07（以已接受的 M06 作为基线）
 ```
 
 对这两个 Milestone：
@@ -2530,7 +2532,7 @@ Pilot = M06 + M07
 2. 写 Frozen Inputs / Must Not Change；
 3. 补完整 blocker DAG；
 4. 验证每个 Issue 的 unit acceptance；
-5. 生成 M06/M07 WU manifest；
+5. 生成 M07/M08 WU manifest；
 6. 实际尝试：
    - `完成一个 B-tier Issue`
    - `完成一个 A-tier Issue`

@@ -3,12 +3,13 @@
 - Status: Accepted
 - Date: 2026-08-23
 - Baseline: Rhiza Architecture & Roadmap Baseline V4.0, M01
+- Carried forward: V4.2; implementation accepted through M05 evidence
 - Supersedes: none
 - Superseded by: none
 
 ## Context
 
-当前持久化是全量快照差量 upsert，`AuditEvent` 不是语义历史，且没有 Command Receipt。V4.0 I-03/I-04、§6 要求 Current State 与 append-only Domain Journal 同时存在，同时明确不采用全量 Event Sourcing 或跨外部系统的分布式事务。
+作出本决策时，持久化是全量快照差量 upsert，`AuditEvent` 不是语义历史，且没有 Command Receipt。V4.0 I-03/I-04、§6 要求 Current State 与 append-only Domain Journal 同时存在，同时明确不采用全量 Event Sourcing 或跨外部系统的分布式事务。M05 已通过 `WorkspaceUnitOfWork`、`workspace_events` 与 `command_receipts` 落地该事务边界。
 
 ## Decision
 

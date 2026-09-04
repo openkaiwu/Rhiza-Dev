@@ -3,7 +3,7 @@
 > Status: Research Backlog / Future Direction  
 > Version: V0.2  
 > Date: 2026-08-27  
-> Scope: 本文记录关于 AI 协作者、Scope Cognition、长期记忆、Reasoning State、Mind 等方向的完整讨论、五模型独立评审结果与验证计划。本文不是当前架构基线，不要求修改现有 V4.1 架构与路线图；任何新机制必须通过实验获得增量价值证明后，才有资格进入正式架构。
+> Scope: 本文记录关于 AI 协作者、Scope Cognition、长期记忆、Reasoning State、Mind 等方向的完整讨论、五模型独立评审结果与验证计划。本文不是当前 V4.2 架构基线，不要求修改现有架构与路线图；任何新机制必须通过实验获得增量价值证明后，才有资格进入正式架构。
 
 ---
 
@@ -1139,7 +1139,7 @@ Branch-specific Context + Proposed State Patch，不自动 Fork。
 - Mind Runtime；
 - Multi-Mind Debate；
 - 专用 Cognitive Graph Database；
-- 为这些研究方向重写当前 V4.1 架构书或路线图。
+- 为这些研究方向重写当前 V4.2 架构书或路线图。
 
 同时，不因为 Cognitive Layer 受到批评而回滚已经具有独立价值的 Kernel 能力。是否保留 Event / Manifest / Execution / Projection / Resource 等基础设施，应按它们服务的现有产品需求单独判断，而不是由 Scope Cognition 实验结果一票否决。
 

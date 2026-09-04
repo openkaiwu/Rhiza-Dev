@@ -4,13 +4,13 @@
 Version: V4.2
 Release Date: 2026-08-29
 Baseline: Rhiza Architecture & Roadmap Baseline V4.2
-Status: Proposed
-Supersedes: V4.1 after merge
+Status: Active baseline; M01–M06 accepted, M07 next
+Supersedes: V4.1
 ```
 
 > V4.2 是 V4.1 的最小路线修订。
 > 核心决策：**Chat first, Workflow second；不并行开发两条主线。**
-> M01–M03 已完成，不返工。路线调整从 M04 开始。
+> M01–M06 已完成并保留接受证据，不返工。下一主线是 M07；路线调整从 M04 开始。
 
 ---
 
@@ -145,7 +145,7 @@ M12 → ... → M17   Chat Product Complete
 
 ## M03 — Multi-Workspace 与最小 Identity
 
-**状态：Done / 实现完成，待正常集成 main。**
+**状态：Done / 已集成 main。**
 
 V4.2 不新增 schema redesign。
 
@@ -162,6 +162,8 @@ Blocking Acceptance 继续沿用已通过 evidence：
 ## M04 — Resource、Blob 与最小 Host Runtime Port
 
 **Priority：P0**
+
+**状态：Done / M04 evidence accepted。**
 
 ### 保留
 
@@ -196,7 +198,7 @@ Blocking Acceptance 继续沿用已通过 evidence：
 
 ## M05 — Domain Journal 与事务事实层
 
-**保持 V4.1 原样。**
+**状态：Done / M05 evidence accepted。保持 V4.1 核心范围。**
 
 目标仍是：
 
@@ -216,6 +218,8 @@ Blocking Acceptance 继续沿用已通过 evidence：
 ## M06 — ExecutionRun 与 Chat 执行历史
 
 **Priority：P0**
+
+**状态：Done / M06 evidence accepted。**
 
 ### 目标
 
@@ -255,6 +259,8 @@ Blocking Acceptance 继续沿用已通过 evidence：
 ---
 
 ## M07 — Workspace Graph Projection v1
+
+**状态：Next / 尚未开始。**
 
 V4.1 `Universal Work Graph Projection` 的核心设计保留，但验收聚焦当前真实对象：
 

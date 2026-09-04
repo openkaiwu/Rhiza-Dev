@@ -6,7 +6,7 @@ Version: V0.1
 Date: 2026-09-02
 Target Baseline: Rhiza 开发路线图 V4.2 / Rhiza 技术架构设计书 V4.2
 Target Milestone: M07 — Workspace Graph Projection v1
-Status: Proposed
+Status: Partially adopted; M07 remains unstarted
 Priority: P2 / Non-blocking enabling work
 ```
 
@@ -15,6 +15,8 @@ Priority: P2 / Non-blocking enabling work
 > 目的只有一个：在 M07 已经需要触碰 Graph Projection、layout projection、bounded API 与前端 Graph 消费方式的过程中，顺手建立少量稳定 UI seam，降低后续 M12–M18 多轮 UI / 信息架构调整的累积成本。
 >
 > **M07 不负责设计最终 UI；M07 只负责确保当前 UI 将来可以被低成本推翻和重组。**
+
+> 2026-09-02：`AppShell`、`graph-model` 与按 surface 划分的 CSS 已随 UI 修复独立落地；这不构成 M07 开始或完成，也不替代 M07 的 Projection / bounded API / rebuild 验收。其余 Sidejob 条目仍为非阻断提案。
 
 ---
 
@@ -829,4 +831,3 @@ Presentation / CSS       intentionally replaced
 ## 13. 一句话工程原则
 
 > **M07 不设计 RHIZA 的最终界面；M07 只确保 M18 有权低成本重新设计它。**
-

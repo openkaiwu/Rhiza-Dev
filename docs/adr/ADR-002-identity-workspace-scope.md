@@ -3,12 +3,13 @@
 - Status: Accepted
 - Date: 2026-08-23
 - Baseline: Rhiza Architecture & Roadmap Baseline V4.0, M01
+- Carried forward: V4.2; implementation accepted through M03 evidence
 - Supersedes: none
 - Superseded by: none
 
 ## Context
 
-当前 MVP 使用单一 `DEFAULT_PROJECT_ID`，没有 User、Workspace membership 或命令 Scope。V4.0 I-01/I-02、§4 和 §5.4 要求 Workspace 成为所有权根，并要求每个 Command 带 `ActorRef` 与 `ScopeRef`；这也是未来共享部署和可移植数据的前提。
+作出本决策时，MVP 使用单一 `DEFAULT_PROJECT_ID`，没有 User、Workspace membership 或命令 Scope。V4.0 I-01/I-02、§4 和 §5.4 要求 Workspace 成为所有权根，并要求每个 Command 带 `ActorRef` 与 `ScopeRef`；这也是未来共享部署和可移植数据的前提。M03 已落地确定性 local actor、membership 与 scoped API；它不是完整认证或授权系统。
 
 ## Decision
 

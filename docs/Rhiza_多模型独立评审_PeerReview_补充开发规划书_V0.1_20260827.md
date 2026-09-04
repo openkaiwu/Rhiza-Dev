@@ -4,6 +4,7 @@
 > Version: V0.1  
 > Date: 2026-08-27  
 > Scope: 本文定义 Rhiza 对话流中的“多模型独立评审 / Peer Review”附加能力。该能力可作为独立模块插入现有开发主线，不要求修改 Rhiza 当前总体架构与路线图，也不应反向驱动 Kernel、Graph、Context、Execution 等核心层重构。
+> Current baseline note (2026-09-04): 正式范围以 V4.2 的 M16 Model Collaboration 为准；本文保留为产品与交互研究参考，不是可直接派发的实现规格。
 
 ---
 
@@ -1047,7 +1048,7 @@ Review 后返工率
 
 它不要求：
 
-- 修改当前 V4.1 总体架构；
+- 修改当前 V4.2 总体架构；
 - 修改核心开发路线；
 - 提前实现 Mind；
 - 提前实现 Scope Cognition；
