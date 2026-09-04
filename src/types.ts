@@ -169,3 +169,17 @@ export interface ExecutionRun {
   error?: { code: string; class: string; message: string };
   telemetry: { durationMs?: number; ttftMs?: number; traceCount: number; usage?: TokenUsage };
 }
+
+export interface GraphObjectRef { workspaceId: string; objectType: string; objectId: string; versionId?: string }
+export interface GraphProjectedObject {
+  ref: GraphObjectRef; revision: number; lifecycle: 'active' | 'archived' | 'tombstoned';
+  title: string; summary: string; kind: string; status: string; createdAt: string; updatedAt: string;
+  layout?: { x: number; y: number; collapsed?: boolean };
+}
+export interface GraphProjectedRelation {
+  id: string; source: GraphObjectRef; target: GraphObjectRef; relationType: string;
+  lifecycle: 'active' | 'retracted'; label: string; createdAt: string;
+}
+export interface GraphProjectionResult {
+  version: string; checkpoint: number; objects: GraphProjectedObject[]; relations: GraphProjectedRelation[]; nextCursor?: string;
+}

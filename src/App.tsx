@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Attachment, ContextManifest, ContextMode, ContextStatus, DiscussionEdge, DiscussionNode, Message, ProviderCatalog, ProviderPresetInfo, ProviderStatus, Segment, View, WorkspaceActivityItem, WorkspaceSnapshot, WorkspaceRecord } from './types';
+import type { Attachment, ContextManifest, ContextMode, ContextStatus, DiscussionEdge, DiscussionNode, GraphProjectionResult, Message, ProviderCatalog, ProviderPresetInfo, ProviderStatus, Segment, View, WorkspaceActivityItem, WorkspaceSnapshot, WorkspaceRecord } from './types';
 import { api, type ChatRequestOptions } from './api';
 import { presentErrorText } from './error-presentation';
 import { Sidebar } from './components/Sidebar';
@@ -11,7 +11,7 @@ import { ProviderSettings, type ProviderFormState } from './components/ProviderS
 import { RunHistory } from './components/RunHistory';
 import { ActivityView } from './components/ActivityView';
 import { AppShell } from './components/AppShell';
-import { toGraphPresentationModel } from './components/graph-model';
+import { projectionToGraphPresentationModel, toGraphPresentationModel } from './components/graph-model';
 
 export function App() {
   const initialNode: DiscussionNode = { id: 'information-architecture', title: '信息架构方向', summary: '探索首屏的内容层级、上下文入口与专业能力的渐进呈现方式。', status: 'active', kind: 'main', x: 350, y: 150, createdAt: '2026-08-09T12:00:00.000Z', updatedAt: '2026-08-09T12:00:00.000Z' };
@@ -43,6 +43,7 @@ export function App() {
   const [activity, setActivity] = useState<WorkspaceActivityItem[]>([]);
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState('');
+  const [graphProjection, setGraphProjection] = useState<GraphProjectionResult>();
   const workspaceGenerationRef = useRef(0);
   const selectedWorkspaceRef = useRef<string | undefined>(undefined);
   const modalReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -55,6 +56,7 @@ export function App() {
     setMode(workspace.mode);
     setDiscussionNodes(workspace.discussionNodes);
     setDiscussionEdges(workspace.discussionEdges);
+    setGraphProjection(undefined);
     setActiveNodeId(workspace.activeNodeId);
     setManifests(workspace.manifests || []);
     setSegments(workspace.segments || []);
@@ -109,6 +111,16 @@ export function App() {
     }
   }, []);
   useEffect(() => { if (view === 'activity' && boot === 'ready') void loadActivity(); }, [view, boot, currentWorkspaceId, loadActivity]);
+  const loadGraph = useCallback(async () => {
+    const workspaceId = selectedWorkspaceRef.current; const generation = workspaceGenerationRef.current;
+    try {
+      const { graph } = await api.getGraphNeighborhood();
+      if (generation === workspaceGenerationRef.current && workspaceId === selectedWorkspaceRef.current) setGraphProjection(graph);
+    } catch (error) {
+      if (generation === workspaceGenerationRef.current && workspaceId === selectedWorkspaceRef.current) setSyncError(presentErrorText(error, { message: '无法加载图谱投影。', recovery: '请稍后重试。' }));
+    }
+  }, []);
+  useEffect(() => { if (view === 'graph' && boot === 'ready') void loadGraph(); }, [view, boot, currentWorkspaceId, discussionNodes, loadGraph]);
   useEffect(() => { if (api.listWorkspaces) void api.listWorkspaces(true).then(result => setWorkspaces(result.workspaces)).catch(() => undefined); }, []);
   const switchWorkspace = async (workspaceId: string) => {
     const generation = ++workspaceGenerationRef.current;
@@ -383,8 +395,8 @@ export function App() {
   const activeNode = navigableNodes.find(node => node.id === activeNodeId) || navigableNodes[0] || initialNode;
   const activeMessages = messages.filter(message => message.nodeId === activeNode.id);
   const graphModel = useMemo(
-    () => toGraphPresentationModel(discussionNodes, discussionEdges),
-    [discussionNodes, discussionEdges],
+    () => graphProjection ? projectionToGraphPresentationModel(graphProjection) : toGraphPresentationModel([], []),
+    [graphProjection],
   );
 
   if (boot === 'loading') return <main className="app-loading" aria-busy="true" aria-live="polite"><strong>正在加载工作区…</strong><p>正在同步项目、讨论节点与上下文。</p></main>;

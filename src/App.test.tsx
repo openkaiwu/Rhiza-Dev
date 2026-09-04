@@ -2,11 +2,12 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { App } from './App';
 import { initialContext } from './data';
-import type { ContextManifest, Message } from './types';
+import type { ContextManifest, DiscussionNode, Message } from './types';
 
 const mocks = vi.hoisted(() => ({
   getWorkspace: vi.fn(),
   getWorkspaceActivity: vi.fn(),
+  getGraphNeighborhood: vi.fn(),
   setMode: vi.fn(),
   setContextStatus: vi.fn(),
   setContextPin: vi.fn(),
@@ -55,11 +56,20 @@ const deferred = <T,>() => {
   return { promise, resolve, reject };
 };
 const scopedWorkspace = (title: string) => ({ ...workspace, discussionNodes: workspace.discussionNodes.map(node => ({ ...node, title })) });
+const projectedGraph = (nodes: readonly DiscussionNode[] = workspace.discussionNodes) => ({ graph: {
+  version: 'graph-v1', checkpoint: 1,
+  objects: nodes.map(node => ({
+    ref: { workspaceId: workspace.projectId, objectType: 'conversation', objectId: node.id }, revision: 1,
+    lifecycle: node.status, title: node.title, summary: node.summary, kind: node.kind, status: node.status,
+    createdAt: node.createdAt, updatedAt: node.updatedAt, layout: { x: node.x, y: node.y },
+  })), relations: [],
+} });
 
 beforeEach(() => {
   localStorage.clear();
   mocks.getWorkspace.mockResolvedValue({ workspace, provider: { configured: true, name: 'Test Provider', model: 'test-model', baseUrl: 'https://example.test/v1' }, providerCatalog });
   mocks.getWorkspaceActivity.mockResolvedValue({ activity: [{ id: 'event-1', sequence: 2, type: 'conversation.run.committed', title: '完成一次对话', detail: 'conversation · information-architecture', occurredAt: '2026-08-30T00:00:00.000Z', aggregateType: 'conversation', aggregateId: 'information-architecture' }] });
+  mocks.getGraphNeighborhood.mockResolvedValue(projectedGraph());
   mocks.getProviders.mockResolvedValue({ catalog: providerCatalog, presets });
   mocks.saveProvider.mockResolvedValue({ catalog: providerCatalog });
   mocks.discoverModels.mockResolvedValue({ catalog: providerCatalog });
@@ -210,12 +220,13 @@ describe('Rhiza MVP', () => {
   it('keeps archived nodes out of chat navigation and wires archive restore through the graph', async () => {
     const archived = { ...workspace.discussionNodes[0], id: 'archived-node', title: '已归档讨论', status: 'archived' as const };
     mocks.getWorkspace.mockResolvedValueOnce({ workspace: { ...workspace, discussionNodes: [...workspace.discussionNodes, archived] }, provider: { configured: true, name: 'Test Provider', model: 'test-model', baseUrl: 'https://example.test/v1' }, providerCatalog });
+    mocks.getGraphNeighborhood.mockResolvedValueOnce(projectedGraph([...workspace.discussionNodes, archived]));
     render(<App />);
     await screen.findByRole('heading', { level: 1, name: /信息架构方向/ });
     expect(within(document.querySelector('.sidebar') as HTMLElement).queryByText('已归档讨论')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /对话图谱/ }));
     const archiveRegion = screen.getByRole('region', { name: '已归档节点' });
-    expect(archiveRegion).toHaveTextContent('已归档讨论');
+    await waitFor(() => expect(archiveRegion).toHaveTextContent('已归档讨论'));
     fireEvent.click(within(archiveRegion).getByRole('button', { name: '恢复' }));
     await waitFor(() => expect(mocks.restoreGraphNode).toHaveBeenCalledWith('archived-node'));
   });

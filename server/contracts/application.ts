@@ -1,6 +1,7 @@
 import type { AuditEvent, ChatOperation, ContextMode, ContextStatus, GenerationOptions, StoredAttachment, StoredMessage, WorkspaceData } from '../domain';
 import type { WorkspaceActivityItem } from '../domain-journal';
 import type { ActorRef, RequestIdentity, ScopeRef } from './references';
+import type { GraphChangesInput, GraphChangesResult, GraphNeighborhoodInput, GraphPathInput, GraphQueryResult, GraphTreeInput } from './graph-projection';
 
 export type CommandType = keyof CommandMap;
 export type QueryType = keyof QueryMap;
@@ -87,6 +88,7 @@ export interface CommandMap {
   RegisterResource: { payload: { name: string; mimeType: string; bytes: Uint8Array }; result: { attachment: LegacyAttachmentView } };
   CreateResourceVersion: { payload: { attachmentId: string; bytes: Uint8Array }; result: { attachment: LegacyAttachmentView } };
   UpdateProviderProfile: { payload: { name: string; model: string; baseUrl: string; apiKey?: string }; result: unknown };
+  RebuildGraphProjection: { payload: Empty; result: { version: string; checkpoint: number; checksum: string } };
 }
 
 export interface QueryMap {
@@ -99,6 +101,10 @@ export interface QueryMap {
   GetProviders: { payload: Empty; result: unknown };
   GetProviderStatus: { payload: Empty; result: { configured: boolean; name: string; model: string; baseUrl: string } };
   ListModels: { payload: Empty; result: Array<{ id: string; provider: string; displayName: string; active: boolean }> };
+  GetGraphNeighborhood: { payload: GraphNeighborhoodInput; result: GraphQueryResult };
+  GetGraphPath: { payload: GraphPathInput; result: GraphQueryResult };
+  GetGraphTree: { payload: GraphTreeInput; result: GraphQueryResult };
+  GetGraphChanges: { payload: GraphChangesInput; result: GraphChangesResult };
 }
 
 /** Convenience factory for hosts that still use the M01 local workspace. */

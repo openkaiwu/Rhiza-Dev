@@ -3,6 +3,10 @@
   "routes": [
     "DELETE /api/graph/edges/:id",
     "DELETE /api/graph/nodes/:id",
+    "GET /api/graph/changes",
+    "GET /api/graph/neighborhood",
+    "GET /api/graph/path",
+    "GET /api/graph/tree",
     "GET /api/health",
     "GET /api/providers",
     "GET /api/runs",
@@ -23,6 +27,7 @@
     "POST /api/graph/edges",
     "POST /api/graph/nodes",
     "POST /api/graph/nodes/:id/purge",
+    "POST /api/graph/rebuild",
     "POST /api/models/:id/select",
     "POST /api/nodes",
     "POST /api/nodes/:id/activate",

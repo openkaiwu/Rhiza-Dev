@@ -21,6 +21,7 @@ async function migratedDatabase() {
   await database.exec(await readFile(resolve('db/migrations/0006_resource_blob_host.up.sql'), 'utf8'));
   await database.exec(await readFile(resolve('db/migrations/0007_domain_journal_facts.up.sql'), 'utf8'));
   await database.exec(await readFile(resolve('db/migrations/0008_execution_runs.up.sql'), 'utf8'));
+  await database.exec(await readFile(resolve('db/migrations/0009_graph_projection.up.sql'), 'utf8'));
   return database;
 }
 
@@ -43,6 +44,27 @@ function legacyApp(database: PGlite, defaultWorkspaceId: string) {
 }
 
 describe('PostgreSQL workspace persistence', () => {
+  it('serves a bounded, rebuildable graph projection through the scoped v1 endpoint', async () => {
+    const database = await migratedDatabase(); const workspaceId = randomUUID();
+    try {
+      const { app } = legacyApp(database, workspaceId);
+      await request(app).get('/api/workspace').expect(200);
+      await request(app).post('/api/graph/nodes').send({ title: 'Projected', x: 120, y: 80 }).expect(201);
+      const first = await request(app).get(`/api/v1/workspaces/${workspaceId}/graph/neighborhood?objectTypes=conversation&depth=3&nodeLimit=500&edgeLimit=2000`).expect(200);
+      expect(first.body.graph.objects).toEqual(expect.arrayContaining([expect.objectContaining({ ref: expect.objectContaining({ workspaceId, objectType: 'conversation' }), title: 'Projected', layout: { x: 120, y: 80, collapsed: false } })]));
+      expect(first.body.graph.objects.length).toBeLessThanOrEqual(500);
+      const initialVersion = (await database.query<{ active_version: string }>('SELECT active_version FROM projection_aliases WHERE workspace_id=$1', [workspaceId])).rows[0]!.active_version;
+      await request(app).post('/api/graph/nodes').send({ title: 'Incremental', x: 220, y: 180 }).expect(201);
+      const advanced = await request(app).get(`/api/v1/workspaces/${workspaceId}/graph/neighborhood?objectTypes=conversation`).expect(200);
+      expect(advanced.body.graph.checkpoint).toBeGreaterThan(first.body.graph.checkpoint);
+      expect((await database.query<{ active_version: string }>('SELECT active_version FROM projection_aliases WHERE workspace_id=$1', [workspaceId])).rows[0]!.active_version).toBe(initialVersion);
+      const rebuilt = await request(app).post(`/api/v1/workspaces/${workspaceId}/graph/rebuild`).expect(200);
+      expect(rebuilt.body.projection).toMatchObject({ version: 'graph-v1', checkpoint: advanced.body.graph.checkpoint, checksum: expect.stringMatching(/^[a-f0-9]{64}$/) });
+      expect((await database.query<{ active_version: string }>('SELECT active_version FROM projection_aliases WHERE workspace_id=$1', [workspaceId])).rows[0]!.active_version).not.toBe(initialVersion);
+      expect((await database.query<{ count: number }>('SELECT count(*)::int count FROM projection_checkpoints WHERE workspace_id=$1', [workspaceId])).rows[0]?.count).toBe(2);
+    } finally { await database.close(); }
+  });
+
   it('serves committed Domain Journal facts through the Workspace activity endpoint', async () => {
     const database = await migratedDatabase();
     const workspaceId = randomUUID();

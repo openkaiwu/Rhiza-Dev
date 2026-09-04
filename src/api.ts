@@ -135,6 +135,12 @@ export const api = {
   updateWorkspace: (workspaceId: string, action: 'archive' | 'restore' | 'rename', revision: number, name?: string) => request<{ workspace: WorkspaceRecord }>(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}`, { method: 'PATCH', headers: { 'If-Match': String(revision) }, body: JSON.stringify({ action, name }) }),
   getWorkspace: () => request<{ workspace: WorkspaceSnapshot; provider: ProviderStatus; providerCatalog: ProviderCatalog }>('/api/workspace'),
   getWorkspaceActivity: (limit = 50) => request<{ activity: WorkspaceActivityItem[] }>(`/api/workspace/activity?limit=${limit}`),
+  getGraphNeighborhood: (input: { objectId?: string; depth?: number; nodeLimit?: number; edgeLimit?: number; cursor?: string } = {}) => {
+    const parameters = new URLSearchParams({ objectTypes: 'conversation', depth: String(input.depth ?? 3), nodeLimit: String(input.nodeLimit ?? 500), edgeLimit: String(input.edgeLimit ?? 2000) });
+    if (input.objectId) { parameters.set('objectType', 'conversation'); parameters.set('objectId', input.objectId); }
+    if (input.cursor) parameters.set('cursor', input.cursor);
+    return request<{ graph: import('./types').GraphProjectionResult }>(`/api/graph/neighborhood?${parameters}`);
+  },
   setMode: (mode: ContextMode) => request<{ workspace: WorkspaceSnapshot }>('/api/workspace/mode', { method: 'PATCH', body: JSON.stringify({ mode }) }),
   setContextStatus: (id: string, status: ContextStatus) => request<{ workspace: WorkspaceSnapshot }>(`/api/workspace/context/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   setContextPin: (id: string, pinned: boolean) => request<{ workspace: WorkspaceSnapshot }>(`/api/workspace/context/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ pinned }) }),

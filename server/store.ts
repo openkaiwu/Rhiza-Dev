@@ -7,6 +7,7 @@ import { createSeedWorkspace } from './seed';
 import type { WorkspaceDirectoryPort } from './identity/workspace-directory';
 import type { WorkspaceRecord } from './contracts/application';
 import type { CommandFactContext, DomainEventDraft, DomainEventEnvelope } from './domain-journal';
+import type { WorkspaceGraphProjection } from './contracts/graph-projection';
 
 export interface TransactionalWorkspaceCommand<T> {
   context: CommandFactContext;
@@ -37,6 +38,8 @@ export interface WorkspaceRepository {
   backfillJournal?(): Promise<{ checksum: string; created: boolean; eventCount: number }>;
   readCommandReceipt?(commandId: string): Promise<import('./domain-journal').CommandReceipt | undefined>;
   executeWorkspaceLifecycle?(context: CommandFactContext, command: import('./application/ports/workspace-unit-of-work').WorkspaceLifecycleCommand): Promise<WorkspaceRecord>;
+  readGraphProjection?(): Promise<WorkspaceGraphProjection>;
+  rebuildGraphProjection?(): Promise<WorkspaceGraphProjection>;
 }
 
 export interface WorkspacePurgeCapability {

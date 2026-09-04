@@ -6,6 +6,8 @@ import type { WorkspaceData } from '../domain';
 import type { RunMutation } from '../application/ports/workspace-unit-of-work';
 import type { CommandFactContext } from '../domain-journal';
 import { eventForCommand, toActivityItem } from '../domain-journal';
+import { buildWorkspaceGraphProjection, graphChanges, graphNeighborhood, graphPath, graphTree } from '../graph-projection/model';
+import type { GraphChangesInput, GraphNeighborhoodInput, GraphPathInput, GraphTreeInput } from '../contracts/graph-projection';
 
 function updateOptions(policy: WorkspaceMutationPolicy | undefined): WorkspaceUpdateOptions | undefined {
   if (!policy || policy.kind === 'normal') return undefined;
@@ -88,6 +90,24 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
     if (!target?.readJournal) return [];
     return (await target.readJournal(limit)).map(toActivityItem);
   }
+
+  async readGraphProjection() {
+    const target = this.runRepository();
+    if (target.readGraphProjection) return target.readGraphProjection();
+    const workspace = await this.selected();
+    const [runs, events] = await Promise.all([target.listRuns?.(10_000) ?? [], target.readJournal?.(10_000) ?? []]);
+    return buildWorkspaceGraphProjection(workspace, runs, events[0]?.sequence ?? 0, events);
+  }
+
+  async rebuildGraphProjection() {
+    const target = this.runRepository();
+    if (target.rebuildGraphProjection) return target.rebuildGraphProjection();
+    return this.readGraphProjection();
+  }
+  async queryGraphNeighborhood(input: GraphNeighborhoodInput) { return graphNeighborhood(await this.readGraphProjection(), input); }
+  async queryGraphPath(input: GraphPathInput) { return graphPath(await this.readGraphProjection(), input.from, input.to, input.nodeLimit); }
+  async queryGraphTree(input: GraphTreeInput) { return graphTree(await this.readGraphProjection(), input.root, input.depth, input.nodeLimit); }
+  async queryGraphChanges(input: GraphChangesInput) { return graphChanges(await this.readGraphProjection(), input.cursor, input.limit); }
 
   async readCommittedResult<T>(): Promise<{ found: false } | { found: true; value: T }> {
     const context = this.command.getStore();

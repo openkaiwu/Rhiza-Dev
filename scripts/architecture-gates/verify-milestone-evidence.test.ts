@@ -20,6 +20,10 @@ import {
   M05_PATHS,
   m05ObservedMetrics,
   m06ObservedMetrics,
+  M07_COMMANDS,
+  M07_FIXTURES,
+  M07_PATHS,
+  m07ObservedMetrics,
   validateEvidence,
   validateKnownExceptions,
   type MilestoneEvidence,
@@ -46,9 +50,18 @@ describe('milestone evidence validation', () => {
   it('rejects M06 evidence with a canceled late-result commit', () => {
     const evidence = base();
     evidence.milestone = 'M06';
+    evidence.severity = 'blocking'; evidence.thresholds = { late_result_commits: 0 };
+    evidence.failure_injection_checkpoint = { checkpoint: 'test', injection_command: 'test', expected: 'test' }; evidence.recovery_command = 'test';
     evidence.observed_metrics = { ...m06ObservedMetrics(''), late_result_commits: 1 };
     expect(() => validateEvidence(evidence)).toThrow('M06 observed metric late_result_commits must equal 0');
     expect(m06ObservedMetrics('').real_postgres_e2e).toMatchObject({ status: 'skipped', reason: expect.stringContaining('DATABASE_URL') });
+  });
+
+  it('configures M07 as a bounded, rebuildable graph projection gate', () => {
+    expect(M07_COMMANDS).toEqual(expect.arrayContaining(['pnpm run benchmark:m07', 'pnpm run build']));
+    expect(M07_PATHS).toEqual(expect.arrayContaining(['db/migrations/0009_graph_projection.up.sql', 'server/graph-projection/model.ts', 'docs/architecture-gates/M07/graph-fixture.json']));
+    expect(M07_FIXTURES.every(fixture => M07_PATHS.includes(fixture.path))).toBe(true);
+    expect(m07ObservedMetrics('')).toMatchObject({ max_depth: 3, max_objects: 500, max_relations: 2000, rebuild_retained_versions: 2, real_postgres_e2e: { status: 'skipped', reason: expect.stringContaining('DATABASE_URL') } });
   });
 
   it('rejects a missing recorded commit before accepting checksums', () => {

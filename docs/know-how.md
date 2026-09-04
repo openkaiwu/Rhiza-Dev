@@ -21,6 +21,9 @@
 - 领域状态由 `App` 统一持有，表现组件通过回调修改，避免 Context 数量和预算显示不一致。
 - `AppShell` 只组合 Sidebar、Workspace surface、Context 与 overlay；API 调用、持久化 mutation、streaming 和 reconciliation 必须留在 `App` coordinator/application 边界。
 - Graph 前端通过 `graph-model.ts` 的 UI-facing model 消费数据。M07 bounded API 可替换适配器输入，但 projector cursor、projection table schema、Journal sequence 与 hover/zoom/panel 等 UI-only 状态不得进入 `GraphView` 契约或 Domain relation。
+- Graph Projection 的 active namespace、checkpoint 与 semantic checksum 必须在同一事务更新。正常 checkpoint 推进复用 active namespace；clean rebuild 写新 namespace，只有完整写入后才能切换 alias，且旧 namespace 保留给回滚。
+- `ObjectRef.objectType` 与 relation catalog 是开放字符串集合；新增 object family 不应修改 projection schema enum。Graph 查询必须在服务端执行 depth <= 3、objects <= 500、relations <= 2000 的硬限制，不能只靠前端截断。
+- Layout 是用户拥有的 projection 输入，写入 `graph_layout_nodes`；不得把 x/y 当作对象语义 checksum 的独立真相，也不得让 rebuild 丢失布局。
 - Provider 调用必须只发生在服务端；浏览器不得读取 API Key 或直接调用第三方模型。
 - 一次成功 Chat 写入必须同时包含用户消息、AI 消息与 Context Manifest，避免审计记录和消息历史分离。
 - ResourceVersion 是 append-only 历史事实：同一 Resource 的新内容只能新增版本，不得修改或删除旧版本；FileChunk 只能登记为 materialization，不能替代原始 ResourceVersion。

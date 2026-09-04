@@ -311,6 +311,11 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
           if (!existing) throw legacyError('Resource 不存在。', 404, 'RESOURCE_NOT_FOUND');
           return await registerResourceVersion({ ...payload, name: existing.name, mimeType: existing.mimeType }, existing.id);
         }
+        case 'RebuildGraphProjection': {
+          const projection = await unitOfWork.rebuildGraphProjection?.();
+          if (!projection) throw legacyError('Graph Projection 不可用。', 503, 'GRAPH_PROJECTION_UNAVAILABLE');
+          return { version: projection.version, checkpoint: projection.checkpoint, checksum: projection.checksum };
+        }
         case 'CreateConversationRun': {
           const previous = await unitOfWork.readCommittedResult?.<CommandMap['CreateConversationRun']['result']>();
           if (previous?.found) { await options?.onReady?.(); return previous.value; }
@@ -374,6 +379,22 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
         case 'GetHealth': return { ok: true };
         case 'GetWorkspace': return unitOfWork.read(workspace => workspace);
         case 'GetWorkspaceActivity': return unitOfWork.readActivity?.(Math.min(100, Math.max(1, Number((envelope.payload as { limit?: number }).limit || 50)))) ?? [];
+        case 'GetGraphNeighborhood': {
+          if (!unitOfWork.queryGraphNeighborhood) throw legacyError('Graph Projection 不可用。', 503, 'GRAPH_PROJECTION_UNAVAILABLE');
+          return unitOfWork.queryGraphNeighborhood(envelope.payload as QueryMap['GetGraphNeighborhood']['payload']);
+        }
+        case 'GetGraphPath': {
+          if (!unitOfWork.queryGraphPath) throw legacyError('Graph Projection 不可用。', 503, 'GRAPH_PROJECTION_UNAVAILABLE');
+          return unitOfWork.queryGraphPath(envelope.payload as QueryMap['GetGraphPath']['payload']);
+        }
+        case 'GetGraphTree': {
+          if (!unitOfWork.queryGraphTree) throw legacyError('Graph Projection 不可用。', 503, 'GRAPH_PROJECTION_UNAVAILABLE');
+          return unitOfWork.queryGraphTree(envelope.payload as QueryMap['GetGraphTree']['payload']);
+        }
+        case 'GetGraphChanges': {
+          if (!unitOfWork.queryGraphChanges) throw legacyError('Graph Projection 不可用。', 503, 'GRAPH_PROJECTION_UNAVAILABLE');
+          return unitOfWork.queryGraphChanges(envelope.payload as QueryMap['GetGraphChanges']['payload']);
+        }
         case 'GetProviders': return providers.snapshot();
         case 'GetProviderStatus': {
           if (runtime.kind !== 'librechat') return providers.activeStatus();

@@ -11,6 +11,8 @@ import { semanticChecksum } from './infrastructure/workspace-semantic-checksum';
 import type { TransactionalWorkspaceCommand, TransactionalWorkspaceCommandResult } from './store';
 import type { WorkspaceLifecycleCommand } from './application/ports/workspace-unit-of-work';
 import type { WorkspaceRecord } from './contracts/application';
+import { buildWorkspaceGraphProjection } from './graph-projection/model';
+import { PostgresGraphProjectionAdapter } from './graph-projection/postgres-adapter';
 
 interface QueryResult<Row> { rows: Row[] }
 export interface SqlQueryable {
@@ -476,7 +478,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   async readJournal(limit = 50): Promise<DomainEventEnvelope[]> {
     const result = await this.database.query<Record<string, unknown>>(`
       SELECT * FROM workspace_events WHERE workspace_id=$1 ORDER BY sequence DESC LIMIT $2
-    `, [this.defaultWorkspaceId, Math.min(100, Math.max(1, limit))]);
+    `, [this.defaultWorkspaceId, Math.min(10_000, Math.max(1, limit))]);
     return result.rows.map(row => ({
       eventId: String(row.event_id), workspaceId: String(row.workspace_id), sequence: Number(row.sequence),
       eventType: String(row.event_type) as DomainEventEnvelope['eventType'], ceSpecversion: '1.0', envelopeVersion: DOMAIN_EVENT_SCHEMA_VERSION,
@@ -485,6 +487,26 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       commandId: String(row.command_id), eventIndex: Number(row.event_index), causationId: row.causation_id ? String(row.causation_id) : undefined, correlationId: row.correlation_id ? String(row.correlation_id) : undefined,
       payload: asJson(row.payload), occurredAt: asIso(row.occurred_at), recordedAt: asIso(row.recorded_at),
     }));
+  }
+
+  async readGraphProjection() {
+    const workspace = await this.read();
+    const [runs, sequence] = await Promise.all([
+      this.listRuns(10_000),
+      this.database.query<{ sequence: number }>('SELECT COALESCE(MAX(sequence),0)::bigint AS sequence FROM workspace_events WHERE workspace_id=$1', [this.defaultWorkspaceId]),
+    ]);
+    const projection = buildWorkspaceGraphProjection(workspace, runs, Number(sequence.rows[0]?.sequence ?? 0), await this.readJournal(10_000));
+    return new PostgresGraphProjectionAdapter(this.database, this.defaultWorkspaceId).materialize(projection);
+  }
+
+  async rebuildGraphProjection() {
+    const workspace = await this.read();
+    const [runs, sequence] = await Promise.all([
+      this.listRuns(10_000),
+      this.database.query<{ sequence: number }>('SELECT COALESCE(MAX(sequence),0)::bigint AS sequence FROM workspace_events WHERE workspace_id=$1', [this.defaultWorkspaceId]),
+    ]);
+    const projection = buildWorkspaceGraphProjection(workspace, runs, Number(sequence.rows[0]?.sequence ?? 0), await this.readJournal(10_000));
+    return new PostgresGraphProjectionAdapter(this.database, this.defaultWorkspaceId).materialize(projection, true);
   }
 
   async readCommandReceipt(commandId: string): Promise<CommandReceipt | undefined> {
@@ -547,7 +569,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     const projects = await database.query<{ id: string; title: string; active_node_id: string | null; state: unknown; updated_at: unknown }>(`SELECT id, title, active_node_id, state, updated_at FROM rhiza_projects WHERE id = $1${lock ? ' FOR UPDATE' : ''}`, [this.defaultWorkspaceId]);
     const project = projects.rows[0];
     if (!project) return undefined;
-    const [nodesResult, segmentsResult, messagesResult, anchorsResult, edgesResult, manifestsResult, attachmentsResult, resourcesResult, resourceVersionsResult, materializationsResult, messageAttachmentsResult, auditResult] = await Promise.all([
+    const [nodesResult, segmentsResult, messagesResult, anchorsResult, edgesResult, manifestsResult, attachmentsResult, resourcesResult, resourceVersionsResult, materializationsResult, messageAttachmentsResult, auditResult, layoutResult] = await Promise.all([
       database.query<Record<string, unknown>>('SELECT * FROM rhiza_nodes WHERE project_id = $1 ORDER BY created_at, id', [project.id]),
       database.query<Record<string, unknown>>('SELECT s.* FROM rhiza_segments s JOIN rhiza_nodes n ON n.id = s.node_id WHERE n.project_id = $1 ORDER BY s.node_id, s.ordinal', [project.id]),
       database.query<Record<string, unknown>>('SELECT m.* FROM rhiza_messages m JOIN rhiza_nodes n ON n.id = m.node_id WHERE n.project_id = $1 ORDER BY m.event_ordinal, m.id', [project.id]),
@@ -560,10 +582,12 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       database.query<Record<string, unknown>>('SELECT rm.* FROM rhiza_resource_materializations rm JOIN rhiza_resource_versions rv ON rv.resource_version_id=rm.resource_version_id JOIN rhiza_resources r ON r.resource_id=rv.resource_id WHERE r.workspace_id=$1 ORDER BY rm.created_at,rm.materialization_id', [project.id]),
       database.query<{ message_id: string; attachment_id: string; ordinal: number }>('SELECT ma.* FROM rhiza_message_attachments ma JOIN rhiza_messages m ON m.id = ma.message_id JOIN rhiza_nodes n ON n.id = m.node_id WHERE n.project_id = $1 ORDER BY ma.message_id, ma.ordinal', [project.id]),
       database.query<Record<string, unknown>>('SELECT * FROM rhiza_audit_events WHERE project_id = $1 ORDER BY created_at, id', [project.id]),
+      database.query<Record<string, unknown>>("SELECT object_id,x,y FROM graph_layout_nodes WHERE workspace_id=$1 AND layout_id='default' AND object_type='conversation'", [project.id]),
     ]);
     const attachmentIds = new Map<string, string[]>();
     for (const row of messageAttachmentsResult.rows) attachmentIds.set(row.message_id, [...(attachmentIds.get(row.message_id) || []), row.attachment_id]);
-    const nodes: DiscussionNode[] = nodesResult.rows.map(row => ({ id: String(row.id), title: String(row.title), summary: String(row.summary), status: row.status as DiscussionNode['status'], kind: row.kind as DiscussionNode['kind'], sourceNodeId: row.source_node_id ? String(row.source_node_id) : undefined, sourceMessageId: row.source_message_id ? String(row.source_message_id) : undefined, anchorText: row.anchor_text ? String(row.anchor_text) : undefined, x: Number(row.position_x), y: Number(row.position_y), createdAt: asIso(row.created_at), updatedAt: asIso(row.updated_at) }));
+    const layouts = new Map(layoutResult.rows.map(row => [String(row.object_id), { x: Number(row.x), y: Number(row.y) }]));
+    const nodes: DiscussionNode[] = nodesResult.rows.map(row => ({ id: String(row.id), title: String(row.title), summary: String(row.summary), status: row.status as DiscussionNode['status'], kind: row.kind as DiscussionNode['kind'], sourceNodeId: row.source_node_id ? String(row.source_node_id) : undefined, sourceMessageId: row.source_message_id ? String(row.source_message_id) : undefined, anchorText: row.anchor_text ? String(row.anchor_text) : undefined, x: layouts.get(String(row.id))?.x ?? Number(row.position_x), y: layouts.get(String(row.id))?.y ?? Number(row.position_y), createdAt: asIso(row.created_at), updatedAt: asIso(row.updated_at) }));
     const messages: StoredMessage[] = messagesResult.rows.map(row => ({ id: String(row.id), nodeId: String(row.node_id), segmentId: row.segment_id ? String(row.segment_id) : undefined, kind: row.kind as StoredMessage['kind'], text: String(row.body), manifestId: row.manifest_id ? String(row.manifest_id) : undefined, createdAt: asIso(row.created_at), operation: row.operation as StoredMessage['operation'], sourceMessageId: row.source_message_id ? String(row.source_message_id) : undefined, versionGroupId: row.version_group_id ? String(row.version_group_id) : undefined, version: Number(row.version), replyToMessageId: row.reply_to_message_id ? String(row.reply_to_message_id) : undefined, usage: row.usage ? asJson(row.usage) : undefined, reasoning: row.reasoning ? String(row.reasoning) : undefined, toolCalls: row.tool_calls ? asJson(row.tool_calls) : undefined, attachmentIds: attachmentIds.get(String(row.id)) || [] }));
     const state = asJson<{ mode?: WorkspaceData['mode']; contextItems?: WorkspaceData['contextItems']; fileChunks?: FileChunk[] }>(project.state || {});
     return {
@@ -607,7 +631,11 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     const edges = changedItems(workspace.discussionEdges, previous?.discussionEdges);
     const audits = changedItems(workspace.auditEvents, previous?.auditEvents);
     await database.query(`INSERT INTO rhiza_projects (id, title, state, created_at, updated_at) VALUES ($1,$2,$3::jsonb,$4,$4) ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, state=EXCLUDED.state, updated_at=EXCLUDED.updated_at`, [workspace.projectId, workspace.projectTitle, JSON.stringify({ mode: workspace.mode, contextItems: workspace.contextItems, fileChunks: workspace.fileChunks }), workspace.updatedAt]);
-    for (const node of nodes) await database.query(`INSERT INTO rhiza_nodes (id,project_id,title,summary,status,kind,position_x,position_y,created_at,updated_at,anchor_text) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title,summary=EXCLUDED.summary,status=EXCLUDED.status,kind=EXCLUDED.kind,position_x=EXCLUDED.position_x,position_y=EXCLUDED.position_y,updated_at=EXCLUDED.updated_at,anchor_text=EXCLUDED.anchor_text`, [node.id,workspace.projectId,node.title,node.summary,node.status,node.kind,node.x,node.y,node.createdAt,node.updatedAt,node.anchorText || null]);
+    await database.query(`INSERT INTO graph_layouts (workspace_id,layout_id,owner_scope) VALUES ($1,'default',$2::jsonb) ON CONFLICT DO NOTHING`, [workspace.projectId, JSON.stringify({ scopeType: 'workspace', scopeId: workspace.projectId })]);
+    for (const node of nodes) {
+      await database.query(`INSERT INTO rhiza_nodes (id,project_id,title,summary,status,kind,position_x,position_y,created_at,updated_at,anchor_text) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title,summary=EXCLUDED.summary,status=EXCLUDED.status,kind=EXCLUDED.kind,updated_at=EXCLUDED.updated_at,anchor_text=EXCLUDED.anchor_text`, [node.id,workspace.projectId,node.title,node.summary,node.status,node.kind,node.x,node.y,node.createdAt,node.updatedAt,node.anchorText || null]);
+      await database.query(`INSERT INTO graph_layout_nodes (workspace_id,layout_id,object_type,object_id,x,y) VALUES ($1,'default','conversation',$2,$3,$4) ON CONFLICT (workspace_id,layout_id,object_type,object_id) DO UPDATE SET x=EXCLUDED.x,y=EXCLUDED.y`, [workspace.projectId,node.id,node.x,node.y]);
+    }
     for (const segment of segments) await database.query(`INSERT INTO rhiza_segments (id,node_id,ordinal,title,created_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO UPDATE SET node_id=EXCLUDED.node_id,ordinal=EXCLUDED.ordinal,title=EXCLUDED.title`, [segment.id,segment.nodeId,segment.ordinal,segment.title,segment.createdAt]);
     for (const manifest of manifests) await database.query(`INSERT INTO rhiza_context_manifests (id,project_id,node_id,request_id,mode,provider,model,runtime,estimated_tokens,manifest,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11) ON CONFLICT (id) DO NOTHING`, [manifest.id,workspace.projectId,manifest.nodeId,manifest.requestId,manifest.mode,manifest.provider,manifest.model,manifest.runtime,manifest.estimatedTokens,JSON.stringify(manifest),manifest.createdAt]);
     for (const resource of resources) await database.query(`INSERT INTO rhiza_resources (resource_id,workspace_id,kind,logical_name,created_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (resource_id) DO NOTHING`, [resource.id,resource.workspaceId,resource.kind,resource.logicalName,resource.createdAt]);

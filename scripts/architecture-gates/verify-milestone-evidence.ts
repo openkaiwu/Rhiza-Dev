@@ -362,6 +362,34 @@ export function m06ObservedMetrics(databaseUrl = process.env.DATABASE_URL): Reco
   return { ...M06_CONFIG.thresholds, real_postgres_e2e: databaseUrl ? { status: 'pass' } : { status: 'skipped', reason: 'DATABASE_URL is not configured' } };
 }
 
+export const M07_COMMANDS = [
+  'pnpm run lint', 'pnpm run typecheck', 'pnpm run test:unit', 'pnpm run test:e2e', 'pnpm run licenses:verify',
+  'pnpm run verify:g0', 'pnpm run verify:m02:boundaries', 'pnpm run verify:m04:host-boundary', 'pnpm run benchmark:m07', 'pnpm run build',
+];
+export const M07_PATHS = [...new Set([...M06_PATHS,
+  'db/migrations/0009_graph_projection.up.sql', 'db/migrations/0009_graph_projection.down.sql',
+  'docs/adr/ADR-007-workspace-graph-projection.md', 'docs/architecture-gates/M07/graph-fixture.json', 'docs/architecture.md', 'docs/know-how.md',
+  'server/contracts/graph-projection.ts', 'server/graph-projection/model.ts', 'server/graph-projection/model.test.ts', 'server/graph-projection/postgres-adapter.ts',
+  'server/domain-journal.ts', 'server/domain-journal.test.ts',
+  'server/application/ports/workspace-unit-of-work.ts', 'server/infrastructure/workspace-repository-unit-of-work.ts', 'server/postgres-store.ts',
+  'server/contracts/application.ts', 'server/application/create-application.ts', 'server/http/app.ts', 'server/store.ts',
+  'src/api.ts', 'src/App.tsx', 'src/types.ts', 'src/components/graph-model.ts', 'src/components/graph-model.test.ts',
+  'e2e/postgres-migration.e2e.test.ts', 'e2e/postgres-schema.e2e.test.ts', 'e2e/postgres-store.e2e.test.ts', 'scripts/migrate.test.ts',
+  'scripts/rebuild-graph-projection.ts', 'scripts/benchmark-m07-graph.ts', 'package.json',
+])];
+export const M07_FIXTURES = [...M06_CONFIG.fixtures, { id: 'm07-workspace-graph-v1', path: 'docs/architecture-gates/M07/graph-fixture.json', role: 'acceptance_fixture' }];
+const M07_CONFIG: MilestoneConfig = {
+  architectureVersion: 'V4.2', commands: M07_COMMANDS, paths: M07_PATHS, fixtures: M07_FIXTURES,
+  failureClassification: { classification: 'none', rationale: 'M07 generic ObjectRef registry, checkpointed projection, atomic clean rebuild, layout ownership, bounded graph APIs and GraphView read-model integration passed. Real PostgreSQL tests are skipped when DATABASE_URL is unavailable.' },
+  knownExceptions: [], severity: 'blocking',
+  thresholds: { max_depth: 3, max_objects: 500, max_relations: 2000, benchmark_p95_ms_lt: 300, rebuild_retained_versions: 2, graphview_projection_boundary: 'pass' },
+  failureInjectionCheckpoint: { checkpoint: 'projection namespace write before alias switch', injection_command: 'pnpm vitest run e2e/postgres-store.e2e.test.ts -t "bounded, rebuildable graph projection" --maxWorkers=1 --testTimeout=30000', expected: 'normal checkpoint advances keep the active namespace; clean rebuild switches the alias only after completion and retains the previous version' },
+  recoveryCommand: 'pnpm run graph:rebuild',
+};
+export function m07ObservedMetrics(databaseUrl = process.env.DATABASE_URL): Record<string, unknown> {
+  return { ...M07_CONFIG.thresholds, real_postgres_e2e: databaseUrl ? { status: 'pass' } : { status: 'skipped', reason: 'DATABASE_URL is not configured' } };
+}
+
 const milestoneConfig = (milestone: string): MilestoneConfig => {
   if (milestone === 'M01') return M01_CONFIG;
   if (milestone === 'M02') return M02_CONFIG;
@@ -369,6 +397,7 @@ const milestoneConfig = (milestone: string): MilestoneConfig => {
   if (milestone === 'M04') return M04_CONFIG;
   if (milestone === 'M05') return M05_CONFIG;
   if (milestone === 'M06') return M06_CONFIG;
+  if (milestone === 'M07') return M07_CONFIG;
   return fail(`no verifier is configured for ${milestone}`);
 };
 
@@ -440,6 +469,12 @@ export function validateEvidence(
     if (!postgres || !['pass', 'skipped'].includes(String(postgres.status))) fail('M06 real PostgreSQL metric must be pass or skipped');
     if (postgres.status === 'skipped' && !postgres.reason?.includes('DATABASE_URL')) fail('M06 skipped PostgreSQL must explain DATABASE_URL');
   }
+  if (evidence.milestone === 'M07') {
+    for (const [key, expected] of Object.entries(M07_CONFIG.thresholds!)) if (evidence.observed_metrics?.[key] !== expected) fail(`M07 observed metric ${key} must equal ${String(expected)}`);
+    const postgres = evidence.observed_metrics?.real_postgres_e2e as { status?: string; reason?: string };
+    if (!postgres || !['pass', 'skipped'].includes(String(postgres.status))) fail('M07 real PostgreSQL metric must be pass or skipped');
+    if (postgres.status === 'skipped' && !postgres.reason?.includes('DATABASE_URL')) fail('M07 skipped PostgreSQL must explain DATABASE_URL');
+  }
   for (const fixture of evidence.fixtures) {
     if (!(fixture.path in evidence.checksums)) fail(`fixture is not checksummed: ${fixture.path}`);
   }
@@ -482,7 +517,7 @@ function writeEvidence(milestone: string): void {
     })),
     failure_classification: config.failureClassification,
     known_exceptions: config.knownExceptions,
-    ...(config.severity ? { severity: config.severity, thresholds: config.thresholds!, observed_metrics: milestone === 'M03' ? m03ObservedMetrics() : milestone === 'M04' ? m04ObservedMetrics() : milestone === 'M06' ? m06ObservedMetrics() : m05ObservedMetrics(), failure_injection_checkpoint: config.failureInjectionCheckpoint!, recovery_command: config.recoveryCommand! } : {}),
+    ...(config.severity ? { severity: config.severity, thresholds: config.thresholds!, observed_metrics: milestone === 'M03' ? m03ObservedMetrics() : milestone === 'M04' ? m04ObservedMetrics() : milestone === 'M06' ? m06ObservedMetrics() : milestone === 'M07' ? m07ObservedMetrics() : m05ObservedMetrics(), failure_injection_checkpoint: config.failureInjectionCheckpoint!, recovery_command: config.recoveryCommand! } : {}),
     environment: { node: process.version, os: `${platform()} ${release()}`, cpu: cpus()[0]?.model ?? 'unknown', memory_bytes: totalmem() },
     started_at, completed_at: new Date().toISOString(), result: 'pass',
   };
@@ -496,7 +531,7 @@ function writeEvidence(milestone: string): void {
 function main(): void {
   const milestoneIndex = process.argv.indexOf('--milestone');
   const milestone = milestoneIndex >= 0 ? (process.argv[milestoneIndex + 1] ?? '') : '';
-  if (milestone.length === 0) fail('pass --milestone M01, M02, M03, M04, M05, or M06 and optionally --write');
+  if (milestone.length === 0) fail('pass --milestone M01, M02, M03, M04, M05, M06, or M07 and optionally --write');
   if (process.argv.includes('--write')) return writeEvidence(milestone);
   const path = resolve(root, `docs/architecture-gates/${milestone}/evidence.json`);
   if (!existsSync(path)) fail(`evidence file is missing: ${path}`);

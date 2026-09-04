@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0.0",
+  "baseline": "V4.2",
+  "object_types": ["conversation", "message", "resource", "run", "future-task"],
+  "relation_types": ["derived_from", "references", "related_to", "merged_into"],
+  "hard_limits": { "depth": 3, "nodes": 500, "relations": 2000 },
+  "benchmark": { "objects": 10000, "relations": 50000, "samples": 20, "p95_ms_lt": 300 },
+  "projection": { "checkpoint": "workspace_events.sequence", "alias": "atomic", "clean_rebuild": true, "retains_previous_version": true },
+  "tests": ["server/graph-projection/model.test.ts", "e2e/postgres-store.e2e.test.ts", "src/components/graph-model.test.ts"]
+}

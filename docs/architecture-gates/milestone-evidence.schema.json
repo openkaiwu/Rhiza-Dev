@@ -5,7 +5,7 @@
   "type": "object",
   "required": ["$schema", "schema_version", "milestone", "architecture_version", "commit", "fixtures", "commands", "checksums", "failure_classification", "known_exceptions", "environment", "started_at", "completed_at", "result"],
   "allOf": [{
-    "if": { "properties": { "milestone": { "enum": ["M03", "M04"] } }, "required": ["milestone"] },
+    "if": { "properties": { "milestone": { "enum": ["M03", "M04", "M05", "M06", "M07"] } }, "required": ["milestone"] },
     "then": {
       "properties": { "severity": {}, "thresholds": {}, "observed_metrics": {}, "failure_injection_checkpoint": {}, "recovery_command": {} },
       "required": ["severity", "thresholds", "observed_metrics", "failure_injection_checkpoint", "recovery_command"]

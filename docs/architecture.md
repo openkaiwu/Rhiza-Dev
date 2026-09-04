@@ -1,6 +1,6 @@
 # Project Architecture
 
-> **文档地位（2026-09-04 刷新）**：本文是 **Current Implementation Snapshot**，只描述当前已落地行为；目标架构与开发顺序以 `docs/Rhiza_技术架构设计书_V4.2_20260829.md` 和 `docs/Rhiza_开发路线图_V4.2_20260829.md` 为准。M01–M06 的接受结论以 `docs/architecture-gates/` 中的 commit-bound evidence 为准；未配置 `DATABASE_URL` 时，真实 PostgreSQL 用例为 skipped，不视为通过。
+> **文档地位（2026-09-05 刷新）**：本文是 **Current Implementation Snapshot**，只描述当前已落地行为；目标架构与开发顺序以 `docs/Rhiza_技术架构设计书_V4.2_20260829.md` 和 `docs/Rhiza_开发路线图_V4.2_20260829.md` 为准。M01–M07 的接受结论以 `docs/architecture-gates/` 中的 commit-bound evidence 为准；未配置 `DATABASE_URL` 时，真实 PostgreSQL 用例为 skipped，不视为通过。
 
 ## 1. Overview
 
@@ -17,6 +17,7 @@
 - librechat-data-provider：LibreChat Model Spec、endpoint 枚举与文件能力策略
 - Embedded PGlite：无 `DATABASE_URL` 时的默认真实事务后端，启动时按 checksum 自动执行同一套 PostgreSQL migration
 - PostgreSQL Repository：`users`、`workspaces`、`workspace_members`、不可变 `ResourceVersion`、`workspace_events` 与 `command_receipts` 的事务更新、migration checksum 防篡改和 CI 真库验证
+- Workspace Graph Projection：以通用 `ObjectRef` 注册 conversation/message/resource/run，以 Journal sequence + checksum 推进 checkpoint；显式重建写新版本并原子切换 alias
 - JSON WorkspaceStore：仅保留 characterization fixture 与显式 `workspace:import-json` 迁移输入，不再作为生产默认后端
 - content-addressed BlobStore：SHA-256 内容身份、temp write → verify → atomic promote，以及 grace-period orphan GC
 - Lucide React：统一图标系统
@@ -50,6 +51,7 @@
 - `server/infrastructure/resource-backfill.ts`、`scripts/backfill-resources.ts`：旧 UUID 附件到 Resource/ResourceVersion 的幂等回填；BlobStore 的 GC 只接受调用方提供的完整 active-reference set，避免按单一 Workspace 误删共享 blob
 - `server/store.ts`：JSON characterization fixture 与显式 legacy import 支持；不作为生产默认写路径
 - `server/domain-journal.ts`：V4.2 M05 Event Catalog、Event Envelope、Receipt、semantic checksum 与活动时间线映射
+- `server/contracts/graph-projection.ts`、`server/graph-projection/`：M07 的稳定 Graph DTO、纯查询/投影模型和 PostgreSQL checkpoint/alias adapter
 - `server/embedded-store.ts`：PGlite 默认 adapter 与自动 migration；`scripts/backfill-journal.ts` 建立幂等历史 baseline
 - `server/config.ts`：安全读取 Provider 环境配置
 - `server/feature-flags.ts`：默认关闭、未知值快速失败的 M0 功能开关
@@ -136,6 +138,7 @@ Express 后端暴露以下边界：
 - `pnpm run m04:checks`：在完整回归之上验证 Resource backfill/digest/fault injection、Node Host contract、Domain/Application OS import=0 与 M04 evidence 前置条件。
 - `pnpm run verify:m05:closure`：完整回归、同一套 PGlite/可选真 PostgreSQL 事务 contract、100 重放/100 并发、三写点故障、append-only、baseline+tail checksum、HTTP 幂等与 strict-current evidence。真 PostgreSQL 未配置时明确 skipped。
 - `pnpm run verify:m06:closure`：完整 M06 回归、M04 Host/M02 boundary/G0 前置检查与 strict-current ExecutionRun evidence；真实 PostgreSQL Run 用例未配置 `DATABASE_URL` 时明确 skipped。
+- `pnpm run verify:m07:closure`：完整回归、10k object/50k relation bounded-query benchmark、投影增量 checkpoint、clean rebuild/alias 保留与 strict-current evidence；真实 PostgreSQL 投影用例未配置 `DATABASE_URL` 时明确 skipped。
 - 浏览器人工验证：检查三栏布局、移动断点、滚动、抽屉、Graph 缩放/平移、节点/关系编辑和关键交互。
 - Graph 组件与 API 测试：验证缩放、节点创建、归档/恢复、归档只读、受控 Purge、关系编辑及后端持久化。
 - Markdown 组件测试：验证 GFM 表格/任务列表、KaTeX 公式和 Mermaid SVG 输出。
@@ -150,7 +153,7 @@ Express 后端暴露以下边界：
 ## 10. Known Constraints
 
 - AI 回复已连接真实 Provider；Context Planner 推荐与冲突检测仍为演示数据。
-- Graph 已支持缩放、平移、节点拖拽、节点归档/恢复、关系编辑与坐标持久化；框选、自动布局和超大图虚拟化仍未实现。
+- Graph 已通过 bounded read-model API 读取 conversation 投影，支持缩放、平移、节点拖拽、节点归档/恢复、关系编辑与独立 layout 持久化；API 深度上限 3、对象上限 500、关系上限 2,000。框选、自动布局、超大图虚拟化及最终界面设计仍属于后续工作。
 - 当前运行时在未配置 `DATABASE_URL` 时默认使用本机持久化 PGlite，配置后使用外部 PostgreSQL；两者共享 relational Repository、Domain Journal 与 migration。JSON 仅保留为测试 fixture 和显式 legacy import 输入。已支持 local user 下的多个 Workspace、membership 校验、跨 Workspace 隔离以及 Resource/ResourceVersion 元数据；尚不支持密码/OAuth/会话、成员协作或通用权限引擎。
 - 当前 Provider/API Key 仍是唯一模型执行配置；已接入固定的 `librechat-data-provider@0.8.509` Model Spec 和文件策略。附件已通过 Resource/ResourceVersion 与 content-addressed BlobStore 注册、校验和回填；完整 Agent/MCP、统一 Auth、协作权限、跨设备同步、完整回放与 Portable Bundle 属于后续里程碑。
 - Provider 适配范围是 OpenAI-compatible Chat Completions；非兼容协议需要新增 Adapter。
@@ -163,3 +166,9 @@ Express 后端暴露以下边界：
 普通与临时 Chat 经 `server/application/run-lifecycle.ts` 创建 durable ExecutionRun，再调用 Runtime。`WorkspaceUnitOfWork` 的 RunMutation 与原有 Workspace mutation 共用事务：成功 Run、消息、Manifest、Journal 和 Receipt 原子提交，取消/失败单独留下终态。数据库 migration 0008 保护输入与终态不可变，trace 独立存储。
 
 `GET /api/v1/workspaces/:workspaceId/runs` 与详情查询遵守现有 membership；同一 scope 的 `POST .../runs/:runId/cancel` 提供服务端取消，也提供 `POST /api/v1/runs/:runId/cancel`（显式 workspaceId）。RunHistory 显示状态、hash、模型/endpoint、错误、telemetry 与新 Run 重试入口。启动恢复在接收请求前执行；PostgreSQL 使用单 runtime advisory lock。语义边界见 ADR-006。
+
+## M07 Workspace graph projection
+
+Graph read model 将 Current State 与 durable ExecutionRun 投影为通用 `ObjectRef`/relation DTO。普通查询在 Journal checkpoint 变化时于现有 projection namespace 内事务更新对象、关系与 checkpoint；`pnpm run graph:rebuild` 或 rebuild API 写入新 namespace，在完整提交后原子切换 alias，并保留旧 namespace 供回滚。默认 layout 独立存放于 `graph_layout_nodes`，legacy node 坐标只作迁移回退。
+
+Application 仅依赖 `WorkspaceUnitOfWork` 的 graph query 契约；HTTP 提供 neighborhood/path/tree/changes 与 rebuild。前端只请求 conversation family，并由 `graph-model.ts` 把 bounded DTO 适配为 GraphView 的窄展示模型。该边界不引入 M08 Workflow，也不决定 M18 最终 UI。语义与回滚约束见 ADR-007。
