@@ -176,3 +176,7 @@ Application 仅依赖 `WorkspaceUnitOfWork` 的 graph query 契约；HTTP 提供
 Graph 查询在 Workspace 写锁内读取 Current State、全部 Run 与删除事件，再与 projection checkpoint 一起提交；普通推进仅写入变化的对象和关系。删除事件不受 activity feed 的 10,000 条窗口限制。重建只回填缺失的 layout，不覆盖用户坐标或 collapsed 状态；layout 不参与 graph semantic checksum。迁移 `0010_graph_object_metadata` 保留 ObjectRef 的版本引用和来源锚点。
 
 列表 cursor 同时推进对象页和关系页并绑定 checkpoint；跨页关系保留在 App 中，只有两端均已加载时才展示。checkpoint 变化返回 `GRAPH_CURSOR_STALE`，调用方刷新后从第一页重新读取。`changes` 的 checkpoint 不一致时返回 `resetRequired`，完整恢复通过有界列表分页完成。旧 Workspace snapshot 继续服务 Chat 与兼容写入口；GraphView 的数据源为 Graph API。
+
+## M08 implementation in progress
+
+`context-runtime/contracts.ts` defines source contributors, a bounded CandidateIndex, deterministic Planner, freezing Compiler and historical resolution outcomes. `IndexedContextPlanner` uses the same extracted `planCandidates` selection logic as the legacy entrypoint and fingerprints input/source/index/runtime versions before reusing a copied plan. This foundation is under development: the production Chat path still uses the legacy Workspace planner until the persistent index and Compiler integration are complete. ADR-008 defines the M08 contract; final acceptance remains pending.
