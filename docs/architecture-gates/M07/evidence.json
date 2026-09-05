@@ -3,7 +3,7 @@
   "schema_version": "1.0.0",
   "milestone": "M07",
   "architecture_version": "V4.2",
-  "commit": "5025c93142399b3b99ad9f2d96ed2179953b5b03",
+  "commit": "9a8d05de1ed0512b589920dc0591922d0838edea",
   "fixtures": [
     {
       "id": "g0-fixture-registry-v1",
@@ -386,8 +386,8 @@
     },
     "README.md": {
       "algorithm": "sha256",
-      "current": "ed367fce807584f2d8ceb5256144d1b9679e91337fd9b6a4f9e7cf83d5e8ebdd",
-      "recorded_commit": "ed367fce807584f2d8ceb5256144d1b9679e91337fd9b6a4f9e7cf83d5e8ebdd"
+      "current": "908f439a0dccdf5942417987de5d09b5f4a16a018789e4425b65fac18aab4ef6",
+      "recorded_commit": "908f439a0dccdf5942417987de5d09b5f4a16a018789e4425b65fac18aab4ef6"
     },
     "db/migrations/0005_identity_workspace_scope.up.sql": {
       "algorithm": "sha256",
@@ -501,8 +501,8 @@
     },
     "docs/Rhiza_开发路线图_V4.2_20260829.md": {
       "algorithm": "sha256",
-      "current": "cc90585d15ef31253e14ca07597e7c8e9f28301a601a419e252068e031740878",
-      "recorded_commit": "cc90585d15ef31253e14ca07597e7c8e9f28301a601a419e252068e031740878"
+      "current": "b58ebb0502cd085e6c1e499a00b39c8cf097348a80968b50a9d79efd96a66f1a",
+      "recorded_commit": "b58ebb0502cd085e6c1e499a00b39c8cf097348a80968b50a9d79efd96a66f1a"
     },
     "docs/Rhiza_技术架构设计书_V4.2_20260829.md": {
       "algorithm": "sha256",
@@ -641,8 +641,8 @@
     },
     "docs/项目现状.md": {
       "algorithm": "sha256",
-      "current": "87c1be1ca89627708c59d9efad22907cf821beac1a1a7051eaf63cae69974b63",
-      "recorded_commit": "87c1be1ca89627708c59d9efad22907cf821beac1a1a7051eaf63cae69974b63"
+      "current": "d8c38b2802496ea8279d2d54e2b0270a14dbe00582e99253c89b3e3a5ef01eab",
+      "recorded_commit": "d8c38b2802496ea8279d2d54e2b0270a14dbe00582e99253c89b3e3a5ef01eab"
     },
     "scripts/backfill-journal.ts": {
       "algorithm": "sha256",
@@ -848,7 +848,7 @@
     "cpu": "Apple A18 Pro",
     "memory_bytes": 8589934592
   },
-  "started_at": "2026-09-05T08:21:10.653Z",
-  "completed_at": "2026-09-05T08:25:08.623Z",
+  "started_at": "2026-09-05T08:28:41.662Z",
+  "completed_at": "2026-09-05T08:30:07.230Z",
   "result": "pass"
 }
