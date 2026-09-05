@@ -1,6 +1,6 @@
 # ADR-008: Versioned Context materialization and historical resolution
 
-- Status: Accepted contract; M08 integration in progress
+- Status: Accepted; M08 gate passed
 - Date: 2026-09-06
 - Baseline: Rhiza V4.2 M08
 

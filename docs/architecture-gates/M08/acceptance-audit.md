@@ -1,6 +1,6 @@
 # M08 acceptance audit
 
-Date: 2026-09-06. Scope: V4.2 M08, with the unchanged V4.1 Context Runtime requirements. The primary implementation agent performed the final code/spec audit; executable acceptance is recorded by the adjacent commit-bound `evidence.json`.
+Date: 2026-09-06. Scope: V4.2 M08, with the unchanged V4.1 Context Runtime requirements. Final Tier A / SOTA audit: **PASS**, performed by the primary agent against INH-64–72. The four-layer, immutability and historical-resolution requirements have no open blocking findings; executable acceptance is recorded by the adjacent commit-bound `evidence.json`.
 
 | Requirement | Implementation and executable evidence |
 | --- | --- |

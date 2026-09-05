@@ -4,13 +4,13 @@
 Version: V4.2
 Release Date: 2026-08-29
 Baseline: Rhiza Architecture & Roadmap Baseline V4.2
-Status: Active baseline; M01–M07 accepted, M08 next
+Status: Active baseline; M01–M08 accepted, M09 next
 Supersedes: V4.1
 ```
 
 > V4.2 是 V4.1 的最小路线修订。
 > 核心决策：**Chat first, Workflow second；不并行开发两条主线。**
-> M01–M07 已完成并保留接受证据，不返工。下一主线是 M08；路线调整从 M04 开始。
+> M01–M08 已完成并保留接受证据，不返工。下一主线是 M09；路线调整从 M04 开始。
 
 ---
 
@@ -283,6 +283,8 @@ Task/Artifact future fixture 不再作为 Blocking Acceptance。
 ---
 
 ## M08 — Context Runtime v1
+
+**状态：Done / M08 evidence accepted。**
 
 **保持 V4.1 原样。**
 
