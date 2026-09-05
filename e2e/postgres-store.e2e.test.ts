@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
+import { Pool } from 'pg';
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 import type { ContextManifest } from '../server/domain';
@@ -11,9 +12,35 @@ import { createHttpApp } from '../server/http/app';
 import { WorkspaceDirectory } from '../server/identity/workspace-directory';
 import { PostgresWorkspaceStore } from '../server/postgres-store';
 import { RepositoryWorkspaceUnitOfWork } from '../server/infrastructure/workspace-repository-unit-of-work';
+import { PostgresGraphProjectionAdapter } from '../server/graph-projection/postgres-adapter';
+import { buildWorkspaceGraphProjection } from '../server/graph-projection/model';
+import type { SqlQueryable } from '../server/postgres-store';
+import { projectionToGraphPresentationModel, toGraphPresentationModel } from '../src/components/graph-model';
 
-async function migratedDatabase() {
-  const database = new PGlite();
+interface TestDatabase extends SqlQueryable {
+  exec(sql: string): Promise<unknown>;
+  close(): Promise<void>;
+  transaction<T>(work: (database: SqlQueryable) => Promise<T>): Promise<T>;
+}
+async function migratedDatabase(backend: 'embedded' | 'postgres' = 'embedded') {
+  let database: TestDatabase;
+  if (backend === 'embedded') database = new PGlite();
+  else {
+    const admin = new Pool({ connectionString: process.env.DATABASE_URL });
+    const schema = `m07_${randomUUID().replaceAll('-', '')}`;
+    await admin.query(`CREATE SCHEMA ${schema}`);
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL, options: `-c search_path=${schema}` });
+    database = {
+      query: pool.query.bind(pool), exec: sql => pool.query(sql),
+      transaction: async work => {
+        const client = await pool.connect();
+        try { await client.query('BEGIN'); const value = await work(client); await client.query('COMMIT'); return value; }
+        catch (error) { await client.query('ROLLBACK'); throw error; }
+        finally { client.release(); }
+      },
+      close: async () => { await pool.end(); await admin.query(`DROP SCHEMA ${schema} CASCADE`); await admin.end(); },
+    };
+  }
   for (const migration of ['0001_rhiza_core', '0002_chat_parity', '0003_domain_persistence', '0004_immutable_manifest_history']) {
     await database.exec(await readFile(resolve(`db/migrations/${migration}.up.sql`), 'utf8'));
   }
@@ -22,10 +49,11 @@ async function migratedDatabase() {
   await database.exec(await readFile(resolve('db/migrations/0007_domain_journal_facts.up.sql'), 'utf8'));
   await database.exec(await readFile(resolve('db/migrations/0008_execution_runs.up.sql'), 'utf8'));
   await database.exec(await readFile(resolve('db/migrations/0009_graph_projection.up.sql'), 'utf8'));
+  await database.exec(await readFile(resolve('db/migrations/0010_graph_object_metadata.up.sql'), 'utf8'));
   return database;
 }
 
-function legacyApp(database: PGlite, defaultWorkspaceId: string) {
+function legacyApp(database: TestDatabase, defaultWorkspaceId: string) {
   const store = new PostgresWorkspaceStore(database, defaultWorkspaceId);
   const application = createRhizaApplication({
     unitOfWork: new RepositoryWorkspaceUnitOfWork(store), workspaceDirectory: new WorkspaceDirectory(store.workspaceDirectory), defaultWorkspaceId,
@@ -43,16 +71,66 @@ function legacyApp(database: PGlite, defaultWorkspaceId: string) {
   return { app: createHttpApp(application, { id: randomUUID, runtimeKind: 'provider-adapter', featureFlags: {}, providerPresets: {}, defaultWorkspaceId }), store };
 }
 
-describe('PostgreSQL workspace persistence', () => {
+for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M07 projection contract (${backend})`, () => {
+  it('preserves projection semantics and layout through idempotent updates, checkpoint faults and clean rebuild', async () => {
+    const database = await migratedDatabase(backend); const workspaceId = randomUUID();
+    try {
+      const { store } = legacyApp(database, workspaceId);
+      const workspace = await store.read();
+      workspace.discussionNodes[0]!.anchorText = 'searchable source anchor';
+      const projection = buildWorkspaceGraphProjection(workspace, [], 1);
+      const adapter = new PostgresGraphProjectionAdapter(database, workspaceId);
+      const first = await adapter.materialize(projection);
+      const semantics = (objects: typeof projection.objects) => objects.map(({ layout: _layout, ...object }) => object).sort((a, b) => a.ref.objectId.localeCompare(b.ref.objectId));
+      expect(semantics(first.objects)).toEqual(semantics(projection.objects));
+      expect(first.relations).toEqual(projection.relations);
+      const presentation = (graph: ReturnType<typeof toGraphPresentationModel>) => ({
+        nodes: graph.nodes.sort((a, b) => a.id.localeCompare(b.id)), edges: graph.edges.sort((a, b) => a.id.localeCompare(b.id)),
+      });
+      expect(presentation(projectionToGraphPresentationModel(first))).toEqual(presentation(toGraphPresentationModel(workspace.discussionNodes, workspace.discussionEdges)));
+      expect(await adapter.materialize(projection)).toEqual(first);
+      await database.query("UPDATE graph_layout_nodes SET x=777,collapsed=true WHERE workspace_id=$1 AND object_id=$2", [workspaceId, workspace.discussionNodes[0]!.id]);
+      const aliasBefore = (await database.query('SELECT * FROM projection_aliases WHERE workspace_id=$1', [workspaceId])).rows;
+      const next = { ...projection, checkpoint: 2, objects: projection.objects.map(object => ({ ...object, title: `${object.title} changed` })) };
+      for (const statement of ['INSERT INTO workspace_objects', 'INSERT INTO projection_checkpoints', 'INSERT INTO projection_aliases']) {
+        const failing = new PostgresGraphProjectionAdapter({
+          query: database.query.bind(database),
+          transaction: work => database.transaction(transaction => work({ query: async (sql, values) => {
+            if (sql.startsWith(statement)) throw new Error('injected projection crash');
+            return transaction.query(sql, values);
+          } } as SqlQueryable)),
+        }, workspaceId);
+        await expect(failing.materialize(next, true)).rejects.toThrow('injected projection crash');
+        expect((await database.query('SELECT * FROM projection_aliases WHERE workspace_id=$1', [workspaceId])).rows).toEqual(aliasBefore);
+        expect((await adapter.load()).checkpoint).toBe(1);
+        await expect(failing.materialize(next)).rejects.toThrow('injected projection crash');
+        expect(semantics((await adapter.load()).objects)).toEqual(semantics(first.objects));
+      }
+      const rebuilt = await adapter.materialize(projection, true);
+      expect(rebuilt.checksum).toBe(first.checksum);
+      expect(semantics(rebuilt.objects)).toEqual(semantics(first.objects));
+      expect(rebuilt.objects.find(object => object.ref.objectId === workspace.discussionNodes[0]!.id)?.layout).toEqual({ x: 777, y: workspace.discussionNodes[0]!.y, collapsed: true });
+      expect((await database.query('SELECT * FROM projection_checkpoints WHERE workspace_id=$1', [workspaceId])).rows).toHaveLength(2);
+    } finally { await database.close(); }
+  });
+
   it('serves a bounded, rebuildable graph projection through the scoped v1 endpoint', async () => {
-    const database = await migratedDatabase(); const workspaceId = randomUUID();
+    const database = await migratedDatabase(backend); const workspaceId = randomUUID();
     try {
       const { app } = legacyApp(database, workspaceId);
       await request(app).get('/api/workspace').expect(200);
       await request(app).post('/api/graph/nodes').send({ title: 'Projected', x: 120, y: 80 }).expect(201);
       const first = await request(app).get(`/api/v1/workspaces/${workspaceId}/graph/neighborhood?objectTypes=conversation&depth=3&nodeLimit=500&edgeLimit=2000`).expect(200);
+      await request(app).get(`/api/v1/workspaces/${workspaceId}/graph/neighborhood?cursor=invalid`).expect(400);
+      await request(app).get(`/api/v1/workspaces/${workspaceId}/graph/neighborhood?nodeLimit=501`).expect(400);
+      const missing = await request(app).get(`/api/v1/workspaces/${workspaceId}/graph/path?fromId=missing&toId=missing`).expect(200);
+      expect(missing.body.graph.objects).toEqual([]);
       expect(first.body.graph.objects).toEqual(expect.arrayContaining([expect.objectContaining({ ref: expect.objectContaining({ workspaceId, objectType: 'conversation' }), title: 'Projected', layout: { x: 120, y: 80, collapsed: false } })]));
       expect(first.body.graph.objects.length).toBeLessThanOrEqual(500);
+      const movedId = first.body.graph.objects.find((item: { title: string }) => item.title === 'Projected').ref.objectId;
+      await request(app).patch(`/api/nodes/${movedId}/position`).send({ x: 345, y: 234 }).expect(200);
+      const moved = await request(app).get(`/api/v1/workspaces/${workspaceId}/graph/neighborhood?objectTypes=conversation`).expect(200);
+      expect(moved.body.graph.objects.find((item: { ref: { objectId: string } }) => item.ref.objectId === movedId).layout).toEqual({ x: 345, y: 234, collapsed: false });
       const initialVersion = (await database.query<{ active_version: string }>('SELECT active_version FROM projection_aliases WHERE workspace_id=$1', [workspaceId])).rows[0]!.active_version;
       await request(app).post('/api/graph/nodes').send({ title: 'Incremental', x: 220, y: 180 }).expect(201);
       const advanced = await request(app).get(`/api/v1/workspaces/${workspaceId}/graph/neighborhood?objectTypes=conversation`).expect(200);
@@ -62,9 +140,23 @@ describe('PostgreSQL workspace persistence', () => {
       expect(rebuilt.body.projection).toMatchObject({ version: 'graph-v1', checkpoint: advanced.body.graph.checkpoint, checksum: expect.stringMatching(/^[a-f0-9]{64}$/) });
       expect((await database.query<{ active_version: string }>('SELECT active_version FROM projection_aliases WHERE workspace_id=$1', [workspaceId])).rows[0]!.active_version).not.toBe(initialVersion);
       expect((await database.query<{ count: number }>('SELECT count(*)::int count FROM projection_checkpoints WHERE workspace_id=$1', [workspaceId])).rows[0]?.count).toBe(2);
+      const removedId = first.body.graph.objects.find((item: { title: string }) => item.title === 'Projected').ref.objectId;
+      await request(app).delete(`/api/graph/nodes/${removedId}`).expect(200);
+      await request(app).post(`/api/graph/nodes/${removedId}/purge`).send({ confirmation: `PURGE ${removedId}`, reason: 'M07 disposable fixture' }).expect(200);
+      // Age the removal beyond the bounded activity feed, without mutating any existing event.
+      await database.query(`INSERT INTO workspace_events
+        (event_id,workspace_id,sequence,rhiza_envelope_version,event_type,event_source,subject,data_schema,aggregate_type,aggregate_id,aggregate_revision,actor_ref,scope_ref,command_id,event_index,payload,occurred_at)
+        SELECT gen_random_uuid(),workspace_id,sequence+n,rhiza_envelope_version,'graph.node.activated',event_source,subject,data_schema,aggregate_type,aggregate_id,aggregate_revision,actor_ref,scope_ref,'aging-' || n,0,'{}'::jsonb,occurred_at
+        FROM (SELECT * FROM workspace_events WHERE workspace_id=$1 ORDER BY sequence DESC LIMIT 1) head CROSS JOIN generate_series(1,10001) n`, [workspaceId]);
+      await request(app).post(`/api/v1/workspaces/${workspaceId}/graph/rebuild`).expect(200);
+      const recovered = await request(app).get(`/api/v1/workspaces/${workspaceId}/graph/neighborhood?objectTypes=conversation`).expect(200);
+      expect(recovered.body.graph.objects).toContainEqual(expect.objectContaining({ ref: expect.objectContaining({ objectId: removedId }), lifecycle: 'tombstoned' }));
     } finally { await database.close(); }
   });
 
+});
+
+describe('PostgreSQL workspace persistence', () => {
   it('serves committed Domain Journal facts through the Workspace activity endpoint', async () => {
     const database = await migratedDatabase();
     const workspaceId = randomUUID();

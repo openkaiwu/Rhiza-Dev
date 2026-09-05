@@ -172,6 +172,7 @@ export interface ExecutionRun {
 
 export interface GraphObjectRef { workspaceId: string; objectType: string; objectId: string; versionId?: string }
 export interface GraphProjectedObject {
+  anchorText?: string;
   ref: GraphObjectRef; revision: number; lifecycle: 'active' | 'archived' | 'tombstoned';
   title: string; summary: string; kind: string; status: string; createdAt: string; updatedAt: string;
   layout?: { x: number; y: number; collapsed?: boolean };

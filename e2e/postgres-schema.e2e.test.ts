@@ -21,6 +21,7 @@ describe('PostgreSQL schema E2E', () => {
       await database.exec(await readFile(resolve('db/migrations/0006_resource_blob_host.up.sql'), 'utf8'));
       await database.exec(await readFile(resolve('db/migrations/0007_domain_journal_facts.up.sql'), 'utf8'));
       await database.exec(await readFile(resolve('db/migrations/0009_graph_projection.up.sql'), 'utf8'));
+  await database.exec(await readFile(resolve('db/migrations/0010_graph_object_metadata.up.sql'), 'utf8'));
       const snapshot = async () => {
         const rows = await database.query(`SELECT w.workspace_id,w.name,w.status,w.created_by,m.user_id,m.role FROM workspaces w JOIN workspace_members m ON m.workspace_id=w.workspace_id ORDER BY w.workspace_id,m.user_id`);
         return createHash('sha256').update(JSON.stringify(rows.rows)).digest('hex');
@@ -67,6 +68,7 @@ describe('PostgreSQL schema E2E', () => {
       const projectionTables = await database.query<{ tablename: string }>("SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename IN ('workspace_objects','graph_relations','graph_layouts','graph_layout_nodes','projection_checkpoints','projection_aliases') ORDER BY tablename");
       expect(projectionTables.rows.map(row => row.tablename)).toEqual(['graph_layout_nodes', 'graph_layouts', 'graph_relations', 'projection_aliases', 'projection_checkpoints', 'workspace_objects']);
 
+      await database.exec(await readFile(resolve('db/migrations/0010_graph_object_metadata.down.sql'), 'utf8'));
       await database.exec(await readFile(resolve('db/migrations/0009_graph_projection.down.sql'), 'utf8'));
       await database.exec(await readFile(resolve('db/migrations/0007_domain_journal_facts.down.sql'), 'utf8'));
       await database.exec(await readFile(resolve('db/migrations/0006_resource_blob_host.down.sql'), 'utf8'));

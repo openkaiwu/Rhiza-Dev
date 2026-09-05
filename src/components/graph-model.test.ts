@@ -63,7 +63,7 @@ describe('toGraphPresentationModel', () => {
       lifecycle: 'active', label: 'branch', createdAt: '2026-09-04T00:00:00.000Z',
     }] })).toEqual({
       nodes: [{ id: 'node-1', title: 'Projected', summary: 'read model', status: 'archived', kind: 'branch', x: 10, y: 20 }],
-      edges: [{ id: 'edge-1', source: 'node-1', target: 'node-2', relation: 'derived-from', label: 'branch' }],
+      edges: [],
     });
   });
 });

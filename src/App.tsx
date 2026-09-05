@@ -44,6 +44,11 @@ export function App() {
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState('');
   const [graphProjection, setGraphProjection] = useState<GraphProjectionResult>();
+  const [graphLoading, setGraphLoading] = useState(false);
+  const [graphError, setGraphError] = useState('');
+  const graphRequestRef = useRef(0);
+  const graphPagesRef = useRef(1);
+  const graphCompleteRef = useRef(false);
   const workspaceGenerationRef = useRef(0);
   const selectedWorkspaceRef = useRef<string | undefined>(undefined);
   const modalReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -56,7 +61,7 @@ export function App() {
     setMode(workspace.mode);
     setDiscussionNodes(workspace.discussionNodes);
     setDiscussionEdges(workspace.discussionEdges);
-    setGraphProjection(undefined);
+    graphRequestRef.current += 1;
     setActiveNodeId(workspace.activeNodeId);
     setManifests(workspace.manifests || []);
     setSegments(workspace.segments || []);
@@ -111,20 +116,39 @@ export function App() {
     }
   }, []);
   useEffect(() => { if (view === 'activity' && boot === 'ready') void loadActivity(); }, [view, boot, currentWorkspaceId, loadActivity]);
-  const loadGraph = useCallback(async () => {
+  const loadGraph = useCallback(async (cursor?: string) => {
     const workspaceId = selectedWorkspaceRef.current; const generation = workspaceGenerationRef.current;
+    const requestId = ++graphRequestRef.current;
+    const current = () => requestId === graphRequestRef.current && generation === workspaceGenerationRef.current && workspaceId === selectedWorkspaceRef.current;
+    setGraphLoading(true); setGraphError('');
     try {
-      const { graph } = await api.getGraphNeighborhood();
-      if (generation === workspaceGenerationRef.current && workspaceId === selectedWorkspaceRef.current) setGraphProjection(graph);
+      let { graph } = await api.getGraphNeighborhood({ nodeLimit: 100, cursor });
+      let pages = 1;
+      // Refresh the user's loaded range after edits, including a new final page when needed.
+      const targetPages = cursor ? 1 : graphPagesRef.current + Number(graphCompleteRef.current);
+      while (graph.nextCursor && pages < targetPages && current()) {
+        const next = (await api.getGraphNeighborhood({ nodeLimit: 100, cursor: graph.nextCursor })).graph;
+        graph = { ...next, objects: [...graph.objects, ...next.objects], relations: [...graph.relations, ...next.relations] };
+        pages += 1;
+      }
+      if (!current()) return;
+      graphPagesRef.current = cursor ? graphPagesRef.current + 1 : pages;
+      graphCompleteRef.current = !graph.nextCursor;
+      setGraphProjection(previous => cursor && previous && previous.checkpoint === graph.checkpoint ? {
+        ...graph,
+        objects: [...new Map([...previous.objects, ...graph.objects].map(item => [item.ref.objectId, item])).values()],
+        relations: [...new Map([...previous.relations, ...graph.relations].map(item => [item.id, item])).values()],
+      } : graph);
     } catch (error) {
-      if (generation === workspaceGenerationRef.current && workspaceId === selectedWorkspaceRef.current) setSyncError(presentErrorText(error, { message: '无法加载图谱投影。', recovery: '请稍后重试。' }));
-    }
+      if (current()) setGraphError(presentErrorText(error, { message: '无法加载图谱。', recovery: '请刷新图谱后重试。' }));
+    } finally { if (current()) setGraphLoading(false); }
   }, []);
   useEffect(() => { if (view === 'graph' && boot === 'ready') void loadGraph(); }, [view, boot, currentWorkspaceId, discussionNodes, loadGraph]);
   useEffect(() => { if (api.listWorkspaces) void api.listWorkspaces(true).then(result => setWorkspaces(result.workspaces)).catch(() => undefined); }, []);
   const switchWorkspace = async (workspaceId: string) => {
     const generation = ++workspaceGenerationRef.current;
     selectedWorkspaceRef.current = workspaceId;
+    graphRequestRef.current += 1; graphPagesRef.current = 1; graphCompleteRef.current = false; setGraphProjection(undefined); setGraphError('');
     setMessages([]); setDiscussionNodes([]); setContextItems([]); setAttachments([]); setDiscussionEdges([]); setSegments([]); setManifests([]); setActivity([]); setActiveNodeId('');
     api.setWorkspace(workspaceId); setCurrentWorkspaceId(workspaceId);
     try {
@@ -147,13 +171,13 @@ export function App() {
     const goOnline = () => {
       setOnline(true);
       setNetworkNotice('网络已恢复，正在刷新工作区。');
-      void loadWorkspace(boot === 'ready').then(result => {
+      void loadWorkspace(Boolean(selectedWorkspaceRef.current)).then(result => {
         if (result !== 'stale') setNetworkNotice(result === 'loaded' ? '网络已恢复，工作区已刷新。' : '网络已恢复，但工作区刷新失败。');
       });
     };
     window.addEventListener('offline', goOffline); window.addEventListener('online', goOnline);
     return () => { window.removeEventListener('offline', goOffline); window.removeEventListener('online', goOnline); };
-  }, [boot, loadWorkspace]);
+  }, [loadWorkspace]);
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       const modifier = event.metaKey || event.ctrlKey;
@@ -422,7 +446,7 @@ export function App() {
         onActivateNode={id => activateNode(id, true)} onMerge={mergeNode} onSelectModel={selectModel}
         onSettings={openSettings} onOpenContext={() => setContextOpen(open => !open)} onGraph={() => setView('graph')} onRuns={() => setView('runs')}
       />,
-      graph: <GraphView nodes={graphModel.nodes} edges={graphModel.edges} activeNodeId={activeNode.id} onMove={moveNode} onActivate={id => activateNode(id, true)} onCreateNode={createGraphNode} onArchiveNode={archiveGraphNode} onRestoreNode={restoreGraphNode} onCreateEdge={createGraphEdge} onDeleteEdge={deleteGraphEdge}/>,
+      graph: <GraphView key={currentWorkspaceId} loading={graphLoading} error={graphError} hasMore={!!graphProjection?.nextCursor} onLoadMore={() => void loadGraph(graphProjection?.nextCursor)} onRefresh={() => void loadGraph()} nodes={graphModel.nodes} edges={graphModel.edges} activeNodeId={activeNode.id} onMove={moveNode} onActivate={id => activateNode(id, true)} onCreateNode={createGraphNode} onArchiveNode={archiveGraphNode} onRestoreNode={restoreGraphNode} onCreateEdge={createGraphEdge} onDeleteEdge={deleteGraphEdge}/>,
       state: <StateView/>,
       runs: <RunHistory key={currentWorkspaceId} onChanged={() => void loadWorkspace(true)}/>,
       activity: <ActivityView activity={activity} loading={activityLoading} error={activityError} onRefresh={() => void loadActivity()}/>,

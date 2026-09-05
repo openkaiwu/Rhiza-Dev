@@ -1,6 +1,6 @@
 # Project Architecture
 
-> **文档地位（2026-09-05 刷新）**：本文是 **Current Implementation Snapshot**，只描述当前已落地行为；目标架构与开发顺序以 `docs/Rhiza_技术架构设计书_V4.2_20260829.md` 和 `docs/Rhiza_开发路线图_V4.2_20260829.md` 为准。M01–M07 的接受结论以 `docs/architecture-gates/` 中的 commit-bound evidence 为准；未配置 `DATABASE_URL` 时，真实 PostgreSQL 用例为 skipped，不视为通过。
+> **文档地位（2026-09-06 刷新）**：本文是 **Current Implementation Snapshot**，只描述当前已落地行为；目标架构与开发顺序以 `docs/Rhiza_技术架构设计书_V4.2_20260829.md` 和 `docs/Rhiza_开发路线图_V4.2_20260829.md` 为准。M01–M07 的接受结论以 `docs/architecture-gates/` 中的 commit-bound evidence 为准；未配置 `DATABASE_URL` 时，真实 PostgreSQL 用例为 skipped，不视为通过。
 
 ## 1. Overview
 
@@ -76,7 +76,7 @@
 - `Sidebar` 提供 Workspace 切换、创建、重命名、归档/恢复基础入口，并依据 `sourceNodeId` 构建可折叠节点树，提供活动路径、深度标识和深层路径聚焦。
 - `ProviderSettings` 管理供应商连接和模型目录；`ModelSelector` 在调用前选择当前模型。
 - `ContextPanel` 显示 Active、Recommended、Excluded Context 和预算。
-- `GraphView` 只消费 `graph-model.ts` 暴露的展示模型，渲染真实讨论节点与语义边，并支持 Pointer Events 节点拖拽、空白画布平移、滚轮/按钮缩放、关系连接，以及节点归档/恢复与关系编辑；当前适配器从 Workspace snapshot 生成该模型，M07 projection API 落地后应在此边界替换数据来源，而不是把 storage/projector 字段穿透到组件。
+- `GraphView` 只消费 `graph-model.ts` 暴露的展示模型，渲染真实讨论节点与语义边，并支持 Pointer Events 节点拖拽、空白画布平移、滚轮/按钮缩放、关系连接，以及节点归档/恢复与关系编辑；当前适配器从 bounded Graph API 生成该模型，每次加载 100 个对象；用户可继续加载后续页，加载失败可刷新重试，切换 Workspace 会清空旧图并丢弃迟到响应。
 - `StateView` 区分当前有效事实、约束、决策与开放问题。
 - `ActivityView` 从 Domain Journal 显示 workspace-local sequence 排序的低噪声语义活动，不展示 Runtime trace 或 transient stream。
 
@@ -171,4 +171,8 @@ Express 后端暴露以下边界：
 
 Graph read model 将 Current State 与 durable ExecutionRun 投影为通用 `ObjectRef`/relation DTO。普通查询在 Journal checkpoint 变化时于现有 projection namespace 内事务更新对象、关系与 checkpoint；`pnpm run graph:rebuild` 或 rebuild API 写入新 namespace，在完整提交后原子切换 alias，并保留旧 namespace 供回滚。默认 layout 独立存放于 `graph_layout_nodes`，legacy node 坐标只作迁移回退。
 
-Application 仅依赖 `WorkspaceUnitOfWork` 的 graph query 契约；HTTP 提供 neighborhood/path/tree/changes 与 rebuild。前端只请求 conversation family，并由 `graph-model.ts` 把 bounded DTO 适配为 GraphView 的窄展示模型。该边界不引入 M08 Workflow，也不决定 M18 最终 UI。语义与回滚约束见 ADR-007。
+Application 仅依赖 `WorkspaceUnitOfWork` 的 graph query 契约；HTTP 提供 neighborhood/path/tree/changes 与 rebuild。前端只请求 conversation family，并由 `graph-model.ts` 把 bounded DTO 适配为 GraphView 的窄展示模型。M08 继续实现 Context Runtime v1，最终 UI 由 M18 定义。语义与回滚约束见 ADR-007。
+
+Graph 查询在 Workspace 写锁内读取 Current State、全部 Run 与删除事件，再与 projection checkpoint 一起提交；普通推进仅写入变化的对象和关系。删除事件不受 activity feed 的 10,000 条窗口限制。重建只回填缺失的 layout，不覆盖用户坐标或 collapsed 状态；layout 不参与 graph semantic checksum。迁移 `0010_graph_object_metadata` 保留 ObjectRef 的版本引用和来源锚点。
+
+列表 cursor 同时推进对象页和关系页并绑定 checkpoint；跨页关系保留在 App 中，只有两端均已加载时才展示。checkpoint 变化返回 `GRAPH_CURSOR_STALE`，调用方刷新后从第一页重新读取。`changes` 的 checkpoint 不一致时返回 `resetRequired`，完整恢复通过有界列表分页完成。旧 Workspace snapshot 继续服务 Chat 与兼容写入口；GraphView 的数据源为 Graph API。

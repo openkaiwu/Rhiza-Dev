@@ -4,13 +4,13 @@
 Version: V4.2
 Release Date: 2026-08-29
 Baseline: Rhiza Architecture & Roadmap Baseline V4.2
-Status: Active baseline; M01–M06 accepted, M07 next
+Status: Active baseline; M01–M07 accepted, M08 next
 Supersedes: V4.1
 ```
 
 > 本文与《Rhiza 开发路线图 V4.2》共同构成 V4.2 基线。
 > V4.2 是对 V4.1 的最小修订：不改变已经验证有效的 Workspace / Application / Domain / Journal / ExecutionRun / ContextManifest / Projection / RuntimeAdapter 等核心设计；只修正产品层次、开发顺序，以及少数为远期 Workflow 过早预支的实现义务。
-> M01–M06 已有实现与接受证据；V4.2 不要求重新开发。下一开发里程碑是 M07。M04–M06 的可选真实 PostgreSQL 验证在未配置 `DATABASE_URL` 的证据环境中明确记录为 skipped，不视为通过。
+> M01–M07 已有实现与接受证据；V4.2 不要求重新开发。下一开发里程碑是 M08。M04–M07 的可选真实 PostgreSQL 验证在未配置 `DATABASE_URL` 的证据环境中明确记录为 skipped，不视为通过。
 
 ---
 

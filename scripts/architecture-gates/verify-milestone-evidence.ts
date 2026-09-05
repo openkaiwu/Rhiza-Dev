@@ -367,6 +367,11 @@ export const M07_COMMANDS = [
   'pnpm run verify:g0', 'pnpm run verify:m02:boundaries', 'pnpm run verify:m04:host-boundary', 'pnpm run benchmark:m07', 'pnpm run build',
 ];
 export const M07_PATHS = [...new Set([...M06_PATHS,
+  'src/components/GraphView.tsx', 'src/components/GraphView.test.tsx', 'src/App.test.tsx', 'app/static/css/graph.css', 'app/static/css/shell.css',
+  'scripts/preview-m07-graph.ts', 'docs/architecture-gates/M07/visual-acceptance.md',
+  'docs/architecture-gates/M07/desktop-initial.png', 'docs/architecture-gates/M07/desktop-loaded.png',
+  'docs/architecture-gates/M07/desktop-search.png', 'docs/architecture-gates/M07/narrow.png',
+  'db/migrations/0010_graph_object_metadata.up.sql', 'db/migrations/0010_graph_object_metadata.down.sql',
   'db/migrations/0009_graph_projection.up.sql', 'db/migrations/0009_graph_projection.down.sql',
   'docs/adr/ADR-007-workspace-graph-projection.md', 'docs/architecture-gates/M07/graph-fixture.json', 'docs/architecture.md', 'docs/know-how.md',
   'server/contracts/graph-projection.ts', 'server/graph-projection/model.ts', 'server/graph-projection/model.test.ts', 'server/graph-projection/postgres-adapter.ts',
@@ -383,7 +388,7 @@ const M07_CONFIG: MilestoneConfig = {
   failureClassification: { classification: 'none', rationale: 'M07 generic ObjectRef registry, checkpointed projection, atomic clean rebuild, layout ownership, bounded graph APIs and GraphView read-model integration passed. Real PostgreSQL tests are skipped when DATABASE_URL is unavailable.' },
   knownExceptions: [], severity: 'blocking',
   thresholds: { max_depth: 3, max_objects: 500, max_relations: 2000, benchmark_p95_ms_lt: 300, rebuild_retained_versions: 2, graphview_projection_boundary: 'pass' },
-  failureInjectionCheckpoint: { checkpoint: 'projection namespace write before alias switch', injection_command: 'pnpm vitest run e2e/postgres-store.e2e.test.ts -t "bounded, rebuildable graph projection" --maxWorkers=1 --testTimeout=30000', expected: 'normal checkpoint advances keep the active namespace; clean rebuild switches the alias only after completion and retains the previous version' },
+  failureInjectionCheckpoint: { checkpoint: 'object, checkpoint and alias writes', injection_command: 'pnpm vitest run e2e/postgres-store.e2e.test.ts -t "M07 projection contract" --maxWorkers=1 --testTimeout=30000', expected: 'incremental and clean rebuild failures roll back object, checkpoint and alias writes; retry preserves semantic equality and user layout' },
   recoveryCommand: 'pnpm run graph:rebuild',
 };
 export function m07ObservedMetrics(databaseUrl = process.env.DATABASE_URL): Record<string, unknown> {

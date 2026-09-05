@@ -54,12 +54,13 @@ function rejectInput(message: string, code: string, status = 400): never {
   throw applicationError(message, code, 'validation', 'none', false, status);
 }
 
-function graphObjectRef(response: express.Response, objectType: unknown, objectId: unknown): NonNullable<ObjectRef> {
+function graphObjectRef(response: express.Response, objectType: unknown, objectId: unknown, versionId?: unknown): NonNullable<ObjectRef> {
   if (typeof objectType !== 'string' || !objectType.trim() || objectType.length > 80 || typeof objectId !== 'string' || !objectId.trim() || objectId.length > 240) {
     rejectInput('Graph ObjectRef 无效。', 'INVALID_OBJECT_REF');
   }
+  if (versionId !== undefined && (typeof versionId !== 'string' || !versionId.trim() || versionId.length > 240)) rejectInput('Graph ObjectRef 版本无效。', 'INVALID_OBJECT_REF');
   const identity = response.locals.workspaceIdentity as { workspaceId: string };
-  return { workspaceId: identity.workspaceId, objectType: objectType.trim(), objectId: objectId.trim() };
+  return { workspaceId: identity.workspaceId, objectType: objectType.trim(), objectId: objectId.trim(), ...(typeof versionId === 'string' ? { versionId: versionId.trim() } : {}) };
 }
 
 function boundedInteger(value: unknown, fallback: number, minimum: number, maximum: number, code: string): number {
@@ -209,7 +210,8 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
   });
   app.get('/api/graph/neighborhood', async (request, response, next) => {
     try {
-      const root = request.query.objectId === undefined ? undefined : graphObjectRef(response, request.query.objectType ?? 'conversation', request.query.objectId);
+      if (request.query.cursor !== undefined && typeof request.query.cursor !== 'string') rejectInput('Graph cursor 无效。', 'INVALID_GRAPH_CURSOR');
+      const root = request.query.objectId === undefined ? undefined : graphObjectRef(response, request.query.objectType ?? 'conversation', request.query.objectId, request.query.versionId);
       const objectTypes = typeof request.query.objectTypes === 'string' ? request.query.objectTypes.split(',').map(item => item.trim()).filter(Boolean).slice(0, 20) : undefined;
       const graph = await query(response, 'GetGraphNeighborhood', {
         root, depth: boundedInteger(request.query.depth, 1, 0, 3, 'INVALID_GRAPH_DEPTH'),
@@ -223,8 +225,8 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
   app.get('/api/graph/path', async (request, response, next) => {
     try {
       const graph = await query(response, 'GetGraphPath', {
-        from: graphObjectRef(response, request.query.fromType ?? 'conversation', request.query.fromId),
-        to: graphObjectRef(response, request.query.toType ?? 'conversation', request.query.toId),
+        from: graphObjectRef(response, request.query.fromType ?? 'conversation', request.query.fromId, request.query.fromVersionId),
+        to: graphObjectRef(response, request.query.toType ?? 'conversation', request.query.toId, request.query.toVersionId),
         nodeLimit: boundedInteger(request.query.nodeLimit, 500, 1, 500, 'INVALID_GRAPH_NODE_LIMIT'),
       });
       response.json({ graph });
@@ -233,7 +235,7 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
   app.get('/api/graph/tree', async (request, response, next) => {
     try {
       const graph = await query(response, 'GetGraphTree', {
-        root: graphObjectRef(response, request.query.objectType ?? 'conversation', request.query.objectId),
+        root: graphObjectRef(response, request.query.objectType ?? 'conversation', request.query.objectId, request.query.versionId),
         depth: boundedInteger(request.query.depth, 3, 0, 3, 'INVALID_GRAPH_DEPTH'),
         nodeLimit: boundedInteger(request.query.nodeLimit, 500, 1, 500, 'INVALID_GRAPH_NODE_LIMIT'),
       });

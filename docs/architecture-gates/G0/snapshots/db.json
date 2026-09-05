@@ -18,6 +18,8 @@
     "db/migrations/0008_execution_runs.down.sql": "sha256:1cd5645d95cc6d9fe1bafc78d37eb4b37e652df099ab075daf78d1639ae0be37",
     "db/migrations/0008_execution_runs.up.sql": "sha256:ba8fd0e1f5c36c5296faa3603cf57cf34a67a9eca5340691bfbfead66d3be222",
     "db/migrations/0009_graph_projection.down.sql": "sha256:16b167c0b9840e18b2b5d0f90954603013e49a194cc0879e9fa3af501d74d03d",
-    "db/migrations/0009_graph_projection.up.sql": "sha256:24c8243966c2e96afdb19eb087759ca94559f9bf2bcca58378a9a13f0db561a8"
+    "db/migrations/0009_graph_projection.up.sql": "sha256:24c8243966c2e96afdb19eb087759ca94559f9bf2bcca58378a9a13f0db561a8",
+    "db/migrations/0010_graph_object_metadata.down.sql": "sha256:e017dd3d16677b56bbf94a1850474d4add7ea3f7d4c8034b38b4baccff2e2429",
+    "db/migrations/0010_graph_object_metadata.up.sql": "sha256:a1ad61e2e538b7bbdb2f58029be7f407a5dc04dfe00db1f5301514b6bcc981fe"
   }
 }

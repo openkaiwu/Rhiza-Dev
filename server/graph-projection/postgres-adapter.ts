@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { semanticStateChecksum } from '../infrastructure/workspace-semantic-checksum';
 import type { SqlQueryable } from '../postgres-store';
 import type { ProjectedObject, ProjectedRelation, WorkspaceGraphProjection } from './model';
 
@@ -38,17 +39,31 @@ export class PostgresGraphProjectionAdapter {
     const version = activeVersion && !force
       ? activeVersion
       : `graph-v1-${projection.checkpoint}-${projection.checksum.slice(0, 12)}-${randomUUID().slice(0, 8)}`;
+    const previous = activeVersion && !force ? await this.load(activeVersion) : undefined;
+    const objectKey = (object: ProjectedObject) => JSON.stringify([object.ref.objectType, object.ref.objectId]);
+    const objectChecksum = ({ layout: _layout, ...object }: ProjectedObject) => semanticStateChecksum(object);
+    const oldObjects = new Map(previous?.objects.map(object => [objectKey(object), objectChecksum(object)]));
+    const oldRelations = new Map(previous?.relations.map(relation => [relation.id, semanticStateChecksum({ ...relation })]));
+    const changedObjects = projection.objects.filter(object => oldObjects.get(objectKey(object)) !== objectChecksum(object));
+    const changedRelations = projection.relations.filter(relation => oldRelations.get(relation.id) !== semanticStateChecksum({ ...relation }));
+    const changedObjectKeys = new Set(changedObjects.map(objectKey));
+    const changedRelationIds = new Set(changedRelations.map(relation => relation.id));
     await this.transaction(async database => {
       await database.query(`INSERT INTO graph_layouts (workspace_id,layout_id,owner_scope) VALUES ($1,'default',$2::jsonb) ON CONFLICT DO NOTHING`, [this.workspaceId, JSON.stringify({ scopeType: 'workspace', scopeId: this.workspaceId })]);
+      // Layout is a user-owned input. Materialization only seeds missing positions.
       for (const object of projection.objects) if (object.layout) await database.query(`INSERT INTO graph_layout_nodes
         (workspace_id,layout_id,object_type,object_id,x,y,collapsed) VALUES ($1,'default',$2,$3,$4,$5,$6)
-        ON CONFLICT (workspace_id,layout_id,object_type,object_id) DO UPDATE SET x=EXCLUDED.x,y=EXCLUDED.y,collapsed=EXCLUDED.collapsed`, [this.workspaceId, object.ref.objectType, object.ref.objectId, object.layout.x, object.layout.y, object.layout.collapsed ?? false]);
-      await database.query('DELETE FROM graph_relations WHERE workspace_id=$1 AND projection_version=$2', [this.workspaceId, version]);
-      await database.query('DELETE FROM workspace_objects WHERE workspace_id=$1 AND projection_version=$2', [this.workspaceId, version]);
-      for (const object of projection.objects) await database.query(`INSERT INTO workspace_objects
-        (workspace_id,projection_version,object_type,object_id,revision,lifecycle_status,title,summary,kind,object_status,created_at,updated_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, [this.workspaceId, version, object.ref.objectType, object.ref.objectId, object.revision, object.lifecycle, object.title, object.summary, object.kind, object.status, object.createdAt, object.updatedAt]);
-      for (const relation of projection.relations) await database.query(`INSERT INTO graph_relations
+        ON CONFLICT DO NOTHING`, [this.workspaceId, object.ref.objectType, object.ref.objectId, object.layout.x, object.layout.y, object.layout.collapsed ?? false]);
+      const currentObjects = new Set(projection.objects.map(objectKey));
+      const currentRelations = new Set(projection.relations.map(relation => relation.id));
+      for (const relation of previous?.relations ?? []) if (!currentRelations.has(relation.id) || changedRelationIds.has(relation.id))
+        await database.query('DELETE FROM graph_relations WHERE workspace_id=$1 AND projection_version=$2 AND relation_id=$3', [this.workspaceId, version, relation.id]);
+      for (const object of previous?.objects ?? []) if (!currentObjects.has(objectKey(object)) || changedObjectKeys.has(objectKey(object)))
+        await database.query('DELETE FROM workspace_objects WHERE workspace_id=$1 AND projection_version=$2 AND object_type=$3 AND object_id=$4', [this.workspaceId, version, object.ref.objectType, object.ref.objectId]);
+      for (const object of changedObjects) await database.query(`INSERT INTO workspace_objects
+        (workspace_id,projection_version,object_type,object_id,revision,lifecycle_status,title,summary,kind,object_status,created_at,updated_at,metadata)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb)`, [this.workspaceId, version, object.ref.objectType, object.ref.objectId, object.revision, object.lifecycle, object.title, object.summary, object.kind, object.status, object.createdAt, object.updatedAt, JSON.stringify({ versionId: object.ref.versionId, anchorText: object.anchorText })]);
+      for (const relation of changedRelations) await database.query(`INSERT INTO graph_relations
         (workspace_id,projection_version,relation_id,source_type,source_id,target_type,target_id,relation_type,lifecycle_status,label,created_at)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [this.workspaceId, version, relation.id, relation.source.objectType, relation.source.objectId, relation.target.objectType, relation.target.objectId, relation.relationType, relation.lifecycle, relation.label, relation.createdAt]);
       await database.query(`INSERT INTO projection_checkpoints (workspace_id,projection_name,projection_version,last_sequence,semantic_checksum)
@@ -71,7 +86,7 @@ export class PostgresGraphProjectionAdapter {
     ]);
     const layouts = new Map(layoutRows.rows.map(row => [`${String(row.object_type)}\u0000${String(row.object_id)}`, { x: Number(row.x), y: Number(row.y), collapsed: Boolean(row.collapsed) }]));
     const objects: ProjectedObject[] = objectRows.rows.map(row => ({
-      ref: { workspaceId: this.workspaceId, objectType: String(row.object_type), objectId: String(row.object_id) }, revision: Number(row.revision),
+      ref: { workspaceId: this.workspaceId, objectType: String(row.object_type), objectId: String(row.object_id), ...((row.metadata as { versionId?: string })?.versionId ? { versionId: (row.metadata as { versionId: string }).versionId } : {}) }, ...((row.metadata as { anchorText?: string })?.anchorText ? { anchorText: (row.metadata as { anchorText: string }).anchorText } : {}), revision: Number(row.revision),
       lifecycle: row.lifecycle_status as ProjectedObject['lifecycle'], title: String(row.title), summary: String(row.summary), kind: String(row.kind), status: String(row.object_status),
       createdAt: asIso(row.created_at), updatedAt: asIso(row.updated_at), layout: layouts.get(`${String(row.object_type)}\u0000${String(row.object_id)}`),
     }));

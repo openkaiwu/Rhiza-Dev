@@ -6,6 +6,7 @@ export interface ObjectRef {
 }
 export type ObjectLifecycle = 'active' | 'archived' | 'tombstoned';
 export interface ProjectedObject {
+  anchorText?: string;
   ref: ObjectRef; revision: number; lifecycle: ObjectLifecycle; title: string; summary: string; kind: string; status: string;
   createdAt: string; updatedAt: string; layout?: { x: number; y: number; collapsed?: boolean };
 }

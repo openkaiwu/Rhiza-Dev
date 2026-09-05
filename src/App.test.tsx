@@ -207,6 +207,48 @@ describe('Rhiza MVP', () => {
     expect(screen.getByRole('heading', { name: '当前有效知识' })).toBeInTheDocument();
   });
 
+  it('loads graph pages on demand, keeps earlier nodes, and exposes retryable failures', async () => {
+    mocks.getGraphNeighborhood.mockResolvedValueOnce({ graph: { ...projectedGraph().graph, nextCursor: '1:0:1' } });
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: /对话图谱/ }));
+    const more = await screen.findByRole('button', { name: '加载更多' });
+    expect(mocks.getGraphNeighborhood).toHaveBeenLastCalledWith({ nodeLimit: 100, cursor: undefined });
+    const next = { ...workspace.discussionNodes[0]!, id: 'next-page', title: '第二页节点' };
+    mocks.getGraphNeighborhood.mockResolvedValueOnce(projectedGraph([next]));
+    fireEvent.click(more);
+    expect(await screen.findByRole('button', { name: '讨论节点：第二页节点' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: `讨论节点：${workspace.discussionNodes[0]!.title}` })).toBeInTheDocument();
+    expect(mocks.getGraphNeighborhood).toHaveBeenLastCalledWith({ nodeLimit: 100, cursor: '1:0:1' });
+    mocks.getGraphNeighborhood.mockRejectedValueOnce(new Error('offline'));
+    fireEvent.click(screen.getByRole('button', { name: '刷新图谱' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('无法加载图谱');
+    expect(screen.getByRole('button', { name: '刷新图谱' })).toBeEnabled();
+  });
+
+  it('clears graph nodes on workspace switch and discards a late page from the previous scope', async () => {
+    const secondId = '00000000-0000-4000-8000-000000000020';
+    const late = deferred<ReturnType<typeof projectedGraph>>();
+    const nextWorkspace = { ...scopedWorkspace('Second graph'), projectId: secondId };
+    mocks.listWorkspaces.mockResolvedValue({ workspaces: [
+      { workspaceId: workspace.projectId, name: 'Default', status: 'active' },
+      { workspaceId: secondId, name: 'Second', status: 'active' },
+    ] });
+    mocks.getGraphNeighborhood.mockResolvedValueOnce({ graph: { ...projectedGraph().graph, nextCursor: '1:0:1' } });
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: /对话图谱/ }));
+    const more = await screen.findByRole('button', { name: '加载更多' });
+    mocks.getGraphNeighborhood.mockReturnValueOnce(late.promise);
+    fireEvent.click(more);
+    mocks.getScopedWorkspace.mockResolvedValue({ workspace: nextWorkspace });
+    mocks.getGraphNeighborhood.mockResolvedValue(projectedGraph(nextWorkspace.discussionNodes));
+    fireEvent.change(screen.getByRole('combobox', { name: '切换工作区' }), { target: { value: secondId } });
+    expect(screen.queryByRole('button', { name: `讨论节点：${workspace.discussionNodes[0]!.title}` })).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '讨论节点：Second graph' })).toBeInTheDocument();
+    late.resolve(projectedGraph());
+    await waitFor(() => expect(screen.getByRole('button', { name: '讨论节点：Second graph' })).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: `讨论节点：${workspace.discussionNodes[0]!.title}` })).not.toBeInTheDocument();
+  });
+
   it('shows committed semantic facts in the Workspace activity timeline', async () => {
     render(<App />);
     const button = await screen.findByRole('button', { name: /活动时间线/ });

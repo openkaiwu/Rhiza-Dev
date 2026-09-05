@@ -15,6 +15,11 @@ type DragState = { id: string; offsetX: number; offsetY: number; moved: boolean;
 type PanState = { x: number; y: number; startX: number; startY: number };
 
 interface GraphViewProps {
+  loading?: boolean;
+  error?: string;
+  hasMore?: boolean;
+  onLoadMore?: () => void;
+  onRefresh?: () => void;
   nodes: GraphNodeModel[];
   edges: GraphEdgeModel[];
   activeNodeId: string;
@@ -27,7 +32,7 @@ interface GraphViewProps {
   onDeleteEdge: (id: string) => Promise<void>;
 }
 
-export function GraphView({ nodes, edges, activeNodeId, onMove, onActivate, onCreateNode, onArchiveNode, onRestoreNode, onCreateEdge, onDeleteEdge }: GraphViewProps) {
+export function GraphView({ loading = false, error = '', hasMore = false, onLoadMore, onRefresh, nodes, edges, activeNodeId, onMove, onActivate, onCreateNode, onArchiveNode, onRestoreNode, onCreateEdge, onDeleteEdge }: GraphViewProps) {
   const canvasRef = useRef<HTMLElement>(null);
   const dragRef = useRef<DragState | null>(null);
   const panRef = useRef<PanState | null>(null);
@@ -134,7 +139,7 @@ export function GraphView({ nodes, edges, activeNodeId, onMove, onActivate, onCr
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     if (!drag) return;
     if (drag.moved) {
-      try { await onMove(node.id, drag.x, drag.y); } catch (error) { setActionError(presentErrorText(error, { message: '无法保存节点位置。', recovery: '请稍后重试。' })); }
+      try { await onMove(node.id, drag.x, drag.y); } catch (error) { setPositions(current => { const next = { ...current }; delete next[node.id]; return next; }); setActionError(presentErrorText(error, { message: '无法保存节点位置。', recovery: '请稍后重试。' })); }
       return;
     }
     if (connectMode) {
@@ -192,6 +197,12 @@ export function GraphView({ nodes, edges, activeNodeId, onMove, onActivate, onCr
   const selectedEdge = edges.find(edge => edge.id === selectedEdgeId);
   return <main id="workspace-main" tabIndex={-1} className="workspace graph-view">
     <header className="workspace-header graph-header"><div><span className="eyebrow">CONVERSATION GRAPH</span><h1>对话图谱</h1><p>{activeNodes.length} 个可见讨论节点 · {edges.length} 条语义关系 · 滚轮缩放，空白处拖拽画布</p></div><div className="graph-status-key"><span><i className="legend-current"/>当前讨论</span><span><i className="legend-active"/>进行中</span><span><i className="legend-resolved"/>已合并</span></div></header>
+    <div className="graph-loading-controls" aria-live="polite">
+      <span>{loading ? '正在加载图谱…' : `已加载 ${nodes.length} 个节点`}</span>
+      {hasMore && <button disabled={loading} onClick={onLoadMore}>加载更多</button>}
+      {onRefresh && <button disabled={loading} onClick={onRefresh}>刷新图谱</button>}
+      {error && <span role="alert">{error}</span>}
+    </div>
     <section className="graph-canvas" aria-label="讨论关系图" ref={canvasRef} onWheel={handleWheel} onPointerDown={pointerDownCanvas} onPointerMove={pointerMoveCanvas} onPointerUp={pointerUpCanvas}>
       <div className="graph-search" data-no-pan="true"><Search size={15}/><input aria-label="搜索图谱" placeholder="搜索标题、摘要或来源锚点" value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && filteredNodes[0]) focusNode(filteredNodes[0]); }} onPointerDown={event => event.stopPropagation()}/><span>{filteredNodes.length}</span></div>
       <div className="graph-toolbar" data-no-pan="true">
@@ -220,7 +231,7 @@ export function GraphView({ nodes, edges, activeNodeId, onMove, onActivate, onCr
           </article>;
         })}
       </div>
-      {filteredNodes.length === 0 && <div className="graph-empty">没有匹配的讨论节点</div>}
+      {!loading && filteredNodes.length === 0 && <div className="graph-empty">没有匹配的讨论节点</div>}
       <div className="graph-overview" data-no-pan="true" aria-label="图谱概览">{activeNodes.map(node => <i key={node.id} className={node.id === activeNodeId ? 'current' : ''} style={{ left: `${node.x / STAGE_WIDTH * 100}%`, top: `${node.y / STAGE_HEIGHT * 100}%` }}/>)}</div>
       <div className="graph-controls" data-no-pan="true"><button aria-label="缩小图谱" onClick={() => zoomAt(viewport.scale - .1)}><Minus size={16}/></button><span aria-label="当前缩放比例">{Math.round(viewport.scale * 100)}%</span><button aria-label="放大图谱" onClick={() => zoomAt(viewport.scale + .1)}><Plus size={16}/></button><button aria-label="重置画布" onClick={() => setViewport({ x: 0, y: 0, scale: 1 })}><RotateCcw size={15}/></button><button aria-label="适合全部节点" onClick={() => fitNodes(activeNodes)}><Maximize2 size={15}/></button><button aria-label="聚焦当前节点" onClick={() => { const node = activeNodes.find(item => item.id === activeNodeId); if (node) focusNode(node); }}><Focus size={16}/></button></div>
       <div className="graph-hint"><span>{connectMode ? 'CONNECT' : 'PAN / ZOOM'}</span> {connectMode ? (connectionSourceId ? '再点击一个节点完成关系' : '点击第一个节点作为关系起点') : '拖动空白处平移 · 滚轮缩放 · 点击关系后删除'}</div>

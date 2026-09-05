@@ -11,13 +11,13 @@ const legacyRelationCatalog: Record<string, string> = {
   'related-to': 'related_to',
   'merged-into': 'merged_into',
 };
-const refKey = (ref: ObjectRef) => `${ref.objectType}\u0000${ref.objectId}${ref.versionId ? `\u0000${ref.versionId}` : ''}`;
+const refKey = (ref: ObjectRef) => JSON.stringify([ref.workspaceId, ref.objectType, ref.objectId, ref.versionId ?? '']);
 const ref = (workspaceId: string, objectType: string, objectId: string, versionId?: string): ObjectRef => ({ workspaceId, objectType, objectId, ...(versionId ? { versionId } : {}) });
 const byRef = (left: ProjectedObject, right: ProjectedObject) => refKey(left.ref).localeCompare(refKey(right.ref));
 const byRelation = (left: ProjectedRelation, right: ProjectedRelation) => left.id.localeCompare(right.id);
 
-export function buildWorkspaceGraphProjection(workspace: WorkspaceData, runs: readonly ExecutionRun[] = [], checkpoint = 0, events: readonly DomainEventEnvelope[] = []): WorkspaceGraphProjection {
-  const removedObjects = new Map<string, { object: WorkspaceData['discussionNodes'][number]; event: DomainEventEnvelope }>();
+export function buildWorkspaceGraphProjection(workspace: WorkspaceData, runs: readonly ExecutionRun[] = [], checkpoint = 0, events: readonly Pick<DomainEventEnvelope, 'eventType' | 'sequence' | 'aggregateRevision' | 'occurredAt' | 'payload'>[] = []): WorkspaceGraphProjection {
+  const removedObjects = new Map<string, { object: WorkspaceData['discussionNodes'][number]; event: Pick<DomainEventEnvelope, 'aggregateRevision' | 'occurredAt'> }>();
   const removedRelations = new Map<string, WorkspaceData['discussionEdges'][number]>();
   for (const event of [...events].sort((left, right) => right.sequence - left.sequence)) {
     const removedObject = event.eventType === 'object.purged' ? event.payload.removedObject as WorkspaceData['discussionNodes'][number] | undefined : undefined;
@@ -29,7 +29,7 @@ export function buildWorkspaceGraphProjection(workspace: WorkspaceData, runs: re
     ...workspace.discussionNodes.map(node => ({
       ref: ref(workspace.projectId, 'conversation', node.id), revision: 1,
       lifecycle: node.status === 'archived' ? 'archived' as const : 'active' as const,
-      title: node.title, summary: node.summary, kind: node.kind,
+      title: node.title, summary: node.summary, kind: node.kind, ...(node.anchorText ? { anchorText: node.anchorText } : {}),
       status: node.status,
       createdAt: node.createdAt, updatedAt: node.updatedAt, layout: { x: node.x, y: node.y },
     })),
@@ -74,7 +74,7 @@ export function buildWorkspaceGraphProjection(workspace: WorkspaceData, runs: re
     }];
   })].sort(byRelation);
   const semantic = { objects, relations };
-  return { workspaceId: workspace.projectId, version: 'graph-v1', checkpoint, checksum: semanticStateChecksum(semantic), ...semantic };
+  return { workspaceId: workspace.projectId, version: 'graph-v1', checkpoint, checksum: semanticStateChecksum({ objects: objects.map(({ layout: _layout, ...object }) => object), relations }), ...semantic };
 }
 
 function normalizedLimits(input: { depth?: number; nodeLimit?: number; edgeLimit?: number }) {
@@ -91,12 +91,18 @@ export function graphNeighborhood(projection: WorkspaceGraphProjection, input: {
   const { depth, nodeLimit, edgeLimit } = normalizedLimits(input);
   const allowedTypes = input.objectTypes?.length ? new Set(input.objectTypes) : undefined;
   const available = projection.objects.filter(item => !allowedTypes || allowedTypes.has(item.ref.objectType));
-  const offset = input.cursor ? Number.parseInt(input.cursor, 10) : 0;
+  const parts = input.cursor?.split(':') ?? ['0', '0', String(projection.checkpoint)];
+  if (parts.length !== 3 || parts.some(part => !/^\d+$/.test(part) || !Number.isSafeInteger(Number(part)))) throw Object.assign(new Error('Invalid graph cursor'), { status: 400, code: 'INVALID_GRAPH_CURSOR' });
+  const [offset, edgeOffset, checkpoint] = parts.map(Number) as [number, number, number];
+  if (checkpoint !== projection.checkpoint) throw Object.assign(new Error('Graph changed; reload the first page'), { status: 409, code: 'GRAPH_CURSOR_STALE' });
   if (!input.root) {
     const objects = available.slice(offset, offset + nodeLimit);
-    const visible = new Set(objects.map(item => refKey(item.ref)));
-    const relations = projection.relations.filter(item => visible.has(refKey(item.source)) && visible.has(refKey(item.target))).slice(0, edgeLimit);
-    return { version: projection.version, checkpoint: projection.checkpoint, objects, relations, ...(offset + objects.length < available.length ? { nextCursor: String(offset + objects.length) } : {}) };
+    // List pages advance objects and relations independently so cross-page edges are retained.
+    const eligible = new Set(available.map(item => refKey(item.ref)));
+    const relations = projection.relations.filter(item => eligible.has(refKey(item.source)) && eligible.has(refKey(item.target)));
+    const page = relations.slice(edgeOffset, edgeOffset + edgeLimit);
+    const more = offset + objects.length < available.length || (edgeLimit > 0 && edgeOffset + page.length < relations.length);
+    return { version: projection.version, checkpoint: projection.checkpoint, objects, relations: page, ...(more ? { nextCursor: `${offset + objects.length}:${edgeOffset + page.length}:${checkpoint}` } : {}) };
   }
   const objectMap = new Map(available.map(item => [refKey(item.ref), item]));
   const rootKey = refKey(input.root);
@@ -110,8 +116,10 @@ export function graphNeighborhood(projection: WorkspaceGraphProjection, input: {
     if (relation.lifecycle !== 'active') continue;
     const source = refKey(relation.source); const target = refKey(relation.target);
     if (!objectMap.has(source) || !objectMap.has(target)) continue;
-    adjacency.set(source, [...(adjacency.get(source) ?? []), relation]);
-    adjacency.set(target, [...(adjacency.get(target) ?? []), relation]);
+    if (!adjacency.has(source)) adjacency.set(source, []);
+    if (!adjacency.has(target)) adjacency.set(target, []);
+    adjacency.get(source)!.push(relation);
+    adjacency.get(target)!.push(relation);
   }
   for (let level = 0; level < depth && frontier.size && visited.size < nodeLimit; level += 1) {
     const next = new Set<string>();
@@ -132,7 +140,10 @@ export function graphNeighborhood(projection: WorkspaceGraphProjection, input: {
 }
 
 export function graphPath(projection: WorkspaceGraphProjection, from: ObjectRef, to: ObjectRef, nodeLimit = 500): GraphQueryResult {
+  normalizedLimits({ nodeLimit });
   const objectMap = new Map(projection.objects.map(item => [refKey(item.ref), item]));
+  const empty = { version: projection.version, checkpoint: projection.checkpoint, objects: [], relations: [] };
+  if (!objectMap.has(refKey(from)) || !objectMap.has(refKey(to))) return empty;
   const adjacency = new Map<string, Array<{ key: string; relation: ProjectedRelation }>>();
   for (const relation of projection.relations) {
     if (relation.lifecycle !== 'active') continue;
@@ -142,12 +153,12 @@ export function graphPath(projection: WorkspaceGraphProjection, from: ObjectRef,
   }
   const start = refKey(from); const goal = refKey(to);
   const queue = [start]; const previous = new Map<string, { key: string; relation: ProjectedRelation }>(); const seen = new Set([start]);
-  while (queue.length && seen.size <= Math.min(500, Math.max(1, nodeLimit))) {
+  while (queue.length) {
     const current = queue.shift()!;
     if (current === goal) break;
     for (const adjacent of adjacency.get(current) ?? []) {
       const next = adjacent.key;
-      if (objectMap.has(next) && !seen.has(next)) { seen.add(next); previous.set(next, { key: current, relation: adjacent.relation }); queue.push(next); }
+      if (seen.size < nodeLimit && objectMap.has(next) && !seen.has(next)) { seen.add(next); previous.set(next, { key: current, relation: adjacent.relation }); queue.push(next); }
     }
   }
   if (!seen.has(goal)) return { version: projection.version, checkpoint: projection.checkpoint, objects: [], relations: [] };

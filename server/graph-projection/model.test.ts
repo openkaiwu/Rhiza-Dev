@@ -76,4 +76,45 @@ describe('Workspace Graph Projection', () => {
     expect(projection.relations).toContainEqual(expect.objectContaining({ id: 'removed-edge', lifecycle: 'retracted' }));
     expect(graphNeighborhood(projection, { root: projection.objects[0]!.ref, depth: 3 }).relations).not.toContainEqual(expect.objectContaining({ id: 'removed-edge' }));
   });
+
+  it('rejects invalid cursors and respects complete ObjectRef identity and path budgets', () => {
+    const projection = buildWorkspaceGraphProjection(createSeedWorkspace());
+    const first = projection.objects[0]!.ref;
+    const missing = { ...first, objectId: 'missing' };
+    expect(graphPath(projection, missing, missing).objects).toEqual([]);
+    expect(graphPath(projection, { ...first, workspaceId: 'other' }, first).objects).toEqual([]);
+    expect(() => graphNeighborhood(projection, { cursor: '1junk' })).toThrow();
+    expect(() => graphNeighborhood(projection, { cursor: '-1' })).toThrow();
+    expect(() => graphPath(projection, first, first, 501)).toThrow();
+    const nodes = projection.objects.slice(0, 3);
+    const chain = { ...projection, objects: nodes, relations: nodes.slice(1).map((node, index) => ({
+      id: `budget-${index}`, source: nodes[index]!.ref, target: node.ref, relationType: 'references', lifecycle: 'active' as const, label: '', createdAt: node.createdAt,
+    })) };
+    expect(graphPath(chain, nodes[0]!.ref, nodes[2]!.ref, 2).objects).toEqual([]);
+  });
+
+  it('keeps layout out of the semantic checksum and preserves source anchors', () => {
+    const workspace = createSeedWorkspace();
+    workspace.discussionNodes[0]!.anchorText = 'source anchor';
+    const first = buildWorkspaceGraphProjection(workspace);
+    workspace.discussionNodes[0]!.x += 10;
+    expect(buildWorkspaceGraphProjection(workspace).checksum).toBe(first.checksum);
+    expect(first.objects.find(item => item.ref.objectId === workspace.discussionNodes[0]!.id)).toMatchObject({ anchorText: 'source anchor' });
+  });
+
+  it('paginates every object and relation exactly once, including edges across object pages', () => {
+    const projection = buildWorkspaceGraphProjection(createSeedWorkspace(), [], 12);
+    const objects: string[] = []; const relations: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = graphNeighborhood(projection, { nodeLimit: 1, edgeLimit: 1, cursor });
+      objects.push(...page.objects.map(item => item.ref.objectId));
+      relations.push(...page.relations.map(item => item.id));
+      cursor = page.nextCursor;
+    } while (cursor);
+    expect(objects).toEqual(projection.objects.map(item => item.ref.objectId));
+    expect(relations).toEqual(projection.relations.map(item => item.id));
+    const first = graphNeighborhood(projection, { nodeLimit: 1 });
+    expect(() => graphNeighborhood({ ...projection, checkpoint: 13 }, { cursor: first.nextCursor })).toThrow('Graph changed');
+  });
 });

@@ -489,24 +489,25 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     }));
   }
 
-  async readGraphProjection() {
-    const workspace = await this.read();
-    const [runs, sequence] = await Promise.all([
-      this.listRuns(10_000),
-      this.database.query<{ sequence: number }>('SELECT COALESCE(MAX(sequence),0)::bigint AS sequence FROM workspace_events WHERE workspace_id=$1', [this.defaultWorkspaceId]),
-    ]);
-    const projection = buildWorkspaceGraphProjection(workspace, runs, Number(sequence.rows[0]?.sequence ?? 0), await this.readJournal(10_000));
-    return new PostgresGraphProjectionAdapter(this.database, this.defaultWorkspaceId).materialize(projection);
-  }
+  async readGraphProjection() { return this.materializeGraph(false); }
 
-  async rebuildGraphProjection() {
-    const workspace = await this.read();
-    const [runs, sequence] = await Promise.all([
-      this.listRuns(10_000),
-      this.database.query<{ sequence: number }>('SELECT COALESCE(MAX(sequence),0)::bigint AS sequence FROM workspace_events WHERE workspace_id=$1', [this.defaultWorkspaceId]),
-    ]);
-    const projection = buildWorkspaceGraphProjection(workspace, runs, Number(sequence.rows[0]?.sequence ?? 0), await this.readJournal(10_000));
-    return new PostgresGraphProjectionAdapter(this.database, this.defaultWorkspaceId).materialize(projection, true);
+  async rebuildGraphProjection() { return this.materializeGraph(true); }
+
+  private async materializeGraph(force: boolean) {
+    await this.read();
+    return this.inTransaction(async database => {
+      // Use the command lock so Current State, Run records and Journal head form one snapshot.
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
+      const workspace = await this.readFrom(database, true);
+      if (!workspace) throw new Error('Workspace is unavailable');
+      const runs = await database.query<{ record: ExecutionRun }>('SELECT record FROM execution_runs WHERE workspace_id=$1', [this.defaultWorkspaceId]);
+      const sequence = await database.query<{ sequence: number }>('SELECT COALESCE(MAX(sequence),0)::bigint AS sequence FROM workspace_events WHERE workspace_id=$1', [this.defaultWorkspaceId]);
+      // Removal history must survive more than the activity endpoint's 10k-event window.
+      const removed = await database.query<{ event_type: DomainEventEnvelope['eventType']; sequence: number; aggregate_revision: number; occurred_at: unknown; payload: DomainEventEnvelope['payload'] }>("SELECT event_type,sequence,aggregate_revision,occurred_at,payload FROM workspace_events WHERE workspace_id=$1 AND event_type IN ('object.purged','graph.relation.removed') ORDER BY sequence", [this.defaultWorkspaceId]);
+      const events = removed.rows.map(row => ({ eventType: row.event_type, sequence: Number(row.sequence), aggregateRevision: Number(row.aggregate_revision), occurredAt: asIso(row.occurred_at), payload: asJson<DomainEventEnvelope['payload']>(row.payload) }));
+      const projection = buildWorkspaceGraphProjection(workspace, runs.rows.map(row => asJson<ExecutionRun>(row.record)), Number(sequence.rows[0]?.sequence ?? 0), events);
+      return new PostgresGraphProjectionAdapter({ query: database.query.bind(database), transaction: work => work(database) }, this.defaultWorkspaceId).materialize(projection, force);
+    });
   }
 
   async readCommandReceipt(commandId: string): Promise<CommandReceipt | undefined> {
