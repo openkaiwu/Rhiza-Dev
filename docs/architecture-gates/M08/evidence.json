@@ -3,7 +3,7 @@
   "schema_version": "1.0.0",
   "milestone": "M08",
   "architecture_version": "V4.2",
-  "commit": "b21fac01a31387f9b42a6497abedf1cbd0f988af",
+  "commit": "e1f619965a5f534f15d94473f56ad4ec257b749f",
   "fixtures": [
     {
       "id": "g0-fixture-registry-v1",
@@ -391,8 +391,8 @@
     },
     "README.md": {
       "algorithm": "sha256",
-      "current": "908f439a0dccdf5942417987de5d09b5f4a16a018789e4425b65fac18aab4ef6",
-      "recorded_commit": "908f439a0dccdf5942417987de5d09b5f4a16a018789e4425b65fac18aab4ef6"
+      "current": "980ed10019536d57324d37f210b7781ba43fb0181c6d507f9e9604110c4c6fb3",
+      "recorded_commit": "980ed10019536d57324d37f210b7781ba43fb0181c6d507f9e9604110c4c6fb3"
     },
     "db/migrations/0005_identity_workspace_scope.up.sql": {
       "algorithm": "sha256",
@@ -506,13 +506,13 @@
     },
     "docs/Rhiza_开发路线图_V4.2_20260829.md": {
       "algorithm": "sha256",
-      "current": "b58ebb0502cd085e6c1e499a00b39c8cf097348a80968b50a9d79efd96a66f1a",
-      "recorded_commit": "b58ebb0502cd085e6c1e499a00b39c8cf097348a80968b50a9d79efd96a66f1a"
+      "current": "1e843cf7efa27563b991bb37997db352326e89d35fb4b0b071987bafd0c9a4d9",
+      "recorded_commit": "1e843cf7efa27563b991bb37997db352326e89d35fb4b0b071987bafd0c9a4d9"
     },
     "docs/Rhiza_技术架构设计书_V4.2_20260829.md": {
       "algorithm": "sha256",
-      "current": "270a64919af311d7b0851096801c4f64ccb4ae6fe0d0a997f875fd17f3cddb65",
-      "recorded_commit": "270a64919af311d7b0851096801c4f64ccb4ae6fe0d0a997f875fd17f3cddb65"
+      "current": "446b4e58e84cac62bc562908f732e7bdd7203018812cb4110ce716cfa25ec789",
+      "recorded_commit": "446b4e58e84cac62bc562908f732e7bdd7203018812cb4110ce716cfa25ec789"
     },
     "docs/adr/ADR-003-resource-identity-and-content-hash.md": {
       "algorithm": "sha256",
@@ -526,8 +526,8 @@
     },
     "docs/architecture.md": {
       "algorithm": "sha256",
-      "current": "accacae64a08a377fdefabaae0a928cead4ec5fdb1ddef70c0f064c59e3cfb35",
-      "recorded_commit": "accacae64a08a377fdefabaae0a928cead4ec5fdb1ddef70c0f064c59e3cfb35"
+      "current": "ad82b6050d426ff32048f7ebefae7840d2b1e7e9d4d54e9a496adc79c57bb5b0",
+      "recorded_commit": "ad82b6050d426ff32048f7ebefae7840d2b1e7e9d4d54e9a496adc79c57bb5b0"
     },
     "docs/know-how.md": {
       "algorithm": "sha256",
@@ -646,8 +646,8 @@
     },
     "docs/项目现状.md": {
       "algorithm": "sha256",
-      "current": "6ad3b1582e12fb7697a5993390d528a4fd0a742a56b262ea99ff36164d3edfeb",
-      "recorded_commit": "6ad3b1582e12fb7697a5993390d528a4fd0a742a56b262ea99ff36164d3edfeb"
+      "current": "c0097181deffc02dea09a7d8e94438f378f847c82822b1fb6b95a10a8bc920e6",
+      "recorded_commit": "c0097181deffc02dea09a7d8e94438f378f847c82822b1fb6b95a10a8bc920e6"
     },
     "scripts/backfill-journal.ts": {
       "algorithm": "sha256",
@@ -996,8 +996,8 @@
     },
     "docs/adr/ADR-008-context-materialization.md": {
       "algorithm": "sha256",
-      "current": "1d875d3ace026e749419bcfada91d8a59766d628b736386eab7181e0e02939ae",
-      "recorded_commit": "1d875d3ace026e749419bcfada91d8a59766d628b736386eab7181e0e02939ae"
+      "current": "b54bdea0290a7568aa990eb77b1fe4eb7ba4a84eb960f2d2e9fa70595ec53899",
+      "recorded_commit": "b54bdea0290a7568aa990eb77b1fe4eb7ba4a84eb960f2d2e9fa70595ec53899"
     },
     "docs/architecture-gates/M08/context-runtime-fixture.json": {
       "algorithm": "sha256",
@@ -1006,8 +1006,8 @@
     },
     "docs/architecture-gates/M08/acceptance-audit.md": {
       "algorithm": "sha256",
-      "current": "1092c5eb6010d61cdb2717e84c97393ab1aab9f2321a350b95bc542591048a97",
-      "recorded_commit": "1092c5eb6010d61cdb2717e84c97393ab1aab9f2321a350b95bc542591048a97"
+      "current": "7929375f448655fd2099143aad4a5a2ad61932e687cb181e28647b36c375a4d3",
+      "recorded_commit": "7929375f448655fd2099143aad4a5a2ad61932e687cb181e28647b36c375a4d3"
     },
     "docs/architecture-gates/M08/visual-acceptance.md": {
       "algorithm": "sha256",
@@ -1047,39 +1047,39 @@
   "observed_metrics": {
     "performance": {
       "schemaVersion": "1.0.0",
-      "commit": "b21fac01a31387f9b42a6497abedf1cbd0f988af",
+      "commit": "e1f619965a5f534f15d94473f56ad4ec257b749f",
       "backend": "PGlite",
       "observations": [
         {
           "nodeCount": 1000,
           "samples": 20,
-          "initializeMs": 833.3167090000002,
-          "incrementalUpdateMs": 26.829167000000325,
+          "initializeMs": 831.526083,
+          "incrementalUpdateMs": 26.23858300000029,
           "indexBytes": 2457600,
-          "lookupP50Ms": 8.307958999999755,
-          "lookupP95Ms": 9.276582999999846,
-          "planP95Ms": 11.253041999999823,
+          "lookupP50Ms": 8.134250000000065,
+          "lookupP95Ms": 8.75479200000018,
+          "planP95Ms": 10.718457999999828,
           "lookupSamplesMs": [
-            8.605167000000165,
-            9.025916000000052,
-            8.640166000000136,
-            7.929500000000189,
-            8.463249999999789,
-            7.704916000000139,
-            8.206375000000207,
-            9.276582999999846,
-            9.174790999999914,
-            7.354916999999659,
-            8.307958999999755,
-            7.708250000000135,
-            8.540333999999802,
-            7.447291999999834,
-            9.524625000000015,
-            8.630041999999776,
-            6.845374999999876,
-            8.157125000000178,
-            8.33337500000016,
-            6.659042000000227
+            9.933457999999973,
+            8.452666000000136,
+            8.432540999999674,
+            7.9542499999997744,
+            8.535542000000078,
+            7.750209000000268,
+            8.606208000000152,
+            8.750749999999698,
+            8.108083000000079,
+            8.134250000000065,
+            8.538041000000248,
+            7.521375000000262,
+            8.120790999999826,
+            8.29833299999973,
+            7.630875000000287,
+            7.921166000000085,
+            8.496375000000171,
+            8.070166999999856,
+            7.202916999999616,
+            8.75479200000018
           ],
           "fullWorkspaceScans": 0,
           "maxCandidateRows": 500,
@@ -1108,33 +1108,33 @@
         {
           "nodeCount": 10000,
           "samples": 20,
-          "initializeMs": 7515.385625000001,
-          "incrementalUpdateMs": 167.208290999999,
+          "initializeMs": 7312.375542,
+          "incrementalUpdateMs": 164.78162499999962,
           "indexBytes": 23543808,
-          "lookupP50Ms": 20.65533399999913,
-          "lookupP95Ms": 22.783666999999696,
-          "planP95Ms": 24.71116599999914,
+          "lookupP50Ms": 19.396166999998968,
+          "lookupP95Ms": 21.433209000000716,
+          "planP95Ms": 23.665665999998964,
           "lookupSamplesMs": [
-            21.948749999999563,
-            20.964374999999563,
-            21.706083000000945,
-            21.529457999999067,
-            21.632708999999522,
-            22.783666999999696,
-            19.02112500000112,
-            23.384374999999636,
-            20.65533399999913,
-            21.308458999999857,
-            19.660000000001673,
-            19.82154199999968,
-            19.42370800000026,
-            21.40600000000086,
-            20.874708000001192,
-            20.619666000000507,
-            19.618875000000116,
-            20.107958000000508,
-            20.353790999999546,
-            19.18949999999859
+            18.980875000001106,
+            19.22099999999955,
+            25.293250000000626,
+            21.27416699999958,
+            19.12420799999927,
+            21.433209000000716,
+            21.01104200000009,
+            19.18829099999857,
+            20.21308300000055,
+            19.524708000000828,
+            19.396166999998968,
+            18.859707999999955,
+            19.058334000001196,
+            20.86529200000041,
+            19.47504200000003,
+            18.32691700000032,
+            17.987042000000656,
+            20.075208000000202,
+            19.420584000001327,
+            18.57837500000096
           ],
           "fullWorkspaceScans": 0,
           "maxCandidateRows": 500,
@@ -1179,7 +1179,7 @@
     "cpu": "Apple A18 Pro",
     "memory_bytes": 8589934592
   },
-  "started_at": "2026-09-05T19:12:08.455Z",
-  "completed_at": "2026-09-05T19:14:01.486Z",
+  "started_at": "2026-09-05T19:17:19.175Z",
+  "completed_at": "2026-09-05T19:19:10.534Z",
   "result": "pass"
 }
