@@ -4,7 +4,7 @@
   "gate_id": "G0",
   "severity": "blocking",
   "architecture_version": "0818-v3.0",
-  "commit": "fd770e98418c522a3208acd13bb62f62277b9cf7",
+  "commit": "12d836fb28c3f026af6382541defd770f9ac4dd5",
   "baseline": {
     "commit": "b29d94fb034678e0c9d5660848e92e995311d4da",
     "tag": "pre-0815-engineering-baseline",
@@ -52,10 +52,10 @@
       "failures": 0,
       "timeouts": 0,
       "drops": 0,
-      "p50": 9.883,
-      "p95": 15.51,
-      "p99": 31.768,
-      "max": 45.229
+      "p50": 2.43,
+      "p95": 3.888,
+      "p99": 4.655,
+      "max": 11.331
     },
     "workspace_command_latency_ms": {
       "metric": "workspace_command_latency_ms",
@@ -66,10 +66,10 @@
       "failures": 0,
       "timeouts": 0,
       "drops": 0,
-      "p50": 10.621,
-      "p95": 22.892,
-      "p99": 121.393,
-      "max": 204.307
+      "p50": 2.489,
+      "p95": 3.434,
+      "p99": 3.89,
+      "max": 9.262
     },
     "legacy_graph_workspace_read_latency_ms": {
       "metric": "legacy_graph_workspace_read_latency_ms",
@@ -80,10 +80,10 @@
       "failures": 0,
       "timeouts": 0,
       "drops": 0,
-      "p50": 9.164,
-      "p95": 30.118,
-      "p99": 80.72,
-      "max": 514.818
+      "p50": 2.221,
+      "p95": 3.116,
+      "p99": 3.767,
+      "max": 11.218
     },
     "context_plan_latency_ms": {
       "metric": "context_plan_latency_ms",
@@ -94,10 +94,10 @@
       "failures": 0,
       "timeouts": 0,
       "drops": 0,
-      "p50": 9.422,
-      "p95": 19.128,
-      "p99": 39.293,
-      "max": 81.492
+      "p50": 2.943,
+      "p95": 5.163,
+      "p99": 6.061,
+      "max": 6.507
     },
     "stream_chat_commit_latency_ms": {
       "metric": "stream_chat_commit_latency_ms",
@@ -108,42 +108,42 @@
       "failures": 0,
       "timeouts": 0,
       "drops": 0,
-      "p50": 26.068,
-      "p95": 47.895,
-      "p99": 163.807,
-      "max": 722.905
+      "p50": 6.786,
+      "p95": 8.833,
+      "p99": 9.681,
+      "max": 74.877
     }
   },
   "absolute_metrics": {
     "workspace_query_latency_ms": {
-      "p50": 9.883,
-      "p95": 15.51,
-      "p99": 31.768,
-      "max": 45.229
+      "p50": 2.43,
+      "p95": 3.888,
+      "p99": 4.655,
+      "max": 11.331
     },
     "workspace_command_latency_ms": {
-      "p50": 10.621,
-      "p95": 22.892,
-      "p99": 121.393,
-      "max": 204.307
+      "p50": 2.489,
+      "p95": 3.434,
+      "p99": 3.89,
+      "max": 9.262
     },
     "legacy_graph_workspace_read_latency_ms": {
-      "p50": 9.164,
-      "p95": 30.118,
-      "p99": 80.72,
-      "max": 514.818
+      "p50": 2.221,
+      "p95": 3.116,
+      "p99": 3.767,
+      "max": 11.218
     },
     "context_plan_latency_ms": {
-      "p50": 9.422,
-      "p95": 19.128,
-      "p99": 39.293,
-      "max": 81.492
+      "p50": 2.943,
+      "p95": 5.163,
+      "p99": 6.061,
+      "max": 6.507
     },
     "stream_chat_commit_latency_ms": {
-      "p50": 26.068,
-      "p95": 47.895,
-      "p99": 163.807,
-      "max": 722.905
+      "p50": 6.786,
+      "p95": 8.833,
+      "p99": 9.681,
+      "max": 74.877
     }
   },
   "regression_vs_g0": {
@@ -159,15 +159,15 @@
   "checksums": {
     "G0/snapshots/api.json": {
       "algorithm": "sha256",
-      "value": "b0cb28bfa13da8a0e04f2ff99e847943fb8a1b115c1e16e88f68c4ce00a63ec4"
+      "value": "177b1d610f9183b219646418b579304f56423ff1b8ff4013b7cca952450f46f4"
     },
     "G0/snapshots/db.json": {
       "algorithm": "sha256",
-      "value": "13dd9052a87e18a9b6dd105530438fc6cf98260356c1a15bbc57371a22da3202"
+      "value": "5cb9cbf3cfbb074f4ad47dc782058fc53a1f82fba8bd72ee0c4ea594b82af928"
     },
     "G0/snapshots/schema-index.json": {
       "algorithm": "sha256",
-      "value": "00cbe7b0829bfbb1bc8c74b71d2da3861cbe187a683b89b1a2754bb4427326da"
+      "value": "dfc58193a3b8d7a7b88e85f98301494383e362f890cf800a55121c98a09227df"
     },
     "fixture-registry.json": {
       "algorithm": "sha256",
@@ -237,7 +237,7 @@
     }
   ],
   "known_exceptions": [],
-  "started_at": "2026-09-05T17:31:48.172Z",
-  "completed_at": "2026-09-05T17:32:51.460Z",
+  "started_at": "2026-09-05T19:08:51.404Z",
+  "completed_at": "2026-09-05T19:09:04.009Z",
   "result": "pass"
 }
