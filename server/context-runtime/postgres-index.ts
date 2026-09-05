@@ -68,7 +68,7 @@ export async function materializeContextCandidates(database: SqlQueryable, curre
     await write('chunk', id, chunk && file ? { title: `${file.name} · chunk ${chunk.ordinal + 1}`, attachmentId: file.id, content: chunk.text } : undefined);
   }
   for (const id of referenceIds) { const item = references.find(item => item.id === id); await write('reference', id, item ? { title: item.title, content: item.content || item.detail } : undefined); }
-  if (writes || !head.rows.length) await database.query(`INSERT INTO context_candidate_heads(workspace_id,index_version,revision) VALUES ($1,$2,1)
+  if (writes || !head.rows.length || changed(current.discussionEdges, previous?.discussionEdges).size) await database.query(`INSERT INTO context_candidate_heads(workspace_id,index_version,revision) VALUES ($1,$2,1)
     ON CONFLICT (workspace_id) DO UPDATE SET revision=context_candidate_heads.revision+1`, [current.projectId, CANDIDATE_INDEX_VERSION]);
   return { writes };
 }
@@ -86,6 +86,7 @@ export async function queryContextCandidates(database: SqlQueryable, input: Cont
   } };
   const head = await database.query<{ index_version: string; revision: string }>('SELECT index_version,revision FROM context_candidate_heads WHERE workspace_id=$1', [input.workspaceId]);
   if (!head.rows.length) throw Object.assign(new Error('Context index requires rebuild'), { code: 'CONTEXT_INDEX_NOT_READY', status: 409 });
+  if (head.rows[0].index_version !== CANDIDATE_INDEX_VERSION) throw Object.assign(new Error('Context index version requires rebuild'), { code: 'CONTEXT_INDEX_VERSION_MISMATCH', status: 409 });
   const selectedKeys = input.selection.filter(item => item.status === 'active').map(itemKey);
   if (selectedKeys.length > 500) throw Object.assign(new Error('Too many explicit context sources'), { code: 'CONTEXT_SELECTION_LIMIT', status: 400 });
   const distances = new Map<string, number>([[input.nodeId, 0]]);

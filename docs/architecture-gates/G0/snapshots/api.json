@@ -3,11 +3,13 @@
   "routes": [
     "DELETE /api/graph/edges/:id",
     "DELETE /api/graph/nodes/:id",
+    "GET /api/context/manifests/:manifestId",
     "GET /api/graph/changes",
     "GET /api/graph/neighborhood",
     "GET /api/graph/path",
     "GET /api/graph/tree",
     "GET /api/health",
+    "GET /api/messages/:messageId/context",
     "GET /api/providers",
     "GET /api/runs",
     "GET /api/runs/:runId",

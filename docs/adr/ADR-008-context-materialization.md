@@ -14,7 +14,7 @@ Planner queries are capped at 500 candidates and consume a bounded graph neighbo
 
 ## Cache identity
 
-Only the selection plan is cached, not an ExecutionRun, request ID or historical Manifest. Identity includes Workspace, node, prompt, mode, explicit selection (order, role, pin, exclusion and selection mode), attachments, budget, exact source ResourceVersion/digest/revision vector, index version/revision, graph checkpoint, contributor versions, tokenizer, Planner, Compiler and selection-policy versions. Each lookup first validates authoritative index/source revisions. Misses expose stable cold/input/sources/index/runtime reasons. Cached results are copied at the boundary so callers cannot mutate later hits.
+Only the selection plan is cached, not an ExecutionRun, request ID or historical Manifest. Identity includes Workspace, node, prompt, mode, explicit selection (order, role, pin, exclusion and selection mode), attachments, budget, source digest/revision vector and existing ResourceVersion/digest for file and chunk sources, index version/revision, graph checkpoint, contributor versions, tokenizer, Planner, Compiler and selection-policy versions. Each lookup first validates authoritative index/source revisions. New node/segment/reference ResourceVersions are allocated after planning by Compiler, so their future IDs are not cache dependencies. Edge changes advance the index revision even when no source text changes. Misses expose stable cold/input/sources/index/runtime reasons. Ranking failure falls back to resolved explicit/current input with planner_failed and is retried next time; index/version/source lookup failures remain errors. Cached results are copied at the boundary so callers cannot mutate later hits.
 
 ## Frozen evidence and history
 

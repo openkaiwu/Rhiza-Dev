@@ -105,3 +105,7 @@ observational and may differ between environments.
 
 
 M06 uses V4.2. Run `pnpm run m06:checks` for the full current gate, then commit implementation and refreshed G0 snapshots/evidence before `pnpm run m06:evidence`. `pnpm run verify:m06:closure` additionally checks the current files against commit-bound evidence. Real PostgreSQL cases in `e2e/m06-runs.e2e.test.ts` are explicitly skipped without DATABASE_URL; embedded tests are mandatory. No M07 scope is included.
+
+## M08 Context Runtime closure
+
+`pnpm run m08:checks` runs the full Context Runtime gate, including measured 1k/10k-node PGlite query audits. After committing code and refreshed G0 snapshots/evidence, `pnpm run m08:evidence` runs the gate and archives commit-bound checksums plus raw benchmark measurements. `pnpm run verify:m08:closure` verifies the full current gate and strict-current evidence. Historical Manifest resolution, immutable SQL negatives and all five source types are covered by the M08 case in the durable-run E2E suite. Real PostgreSQL is skipped without `DATABASE_URL`; the 250ms candidate lookup target remains observational until M11.

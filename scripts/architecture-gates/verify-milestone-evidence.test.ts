@@ -20,6 +20,7 @@ import {
   M05_PATHS,
   m05ObservedMetrics,
   m06ObservedMetrics,
+  M08_COMMANDS, M08_PATHS, M08_FIXTURES, validateM08Performance,
   M07_COMMANDS,
   M07_FIXTURES,
   M07_PATHS,
@@ -241,5 +242,24 @@ describe('milestone evidence validation', () => {
     } finally {
       writeFileSync(path, original);
     }
+  });
+});
+
+
+describe('M08 measured performance evidence', () => {
+  const report = () => ({ schemaVersion: '1.0.0', commit: 'test-commit', backend: 'PGlite', observations: [1000, 10000].map(nodeCount => ({ nodeCount, samples: 20, initializeMs: 1, incrementalUpdateMs: 1, indexBytes: 100, lookupP50Ms: 300, lookupP95Ms: 300, planP95Ms: 301, lookupSamplesMs: Array(20).fill(300), fullWorkspaceScans: 0, maxCandidateRows: 500, maxNeighborhoodObjects: 1, invalidationReason: 'sources_changed', lookupTarget250Ms: 'exceeded_observational', queryAudit: [{ statement: 'SELECT * FROM context_candidate_index LIMIT 500', maxRows: 500 }] })) });
+  it('requires measured full-scan and cache guarantees while retaining observational latency', () => {
+    expect(M08_COMMANDS).toContain('pnpm run benchmark:m08');
+    expect(M08_FIXTURES.every(fixture => M08_PATHS.includes(fixture.path))).toBe(true);
+    expect(() => validateM08Performance(report(), 'test-commit')).not.toThrow();
+    expect(() => validateM08Performance(report(), 'different-commit')).toThrow('bind');
+    const scan = report(); scan.observations[0].fullWorkspaceScans = 1;
+    expect(() => validateM08Performance(scan, 'test-commit')).toThrow('scan/cache');
+    const stale = report(); stale.observations[0].invalidationReason = 'hit';
+    expect(() => validateM08Performance(stale, 'test-commit')).toThrow('scan/cache');
+    const p95 = report(); p95.observations[0].lookupP95Ms = 1;
+    expect(() => validateM08Performance(p95, 'test-commit')).toThrow('raw samples');
+    const audit = report(); audit.observations[0].queryAudit.push({ statement: 'SELECT * FROM rhiza_messages', maxRows: 5 });
+    expect(() => validateM08Performance(audit, 'test-commit')).toThrow('SQL query audit');
   });
 });

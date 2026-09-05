@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "1.0.0",
+  "milestone": "M08",
+  "coverage": {
+    "contracts": "server/context-runtime/indexed-planner.test.ts",
+    "transactionalIndex": "e2e/m08-context-index.e2e.test.ts",
+    "frozenSourcesAndImmutableHistory": "e2e/m06-runs.e2e.test.ts",
+    "missingEvidence": "server/infrastructure/context-history.test.ts",
+    "visual": "src/test/context-history-fixture.ts"
+  },
+  "performance": {
+    "command": "pnpm run benchmark:m08",
+    "backend": "PGlite",
+    "nodeCounts": [
+      1000,
+      10000
+    ],
+    "warmupSamples": 3,
+    "recordedSamples": 20,
+    "archive": "evidence.json observed_metrics.performance",
+    "candidateLookupP95Ms": {
+      "target": 250,
+      "severity": "observational"
+    },
+    "bounds": {
+      "fullWorkspaceScans": 0,
+      "candidateRows": 500,
+      "neighborhoodObjects": 500
+    }
+  }
+}

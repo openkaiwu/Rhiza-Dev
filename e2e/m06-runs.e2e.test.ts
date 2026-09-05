@@ -81,11 +81,14 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
       observedVersions = Number((await database.query<{ count: string }>("SELECT count(*) AS count FROM rhiza_resource_versions rv JOIN rhiza_resources r ON r.resource_id=rv.resource_id WHERE r.kind='context-source'")).rows[0].count);
       yield* success(input);
     });
-    const response = await request(app).post('/api/chat').send({ message: 'freeze exact evidence' }).expect(201);
+    const uploaded = await request(app).post('/api/attachments').send({ name: 'evidence.txt', mimeType: 'text/plain', dataBase64: Buffer.from('freeze exact evidence payment '.repeat(200)).toString('base64') }).expect(201);
+    const attachment = uploaded.body.attachment;
+    const response = await request(app).post('/api/chat').send({ message: 'freeze exact evidence', attachmentIds: [attachment.id] }).expect(201);
     const manifest = response.body.manifest as import('../server/domain').ContextManifest;
     expect(manifest.schemaVersion).toBe('1.0.0');
     expect(observedVersions).toBe(manifest.contextItems.length);
     expect(observedVersions).toBeGreaterThan(0);
+    expect(new Set(manifest.contextItems.map(item => item.sourceType))).toEqual(new Set(['node', 'segment', 'reference', 'file', 'chunk']));
     const workspace = await store.read();
     const blobs = new NodeFilesystemBlobStore(uploadDirectory);
     const [run] = await store.listRuns();
@@ -94,6 +97,7 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
       expect(version).toMatchObject({ resourceId: item.resourceId, digest: item.digest });
       expect(item.priority).toBe(index);
       expect(item.contributorVersion).toBe('lexical-v1');
+      if (item.sourceType === 'file' || item.sourceType === 'chunk') expect(item).toMatchObject({ originResourceVersionId: attachment.resourceVersionId, originDigest: attachment.digest });
       expect(JSON.parse(new TextDecoder().decode(await blobs.read(version.blobRef, version.digest))).content).toBe(run.input.request.contextItems[index].content);
     }
     const planner = vi.spyOn(PostgresWorkspaceStore.prototype, 'queryContextCandidates');

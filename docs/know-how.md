@@ -123,3 +123,9 @@
 - 有 Run 关联或输入引用的节点不能仅删除原节点后宣称物理清除；Purge 以 `PURGE_HAS_EXECUTION_HISTORY` 拒绝，使用 Archive 保留可解释历史。
 
 - Graph layout command 的 `nodeId` 只用于定位节点，写回领域节点时只合入 `x/y`；否则 JSON 中多出的命令字段会与 SQL 重读结果不同，触发事务语义校验回滚。
+
+## Context materialization and history
+
+- Candidate rows and their revision commit with source facts. Graph-edge changes also invalidate planning even when source text is unchanged. Rebuild derived rows with `pnpm run context:rebuild`; a missing or unsupported index must not reuse stale selection text.
+- Plan caches use existing source versions/digests; new per-execution frozen ResourceVersions are created after planning. Historical lookup follows those frozen references and never reruns Planner.
+- Manifest v1 rejects deletion even under the legacy purge flag. Preserve its referenced ResourceVersions and blobs when implementing retention or cleanup.

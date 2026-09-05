@@ -60,6 +60,13 @@ describe('M08 materialized candidate index', () => {
       expect(next.candidates.find(item => item.item.sourceId === workspace.activeNodeId)?.text).toContain('支付退款新证据');
       const after = await database.query<{ source_id: string; source_digest: string }>("SELECT source_id,source_digest FROM context_candidate_index WHERE source_type='node'");
       expect(after.rows.filter(row => before.rows.find(old => old.source_id === row.source_id)?.source_digest !== row.source_digest).map(row => row.source_id)).toEqual([workspace.activeNodeId]);
+      const targetId = 'a0637216-ccf0-4d55-a2d5-8bb5b8066666';
+      await store.update(current => ({ ...current, discussionNodes: [...current.discussionNodes, { ...current.discussionNodes[0], id: targetId }] }));
+      const beforeEdge = await queryContextCandidates(audited, input);
+      await store.update(current => ({ ...current, discussionEdges: [...current.discussionEdges, { id: 'a0637216-ccf0-4d55-a2d5-8bb5b8067777', source: current.activeNodeId, target: targetId, relation: 'related-to' as const, label: 'updated graph dependency', createdAt: current.updatedAt }] }));
+      const graphChanged = await queryContextCandidates(audited, input);
+      expect(Number(graphChanged.revision)).toBeGreaterThan(Number(beforeEdge.revision));
+      expect(graphChanged.candidates.find(candidate => candidate.item.sourceId === targetId)?.graphDistance).toBe(1);
       const rowsBefore = (await database.query('SELECT * FROM context_candidate_index ORDER BY source_type,source_id')).rows;
       const failing = new PostgresWorkspaceStore({ query: database.query.bind(database), transaction: work => database.transaction(transaction => work({
         query: async <Row>(sql: string, values?: unknown[]) => {
@@ -73,6 +80,8 @@ describe('M08 materialized candidate index', () => {
       await store.rebuildContextCandidates();
       expect((await database.query('SELECT * FROM context_candidate_index ORDER BY source_type,source_id')).rows).toEqual(rowsBefore);
       await expect(queryContextCandidates(audited, { ...input, selection: [{ ...workspace.contextItems[0], sourceType: 'node', sourceId: 'missing', status: 'active' }] })).rejects.toMatchObject({ code: 'CONTEXT_SOURCE_NOT_FOUND' });
+      await database.query("UPDATE context_candidate_heads SET index_version='obsolete' WHERE workspace_id=$1", [input.workspaceId]);
+      await expect(queryContextCandidates(audited, input)).rejects.toMatchObject({ code: 'CONTEXT_INDEX_VERSION_MISMATCH' });
     } finally { await database.close(); }
   });
 });

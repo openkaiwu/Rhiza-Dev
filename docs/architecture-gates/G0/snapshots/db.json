@@ -20,6 +20,10 @@
     "db/migrations/0009_graph_projection.down.sql": "sha256:16b167c0b9840e18b2b5d0f90954603013e49a194cc0879e9fa3af501d74d03d",
     "db/migrations/0009_graph_projection.up.sql": "sha256:24c8243966c2e96afdb19eb087759ca94559f9bf2bcca58378a9a13f0db561a8",
     "db/migrations/0010_graph_object_metadata.down.sql": "sha256:e017dd3d16677b56bbf94a1850474d4add7ea3f7d4c8034b38b4baccff2e2429",
-    "db/migrations/0010_graph_object_metadata.up.sql": "sha256:a1ad61e2e538b7bbdb2f58029be7f407a5dc04dfe00db1f5301514b6bcc981fe"
+    "db/migrations/0010_graph_object_metadata.up.sql": "sha256:a1ad61e2e538b7bbdb2f58029be7f407a5dc04dfe00db1f5301514b6bcc981fe",
+    "db/migrations/0011_context_candidate_index.down.sql": "sha256:4cd87c581a7ccc7acc8539290b344d2dabbbd0c6e07719daea7e5502e63ff227",
+    "db/migrations/0011_context_candidate_index.up.sql": "sha256:f8e1e434f41ab00b8fa6283af2514f17b8654213188580f94fb059402d833a40",
+    "db/migrations/0012_frozen_context.down.sql": "sha256:d9889064844bffe4b7a4182613470ed6ff026ef3d8421611bb210c1b5a1f7ec2",
+    "db/migrations/0012_frozen_context.up.sql": "sha256:32e3945297fa6e7340d71f5d3c4f518f3f86f05e6fc12abf27693f2a883e8477"
   }
 }

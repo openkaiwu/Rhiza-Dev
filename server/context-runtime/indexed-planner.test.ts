@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { embedTerms, planCandidates, tokenize } from '../context-planner';
 import type { CandidateIndexSnapshot, ContextPlanningInput } from './contracts';
-import { CONTEXT_VERSIONS, contextCacheIdentity, IndexedContextPlanner } from './indexed-planner';
+import { CONTEXT_VERSIONS, contextCacheIdentity, DeterministicContextPlanner, IndexedContextPlanner } from './indexed-planner';
 
 const input: ContextPlanningInput = { workspaceId: 'workspace', nodeId: 'node', mode: 'Assisted', query: 'payment', selection: [], attachmentIds: [], budget: 100 };
 const fixture = (): CandidateIndexSnapshot => ({
@@ -24,6 +24,24 @@ describe('M08 indexed planning contract', () => {
     const limited = planCandidates({ ...input, attachmentIds: ['file'] }, chunks);
     expect(limited.items).toHaveLength(4);
     expect(limited.omissions?.map(item => item.code)).toEqual(['chunk_limit']);
+  });
+
+  it('degrades ranking failures to resolved explicit/current input and retries instead of caching the failure', async () => {
+    const snapshot = fixture();
+    const planner = new DeterministicContextPlanner();
+    const plan = vi.spyOn(planner, 'plan').mockImplementationOnce(() => { throw new Error('ranking failure'); });
+    const runtime = new IndexedContextPlanner({ query: async () => snapshot }, planner);
+    const fallback = await runtime.plan(input);
+    expect(fallback.cache.reason).toBe('planner_failed');
+    expect(fallback.diagnostics.fallback).toBe(true);
+    expect(fallback.items.map(item => item.sourceId)).toEqual(['node']);
+    expect((await runtime.plan(input)).diagnostics.fallback).toBe(false);
+    expect(plan).toHaveBeenCalledTimes(2);
+    snapshot.selection = [{ ...snapshot.candidates[0].item, status: 'excluded' }];
+    plan.mockImplementationOnce(() => { throw new Error('ranking failure'); });
+    expect((await runtime.plan({ ...input, selection: snapshot.selection })).items).toEqual([]);
+    const brokenIndex = new IndexedContextPlanner({ query: async () => { throw new Error('source unavailable'); } });
+    await expect(brokenIndex.plan(input)).rejects.toThrow('source unavailable');
   });
 
   it('uses indexed candidates, refreshes revisions on hits and isolates cached results from mutation', async () => {

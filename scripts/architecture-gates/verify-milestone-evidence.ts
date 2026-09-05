@@ -395,6 +395,49 @@ export function m07ObservedMetrics(databaseUrl = process.env.DATABASE_URL): Reco
   return { ...M07_CONFIG.thresholds, real_postgres_e2e: databaseUrl ? { status: 'pass' } : { status: 'skipped', reason: 'DATABASE_URL is not configured' } };
 }
 
+export const M08_COMMANDS = M07_COMMANDS.map(command => command.replace('benchmark:m07', 'benchmark:m08'));
+export const M08_PATHS = [...new Set([...M07_PATHS,
+  'db/migrations/0011_context_candidate_index.up.sql', 'db/migrations/0011_context_candidate_index.down.sql',
+  'db/migrations/0012_frozen_context.up.sql', 'db/migrations/0012_frozen_context.down.sql',
+  'server/context-runtime/contracts.ts', 'server/context-runtime/indexed-planner.ts', 'server/context-runtime/indexed-planner.test.ts',
+  'server/context-runtime/lexical-contributor.ts', 'server/context-runtime/postgres-index.ts', 'server/context-planner.ts', 'server/context-planner.test.ts',
+  'server/infrastructure/context-compiler.ts', 'server/infrastructure/context-compiler.test.ts',
+  'server/application/context-history.ts', 'server/infrastructure/context-history.test.ts', 'server/domain.ts',
+  'server/host-node/create-app.ts', 'server/application/ports/host-runtime.ts', 'server/infrastructure/node-host-runtime.ts',
+  'e2e/m08-context-index.e2e.test.ts', 'scripts/rebuild-context-index.ts', 'scripts/benchmark-m08-context.ts',
+  'src/components/ContextPanel.tsx', 'src/components/ContextHistoryPanel.tsx', 'src/components/ContextHistoryPanel.test.tsx',
+  'src/components/ChatView.tsx', 'src/components/AppShell.tsx', 'src/test/context-history-fixture.ts', 'src/test/context-visual.tsx',
+  'scripts/fixtures/m08-context.html', 'app/static/css/context.css', 'tsconfig.context-runtime.json',
+  'docs/adr/ADR-008-context-materialization.md', 'docs/architecture-gates/M08/context-runtime-fixture.json',
+  'docs/architecture-gates/M08/acceptance-audit.md', 'docs/architecture-gates/M08/visual-acceptance.md',
+  'docs/architecture-gates/M08/context-desktop.png', 'docs/architecture-gates/M08/context-narrow-version.png', 'docs/architecture-gates/M08/context-narrow-omissions.png',
+])];
+export const M08_FIXTURES = [...M07_FIXTURES, { id: 'm08-context-runtime-v1', path: 'docs/architecture-gates/M08/context-runtime-fixture.json', role: 'acceptance_fixture' }];
+const M08_CONFIG: MilestoneConfig = {
+  architectureVersion: 'V4.2', commands: M08_COMMANDS, paths: M08_PATHS, fixtures: M08_FIXTURES,
+  failureClassification: { classification: 'none', rationale: 'M08 indexed planning, complete cache invalidation, frozen ResourceVersions, immutable Manifest v1, historical resolution and explanation UI checks passed. Candidate latency remains observational; PostgreSQL E2E is skipped without DATABASE_URL.' },
+  knownExceptions: [], severity: 'blocking',
+  thresholds: { full_workspace_scans: 0, max_candidates: 500, max_neighborhood_objects: 500, manifest_mutation_successes: 0, historical_planner_calls: 0, candidate_lookup_p95_ms_observational: 250 },
+  failureInjectionCheckpoint: { checkpoint: 'candidate checkpoint, Planner ranking, immutable Manifest and historical blobs', injection_command: 'pnpm exec vitest run e2e/m08-context-index.e2e.test.ts e2e/m06-runs.e2e.test.ts server/context-runtime/indexed-planner.test.ts server/infrastructure/context-history.test.ts --maxWorkers=1 --testTimeout=30000', expected: 'source/index rollback, resolved explicit fallback, rejected Manifest mutation, classified missing evidence and no historical replanning' },
+  recoveryCommand: 'pnpm run context:rebuild',
+};
+export function validateM08Performance(value: unknown, commit: string): void {
+  const report = value as { schemaVersion?: string; commit?: string; backend?: string; observations?: Array<Record<string, unknown>> } | undefined;
+  if (!report || report.schemaVersion !== '1.0.0' || report.commit !== commit || report.backend !== 'PGlite') return fail('M08 performance report must bind PGlite measurements to the evidence commit');
+  if (!Array.isArray(report.observations) || report.observations.map(item => item.nodeCount).join(',') !== '1000,10000') return fail('M08 performance requires 1000 and 10000 node observations');
+  for (const item of report.observations) {
+    if (item.samples !== 20 || item.fullWorkspaceScans !== 0 || item.invalidationReason !== 'sources_changed') return fail('M08 measured scan/cache contract failed');
+    for (const field of ['maxCandidateRows', 'maxNeighborhoodObjects']) if (typeof item[field] !== 'number' || item[field] < 1 || item[field] > 500) return fail('M08 measured query bounds failed');
+    for (const field of ['initializeMs', 'incrementalUpdateMs', 'indexBytes', 'lookupP50Ms', 'lookupP95Ms', 'planP95Ms']) if (typeof item[field] !== 'number' || !Number.isFinite(item[field]) || item[field] <= 0) return fail('M08 performance measurements must be finite and positive');
+    const samples = item.lookupSamplesMs;
+    if (!Array.isArray(samples) || samples.length !== 20 || samples.some(sample => typeof sample !== 'number' || !Number.isFinite(sample) || sample <= 0)) return fail('M08 raw lookup samples are missing');
+    if ([...samples].sort((a, b) => a - b)[18] !== item.lookupP95Ms) return fail('M08 p95 does not match raw samples');
+    if (item.lookupTarget250Ms !== ((item.lookupP95Ms as number) <= 250 ? 'met' : 'exceeded_observational')) return fail('M08 observational latency classification drift');
+    const audit = item.queryAudit as Array<{ statement: string; maxRows: number }> | undefined;
+    if (!Array.isArray(audit) || !audit.some(query => query.statement.includes('FROM context_candidate_index') && query.statement.includes('LIMIT 500')) || audit.some(query => !Number.isInteger(query.maxRows) || query.maxRows < 0 || /FROM rhiza_(nodes|messages|projects|segments|attachments)\b/i.test(query.statement))) return fail('M08 actual SQL query audit is missing or scans source aggregates');
+  }
+}
+
 const milestoneConfig = (milestone: string): MilestoneConfig => {
   if (milestone === 'M01') return M01_CONFIG;
   if (milestone === 'M02') return M02_CONFIG;
@@ -403,6 +446,7 @@ const milestoneConfig = (milestone: string): MilestoneConfig => {
   if (milestone === 'M05') return M05_CONFIG;
   if (milestone === 'M06') return M06_CONFIG;
   if (milestone === 'M07') return M07_CONFIG;
+  if (milestone === 'M08') return M08_CONFIG;
   return fail(`no verifier is configured for ${milestone}`);
 };
 
@@ -480,6 +524,12 @@ export function validateEvidence(
     if (!postgres || !['pass', 'skipped'].includes(String(postgres.status))) fail('M07 real PostgreSQL metric must be pass or skipped');
     if (postgres.status === 'skipped' && !postgres.reason?.includes('DATABASE_URL')) fail('M07 skipped PostgreSQL must explain DATABASE_URL');
   }
+  if (evidence.milestone === 'M08') {
+    validateM08Performance(evidence.observed_metrics?.performance, evidence.commit);
+    const postgres = evidence.observed_metrics?.real_postgres_e2e as { status?: string; reason?: string } | undefined;
+    if (!postgres || !['pass', 'skipped'].includes(String(postgres.status))) fail('M08 PostgreSQL status must be pass or skipped');
+    if (postgres?.status === 'skipped' && !postgres.reason?.includes('DATABASE_URL')) fail('M08 skipped PostgreSQL must explain DATABASE_URL');
+  }
   for (const fixture of evidence.fixtures) {
     if (!(fixture.path in evidence.checksums)) fail(`fixture is not checksummed: ${fixture.path}`);
   }
@@ -522,7 +572,7 @@ function writeEvidence(milestone: string): void {
     })),
     failure_classification: config.failureClassification,
     known_exceptions: config.knownExceptions,
-    ...(config.severity ? { severity: config.severity, thresholds: config.thresholds!, observed_metrics: milestone === 'M03' ? m03ObservedMetrics() : milestone === 'M04' ? m04ObservedMetrics() : milestone === 'M06' ? m06ObservedMetrics() : milestone === 'M07' ? m07ObservedMetrics() : m05ObservedMetrics(), failure_injection_checkpoint: config.failureInjectionCheckpoint!, recovery_command: config.recoveryCommand! } : {}),
+    ...(config.severity ? { severity: config.severity, thresholds: config.thresholds!, observed_metrics: milestone === 'M03' ? m03ObservedMetrics() : milestone === 'M04' ? m04ObservedMetrics() : milestone === 'M06' ? m06ObservedMetrics() : milestone === 'M07' ? m07ObservedMetrics() : milestone === 'M08' ? { performance: JSON.parse(readFileSync(resolve(root, 'reports/m08-performance.tmp'), 'utf8')), real_postgres_e2e: m06ObservedMetrics().real_postgres_e2e } : m05ObservedMetrics(), failure_injection_checkpoint: config.failureInjectionCheckpoint!, recovery_command: config.recoveryCommand! } : {}),
     environment: { node: process.version, os: `${platform()} ${release()}`, cpu: cpus()[0]?.model ?? 'unknown', memory_bytes: totalmem() },
     started_at, completed_at: new Date().toISOString(), result: 'pass',
   };
@@ -536,7 +586,7 @@ function writeEvidence(milestone: string): void {
 function main(): void {
   const milestoneIndex = process.argv.indexOf('--milestone');
   const milestone = milestoneIndex >= 0 ? (process.argv[milestoneIndex + 1] ?? '') : '';
-  if (milestone.length === 0) fail('pass --milestone M01, M02, M03, M04, M05, M06, or M07 and optionally --write');
+  if (milestone.length === 0) fail('pass --milestone M01, M02, M03, M04, M05, M06, M07, or M08 and optionally --write');
   if (process.argv.includes('--write')) return writeEvidence(milestone);
   const path = resolve(root, `docs/architecture-gates/${milestone}/evidence.json`);
   if (!existsSync(path)) fail(`evidence file is missing: ${path}`);

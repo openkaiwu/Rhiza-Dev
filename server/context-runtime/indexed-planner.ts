@@ -24,7 +24,7 @@ export function contextCacheIdentity(input: ContextPlanningInput, snapshot: Cand
   return { key: semanticStateChecksum(vector), vector };
 }
 
-export type ContextCacheReason = 'hit' | 'cold' | 'input_changed' | 'sources_changed' | 'index_changed' | 'runtime_changed';
+export type ContextCacheReason = 'hit' | 'cold' | 'input_changed' | 'sources_changed' | 'index_changed' | 'runtime_changed' | 'planner_failed';
 
 /** One retained plan bounds memory; each attempt still checks authoritative index revisions. */
 export class IndexedContextPlanner {
@@ -42,8 +42,18 @@ export class IndexedContextPlanner {
         if (this.cached.identity.vector[component] !== identity.vector[component]) { reason = `${component}_changed`; break; }
       }
     }
-    const plan = reason === 'hit' ? structuredClone(this.cached!.plan) : this.planner.plan(input, snapshot);
-    this.cached = { identity, plan: structuredClone(plan) };
+    let plan: PlannerResult;
+    try {
+      plan = reason === 'hit' ? structuredClone(this.cached!.plan) : this.planner.plan(input, snapshot);
+      this.cached = { identity, plan: structuredClone(plan) };
+    } catch {
+      const items = snapshot.selection.filter(item => item.status === 'active');
+      const current = snapshot.candidates.find(candidate => candidate.item.sourceType === 'node' && candidate.item.sourceId === input.nodeId)?.item;
+      if (current && !snapshot.selection.some(item => item.sourceType === 'node' && item.sourceId === input.nodeId && ['active', 'excluded'].includes(item.status))) items.push({ ...current, selectionMode: 'CURRENT', reason: '规划暂不可用，保留当前讨论。' });
+      plan = { items, diagnostics: { candidateCount: snapshot.candidates.length, selectedCount: items.length, elapsedMs: 0, fallback: true, budget: input.budget, usedTokens: items.reduce((sum, item) => sum + item.tokens, 0) } };
+      reason = 'planner_failed';
+      this.cached = undefined;
+    }
     return { ...plan, cache: { ...identity, reason }, audit: snapshot.audit, sourceVersions: snapshot.sourceVersions };
   }
 }
