@@ -1,4 +1,4 @@
-import type { WorkspaceExecutionResult, WorkspaceMutation, WorkspaceMutationPolicy, WorkspaceUnitOfWork } from '../application/ports/workspace-unit-of-work';
+import type { GraphChangesInput, GraphNeighborhoodInput, GraphPathInput, GraphTreeInput, WorkspaceExecutionResult, WorkspaceMutation, WorkspaceMutationPolicy, WorkspaceUnitOfWork } from '../application/ports/workspace-unit-of-work';
 import type { WorkspaceRepository, WorkspaceUpdateOptions } from '../store';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createSeedWorkspace } from '../seed';
@@ -7,7 +7,6 @@ import type { RunMutation } from '../application/ports/workspace-unit-of-work';
 import type { CommandFactContext } from '../domain-journal';
 import { eventForCommand, toActivityItem } from '../domain-journal';
 import { buildWorkspaceGraphProjection, graphChanges, graphNeighborhood, graphPath, graphTree } from '../graph-projection/model';
-import type { GraphChangesInput, GraphNeighborhoodInput, GraphPathInput, GraphTreeInput } from '../contracts/graph-projection';
 
 function updateOptions(policy: WorkspaceMutationPolicy | undefined): WorkspaceUpdateOptions | undefined {
   if (!policy || policy.kind === 'normal') return undefined;
