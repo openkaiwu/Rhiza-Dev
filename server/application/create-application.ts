@@ -1,3 +1,4 @@
+import type { IndexedContextPlanningPort } from '../context-runtime/contracts';
 import { RunLifecycle } from './run-lifecycle';
 import type { ContextEnvelope, RunMutation } from '../execution-runtime/run';
 import { ApplicationError, applicationError } from '../contracts/application-error';
@@ -24,6 +25,7 @@ export interface RhizaApplicationDependencies {
   host: HostRuntimePort;
   textExtraction: LegacyTextExtractionPort;
   planner: ContextPlannerPort;
+  indexedPlanner?: IndexedContextPlanningPort;
   id: () => string;
   now: () => string;
   log?: { error(message: string, error?: unknown): void };
@@ -134,8 +136,13 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
     if (!node) throw legacyError('当前讨论节点不存在。', 404, 'NODE_NOT_FOUND');
     if (node.status === 'archived') throw legacyError('归档节点为只读，请先恢复后再继续讨论。', 409, 'NODE_ARCHIVED');
     let plan: ReturnType<ContextPlannerPort['plan']>;
-    try { plan = planner.plan(current, payload.prompt, payload.attachmentIds, budget); }
+    try {
+      plan = dependencies.indexedPlanner
+        ? await dependencies.indexedPlanner.plan({ workspaceId: current.projectId, nodeId, mode: current.mode, query: payload.prompt, selection: current.contextItems, attachmentIds: payload.attachmentIds, budget })
+        : planner.plan(current, payload.prompt, payload.attachmentIds, budget);
+    }
     catch (error) {
+      if (dependencies.indexedPlanner) throw error;
       log?.error('[planner] degraded to explicit context', error);
       const items = current.contextItems.filter(item => item.status === 'active');
       plan = { items, diagnostics: { candidateCount: 0, selectedCount: items.length, elapsedMs: 0, fallback: true, budget, usedTokens: items.reduce((sum, item) => sum + item.tokens, 0) } };

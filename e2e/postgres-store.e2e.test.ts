@@ -50,6 +50,7 @@ async function migratedDatabase(backend: 'embedded' | 'postgres' = 'embedded') {
   await database.exec(await readFile(resolve('db/migrations/0008_execution_runs.up.sql'), 'utf8'));
   await database.exec(await readFile(resolve('db/migrations/0009_graph_projection.up.sql'), 'utf8'));
   await database.exec(await readFile(resolve('db/migrations/0010_graph_object_metadata.up.sql'), 'utf8'));
+  await database.exec(await readFile(resolve('db/migrations/0011_context_candidate_index.up.sql'), 'utf8'));
   return database;
 }
 

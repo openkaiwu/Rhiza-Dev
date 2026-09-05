@@ -1,3 +1,4 @@
+import { IndexedContextPlanner } from '../context-runtime/indexed-planner';
 import { semanticStateChecksum } from '../infrastructure/workspace-semantic-checksum';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -36,6 +37,11 @@ export function createApp(
     host,
     textExtraction: upload,
     planner: new LegacyContextPlanner(randomUUID),
+    indexedPlanner: store.queryContextCandidates ? new IndexedContextPlanner({ query: input => {
+      const scoped = store.forWorkspace?.(input.workspaceId) ?? store;
+      if (!scoped.queryContextCandidates) throw new Error('CONTEXT_INDEX_UNAVAILABLE');
+      return scoped.queryContextCandidates(input);
+    } }) : undefined,
     id: randomUUID,
     now: () => new Date().toISOString(),
     log: console,

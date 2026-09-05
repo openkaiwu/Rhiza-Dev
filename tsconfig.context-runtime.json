@@ -18,5 +18,5 @@
     "types": ["node"]
   },
   "references": [{ "path": "./tsconfig.domain.json" }],
-  "files": ["server/context-runtime/port.ts", "server/context-runtime/legacy-planner.ts", "server/context-planner.ts"]
+  "files": ["server/context-runtime/port.ts", "server/context-runtime/contracts.ts", "server/context-runtime/legacy-planner.ts", "server/context-planner.ts"]
 }

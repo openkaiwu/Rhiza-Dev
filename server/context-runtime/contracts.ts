@@ -35,12 +35,16 @@ export interface CandidateIndexSnapshot {
   candidates: PlannerCandidate[];
   /** Index resolves explicit sources too; absence is an error, not stale UI content. */
   selection: ContextItem[];
-  sourceVersions: Array<{ sourceType: string; sourceId: string; revision: string; resourceVersionId: string; digest: string }>;
-  audit: { fullWorkspaceScans: number; candidateRows: number; neighborhoodObjects: number };
+  sourceVersions: Array<{ sourceType: string; sourceId: string; revision: string; resourceVersionId?: string; resourceDigest?: string; digest: string }>;
+  audit: { fullWorkspaceScans: number; candidateRows: number; neighborhoodObjects: number; queries?: Array<{ statement: string; rowCount: number }> };
 }
 
 export interface CandidateIndex {
   query(input: ContextPlanningInput): Promise<CandidateIndexSnapshot>;
+}
+
+export interface IndexedContextPlanningPort {
+  plan(input: ContextPlanningInput): Promise<PlannerResult>;
 }
 
 export interface ContextPlanner {

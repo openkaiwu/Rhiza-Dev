@@ -1,3 +1,5 @@
+import { materializeContextCandidates, queryContextCandidates } from './context-runtime/postgres-index';
+import type { ContextPlanningInput } from './context-runtime/contracts';
 import { createHash, randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import type { ExecutionRun, RunMutation, RunTrace } from './execution-runtime/run';
@@ -489,6 +491,25 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     }));
   }
 
+  async queryContextCandidates(input: ContextPlanningInput) {
+    if (input.workspaceId !== this.defaultWorkspaceId) throw new Error('CONTEXT_WORKSPACE_MISMATCH');
+    return this.inTransaction(async database => {
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
+      return queryContextCandidates(database, input);
+    });
+  }
+
+  async rebuildContextCandidates() {
+    return this.inTransaction(async database => {
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
+      const workspace = await this.readFrom(database, true);
+      if (!workspace) throw new Error('Workspace is unavailable');
+      await database.query('DELETE FROM context_candidate_index WHERE workspace_id=$1', [this.defaultWorkspaceId]);
+      await database.query('DELETE FROM context_candidate_heads WHERE workspace_id=$1', [this.defaultWorkspaceId]);
+      return materializeContextCandidates(database, workspace);
+    });
+  }
+
   async readGraphProjection() { return this.materializeGraph(false); }
 
   async rebuildGraphProjection() { return this.materializeGraph(true); }
@@ -653,6 +674,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     for (const audit of audits) await database.query(`INSERT INTO rhiza_audit_events (id,project_id,node_id,action,entity_type,entity_id,metadata,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8) ON CONFLICT (id) DO NOTHING`, [audit.id,audit.projectId,audit.nodeId || null,audit.action,audit.entityType,audit.entityId,JSON.stringify(audit.metadata),audit.createdAt]);
     await database.query('UPDATE rhiza_projects SET active_node_id=$2 WHERE id=$1', [workspace.projectId, workspace.activeNodeId]);
     await this.deleteMissing(database, workspace, options);
+    await materializeContextCandidates(database, workspace, previous);
   }
 
   private async deleteMissing(database: SqlQueryable, workspace: WorkspaceData, options?: WorkspaceUpdateOptions) {
