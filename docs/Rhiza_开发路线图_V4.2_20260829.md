@@ -4,13 +4,13 @@
 Version: V4.2
 Release Date: 2026-08-29
 Baseline: Rhiza Architecture & Roadmap Baseline V4.2
-Status: Active baseline; M01–M06 accepted, M07 next
+Status: Active baseline; M01–M07 accepted, M08 next
 Supersedes: V4.1
 ```
 
 > V4.2 是 V4.1 的最小路线修订。
 > 核心决策：**Chat first, Workflow second；不并行开发两条主线。**
-> M01–M06 已完成并保留接受证据，不返工。下一主线是 M07；路线调整从 M04 开始。
+> M01–M07 已完成并保留接受证据，不返工。下一主线是 M08；路线调整从 M04 开始。
 
 ---
 
@@ -260,7 +260,7 @@ Blocking Acceptance 继续沿用已通过 evidence：
 
 ## M07 — Workspace Graph Projection v1
 
-**状态：Next / 尚未开始。**
+**状态：Done / M07 evidence accepted。**
 
 V4.1 `Universal Work Graph Projection` 的核心设计保留，但验收聚焦当前真实对象：
 
