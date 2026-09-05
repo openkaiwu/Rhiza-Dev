@@ -1,7 +1,8 @@
+import { loadMigrations } from '../scripts/migrate';
 // @vitest-environment node
 import { PGlite } from '@electric-sql/pglite';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
@@ -11,9 +12,7 @@ import { PostgresWorkspaceStore } from '../server/postgres-store';
 
 async function migratedDatabase() {
   const database = new PGlite();
-  for (const migration of ['0001_rhiza_core', '0002_chat_parity', '0003_domain_persistence', '0004_immutable_manifest_history', '0005_identity_workspace_scope', '0006_resource_blob_host', '0007_domain_journal_facts', '0008_execution_runs', '0009_graph_projection']) {
-    await database.exec(await readFile(resolve(`db/migrations/${migration}.up.sql`), 'utf8'));
-  }
+  for (const migration of await loadMigrations()) await database.exec(migration.sql);
   return database;
 }
 

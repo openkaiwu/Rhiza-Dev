@@ -42,7 +42,7 @@ export interface StoredAttachment {
 export interface Resource {
   id: string;
   workspaceId: string;
-  kind: 'attachment';
+  kind: 'attachment' | 'context-source';
   logicalName: string;
   createdAt: string;
 }
@@ -177,6 +177,8 @@ export interface DiscussionEdge {
 }
 
 export interface ContextManifest {
+  schemaVersion?: '1.0.0';
+  versions?: { planner: string; compiler: string; contributors: Record<string, string>; tokenizer: string; selectionPolicy: string };
   id: string;
   projectId: string;
   nodeId: string;
@@ -200,6 +202,13 @@ export interface ContextManifest {
     reason: string;
     tokenCount: number;
     contentVersion: number;
+    resourceId?: string;
+    resourceVersionId?: string;
+    digest?: string;
+    priority?: number;
+    contributorVersion?: string;
+    originResourceVersionId?: string;
+    originDigest?: string;
   }>;
   estimatedTokens: number;
   generation: GenerationOptions;
@@ -214,6 +223,16 @@ export interface ContextManifest {
     budget: number;
     usedTokens: number;
   };
+}
+
+export type HistoricalContextSource = { sourceId: string } & (
+  | { status: 'resolved'; resourceVersion: ResourceVersion; content: string }
+  | { status: 'missing_resource' | 'missing_version' | 'missing_blob' | 'digest_mismatch' | 'legacy_unversioned' }
+);
+
+export interface ContextHistory {
+  manifest: ContextManifest;
+  sources: HistoricalContextSource[];
 }
 
 export interface WorkspaceData {

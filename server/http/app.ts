@@ -166,6 +166,16 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
     next();
   });
 
+  app.get('/api/messages/:messageId/context', async (request, response, next) => {
+    try { response.json(await query(response, 'GetContextHistory', { messageId: request.params.messageId })); }
+    catch (error) { next(error); }
+  });
+
+  app.get('/api/context/manifests/:manifestId', async (request, response, next) => {
+    try { response.json(await query(response, 'GetContextHistory', { manifestId: request.params.manifestId })); }
+    catch (error) { next(error); }
+  });
+
   app.get('/api/health', async (_request, response, next) => {
     try {
       const [health, provider] = await Promise.all([

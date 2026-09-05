@@ -28,6 +28,7 @@
 - Layout 是用户拥有的 projection 输入，写入 `graph_layout_nodes`；不得把 x/y 当作对象语义 checksum 的独立真相，也不得让 rebuild 丢失布局。
 - Provider 调用必须只发生在服务端；浏览器不得读取 API Key 或直接调用第三方模型。
 - 一次成功 Chat 写入必须同时包含用户消息、AI 消息与 Context Manifest，避免审计记录和消息历史分离。
+- Context Compiler 的 JSON snapshot 保存精确文本（包括空字符串），Blob 必须先校验再随 Run 创建登记 ResourceVersion。历史查询只沿 Manifest 冻结引用读取；不能用当前索引或来源内容填补缺失证据。Manifest v1 的 DELETE 不受 legacy purge 开关豁免。
 - ResourceVersion 是 append-only 历史事实：同一 Resource 的新内容只能新增版本，不得修改或删除旧版本；FileChunk 只能登记为 materialization，不能替代原始 ResourceVersion。
 - Blob 提交顺序固定为 temp write → SHA-256 verify → atomic promote → Workspace/DB commit。DB 失败后保留已 promote blob 给 grace-period GC，不能先提交引用再补文件。
 - orphan GC 只能在调用方提供覆盖整个 BlobStore 的完整 active-reference set 后执行；不得用当前用户或单个 Workspace 的局部引用集合扫描全局 store。

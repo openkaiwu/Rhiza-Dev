@@ -12,6 +12,12 @@ export interface ConversationPreparation {
   messages: WorkspaceData['messages'];
   attachments: WorkspaceData['attachments'];
 }
+
+export interface ContextHistoryFacts {
+  manifest: import('../../domain').ContextManifest;
+  resources: WorkspaceData['resources'];
+  versions: WorkspaceData['resourceVersions'];
+}
 import type { CommandFactContext, WorkspaceActivityItem } from '../../domain-journal';
 import type { WorkspaceRecord } from '../../contracts/application';
 import type { GraphChangesInput, GraphChangesResult, GraphNeighborhoodInput, GraphPathInput, GraphQueryResult, GraphTreeInput, WorkspaceGraphProjection } from '../../contracts/graph-projection';
@@ -44,6 +50,7 @@ export interface WorkspaceExecutionResult<T> {
  * enforce history rules; commands supply the next aggregate and explicit policy.
  */
 export interface WorkspaceUnitOfWork {
+  readContextHistory?(input: { manifestId: string } | { messageId: string }): Promise<ContextHistoryFacts | undefined>;
   readConversationPreparation?(attachmentIds: string[], sourceMessageId?: string): Promise<ConversationPreparation>;
   readonly tracksRuns?: boolean;
   listRuns?(limit?: number): Promise<import('../../execution-runtime/run').ExecutionRun[]>;

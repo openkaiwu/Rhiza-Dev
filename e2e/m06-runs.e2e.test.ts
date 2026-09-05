@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { loadMigrations } from '../scripts/migrate';
 import { PostgresWorkspaceStore } from '../server/postgres-store';
@@ -16,6 +16,7 @@ import { ProviderService } from '../server/provider-service';
 import { ProviderStore } from '../server/provider-store';
 import { SecretVault } from '../server/secret-vault';
 import type { ExecutionRun } from '../server/execution-runtime/run';
+import { NodeFilesystemBlobStore } from '../server/infrastructure/node-host-runtime';
 import { semanticStateChecksum } from '../server/infrastructure/workspace-semantic-checksum';
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -45,7 +46,7 @@ async function fixture(generate: AIRuntime['generate'], backend: 'embedded' | 'p
   const app = createApp(store, provider, false, { kind: 'provider-adapter', listModels: async () => [model], generate }, undefined, join(directory, 'uploads'));
   await request(app).get('/api/workspace').expect(200);
   await store.backfillJournal();
-  return { database, store, app };
+  return { database, store, app, uploadDirectory: join(directory, 'uploads') };
 }
 async function* success(input: RuntimeRequest) {
   yield { type: 'RUN_END' as const, requestId: input.requestId, text: 'answer', model: 'same-model', provider: 'Provider' };
@@ -72,6 +73,48 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     const child = (await store.listRuns()).find(item => item.id !== run.id)!;
     expect(child.parentRunRef).toBe(run.id);
     expect(await store.getRun(run.id)).toEqual(run);
+  });
+
+  it('M08 freezes real context versions before provider dispatch and enforces Manifest v1 in the database', async () => {
+    let observedVersions = 0;
+    const { app, store, database, uploadDirectory } = await setup(async function* (input) {
+      observedVersions = Number((await database.query<{ count: string }>("SELECT count(*) AS count FROM rhiza_resource_versions rv JOIN rhiza_resources r ON r.resource_id=rv.resource_id WHERE r.kind='context-source'")).rows[0].count);
+      yield* success(input);
+    });
+    const response = await request(app).post('/api/chat').send({ message: 'freeze exact evidence' }).expect(201);
+    const manifest = response.body.manifest as import('../server/domain').ContextManifest;
+    expect(manifest.schemaVersion).toBe('1.0.0');
+    expect(observedVersions).toBe(manifest.contextItems.length);
+    expect(observedVersions).toBeGreaterThan(0);
+    const workspace = await store.read();
+    const blobs = new NodeFilesystemBlobStore(uploadDirectory);
+    const [run] = await store.listRuns();
+    for (const [index, item] of manifest.contextItems.entries()) {
+      const version = workspace.resourceVersions.find(version => version.id === item.resourceVersionId)!;
+      expect(version).toMatchObject({ resourceId: item.resourceId, digest: item.digest });
+      expect(item.priority).toBe(index);
+      expect(item.contributorVersion).toBe('lexical-v1');
+      expect(JSON.parse(new TextDecoder().decode(await blobs.read(version.blobRef, version.digest))).content).toBe(run.input.request.contextItems[index].content);
+    }
+    const planner = vi.spyOn(store, 'queryContextCandidates');
+    const historical = await request(app).get(`/api/context/manifests/${manifest.id}`).expect(200);
+    expect(historical.body.sources.every((source: { status: string }) => source.status === 'resolved')).toBe(true);
+    await store.update(current => ({ ...current, discussionNodes: current.discussionNodes.map(node => node.id === current.activeNodeId ? { ...node, summary: 'Changed after generation', status: 'archived' as const } : node) }));
+    const afterArchive = await request(app).get(`/api/context/manifests/${manifest.id}`).expect(200);
+    expect(afterArchive.body).toEqual(historical.body);
+    for (const message of [response.body.userMessage, response.body.assistantMessage]) {
+      const fromMessage = await request(app).get(`/api/messages/${message.id}/context`).expect(200);
+      expect(fromMessage.body).toEqual(historical.body);
+    }
+    expect(planner).not.toHaveBeenCalled();
+    planner.mockRestore();
+    await expect(database.query("UPDATE rhiza_context_manifests SET manifest='{}' WHERE id=$1", [manifest.id])).rejects.toThrow(/immutable/);
+    await expect(database.query('DELETE FROM rhiza_context_manifests WHERE id=$1', [manifest.id])).rejects.toThrow(/immutable/);
+    await database.query("SET rhiza.purge_context_manifest_delete='on'");
+    await expect(database.query('DELETE FROM rhiza_context_manifests WHERE id=$1', [manifest.id])).rejects.toThrow(/immutable/);
+    await database.query("SET rhiza.purge_context_manifest_delete='off'");
+    const forged = { ...manifest, contextItems: manifest.contextItems.map(item => ({ ...item, digest: '0'.repeat(64) })) };
+    await expect(database.query('INSERT INTO rhiza_context_manifests (id,project_id,node_id,request_id,mode,provider,model,runtime,estimated_tokens,manifest,created_at) SELECT $2,project_id,node_id,$3,mode,provider,model,runtime,estimated_tokens,$4::jsonb,created_at FROM rhiza_context_manifests WHERE id=$1', [manifest.id, randomUUID(), randomUUID(), JSON.stringify(forged)])).rejects.toThrow(/ResourceVersion/);
   });
 
   it('records provider errors and missing RUN_END without adding messages', async () => {

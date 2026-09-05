@@ -1,4 +1,4 @@
-import type { ContextItem, ContextMode, ResourceVersion } from '../domain';
+import type { ContextItem, ContextMode, Resource, ResourceVersion } from '../domain';
 import type { PlannerCandidate, PlannerResult } from '../context-planner';
 
 export interface ContextPlanningInput {
@@ -44,7 +44,7 @@ export interface CandidateIndex {
 }
 
 export interface IndexedContextPlanningPort {
-  plan(input: ContextPlanningInput): Promise<PlannerResult>;
+  plan(input: ContextPlanningInput): Promise<PlannerResult & { sourceVersions?: CandidateIndexSnapshot['sourceVersions'] }>;
 }
 
 export interface ContextPlanner {
@@ -54,12 +54,13 @@ export interface ContextPlanner {
 
 export interface FrozenContextItem {
   item: ContextItem;
+  resource: Resource;
   resourceVersion: ResourceVersion;
   priority: number;
   contributorVersion: string;
 }
 
-/** Implementations must persist and verify immutable bytes before returning their reference. */
+/** Promotes verified immutable bytes; the Run creation transaction commits the returned Resource facts. */
 export interface ContextCompiler {
   readonly version: string;
   compile(workspaceId: string, items: readonly ContextItem[]): Promise<FrozenContextItem[]>;
@@ -73,6 +74,4 @@ export interface ContextVersionVector {
   selectionPolicy: string;
 }
 
-export type HistoricalSourceResolution =
-  | { status: 'resolved'; resourceVersion: ResourceVersion; content: string }
-  | { status: 'missing_resource' | 'missing_version' | 'missing_blob' | 'digest_mismatch' | 'legacy_unversioned'; sourceId: string };
+export type HistoricalSourceResolution = import('../domain').HistoricalContextSource;

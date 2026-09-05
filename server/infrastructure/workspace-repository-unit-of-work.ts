@@ -25,6 +25,15 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
     return workspaceId ? this.repository.forWorkspace?.(workspaceId) ?? this.repository : this.repository;
   }
   async listRuns(limit = 50) { return this.runRepository().listRuns?.(limit) ?? []; }
+  async readContextHistory(input: { manifestId: string } | { messageId: string }) {
+    const target = this.runRepository();
+    if (target.readContextHistory) return target.readContextHistory(input);
+    const workspace = await this.selected();
+    const message = 'messageId' in input ? workspace.messages.find(item => item.id === input.messageId) : undefined;
+    const manifestId = 'manifestId' in input ? input.manifestId : message ? message.manifestId ?? workspace.messages.find(item => item.replyToMessageId === message.id && item.manifestId)?.manifestId : undefined;
+    const manifest = workspace.manifests.find(item => item.id === manifestId);
+    return manifest ? { manifest, resources: workspace.resources, versions: workspace.resourceVersions } : undefined;
+  }
   async readConversationPreparation(attachmentIds: string[], sourceMessageId?: string) {
     const target = this.runRepository();
     if (!target.readConversationPreparation) throw new Error('CONVERSATION_PREPARATION_UNAVAILABLE');

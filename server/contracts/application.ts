@@ -92,6 +92,7 @@ export interface CommandMap {
 }
 
 export interface QueryMap {
+  GetContextHistory: { payload: { manifestId: string } | { messageId: string }; result: import('../domain').ContextHistory };
   ListExecutionRuns: { payload: { limit?: number }; result: ExecutionRunView[] };
   GetExecutionRun: { payload: { runId: string }; result: ExecutionRunView };
   ListWorkspaces: { payload: { includeArchived?: boolean }; result: WorkspaceRecord[] };

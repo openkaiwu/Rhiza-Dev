@@ -23,6 +23,7 @@ export interface TransactionalWorkspaceCommandResult<T> {
 }
 
 export interface WorkspaceRepository {
+  readContextHistory?(input: { manifestId: string } | { messageId: string }): Promise<import('./application/ports/workspace-unit-of-work').ContextHistoryFacts | undefined>;
   readConversationPreparation?(attachmentIds: string[], sourceMessageId?: string): Promise<import('./application/ports/workspace-unit-of-work').ConversationPreparation>;
   queryContextCandidates?(input: import('./context-runtime/contracts').ContextPlanningInput): Promise<import('./context-runtime/contracts').CandidateIndexSnapshot>;
   rebuildContextCandidates?(): Promise<{ writes: number }>;
@@ -78,6 +79,7 @@ export function validateWorkspaceHistoryUpdate(previous: WorkspaceData, next: Wo
 
   for (const [id, manifest] of priorManifests) {
     const candidate = nextManifests.get(id);
+    if (!candidate && manifest.schemaVersion === '1.0.0') throw Object.assign(new Error('该节点仍有不可变执行上下文，请使用归档。'), { code: 'PURGE_HAS_EXECUTION_HISTORY', status: 409 });
     if (candidate && !isDeepStrictEqual(candidate, manifest)) {
       throw new Error(`Immutable Manifest ${id} cannot be rewritten`);
     }
