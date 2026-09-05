@@ -30,6 +30,14 @@ interface TransactionalSql extends SqlQueryable {
 const DEFAULT_PROJECT_ID = '00000000-0000-4000-8000-000000000001';
 const asIso = (value: unknown) => value instanceof Date ? value.toISOString() : new Date(String(value)).toISOString();
 const asJson = <T>(value: unknown): T => typeof value === 'string' ? JSON.parse(value) as T : value as T;
+function storedMessage(row: Record<string, unknown>, attachmentIds: string[]): StoredMessage {
+  return { id: String(row.id), nodeId: String(row.node_id), segmentId: row.segment_id ? String(row.segment_id) : undefined, kind: row.kind as StoredMessage['kind'], text: String(row.body), manifestId: row.manifest_id ? String(row.manifest_id) : undefined, createdAt: asIso(row.created_at), operation: row.operation as StoredMessage['operation'], sourceMessageId: row.source_message_id ? String(row.source_message_id) : undefined, versionGroupId: row.version_group_id ? String(row.version_group_id) : undefined, version: Number(row.version), replyToMessageId: row.reply_to_message_id ? String(row.reply_to_message_id) : undefined, usage: row.usage ? asJson(row.usage) : undefined, reasoning: row.reasoning ? String(row.reasoning) : undefined, toolCalls: row.tool_calls ? asJson(row.tool_calls) : undefined, attachmentIds };
+}
+
+function storedAttachment(row: Record<string, unknown>): StoredAttachment {
+  return { id: String(row.id), name: String(row.name), mimeType: String(row.mime_type), size: Number(row.size_bytes), kind: row.kind as StoredAttachment['kind'], extractedText: row.extracted_text ? String(row.extracted_text) : undefined, summary: row.summary ? String(row.summary) : undefined, chunkCount: row.chunk_count === null ? undefined : Number(row.chunk_count), resourceId: row.resource_id ? String(row.resource_id) : undefined, resourceVersionId: row.resource_version_id ? String(row.resource_version_id) : undefined, digest: row.digest ? String(row.digest) : undefined, blobRef: row.blob_ref ? String(row.blob_ref) : undefined, createdAt: asIso(row.created_at) };
+}
+
 const relationFromDb = (value: string): DiscussionEdge['relation'] => value.toLowerCase().replaceAll('_', '-') as DiscussionEdge['relation'];
 const relationToDb = (value: DiscussionEdge['relation']) => value.toUpperCase().replaceAll('-', '_');
 const journalSource = (workspaceId: string) => `urn:rhiza:workspace:${workspaceId}`;
@@ -491,6 +499,28 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     }));
   }
 
+  async readConversationPreparation(attachmentIds: string[], sourceMessageId?: string): Promise<import('./application/ports/workspace-unit-of-work').ConversationPreparation> {
+    return this.inTransaction(async database => {
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
+      const project = (await database.query<{ id: string; active_node_id: string | null; mode: WorkspaceData['mode'] | null; context_items: unknown }>(
+        "SELECT id,active_node_id,state->>'mode' AS mode,state->'contextItems' AS context_items FROM rhiza_projects WHERE id=$1", [this.defaultWorkspaceId])).rows[0];
+      if (!project) throw Object.assign(new Error('Workspace is unavailable'), { code: 'WORKSPACE_NOT_FOUND', status: 404 });
+      const node = (await database.query<{ id: string; status: DiscussionNode['status'] }>(
+        'SELECT id,status FROM rhiza_nodes WHERE project_id=$1 AND ($2::uuid IS NULL OR id=$2::uuid) ORDER BY created_at,id LIMIT 1', [project.id, project.active_node_id])).rows[0];
+      const nodeId = node?.id ?? project.active_node_id ?? '';
+      const messages = node ? (await database.query<Record<string, unknown>>(
+        'SELECT m.*,cm.request_id AS source_request_id,ARRAY(SELECT ma.attachment_id FROM rhiza_message_attachments ma WHERE ma.message_id=m.id ORDER BY ma.ordinal) AS attachment_ids FROM rhiza_messages m LEFT JOIN rhiza_context_manifests cm ON cm.id=m.manifest_id AND cm.project_id=$2 WHERE m.node_id=$1 ORDER BY m.event_ordinal,m.id', [node.id, project.id])).rows : [];
+      const attachments = attachmentIds.length ? (await database.query<Record<string, unknown>>(
+        'SELECT a.*,rv.digest,rv.blob_ref FROM rhiza_attachments a LEFT JOIN rhiza_resource_versions rv ON rv.resource_version_id=a.resource_version_id WHERE a.project_id=$1 AND a.id::text=ANY($2::text[]) ORDER BY a.created_at,a.id', [project.id, attachmentIds])).rows : [];
+      return {
+        sourceRunId: (messages.find(row => row.id === sourceMessageId)?.source_request_id ?? undefined) as string | undefined,
+        projectId: project.id, activeNodeId: nodeId, node, mode: project.mode || 'Assisted', contextItems: asJson(project.context_items || []),
+        messages: messages.map(row => storedMessage(row, row.attachment_ids as string[])),
+        attachments: attachments.map(storedAttachment),
+      };
+    });
+  }
+
   async queryContextCandidates(input: ContextPlanningInput) {
     if (input.workspaceId !== this.defaultWorkspaceId) throw new Error('CONTEXT_WORKSPACE_MISMATCH');
     return this.inTransaction(async database => {
@@ -610,7 +640,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     for (const row of messageAttachmentsResult.rows) attachmentIds.set(row.message_id, [...(attachmentIds.get(row.message_id) || []), row.attachment_id]);
     const layouts = new Map(layoutResult.rows.map(row => [String(row.object_id), { x: Number(row.x), y: Number(row.y) }]));
     const nodes: DiscussionNode[] = nodesResult.rows.map(row => ({ id: String(row.id), title: String(row.title), summary: String(row.summary), status: row.status as DiscussionNode['status'], kind: row.kind as DiscussionNode['kind'], sourceNodeId: row.source_node_id ? String(row.source_node_id) : undefined, sourceMessageId: row.source_message_id ? String(row.source_message_id) : undefined, anchorText: row.anchor_text ? String(row.anchor_text) : undefined, x: layouts.get(String(row.id))?.x ?? Number(row.position_x), y: layouts.get(String(row.id))?.y ?? Number(row.position_y), createdAt: asIso(row.created_at), updatedAt: asIso(row.updated_at) }));
-    const messages: StoredMessage[] = messagesResult.rows.map(row => ({ id: String(row.id), nodeId: String(row.node_id), segmentId: row.segment_id ? String(row.segment_id) : undefined, kind: row.kind as StoredMessage['kind'], text: String(row.body), manifestId: row.manifest_id ? String(row.manifest_id) : undefined, createdAt: asIso(row.created_at), operation: row.operation as StoredMessage['operation'], sourceMessageId: row.source_message_id ? String(row.source_message_id) : undefined, versionGroupId: row.version_group_id ? String(row.version_group_id) : undefined, version: Number(row.version), replyToMessageId: row.reply_to_message_id ? String(row.reply_to_message_id) : undefined, usage: row.usage ? asJson(row.usage) : undefined, reasoning: row.reasoning ? String(row.reasoning) : undefined, toolCalls: row.tool_calls ? asJson(row.tool_calls) : undefined, attachmentIds: attachmentIds.get(String(row.id)) || [] }));
+    const messages = messagesResult.rows.map(row => storedMessage(row, attachmentIds.get(String(row.id)) || []));
     const state = asJson<{ mode?: WorkspaceData['mode']; contextItems?: WorkspaceData['contextItems']; fileChunks?: FileChunk[] }>(project.state || {});
     return {
       projectId: project.id, projectTitle: project.title, nodeId: project.active_node_id || nodes[0]?.id || '', activeNodeId: project.active_node_id || nodes[0]?.id || '',
@@ -621,7 +651,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       manifests: manifestsResult.rows.map(row => asJson<ContextManifest>(row.manifest)),
       attachments: attachmentsResult.rows.map(row => {
         const version = resourceVersionsResult.rows.find(item => String(item.resource_version_id) === String(row.resource_version_id));
-        return { id: String(row.id), name: String(row.name), mimeType: String(row.mime_type), size: Number(row.size_bytes), kind: row.kind as StoredAttachment['kind'], extractedText: row.extracted_text ? String(row.extracted_text) : undefined, summary: row.summary ? String(row.summary) : undefined, chunkCount: row.chunk_count === null ? undefined : Number(row.chunk_count), resourceId: row.resource_id ? String(row.resource_id) : undefined, resourceVersionId: row.resource_version_id ? String(row.resource_version_id) : undefined, digest: version ? String(version.digest) : undefined, blobRef: version ? String(version.blob_ref) : undefined, createdAt: asIso(row.created_at) };
+        return storedAttachment({ ...row, digest: version?.digest, blob_ref: version?.blob_ref });
       }),
       resources: resourcesResult.rows.map(row => ({ id: String(row.resource_id), workspaceId: String(row.workspace_id), kind: row.kind as Resource['kind'], logicalName: String(row.logical_name), createdAt: asIso(row.created_at) })),
       resourceVersions: resourceVersionsResult.rows.map(row => ({ id: String(row.resource_version_id), resourceId: String(row.resource_id), version: Number(row.version), digestAlgorithm: row.digest_algorithm as ResourceVersion['digestAlgorithm'], digest: String(row.digest), canonicalization: row.canonicalization as ResourceVersion['canonicalization'], mediaType: String(row.media_type), size: Number(row.size_bytes), blobRef: String(row.blob_ref), createdAt: asIso(row.created_at) })),

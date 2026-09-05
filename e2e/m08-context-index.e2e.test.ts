@@ -1,12 +1,38 @@
 // @vitest-environment node
 import { PGlite } from '@electric-sql/pglite';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { loadMigrations } from '../scripts/migrate';
 import { PostgresWorkspaceStore, type SqlQueryable } from '../server/postgres-store';
 import { createSeedWorkspace } from '../server/seed';
 import { queryContextCandidates } from '../server/context-runtime/postgres-index';
 
 describe('M08 materialized candidate index', () => {
+  it('prepares only the active conversation and requested attachments with unchanged message metadata', async () => {
+    const database = new PGlite();
+    try {
+      for (const migration of await loadMigrations()) await database.exec(migration.sql);
+      const store = new PostgresWorkspaceStore(database);
+      await store.initialize(createSeedWorkspace());
+      const workspace = await store.read();
+      const read = vi.spyOn(store, 'read').mockRejectedValue(new Error('aggregate read forbidden'));
+      const prepared = await store.readConversationPreparation(workspace.attachments.map(item => item.id));
+      expect(read).not.toHaveBeenCalled();
+      expect(prepared).toEqual({
+        projectId: workspace.projectId, activeNodeId: workspace.activeNodeId,
+        node: { id: workspace.activeNodeId, status: workspace.discussionNodes.find(node => node.id === workspace.activeNodeId)!.status },
+        mode: workspace.mode, contextItems: workspace.contextItems,
+        messages: workspace.messages.filter(message => message.nodeId === workspace.activeNodeId), attachments: workspace.attachments,
+      });
+      expect((await store.readConversationPreparation(['missing-attachment'])).attachments).toEqual([]);
+      const other = store.forWorkspace('a0637216-ccf0-4d55-a2d5-8bb5b8061111');
+      const otherWorkspace = await other.initialize!(createSeedWorkspace());
+      const otherPrepared = await other.readConversationPreparation!([]);
+      expect(otherPrepared.projectId).toBe(otherWorkspace.projectId);
+      expect(otherPrepared.messages.every(message => message.nodeId === otherWorkspace.activeNodeId)).toBe(true);
+      expect(otherPrepared.activeNodeId).not.toBe(prepared.activeNodeId);
+    } finally { await database.close(); }
+  });
+
   it('maintains changed sources transactionally and queries bounded rows without Workspace reads', async () => {
     const database = new PGlite();
     try {

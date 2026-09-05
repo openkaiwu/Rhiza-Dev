@@ -35,7 +35,7 @@ export interface RhizaApplicationDependencies {
 }
 
 type Completion = { text: string; model: string; provider: string; reasoning?: string; toolCalls?: StoredMessage['toolCalls']; usage?: StoredMessage['usage'] };
-type PreparedRun = { manifest: ContextManifest; request: RuntimeRequest; createdAt: string; userMessageId: string; versionGroupId: string; version: number };
+type PreparedRun = { sourceRunId?: string; manifest: ContextManifest; request: RuntimeRequest; createdAt: string; userMessageId: string; versionGroupId: string; version: number };
 type AnyCommandEnvelope = { [K in CommandType]: Omit<CommandEnvelope<K>, 'commandType' | 'payload'> & { commandType: K; payload: CommandMap[K]['payload'] } }[CommandType];
 type AnyQueryEnvelope = { [K in QueryType]: Omit<QueryEnvelope<K>, 'queryType' | 'payload'> & { queryType: K; payload: QueryMap[K]['payload'] } }[QueryType];
 type DispatchPayload = {
@@ -130,16 +130,20 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
   const mutateWorkspace = async (work: (current: WorkspaceData) => { next: WorkspaceData; value: unknown }) => (await mutate(work)).workspace;
 
   const prepareRun = async (payload: Extract<CommandEnvelope<'CreateConversationRun'>['payload'], object>): Promise<PreparedRun> => {
-    const current = await unitOfWork.read(workspace => workspace);
+    const legacyWorkspace = dependencies.indexedPlanner ? undefined : await unitOfWork.read(workspace => workspace);
+    const current = legacyWorkspace
+      ? { ...legacyWorkspace, node: legacyWorkspace.discussionNodes.find(item => item.id === legacyWorkspace.activeNodeId), sourceRunId: legacyWorkspace.manifests.find(item => item.id === legacyWorkspace.messages.find(message => message.id === payload.sourceMessageId)?.manifestId)?.requestId }
+      : await unitOfWork.readConversationPreparation?.(payload.attachmentIds, payload.sourceMessageId);
+    if (!current) throw new Error('CONVERSATION_PREPARATION_UNAVAILABLE');
     const nodeId = current.activeNodeId;
-    const node = current.discussionNodes.find(item => item.id === nodeId);
+    const node = current.node;
     if (!node) throw legacyError('当前讨论节点不存在。', 404, 'NODE_NOT_FOUND');
     if (node.status === 'archived') throw legacyError('归档节点为只读，请先恢复后再继续讨论。', 409, 'NODE_ARCHIVED');
     let plan: ReturnType<ContextPlannerPort['plan']>;
     try {
       plan = dependencies.indexedPlanner
         ? await dependencies.indexedPlanner.plan({ workspaceId: current.projectId, nodeId, mode: current.mode, query: payload.prompt, selection: current.contextItems, attachmentIds: payload.attachmentIds, budget })
-        : planner.plan(current, payload.prompt, payload.attachmentIds, budget);
+        : planner.plan(legacyWorkspace!, payload.prompt, payload.attachmentIds, budget);
     }
     catch (error) {
       if (dependencies.indexedPlanner) throw error;
@@ -175,7 +179,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
       contextItems: plan.items.map(item => ({ sourceType: item.sourceType || 'reference', sourceId: item.sourceId || item.id, sourceNodeId: item.sourceNodeId, title: item.title, detail: item.detail, role: item.role, selectionMode: item.selectionMode || 'CURRENT', pinned: Boolean(item.pinned), reason: item.reason || (item.selectionMode === 'CURRENT' ? '当前讨论节点。' : '已加入 Active Context。'), tokenCount: item.tokens, contentVersion: item.contentVersion || 1 })),
       estimatedTokens: plan.items.reduce((sum, item) => sum + item.tokens, 0), generation: payload.generation, operation: payload.operation, sourceMessageId: payload.sourceMessageId, attachmentIds: payload.attachmentIds, planner: plan.diagnostics,
     };
-    return { manifest, createdAt, userMessageId, versionGroupId: version.versionGroupId, version: version.version, request: { modelSnapshot: model, requestId, manifestId, projectId: current.projectId, nodeId, modelId: model.id, prompt, history, contextItems: plan.items, mode: current.mode, attachments: attachments.filter((item): item is StoredAttachment => Boolean(item)), generation: payload.generation, operation: payload.operation, sourceMessageId: payload.sourceMessageId } };
+    return { sourceRunId: current.sourceRunId, manifest, createdAt, userMessageId, versionGroupId: version.versionGroupId, version: version.version, request: { modelSnapshot: model, requestId, manifestId, projectId: current.projectId, nodeId, modelId: model.id, prompt, history, contextItems: plan.items, mode: current.mode, attachments: attachments.filter((item): item is StoredAttachment => Boolean(item)), generation: payload.generation, operation: payload.operation, sourceMessageId: payload.sourceMessageId } };
   };
 
   const commitRun = async (run: PreparedRun, completion: Completion, mutation?: RunMutation) => {
@@ -329,7 +333,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
           const run = await prepareRun(payload);
           const parentRunRef = (envelope.payload as CommandMap['CreateConversationRun']['payload']).parentRunRef;
           // Regenerate uses the source message's manifest to find its immutable execution parent.
-          const sourceRunId = payload.sourceMessageId ? await unitOfWork.read(current => { const manifestId = current.messages.find(item => item.id === payload.sourceMessageId)?.manifestId; return current.manifests.find(item => item.id === manifestId)?.requestId; }) : undefined;
+          const sourceRunId = run.sourceRunId;
           const lineage = parentRunRef ?? (sourceRunId ? (await unitOfWork.getRun?.(sourceRunId))?.id : undefined);
           return runs.execute(envelope, run.request, inputFor(run.request), (completion, mutation) => commitRun(run, completion, mutation), options, lineage);
         }

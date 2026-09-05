@@ -1,5 +1,17 @@
 export type { ExecutionRun, RunMutation, RunTrace } from '../../execution-runtime/run';
 import type { WorkspaceData } from '../../domain';
+
+/** Only the active conversation and explicitly requested attachments enter preparation. */
+export interface ConversationPreparation {
+  sourceRunId?: string;
+  projectId: string;
+  activeNodeId: string;
+  node?: Pick<import('../../domain').DiscussionNode, 'id' | 'status'>;
+  mode: WorkspaceData['mode'];
+  contextItems: WorkspaceData['contextItems'];
+  messages: WorkspaceData['messages'];
+  attachments: WorkspaceData['attachments'];
+}
 import type { CommandFactContext, WorkspaceActivityItem } from '../../domain-journal';
 import type { WorkspaceRecord } from '../../contracts/application';
 import type { GraphChangesInput, GraphChangesResult, GraphNeighborhoodInput, GraphPathInput, GraphQueryResult, GraphTreeInput, WorkspaceGraphProjection } from '../../contracts/graph-projection';
@@ -32,6 +44,7 @@ export interface WorkspaceExecutionResult<T> {
  * enforce history rules; commands supply the next aggregate and explicit policy.
  */
 export interface WorkspaceUnitOfWork {
+  readConversationPreparation?(attachmentIds: string[], sourceMessageId?: string): Promise<ConversationPreparation>;
   readonly tracksRuns?: boolean;
   listRuns?(limit?: number): Promise<import('../../execution-runtime/run').ExecutionRun[]>;
   getRun?(runId: string): Promise<import('../../execution-runtime/run').ExecutionRun | undefined>;

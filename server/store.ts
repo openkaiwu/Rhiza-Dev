@@ -23,6 +23,7 @@ export interface TransactionalWorkspaceCommandResult<T> {
 }
 
 export interface WorkspaceRepository {
+  readConversationPreparation?(attachmentIds: string[], sourceMessageId?: string): Promise<import('./application/ports/workspace-unit-of-work').ConversationPreparation>;
   queryContextCandidates?(input: import('./context-runtime/contracts').ContextPlanningInput): Promise<import('./context-runtime/contracts').CandidateIndexSnapshot>;
   rebuildContextCandidates?(): Promise<{ writes: number }>;
   listRuns?(limit?: number): Promise<import('./execution-runtime/run').ExecutionRun[]>;

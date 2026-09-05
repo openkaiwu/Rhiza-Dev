@@ -25,6 +25,11 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
     return workspaceId ? this.repository.forWorkspace?.(workspaceId) ?? this.repository : this.repository;
   }
   async listRuns(limit = 50) { return this.runRepository().listRuns?.(limit) ?? []; }
+  async readConversationPreparation(attachmentIds: string[], sourceMessageId?: string) {
+    const target = this.runRepository();
+    if (!target.readConversationPreparation) throw new Error('CONVERSATION_PREPARATION_UNAVAILABLE');
+    return target.readConversationPreparation(attachmentIds, sourceMessageId);
+  }
   async getRun(runId: string) { return this.runRepository().getRun?.(runId); }
   async writeRunTraces(runId: string, attempt: number, traces: import('../application/ports/workspace-unit-of-work').RunTrace[]) { await this.runRepository().writeRunTraces?.(runId, attempt, traces); }
 
