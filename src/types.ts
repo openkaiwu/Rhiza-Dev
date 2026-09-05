@@ -35,14 +35,24 @@ export interface ManifestContextItem {
   title: string; detail: string; role: ContextItem['role'];
   selectionMode: NonNullable<ContextItem['selectionMode']>; pinned: boolean; reason: string;
   tokenCount: number; contentVersion: number;
+  resourceId?: string; resourceVersionId?: string; digest?: string; priority?: number; contributorVersion?: string; originResourceVersionId?: string; originDigest?: string;
 }
 export interface ContextManifest {
+  schemaVersion?: '1.0.0';
+  omissions?: Array<{ sourceType: string; sourceId: string; title: string; tokenCount: number; code: string; reason: string }>;
+  cache?: { key: string; reason: string; vector: Record<string, string> };
+  versions?: { planner: string; compiler: string; contributors: Record<string, string>; tokenizer: string; selectionPolicy: string };
   id: string; projectId: string; nodeId: string; requestId: string; createdAt: string;
   mode: ContextMode; contextItemIds: string[]; excludedItemIds: string[];
   contextItems: ManifestContextItem[]; model: string; provider: string;
   runtime: 'provider-adapter' | 'librechat'; estimatedTokens: number; generation: GenerationOptions;
   operation: ChatOperation; sourceMessageId?: string; attachmentIds: string[];
   planner?: { candidateCount: number; selectedCount: number; elapsedMs: number; fallback: boolean; budget: number; usedTokens: number };
+}
+
+export interface ContextHistory {
+  manifest: ContextManifest;
+  sources: Array<{ sourceId: string } & ({ status: 'resolved'; content: string; resourceVersion: { id: string; version: number; digest: string } } | { status: 'missing_resource' | 'missing_version' | 'missing_blob' | 'digest_mismatch' | 'legacy_unversioned' })>;
 }
 
 export interface Message {

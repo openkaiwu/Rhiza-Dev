@@ -6,6 +6,7 @@ import { Sidebar } from './components/Sidebar';
 import { ChatView } from './components/ChatView';
 import { GraphView } from './components/GraphView';
 import { StateView } from './components/StateView';
+import type { ContextHistoryState } from './components/ContextHistoryPanel';
 import { ContextPanel } from './components/ContextPanel';
 import { ProviderSettings, type ProviderFormState } from './components/ProviderSettings';
 import { RunHistory } from './components/RunHistory';
@@ -29,6 +30,8 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [syncError, setSyncError] = useState('');
   const [contextOpen, setContextOpen] = useState(false);
+  const [contextHistory, setContextHistory] = useState<ContextHistoryState>();
+  const historyRequestRef = useRef(0);
   const [manifests, setManifests] = useState<ContextManifest[]>([]);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [boot, setBoot] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -145,7 +148,20 @@ export function App() {
   }, []);
   useEffect(() => { if (view === 'graph' && boot === 'ready') void loadGraph(); }, [view, boot, currentWorkspaceId, discussionNodes, loadGraph]);
   useEffect(() => { if (api.listWorkspaces) void api.listWorkspaces(true).then(result => setWorkspaces(result.workspaces)).catch(() => undefined); }, []);
+  const openCurrentContext = () => { historyRequestRef.current++; setContextHistory(undefined); setContextOpen(true); };
+  const inspectMessageContext = async (messageId: string) => {
+    const request = ++historyRequestRef.current;
+    const generation = workspaceGenerationRef.current;
+    setContextOpen(true); setContextHistory({ messageId, loading: true });
+    try {
+      const data = await api.getMessageContext(messageId);
+      if (request === historyRequestRef.current && generation === workspaceGenerationRef.current) setContextHistory({ messageId, loading: false, data });
+    } catch (error) {
+      if (request === historyRequestRef.current && generation === workspaceGenerationRef.current) setContextHistory({ messageId, loading: false, error: presentErrorText(error, { message: '无法读取这轮上下文。', recovery: '请重新加载。' }) });
+    }
+  };
   const switchWorkspace = async (workspaceId: string) => {
+    historyRequestRef.current++; setContextHistory(undefined);
     const generation = ++workspaceGenerationRef.current;
     selectedWorkspaceRef.current = workspaceId;
     graphRequestRef.current += 1; graphPagesRef.current = 1; graphCompleteRef.current = false; setGraphProjection(undefined); setGraphError('');
@@ -444,14 +460,14 @@ export function App() {
         provider={provider} providerCatalog={providerCatalog} syncError={syncError} online={online} focusComposerRequest={focusComposerRequest} onSend={sendMessage}
         onUpload={uploadAttachment} onTempSend={sendTemporaryMessage} onCreateBranch={createBranch}
         onActivateNode={id => activateNode(id, true)} onMerge={mergeNode} onSelectModel={selectModel}
-        onSettings={openSettings} onOpenContext={() => setContextOpen(open => !open)} onGraph={() => setView('graph')} onRuns={() => setView('runs')}
+        onSettings={openSettings} onOpenContext={() => { if (contextHistory) openCurrentContext(); else setContextOpen(open => !open); }} onInspectContext={id => void inspectMessageContext(id)} onGraph={() => setView('graph')} onRuns={() => setView('runs')}
       />,
       graph: <GraphView key={currentWorkspaceId} loading={graphLoading} error={graphError} hasMore={!!graphProjection?.nextCursor} onLoadMore={() => void loadGraph(graphProjection?.nextCursor)} onRefresh={() => void loadGraph()} nodes={graphModel.nodes} edges={graphModel.edges} activeNodeId={activeNode.id} onMove={moveNode} onActivate={id => activateNode(id, true)} onCreateNode={createGraphNode} onArchiveNode={archiveGraphNode} onRestoreNode={restoreGraphNode} onCreateEdge={createGraphEdge} onDeleteEdge={deleteGraphEdge}/>,
       state: <StateView/>,
       runs: <RunHistory key={currentWorkspaceId} onChanged={() => void loadWorkspace(true)}/>,
       activity: <ActivityView activity={activity} loading={activityLoading} error={activityError} onRefresh={() => void loadActivity()}/>,
     }}
-    contextSurface={<ContextPanel items={contextItems} mode={mode} nodes={discussionNodes} segments={segments} attachments={attachments} onMode={updateMode} onStatus={updateStatus} onPin={updatePin} onAddSource={addContextSource}/>}
+    contextSurface={<ContextPanel history={contextHistory} onBackToCurrent={openCurrentContext} onRetryHistory={() => { if (contextHistory) void inspectMessageContext(contextHistory.messageId); }} items={contextItems} mode={mode} nodes={discussionNodes} segments={segments} attachments={attachments} onMode={updateMode} onStatus={updateStatus} onPin={updatePin} onAddSource={addContextSource}/>}
     overlayLayer={<>
       {settingsOpen && <ProviderSettings catalog={providerCatalog} presets={providerPresets} onClose={() => setSettingsOpen(false)} onSave={saveProvider} onDiscover={discoverModels} onToggleModel={updateModel} onSelectModel={selectModel}/>}
       {paletteOpen && <div className="dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setPaletteOpen(false); }}><section ref={activeModalRef} className="command-palette" role="dialog" aria-modal="true" aria-label="命令面板"><header><strong>搜索或运行命令</strong><kbd>Esc</kbd></header><button onClick={() => runCommand(() => setView('chat'))}>当前讨论 <kbd>⌘1</kbd></button><button onClick={() => runCommand(() => setView('graph'))}>对话图谱 <kbd>⌘2</kbd></button><button onClick={() => runCommand(() => setView('state'))}>知识状态 <kbd>⌘3</kbd></button><button onClick={() => runCommand(() => setView('activity'))}>活动时间线 <kbd>⌘4</kbd></button><button onClick={() => runCommand(() => setContextOpen(true))}>打开 Context <kbd>⌘⇧C</kbd></button><button onClick={() => runCommand(() => { setView('chat'); setFocusComposerRequest(value => value + 1); })}>聚焦消息输入框 <kbd>/</kbd></button><button onClick={() => runCommand(() => setOnboardingOpen(true))}>帮助与快捷键</button></section></div>}

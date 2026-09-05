@@ -96,7 +96,7 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
       expect(item.contributorVersion).toBe('lexical-v1');
       expect(JSON.parse(new TextDecoder().decode(await blobs.read(version.blobRef, version.digest))).content).toBe(run.input.request.contextItems[index].content);
     }
-    const planner = vi.spyOn(store, 'queryContextCandidates');
+    const planner = vi.spyOn(PostgresWorkspaceStore.prototype, 'queryContextCandidates');
     const historical = await request(app).get(`/api/context/manifests/${manifest.id}`).expect(200);
     expect(historical.body.sources.every((source: { status: string }) => source.status === 'resolved')).toBe(true);
     await store.update(current => ({ ...current, discussionNodes: current.discussionNodes.map(node => node.id === current.activeNodeId ? { ...node, summary: 'Changed after generation', status: 'archived' as const } : node) }));

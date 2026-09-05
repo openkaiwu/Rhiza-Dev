@@ -1,4 +1,4 @@
-import type { Attachment, ChatOperation, ContextManifest, ContextMode, ContextStatus, GenerationOptions, Message, ProviderCatalog, ProviderPreset, ProviderPresetInfo, ProviderStatus, TokenUsage, ToolCall, WorkspaceActivityItem, WorkspaceSnapshot, WorkspaceRecord } from './types';
+import type { Attachment, ChatOperation, ContextHistory, ContextManifest, ContextMode, ContextStatus, GenerationOptions, Message, ProviderCatalog, ProviderPreset, ProviderPresetInfo, ProviderStatus, TokenUsage, ToolCall, WorkspaceActivityItem, WorkspaceSnapshot, WorkspaceRecord } from './types';
 
 export type ApiErrorCategory = 'validation' | 'conflict' | 'permission' | 'not_found' | 'infrastructure';
 
@@ -142,6 +142,7 @@ export const api = {
     return request<{ graph: import('./types').GraphProjectionResult }>(`/api/graph/neighborhood?${parameters}`);
   },
   setMode: (mode: ContextMode) => request<{ workspace: WorkspaceSnapshot }>('/api/workspace/mode', { method: 'PATCH', body: JSON.stringify({ mode }) }),
+  getMessageContext: (id: string) => request<ContextHistory>(`/api/messages/${encodeURIComponent(id)}/context`),
   setContextStatus: (id: string, status: ContextStatus) => request<{ workspace: WorkspaceSnapshot }>(`/api/workspace/context/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   setContextPin: (id: string, pinned: boolean) => request<{ workspace: WorkspaceSnapshot }>(`/api/workspace/context/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ pinned }) }),
   addContextSource: (sourceType: 'node' | 'segment' | 'file', sourceId: string) => request<{ workspace: WorkspaceSnapshot }>('/api/workspace/context', { method: 'POST', body: JSON.stringify({ sourceType, sourceId }) }),

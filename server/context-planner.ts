@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { inflateSync } from 'node:zlib';
-import type { ContextItem, FileChunk, StoredAttachment, WorkspaceData } from './domain';
+import type { ContextOmission, ContextItem, FileChunk, StoredAttachment, WorkspaceData } from './domain';
 
 export const DEFAULT_CONTEXT_TOKEN_BUDGET = 32_000;
 export const FILE_CHUNK_CHARACTERS = 4_000;
@@ -16,6 +16,7 @@ export interface PlannerDiagnostics {
 }
 
 export interface PlannerResult {
+  omissions?: ContextOmission[];
   items: ContextItem[];
   diagnostics: PlannerDiagnostics;
 }
@@ -161,8 +162,14 @@ export function planCandidates(input: { mode: WorkspaceData['mode']; query: stri
   const explicit = input.selection.filter(item => item.status === 'active');
   const used = new Set(explicit.map(sourceKey));
   const excluded = new Set(input.selection.filter(item => item.status === 'excluded').flatMap(item => [sourceKey(item), item.sourceId || item.id]));
+  const omissions: ContextOmission[] = [];
+  const omit = (item: ContextItem, code: ContextOmission['code'], reason: string) => { omissions.push({ sourceType: item.sourceType || 'reference', sourceId: item.sourceId || item.id, title: item.title, tokenCount: item.tokens, code, reason }); };
+  for (const item of input.selection.filter(item => item.status === 'excluded')) omit(item, 'excluded', item.reason || '用户明确排除。');
   let usedTokens = explicit.reduce((sum, item) => sum + item.tokens, 0);
-  if (input.mode === 'Strict') return { items: explicit, diagnostics: { candidateCount: allCandidates.length, selectedCount: explicit.length, elapsedMs: performance.now() - startedAt, fallback: false, budget, usedTokens } };
+  if (input.mode === 'Strict') {
+    for (const candidate of allCandidates) if (!used.has(sourceKey(candidate.item)) && !excluded.has(sourceKey(candidate.item))) omit(candidate.item, 'strict', 'Strict 模式只使用显式选择的来源。');
+    return { items: explicit, omissions, diagnostics: { candidateCount: allCandidates.length, selectedCount: explicit.length, elapsedMs: performance.now() - startedAt, fallback: false, budget, usedTokens } };
+  }
 
   const queryTerms = tokenize(query);
   const querySet = new Set(queryTerms);
@@ -178,7 +185,7 @@ export function planCandidates(input: { mode: WorkspaceData['mode']; query: stri
       const signals = [attached ? '本轮显式附加文件' : '', lexical > 0 ? `词法命中 ${(lexical * 100).toFixed(0)}%` : '', semantic > 0 ? `语义相似度 ${(semantic * 100).toFixed(0)}%` : '', candidate.graphDistance <= 1 ? '邻近当前节点' : ''].filter(Boolean);
       return { ...candidate, score, item: { ...candidate.item, score, selectionMode: attached ? 'USER_SELECTED' as const : 'AUTO_RETRIEVED' as const, reason: signals.join(' · ') || 'Planner 回退相关候选。' } };
     })
-    .filter(candidate => candidate.score > 0.05)
+    .filter(candidate => { if (candidate.score > 0.05) return true; omit(candidate.item, 'low_score', '与本轮问题的相关性不足。'); return false; })
     .sort((left, right) => right.score - left.score || sourceKey(left.item).localeCompare(sourceKey(right.item)));
 
   const selected = [...explicit];
@@ -186,13 +193,13 @@ export function planCandidates(input: { mode: WorkspaceData['mode']; query: stri
   for (const candidate of ranked) {
     const isAttached = candidate.item.selectionMode === 'USER_SELECTED';
     const attachmentId = candidate.attachmentId;
-    if (isAttached && attachmentId && (attachedChunkCounts.get(attachmentId) || 0) >= 4) continue;
-    if (usedTokens + candidate.item.tokens > budget) continue;
+    if (isAttached && attachmentId && (attachedChunkCounts.get(attachmentId) || 0) >= 4) { omit(candidate.item, 'chunk_limit', '该附件已选入四个优先片段。'); continue; }
+    if (usedTokens + candidate.item.tokens > budget) { omit(candidate.item, 'budget', '剩余预算不足；优先保留已选来源。'); continue; }
     selected.push(candidate.item);
     usedTokens += candidate.item.tokens;
     if (isAttached && attachmentId) attachedChunkCounts.set(attachmentId, (attachedChunkCounts.get(attachmentId) || 0) + 1);
   }
-  return { items: selected, diagnostics: { candidateCount: allCandidates.length, selectedCount: selected.length, elapsedMs: performance.now() - startedAt, fallback: false, budget, usedTokens } };
+  return { items: selected, omissions, diagnostics: { candidateCount: allCandidates.length, selectedCount: selected.length, elapsedMs: performance.now() - startedAt, fallback: false, budget, usedTokens } };
 }
 
 export function attachmentContextItem(attachment: StoredAttachment): ContextItem {

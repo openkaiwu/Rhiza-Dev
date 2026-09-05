@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
-import { embedTerms, tokenize } from '../context-planner';
+import { embedTerms, planCandidates, tokenize } from '../context-planner';
 import type { CandidateIndexSnapshot, ContextPlanningInput } from './contracts';
 import { CONTEXT_VERSIONS, contextCacheIdentity, IndexedContextPlanner } from './indexed-planner';
 
@@ -13,6 +13,19 @@ const fixture = (): CandidateIndexSnapshot => ({
 });
 
 describe('M08 indexed planning contract', () => {
+  it('records the actual exclusion, strict, score, budget and attachment-limit decisions', () => {
+    const [candidate] = fixture().candidates;
+    const plan = (overrides: Partial<typeof input> = {}) => planCandidates({ ...input, ...overrides }, [candidate]);
+    expect(plan({ selection: [{ ...candidate.item, status: 'excluded' }] }).omissions?.[0].code).toBe('excluded');
+    expect(plan({ mode: 'Strict' }).omissions?.[0].code).toBe('strict');
+    expect(plan({ budget: 1 }).omissions?.[0].code).toBe('budget');
+    expect(planCandidates({ ...input, query: '' }, [{ ...candidate, graphDistance: 8 }]).omissions?.[0].code).toBe('low_score');
+    const chunks = Array.from({ length: 5 }, (_, index) => ({ ...candidate, attachmentId: 'file', item: { ...candidate.item, id: String(index), sourceId: String(index), sourceType: 'chunk' as const } }));
+    const limited = planCandidates({ ...input, attachmentIds: ['file'] }, chunks);
+    expect(limited.items).toHaveLength(4);
+    expect(limited.omissions?.map(item => item.code)).toEqual(['chunk_limit']);
+  });
+
   it('uses indexed candidates, refreshes revisions on hits and isolates cached results from mutation', async () => {
     const snapshot = fixture(); const query = vi.fn(async () => snapshot);
     const runtime = new IndexedContextPlanner({ query });

@@ -44,7 +44,7 @@ export interface CandidateIndex {
 }
 
 export interface IndexedContextPlanningPort {
-  plan(input: ContextPlanningInput): Promise<PlannerResult & { sourceVersions?: CandidateIndexSnapshot['sourceVersions'] }>;
+  plan(input: ContextPlanningInput): Promise<PlannerResult & { sourceVersions?: CandidateIndexSnapshot['sourceVersions']; cache?: { key: string; reason: string; vector: Record<string, string> } }>;
 }
 
 export interface ContextPlanner {

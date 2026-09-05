@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { App } from './App';
+import { contextHistoryFixture } from './test/context-history-fixture';
 import { initialContext } from './data';
 import type { ContextManifest, DiscussionNode, Message } from './types';
 
 const mocks = vi.hoisted(() => ({
   getWorkspace: vi.fn(),
+  getMessageContext: vi.fn(),
   getWorkspaceActivity: vi.fn(),
   getGraphNeighborhood: vi.fn(),
   setMode: vi.fn(),
@@ -107,6 +109,40 @@ beforeEach(() => {
 });
 
 describe('Rhiza MVP', () => {
+  it('discards historical content from the previous Workspace after switching', async () => {
+    const pending = deferred<typeof contextHistoryFixture>();
+    mocks.getMessageContext.mockReturnValueOnce(pending.promise);
+    mocks.listWorkspaces.mockResolvedValueOnce({ workspaces: [
+      { workspaceId: workspace.projectId, name: 'First', status: 'active', createdBy: 'local', revision: 1 },
+      { workspaceId: 'second-workspace', name: 'Second', status: 'active', createdBy: 'local', revision: 1 },
+    ] });
+    mocks.getScopedWorkspace.mockResolvedValueOnce({ workspace: { ...workspace, projectId: 'second-workspace', messages: [], manifests: [] } });
+    render(<App/>);
+    fireEvent.click((await screen.findAllByRole('button', { name: '查看本轮上下文' }))[0]);
+    fireEvent.change(await screen.findByRole('combobox', { name: '切换工作区' }), { target: { value: 'second-workspace' } });
+    await waitFor(() => expect(mocks.getScopedWorkspace).toHaveBeenCalledWith('second-workspace'));
+    pending.resolve(contextHistoryFixture);
+    await waitFor(() => expect(screen.queryByRole('heading', { name: '当时的上下文' })).not.toBeInTheDocument());
+    expect(screen.queryByText('可访问性约束')).not.toBeInTheDocument();
+  });
+
+  it('loads historical context from a message and discards a result after returning to current context', async () => {
+    const pending = deferred<typeof contextHistoryFixture>();
+    mocks.getMessageContext.mockReturnValueOnce(pending.promise);
+    render(<App/>);
+    const buttons = await screen.findAllByRole('button', { name: '查看本轮上下文' });
+    fireEvent.click(buttons[0]);
+    expect(mocks.getMessageContext).toHaveBeenCalledWith('m1');
+    expect(screen.getByText('正在读取历史上下文…')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '返回当前上下文' }));
+    pending.resolve(contextHistoryFixture);
+    await waitFor(() => expect(screen.getByRole('heading', { name: '本轮上下文' })).toBeInTheDocument());
+    expect(screen.queryByRole('heading', { name: '当时的上下文' })).not.toBeInTheDocument();
+    mocks.getMessageContext.mockResolvedValueOnce(contextHistoryFixture);
+    fireEvent.click(buttons[1]);
+    expect(await screen.findByText('为什么未使用')).toBeInTheDocument();
+  });
+
   it('opens with the focused discussion experience', async () => {
     render(<App />);
     expect(await screen.findByRole('heading', { level: 1, name: /信息架构方向/ })).toBeInTheDocument();
@@ -114,7 +150,7 @@ describe('Rhiza MVP', () => {
     expect(screen.getByText('根系')).toBeInTheDocument();
     expect(screen.getByText('Rhiza')).toBeInTheDocument();
     expect(screen.getByText('Recommended · 待确认')).toBeInTheDocument();
-    expect(screen.getByText('推荐项不会自动进入模型输入。')).toBeInTheDocument();
+    expect(screen.getByText('Strict 仅使用显式选择；其他模式按相关性补充。')).toBeInTheDocument();
   });
 
   it('binds the configured default returned by the legacy bootstrap before later workspace requests', async () => {

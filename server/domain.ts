@@ -176,7 +176,14 @@ export interface DiscussionEdge {
   createdAt: string;
 }
 
+export interface ContextOmission {
+  sourceType: NonNullable<ContextItem['sourceType']>; sourceId: string; title: string; tokenCount: number;
+  code: 'excluded' | 'strict' | 'low_score' | 'budget' | 'chunk_limit'; reason: string;
+}
+
 export interface ContextManifest {
+  omissions?: ContextOmission[];
+  cache?: { key: string; reason: string; vector: Record<string, string> };
   schemaVersion?: '1.0.0';
   versions?: { planner: string; compiler: string; contributors: Record<string, string>; tokenizer: string; selectionPolicy: string };
   id: string;
