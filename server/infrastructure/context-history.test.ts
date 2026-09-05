@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
-import { BlobContextCompiler } from './context-compiler';
+import { BlobContextCompiler } from '../application/context-compiler';
 import { NodeFilesystemBlobStore } from './node-host-runtime';
 import { resolveContextHistory } from '../application/context-history';
 import type { ContextHistoryFacts } from '../application/ports/workspace-unit-of-work';

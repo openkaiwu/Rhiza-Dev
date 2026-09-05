@@ -1,4 +1,4 @@
-import { BlobContextCompiler } from '../infrastructure/context-compiler';
+import { BlobContextCompiler } from '../application/context-compiler';
 import { CONTEXT_VERSIONS, IndexedContextPlanner } from '../context-runtime/indexed-planner';
 import { semanticStateChecksum } from '../infrastructure/workspace-semantic-checksum';
 import { randomUUID } from 'node:crypto';

@@ -1,6 +1,9 @@
 import { planCandidates, type PlannerResult } from '../context-planner';
-import { semanticStateChecksum } from '../infrastructure/workspace-semantic-checksum';
+import { createHash } from 'node:crypto';
+import { canonicalJson } from '../domain/canonical-json';
 import type { CandidateIndex, CandidateIndexSnapshot, ContextPlanner, ContextPlanningInput, ContextVersionVector } from './contracts';
+
+const semanticStateChecksum = (value: Record<string, unknown>) => createHash('sha256').update(canonicalJson(value)).digest('hex');
 
 export const CONTEXT_VERSIONS: ContextVersionVector = {
   contributors: { lexical: 'lexical-v1' }, planner: 'deterministic-v1', compiler: 'frozen-resource-v1',

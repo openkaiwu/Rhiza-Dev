@@ -1,6 +1,6 @@
 import type { ContextItem } from '../domain';
 import type { ContextCompiler, FrozenContextItem } from '../context-runtime/contracts';
-import type { BlobStorePort } from '../application/ports/host-runtime';
+import type { BlobStorePort } from './ports/host-runtime';
 
 /** JSON preserves empty strings and exact Unicode while retaining the raw-v1 Blob contract. */
 export class BlobContextCompiler implements ContextCompiler {
