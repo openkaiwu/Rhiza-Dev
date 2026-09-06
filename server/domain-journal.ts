@@ -122,9 +122,11 @@ export function eventForCommand(context: CommandFactContext, previous: Workspace
         : eventType.startsWith('graph.') || eventType.startsWith('segment.') || eventType.startsWith('branch.') || eventType.startsWith('object.') ? 'workspace-graph'
           : 'workspace';
   const addedNode = next.discussionNodes.find(item => !previous.discussionNodes.some(before => before.id === item.id));
+  const removedNode = previous.discussionNodes.find(item => !next.discussionNodes.some(after => after.id === item.id));
+  const removedRelation = previous.discussionEdges.find(item => !next.discussionEdges.some(after => after.id === item.id));
   const addedResource = next.resources.find(item => !previous.resources.some(before => before.id === item.id));
   const addedVersion = next.resourceVersions.find(item => !previous.resourceVersions.some(before => before.id === item.id));
-  const aggregateId = addedResource?.id || addedVersion?.resourceId || addedNode?.id || nodeId || next.projectId;
+  const aggregateId = addedResource?.id || addedVersion?.resourceId || addedNode?.id || removedNode?.id || removedRelation?.id || nodeId || next.projectId;
   return [{
     eventType,
     aggregateType,
@@ -137,6 +139,8 @@ export function eventForCommand(context: CommandFactContext, previous: Workspace
       addedNodes: next.discussionNodes.length - previous.discussionNodes.length,
       addedResources: next.resources.length - previous.resources.length,
       valueId: value && typeof value === 'object' && 'id' in value ? String((value as { id: unknown }).id) : undefined,
+      ...(eventType === 'object.purged' && removedNode ? { removedObject: removedNode } : {}),
+      ...(eventType === 'graph.relation.removed' && removedRelation ? { removedRelation } : {}),
     },
   }];
 }

@@ -5,7 +5,7 @@ import { createRhizaApplication } from './create-application';
 import { WorkspaceDirectory } from '../identity/workspace-directory';
 import { LOCAL_USER_ID } from '../identity/workspace-scope';
 
-function fixture(options: { failMutation?: boolean; committedRun?: import('../contracts/application').CreateConversationRunResult; ensureWorkspaceInitialized?: (workspaceId: string, name: string) => Promise<import('../domain').WorkspaceData>; blobPut?: (bytes: Uint8Array) => Promise<{ digestAlgorithm: 'sha256'; digest: string; blobRef: string; size: number }>; blobRead?: (blobRef: string, digest: string) => Promise<Uint8Array>; workspaceDirectory?: WorkspaceDirectory; defaultWorkspaceId?: string } = {}) {
+function fixture(options: { indexedPlanning?: boolean; failMutation?: boolean; committedRun?: import('../contracts/application').CreateConversationRunResult; ensureWorkspaceInitialized?: (workspaceId: string, name: string) => Promise<import('../domain').WorkspaceData>; blobPut?: (bytes: Uint8Array) => Promise<{ digestAlgorithm: 'sha256'; digest: string; blobRef: string; size: number }>; blobRead?: (blobRef: string, digest: string) => Promise<Uint8Array>; workspaceDirectory?: WorkspaceDirectory; defaultWorkspaceId?: string } = {}) {
   let workspace = createSeedWorkspace();
   let sequence = 0;
   const commits: string[] = [];
@@ -13,7 +13,8 @@ function fixture(options: { failMutation?: boolean; committedRun?: import('../co
   const providerSnapshot = { filePolicy: { maxFileSizeBytes: 1_000_000, supportedMimeTypes: [], disabled: false, maxFiles: 1, maxTotalSizeBytes: 1_000_000, fileTokenLimit: 1 }, providers: [], models: [], activeModelId: null, modelSpecs: [] };
   const application = createRhizaApplication({
     unitOfWork: {
-      read: async reader => reader(workspace),
+      read: async reader => { if (options.indexedPlanning) throw new Error('aggregate read forbidden'); return reader(workspace); },
+      readConversationPreparation: async attachmentIds => ({ projectId: workspace.projectId, activeNodeId: workspace.activeNodeId, node: workspace.discussionNodes.find(node => node.id === workspace.activeNodeId), mode: workspace.mode, contextItems: workspace.contextItems, messages: workspace.messages.filter(message => message.nodeId === workspace.activeNodeId), attachments: workspace.attachments.filter(item => attachmentIds.includes(item.id)) }),
       execute: async mutation => { commits.push(mutation.policy.kind); if (options.failMutation) throw new Error('workspace write failed'); const result = await mutation.apply(workspace); workspace = result.next; return { workspace, value: result.value }; },
       readCommittedResult: async <T,>() => options.committedRun ? { found: true as const, value: options.committedRun as unknown as T } : { found: false as const },
       ensureWorkspaceInitialized: options.ensureWorkspaceInitialized,
@@ -39,6 +40,7 @@ function fixture(options: { failMutation?: boolean; committedRun?: import('../co
       readCredential: async () => ({ state: 'unavailable', reason: 'test' }),
     },
     textExtraction: { extractText: async (_mime, bytes) => new TextDecoder().decode(bytes) },
+    indexedPlanner: options.indexedPlanning ? { plan: async input => ({ items: input.selection.filter(item => item.status === 'active'), diagnostics: { candidateCount: 1, selectedCount: 1, elapsedMs: 0, fallback: false, budget: input.budget, usedTokens: 1 } }) } : undefined,
     planner: {
       plan: current => ({ items: current.contextItems.filter(item => item.status === 'active'), diagnostics: { candidateCount: 1, selectedCount: 1, elapsedMs: 0, fallback: false, budget: 32_000, usedTokens: 1 } }),
       sourceItem: (_current, _type, sourceId) => ({ id: `context-${sourceId}`, title: sourceId, detail: sourceId, role: 'Reference', status: 'active', tokens: 1 }),
@@ -59,6 +61,16 @@ describe('Rhiza Application', () => {
     expect(ready).toBe(true); expect(events).toEqual(['RUN_START', 'RUN_END']); expect(commits).toEqual(['normal']);
     expect(result.userMessage.versionGroupId).toBe(result.userMessage.id); expect(result.assistantMessage.replyToMessageId).toBe(result.userMessage.id);
     expect(workspace().messages).toHaveLength(4); expect(workspace().manifests).toHaveLength(1);
+  });
+
+  it('prepares indexed send and regenerate without reading the Workspace aggregate', async () => {
+    const { application } = fixture({ indexedPlanning: true });
+    const payload = { prompt: 'hello', operation: 'send' as const, attachmentIds: [], generation: { temperature: 0.4, topP: 1, maxTokens: 50 } };
+    const first = await application.execute(createLegacyCommandEnvelope('indexed-send', 'CreateConversationRun', payload));
+    const regenerated = await application.execute(createLegacyCommandEnvelope('indexed-regenerate', 'CreateConversationRun', { ...payload, operation: 'regenerate', sourceMessageId: first.assistantMessage.id }));
+    expect(regenerated.userMessage.text).toBe('hello');
+    expect(regenerated.userMessage.version).toBe(2);
+    expect(regenerated.userMessage.versionGroupId).toBe(first.userMessage.versionGroupId);
   });
 
   it('returns a committed run receipt before invoking the external Runtime again', async () => {

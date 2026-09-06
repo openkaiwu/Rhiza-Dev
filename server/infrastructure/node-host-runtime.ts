@@ -6,6 +6,7 @@ import type { BlobGcResult, BlobPutResult, BlobStorePort, HostCapabilityDescript
 export type BlobCheckpoint = 'temp-written' | 'temp-verified' | 'blob-promoted';
 
 export class BlobIntegrityError extends Error {
+  constructor(message: string, readonly reason: 'missing_blob' | 'digest_mismatch' = 'digest_mismatch') { super(message); }
   readonly code = 'BLOB_INTEGRITY_ERROR';
   readonly status = 409;
 }
@@ -74,7 +75,7 @@ export class NodeFilesystemBlobStore implements BlobStorePort {
     let bytes: Uint8Array;
     try { bytes = await readFile(this.pathFor(blobRef)); }
     catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new BlobIntegrityError('Referenced blob is missing');
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new BlobIntegrityError('Referenced blob is missing', 'missing_blob');
       throw error;
     }
     if (sha256(bytes) !== expectedDigest) throw new BlobIntegrityError('Stored blob digest mismatch');

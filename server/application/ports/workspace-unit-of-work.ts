@@ -1,7 +1,27 @@
 export type { ExecutionRun, RunMutation, RunTrace } from '../../execution-runtime/run';
 import type { WorkspaceData } from '../../domain';
+
+/** Only the active conversation and explicitly requested attachments enter preparation. */
+export interface ConversationPreparation {
+  sourceRunId?: string;
+  projectId: string;
+  activeNodeId: string;
+  node?: Pick<import('../../domain').DiscussionNode, 'id' | 'status'>;
+  mode: WorkspaceData['mode'];
+  contextItems: WorkspaceData['contextItems'];
+  messages: WorkspaceData['messages'];
+  attachments: WorkspaceData['attachments'];
+}
+
+export interface ContextHistoryFacts {
+  manifest: import('../../domain').ContextManifest;
+  resources: WorkspaceData['resources'];
+  versions: WorkspaceData['resourceVersions'];
+}
 import type { CommandFactContext, WorkspaceActivityItem } from '../../domain-journal';
 import type { WorkspaceRecord } from '../../contracts/application';
+import type { GraphChangesInput, GraphChangesResult, GraphNeighborhoodInput, GraphPathInput, GraphQueryResult, GraphTreeInput, WorkspaceGraphProjection } from '../../contracts/graph-projection';
+export type { GraphChangesInput, GraphChangesResult, GraphNeighborhoodInput, GraphPathInput, GraphQueryResult, GraphTreeInput, WorkspaceGraphProjection } from '../../contracts/graph-projection';
 
 export type WorkspaceLifecycleCommand =
   | { kind: 'create'; workspaceId: string; name: string; createdBy: string }
@@ -30,6 +50,8 @@ export interface WorkspaceExecutionResult<T> {
  * enforce history rules; commands supply the next aggregate and explicit policy.
  */
 export interface WorkspaceUnitOfWork {
+  readContextHistory?(input: { manifestId: string } | { messageId: string }): Promise<ContextHistoryFacts | undefined>;
+  readConversationPreparation?(attachmentIds: string[], sourceMessageId?: string): Promise<ConversationPreparation>;
   readonly tracksRuns?: boolean;
   listRuns?(limit?: number): Promise<import('../../execution-runtime/run').ExecutionRun[]>;
   getRun?(runId: string): Promise<import('../../execution-runtime/run').ExecutionRun | undefined>;
@@ -39,6 +61,12 @@ export interface WorkspaceUnitOfWork {
   /** Binds receipt/event identity without exposing transaction steps to command handlers. */
   withCommand?<T>(context: CommandFactContext, operation: () => Promise<T>): Promise<T>;
   readActivity?(limit?: number): Promise<WorkspaceActivityItem[]>;
+  readGraphProjection?(): Promise<WorkspaceGraphProjection>;
+  rebuildGraphProjection?(): Promise<WorkspaceGraphProjection>;
+  queryGraphNeighborhood?(input: GraphNeighborhoodInput): Promise<GraphQueryResult>;
+  queryGraphPath?(input: GraphPathInput): Promise<GraphQueryResult>;
+  queryGraphTree?(input: GraphTreeInput): Promise<GraphQueryResult>;
+  queryGraphChanges?(input: GraphChangesInput): Promise<GraphChangesResult>;
   readCommittedResult?<T>(): Promise<{ found: false } | { found: true; value: T }>;
   executeWorkspaceLifecycle?(context: CommandFactContext, command: WorkspaceLifecycleCommand): Promise<WorkspaceRecord | undefined>;
   /** Runs a complete application request against one workspace; implementations must not leak that selection. */

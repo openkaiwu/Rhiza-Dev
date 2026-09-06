@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { inflateSync } from 'node:zlib';
-import type { ContextItem, FileChunk, StoredAttachment, WorkspaceData } from './domain';
+import type { ContextOmission, ContextItem, FileChunk, StoredAttachment, WorkspaceData } from './domain';
 
 export const DEFAULT_CONTEXT_TOKEN_BUDGET = 32_000;
 export const FILE_CHUNK_CHARACTERS = 4_000;
@@ -16,6 +16,7 @@ export interface PlannerDiagnostics {
 }
 
 export interface PlannerResult {
+  omissions?: ContextOmission[];
   items: ContextItem[];
   diagnostics: PlannerDiagnostics;
 }
@@ -109,12 +110,12 @@ function graphDistances(workspace: WorkspaceData): Map<string, number> {
   return distances;
 }
 
-interface Candidate { item: ContextItem; text: string; terms: string[]; embedding: number[]; graphDistance: number }
+export interface PlannerCandidate { attachmentId?: string; item: ContextItem; text: string; terms: string[]; embedding: number[]; graphDistance: number }
 
-function candidates(workspace: WorkspaceData): Candidate[] {
+function candidates(workspace: WorkspaceData): PlannerCandidate[] {
   const distances = graphDistances(workspace);
   const attachmentById = new Map(workspace.attachments.map(item => [item.id, item]));
-  const result: Candidate[] = [];
+  const result: PlannerCandidate[] = [];
   for (const node of workspace.discussionNodes) {
     const text = `${node.title}\n${node.summary}\n${workspace.messages.filter(message => message.nodeId === node.id).map(message => message.text).join('\n')}`;
     const terms = tokenize(text);
@@ -128,7 +129,7 @@ function candidates(workspace: WorkspaceData): Candidate[] {
   for (const chunk of workspace.fileChunks) {
     const file = attachmentById.get(chunk.attachmentId);
     if (!file) continue;
-    result.push({ text: chunk.text, terms: chunk.terms, embedding: chunk.embedding, graphDistance: 2, item: { id: `planner:chunk:${chunk.id}`, title: `${file.name} · chunk ${chunk.ordinal + 1}`, detail: `文件片段 · 字符 ${chunk.startOffset.toLocaleString()}–${chunk.endOffset.toLocaleString()}`, role: 'Reference', status: 'active', tokens: chunk.tokens, selectionMode: 'AUTO_RETRIEVED', sourceType: 'chunk', sourceId: chunk.id, contentVersion: 1, content: chunk.text } });
+    result.push({ attachmentId: chunk.attachmentId, text: chunk.text, terms: chunk.terms, embedding: chunk.embedding, graphDistance: 2, item: { id: `planner:chunk:${chunk.id}`, title: `${file.name} · chunk ${chunk.ordinal + 1}`, detail: `文件片段 · 字符 ${chunk.startOffset.toLocaleString()}–${chunk.endOffset.toLocaleString()}`, role: 'Reference', status: 'active', tokens: chunk.tokens, selectionMode: 'AUTO_RETRIEVED', sourceType: 'chunk', sourceId: chunk.id, contentVersion: 1, content: chunk.text } });
   }
   return result;
 }
@@ -148,44 +149,57 @@ function explicitItemContent(workspace: WorkspaceData, item: ContextItem): Conte
 }
 
 export function planContext(workspace: WorkspaceData, query: string, attachmentIds: string[] = [], budget = DEFAULT_CONTEXT_TOKEN_BUDGET): PlannerResult {
+  return planCandidates({
+    mode: workspace.mode, query, attachmentIds, budget,
+    selection: workspace.contextItems.map(item => item.status === 'active' ? explicitItemContent(workspace, item) : item),
+  }, candidates(workspace));
+}
+
+/** Shared deterministic selection. Production indexing supplies this bounded input directly. */
+export function planCandidates(input: { mode: WorkspaceData['mode']; query: string; attachmentIds: string[]; budget: number; selection: ContextItem[] }, allCandidates: readonly PlannerCandidate[]): PlannerResult {
   const startedAt = performance.now();
-  const explicit = workspace.contextItems.filter(item => item.status === 'active').map(item => explicitItemContent(workspace, item));
+  const { query, attachmentIds, budget } = input;
+  const explicit = input.selection.filter(item => item.status === 'active');
   const used = new Set(explicit.map(sourceKey));
-  const excluded = new Set(workspace.contextItems.filter(item => item.status === 'excluded').flatMap(item => [sourceKey(item), item.sourceId || item.id]));
+  const excluded = new Set(input.selection.filter(item => item.status === 'excluded').flatMap(item => [sourceKey(item), item.sourceId || item.id]));
+  const omissions: ContextOmission[] = [];
+  const omit = (item: ContextItem, code: ContextOmission['code'], reason: string) => { omissions.push({ sourceType: item.sourceType || 'reference', sourceId: item.sourceId || item.id, title: item.title, tokenCount: item.tokens, code, reason }); };
+  for (const item of input.selection.filter(item => item.status === 'excluded')) omit(item, 'excluded', item.reason || '用户明确排除。');
   let usedTokens = explicit.reduce((sum, item) => sum + item.tokens, 0);
-  const allCandidates = candidates(workspace);
-  if (workspace.mode === 'Strict') return { items: explicit, diagnostics: { candidateCount: allCandidates.length, selectedCount: explicit.length, elapsedMs: performance.now() - startedAt, fallback: false, budget, usedTokens } };
+  if (input.mode === 'Strict') {
+    for (const candidate of allCandidates) if (!used.has(sourceKey(candidate.item)) && !excluded.has(sourceKey(candidate.item))) omit(candidate.item, 'strict', 'Strict 模式只使用显式选择的来源。');
+    return { items: explicit, omissions, diagnostics: { candidateCount: allCandidates.length, selectedCount: explicit.length, elapsedMs: performance.now() - startedAt, fallback: false, budget, usedTokens } };
+  }
 
   const queryTerms = tokenize(query);
   const querySet = new Set(queryTerms);
   const queryEmbedding = embedTerms(queryTerms);
-  const chunkAttachment = new Map(workspace.fileChunks.map(chunk => [chunk.id, chunk.attachmentId]));
   const ranked = allCandidates
     .filter(candidate => !used.has(sourceKey(candidate.item)) && !excluded.has(sourceKey(candidate.item)) && !excluded.has(candidate.item.sourceId || candidate.item.id))
     .map(candidate => {
       const lexical = candidate.terms.filter(term => querySet.has(term)).length / Math.max(1, querySet.size);
       const semantic = Math.max(0, cosine(queryEmbedding, candidate.embedding));
       const proximity = 1 / (1 + candidate.graphDistance);
-      const attached = candidate.item.sourceType === 'chunk' && attachmentIds.includes(chunkAttachment.get(candidate.item.sourceId || '') || '');
+      const attached = candidate.item.sourceType === 'chunk' && attachmentIds.includes(candidate.attachmentId || '');
       const score = (attached ? 2 : 0) + lexical * 0.55 + semantic * 0.35 + proximity * 0.1;
       const signals = [attached ? '本轮显式附加文件' : '', lexical > 0 ? `词法命中 ${(lexical * 100).toFixed(0)}%` : '', semantic > 0 ? `语义相似度 ${(semantic * 100).toFixed(0)}%` : '', candidate.graphDistance <= 1 ? '邻近当前节点' : ''].filter(Boolean);
       return { ...candidate, score, item: { ...candidate.item, score, selectionMode: attached ? 'USER_SELECTED' as const : 'AUTO_RETRIEVED' as const, reason: signals.join(' · ') || 'Planner 回退相关候选。' } };
     })
-    .filter(candidate => candidate.score > 0.05)
+    .filter(candidate => { if (candidate.score > 0.05) return true; omit(candidate.item, 'low_score', '与本轮问题的相关性不足。'); return false; })
     .sort((left, right) => right.score - left.score || sourceKey(left.item).localeCompare(sourceKey(right.item)));
 
   const selected = [...explicit];
   const attachedChunkCounts = new Map<string, number>();
   for (const candidate of ranked) {
     const isAttached = candidate.item.selectionMode === 'USER_SELECTED';
-    const attachmentId = candidate.item.sourceType === 'chunk' ? chunkAttachment.get(candidate.item.sourceId || '') : undefined;
-    if (isAttached && attachmentId && (attachedChunkCounts.get(attachmentId) || 0) >= 4) continue;
-    if (usedTokens + candidate.item.tokens > budget) continue;
+    const attachmentId = candidate.attachmentId;
+    if (isAttached && attachmentId && (attachedChunkCounts.get(attachmentId) || 0) >= 4) { omit(candidate.item, 'chunk_limit', '该附件已选入四个优先片段。'); continue; }
+    if (usedTokens + candidate.item.tokens > budget) { omit(candidate.item, 'budget', '剩余预算不足；优先保留已选来源。'); continue; }
     selected.push(candidate.item);
     usedTokens += candidate.item.tokens;
     if (isAttached && attachmentId) attachedChunkCounts.set(attachmentId, (attachedChunkCounts.get(attachmentId) || 0) + 1);
   }
-  return { items: selected, diagnostics: { candidateCount: allCandidates.length, selectedCount: selected.length, elapsedMs: performance.now() - startedAt, fallback: false, budget, usedTokens } };
+  return { items: selected, omissions, diagnostics: { candidateCount: allCandidates.length, selectedCount: selected.length, elapsedMs: performance.now() - startedAt, fallback: false, budget, usedTokens } };
 }
 
 export function attachmentContextItem(attachment: StoredAttachment): ContextItem {

@@ -17,6 +17,7 @@ type ChatOperation = CommandMap['CreateConversationRun']['payload']['operation']
 type ContextMode = CommandMap['ChangeContextMode']['payload']['mode'];
 type ContextStatus = NonNullable<CommandMap['ChangeContextSelection']['payload']['status']>;
 type GenerationOptions = CommandMap['CreateConversationRun']['payload']['generation'];
+type ObjectRef = QueryMap['GetGraphNeighborhood']['payload']['root'];
 
 const contextStatuses = new Set<ContextStatus>(['active', 'recommended', 'excluded']);
 const contextModes = new Set<ContextMode>(['Auto', 'Assisted', 'Strict']);
@@ -51,6 +52,21 @@ function isDraftMessage(value: unknown): value is DraftMessageInput {
 
 function rejectInput(message: string, code: string, status = 400): never {
   throw applicationError(message, code, 'validation', 'none', false, status);
+}
+
+function graphObjectRef(response: express.Response, objectType: unknown, objectId: unknown, versionId?: unknown): NonNullable<ObjectRef> {
+  if (typeof objectType !== 'string' || !objectType.trim() || objectType.length > 80 || typeof objectId !== 'string' || !objectId.trim() || objectId.length > 240) {
+    rejectInput('Graph ObjectRef 无效。', 'INVALID_OBJECT_REF');
+  }
+  if (versionId !== undefined && (typeof versionId !== 'string' || !versionId.trim() || versionId.length > 240)) rejectInput('Graph ObjectRef 版本无效。', 'INVALID_OBJECT_REF');
+  const identity = response.locals.workspaceIdentity as { workspaceId: string };
+  return { workspaceId: identity.workspaceId, objectType: objectType.trim(), objectId: objectId.trim(), ...(typeof versionId === 'string' ? { versionId: versionId.trim() } : {}) };
+}
+
+function boundedInteger(value: unknown, fallback: number, minimum: number, maximum: number, code: string): number {
+  const parsed = value === undefined ? fallback : Number(value);
+  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) rejectInput(`Graph 查询参数必须在 ${minimum}–${maximum} 范围内。`, code);
+  return parsed;
 }
 
 function correlationId(response: express.Response): string {
@@ -150,6 +166,16 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
     next();
   });
 
+  app.get('/api/messages/:messageId/context', async (request, response, next) => {
+    try { response.json(await query(response, 'GetContextHistory', { messageId: request.params.messageId })); }
+    catch (error) { next(error); }
+  });
+
+  app.get('/api/context/manifests/:manifestId', async (request, response, next) => {
+    try { response.json(await query(response, 'GetContextHistory', { manifestId: request.params.manifestId })); }
+    catch (error) { next(error); }
+  });
+
   app.get('/api/health', async (_request, response, next) => {
     try {
       const [health, provider] = await Promise.all([
@@ -191,6 +217,52 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
       const limit = Number(request.query.limit || 50);
       response.json({ activity: await query(response, 'GetWorkspaceActivity', { limit: Number.isFinite(limit) ? limit : 50 }) });
     } catch (error) { next(error); }
+  });
+  app.get('/api/graph/neighborhood', async (request, response, next) => {
+    try {
+      if (request.query.cursor !== undefined && typeof request.query.cursor !== 'string') rejectInput('Graph cursor 无效。', 'INVALID_GRAPH_CURSOR');
+      const root = request.query.objectId === undefined ? undefined : graphObjectRef(response, request.query.objectType ?? 'conversation', request.query.objectId, request.query.versionId);
+      const objectTypes = typeof request.query.objectTypes === 'string' ? request.query.objectTypes.split(',').map(item => item.trim()).filter(Boolean).slice(0, 20) : undefined;
+      const graph = await query(response, 'GetGraphNeighborhood', {
+        root, depth: boundedInteger(request.query.depth, 1, 0, 3, 'INVALID_GRAPH_DEPTH'),
+        nodeLimit: boundedInteger(request.query.nodeLimit, 200, 1, 500, 'INVALID_GRAPH_NODE_LIMIT'),
+        edgeLimit: boundedInteger(request.query.edgeLimit, 800, 0, 2_000, 'INVALID_GRAPH_EDGE_LIMIT'),
+        cursor: typeof request.query.cursor === 'string' ? request.query.cursor : undefined, objectTypes,
+      });
+      response.json({ graph });
+    } catch (error) { next(error); }
+  });
+  app.get('/api/graph/path', async (request, response, next) => {
+    try {
+      const graph = await query(response, 'GetGraphPath', {
+        from: graphObjectRef(response, request.query.fromType ?? 'conversation', request.query.fromId, request.query.fromVersionId),
+        to: graphObjectRef(response, request.query.toType ?? 'conversation', request.query.toId, request.query.toVersionId),
+        nodeLimit: boundedInteger(request.query.nodeLimit, 500, 1, 500, 'INVALID_GRAPH_NODE_LIMIT'),
+      });
+      response.json({ graph });
+    } catch (error) { next(error); }
+  });
+  app.get('/api/graph/tree', async (request, response, next) => {
+    try {
+      const graph = await query(response, 'GetGraphTree', {
+        root: graphObjectRef(response, request.query.objectType ?? 'conversation', request.query.objectId, request.query.versionId),
+        depth: boundedInteger(request.query.depth, 3, 0, 3, 'INVALID_GRAPH_DEPTH'),
+        nodeLimit: boundedInteger(request.query.nodeLimit, 500, 1, 500, 'INVALID_GRAPH_NODE_LIMIT'),
+      });
+      response.json({ graph });
+    } catch (error) { next(error); }
+  });
+  app.get('/api/graph/changes', async (request, response, next) => {
+    try {
+      const graph = await query(response, 'GetGraphChanges', {
+        cursor: boundedInteger(request.query.cursor, 0, 0, Number.MAX_SAFE_INTEGER, 'INVALID_GRAPH_CURSOR'),
+        limit: boundedInteger(request.query.limit, 500, 1, 500, 'INVALID_GRAPH_NODE_LIMIT'),
+      });
+      response.json({ graph });
+    } catch (error) { next(error); }
+  });
+  app.post('/api/graph/rebuild', async (_request, response, next) => {
+    try { response.json({ projection: await execute(response, 'RebuildGraphProjection', {}) }); } catch (error) { next(error); }
   });
   app.patch('/api/v1/workspaces/:workspaceId', async (request, response, next) => {
     try {

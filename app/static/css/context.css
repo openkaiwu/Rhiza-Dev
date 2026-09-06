@@ -8,3 +8,27 @@
 .context-source-picker { margin: 0 15px 4px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-raised); }.context-source-picker > summary { display: flex; align-items: center; gap: 5px; padding: 8px 10px; color: var(--ink-2); font-size: 9px; cursor: pointer; list-style: none; }.context-source-picker > summary::-webkit-details-marker { display: none; }.context-source-picker > div { padding: 0 6px 6px; max-height: 170px; overflow-y: auto; }.context-source-picker > div > button { width: 100%; display: grid; grid-template-columns: 18px 1fr 14px; align-items: center; gap: 5px; border: 0; border-top: 1px solid var(--line-soft); padding: 7px 4px; background: transparent; color: var(--ink-2); text-align: left; cursor: pointer; }.context-source-picker > div > button:hover { color: var(--accent-dark); background: var(--accent-soft); }.context-source-picker strong, .context-source-picker small { display: block; font-size: 8px; }.context-source-picker small { color: var(--ink-3); margin-top: 2px; }.context-source-picker p { color: var(--ink-3); font-size: 8px; padding: 7px; margin: 0; }
 .manifest-summary { margin-top: 10px; border-top: 1px solid var(--line-soft); }.manifest-summary > summary { display: grid; grid-template-columns: 16px 1fr auto; align-items: center; gap: 5px; padding: 10px 0 0; color: var(--ink-3); font-size: 9px; cursor: pointer; list-style: none; }.manifest-summary > summary::-webkit-details-marker { display: none; }.manifest-summary > summary small { font: 8px var(--font-mono); }.manifest-body { margin-top: 9px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-soft); }.manifest-body > header { display: flex; justify-content: space-between; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); color: var(--ink-3); font: 8px var(--font-mono); }.manifest-source { display: grid; grid-template-columns: 18px 1fr; gap: 6px; padding: 9px 0; border-bottom: 1px solid var(--line-soft); }.manifest-source strong { display: block; font-size: 9px; }.manifest-source p { margin: 2px 0 4px; color: var(--ink-3); font-size: 8px; }.manifest-source small, .manifest-source em { display: block; color: var(--ink-3); font: 7px var(--font-mono); }.manifest-source em { margin-top: 3px; font-family: var(--font-ui); font-style: normal; }.manifest-excluded { display: flex; align-items: center; gap: 5px; color: #8d5b50; font-size: 8px; }.manifest-body > footer { margin-top: 8px; color: var(--ink-3); font: 7px var(--font-mono); }
 
+
+/* Historical evidence remains readable within the existing desktop panel and mobile drawer. */
+.context-history .context-scroll { padding-bottom: 24px; }
+.context-history-meta, .context-history-notice, .context-runtime-details { margin: 16px; font-size: 12px; line-height: 1.6; }
+.context-history-meta { display: grid; gap: 4px; overflow-wrap: anywhere; }
+.context-history-meta time { color: var(--ink-3); }
+.context-history .budget-card { margin: 12px 0 18px; }
+.context-history progress { width: 100%; height: 6px; accent-color: var(--accent); }
+.context-history .context-item { padding: 12px; }
+.context-history h3 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.context-priority { flex: none; color: var(--ink-3); font: 11px var(--font-mono); }
+.context-history-tags { display: flex; flex-wrap: wrap; gap: 5px 10px; color: var(--ink-3); font-size: 11px; }
+.context-decision, .context-source-missing { font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+.context-source-missing { padding: 8px; background: #fff1db; color: #714b12; border-radius: 5px; }
+.context-history details { margin-top: 10px; font-size: 11px; line-height: 1.6; }
+.context-history summary { cursor: pointer; }
+.context-history dl { margin: 10px 0; }
+.context-history dt { color: var(--ink-3); margin-top: 6px; }
+.context-history dd { margin: 2px 0 8px; overflow-wrap: anywhere; font-family: var(--font-mono); }
+.context-frozen-text { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.7 var(--font-ui); max-height: 260px; overflow: auto; }
+
+.context-history .context-item.excluded { opacity: 1; }
+.context-history .context-title { font-size: 12px; }
+.context-history .budget-card p { font-size: 11px; line-height: 1.6; margin-top: 8px; }

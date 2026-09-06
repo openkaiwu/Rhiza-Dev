@@ -36,6 +36,7 @@ interface ChatViewProps {
   onSelectModel: (id: string) => Promise<void>;
   onSettings: () => void;
   onOpenContext: () => void;
+  onInspectContext?: (messageId: string) => void;
   onGraph: () => void;
   onRuns?: () => void;
 }
@@ -71,7 +72,7 @@ function ManifestSummary({ manifest }: { manifest: ContextManifest }) {
   </details>;
 }
 
-export function ChatView({ activeNode, nodes, edges, mode, activeCount, messages, manifests, attachments, provider, providerCatalog, syncError, online, focusComposerRequest, onSend, onUpload, onTempSend, onCreateBranch, onActivateNode, onMerge, onSelectModel, onSettings, onOpenContext, onGraph, onRuns }: ChatViewProps) {
+export function ChatView({ activeNode, nodes, edges, mode, activeCount, messages, manifests, attachments, provider, providerCatalog, syncError, online, focusComposerRequest, onSend, onUpload, onTempSend, onCreateBranch, onActivateNode, onMerge, onSelectModel, onSettings, onOpenContext, onInspectContext, onGraph, onRuns }: ChatViewProps) {
   const [draft, setDraft] = useState('');
   const [thinking, setThinking] = useState(false);
   const [chatError, setChatError] = useState('');
@@ -219,13 +220,13 @@ export function ChatView({ activeNode, nodes, edges, mode, activeCount, messages
         {visibleMessages.map((message, index) => message.kind === 'user' ? <article className={`message user-message ${message.pending ? 'pending' : ''}`} key={message.id}>
           <div className="message-meta"><span>YOU</span><time>第 {Math.floor((messages.length - visibleMessages.length + index) / 2) + 1} 轮</time>{message.version && message.version > 1 && <b>v{message.version} · {message.operation}</b>}</div>
           {editingId === message.id ? <div className="message-editor"><textarea aria-label="编辑消息" value={editDraft} onChange={event => setEditDraft(event.target.value)}/><div><button onClick={() => setEditingId(null)}>取消</button><button onClick={() => editAndResend(message)} disabled={!editDraft.trim()}>发送新版本</button></div></div> : <MarkdownContent content={message.text}/>} {renderAttachments(message.attachmentIds)}
-          {!message.pending && <div className="message-actions"><button onClick={() => navigator.clipboard?.writeText(message.text)}><Copy size={13}/>复制</button><button onClick={() => { setEditingId(message.id); setEditDraft(message.text); }}><Edit3 size={13}/>编辑并重发</button><button onClick={() => void createFormalBranch(message)}><GitBranch size={13}/>创建正式支线</button></div>}
+          {!message.pending && <div className="message-actions">{onInspectContext && <button onClick={() => onInspectContext(message.id)}><FileText size={13}/>查看本轮上下文</button>}<button onClick={() => navigator.clipboard?.writeText(message.text)}><Copy size={13}/>复制</button><button onClick={() => { setEditingId(message.id); setEditDraft(message.text); }}><Edit3 size={13}/>编辑并重发</button><button onClick={() => void createFormalBranch(message)}><GitBranch size={13}/>创建正式支线</button></div>}
         </article> : <article className={`message assistant-message selectable-answer ${message.pending ? 'pending' : ''}`} key={message.id} onMouseUp={event => captureSelection(event, message)}>
           <div className="assistant-head"><ParticleMark compact/><span>RHIZA</span>{message.version && message.version > 1 && <b>v{message.version}</b>}<small>基于 {manifestById.get(message.manifestId || '')?.contextItems?.length ?? activeCount} 项 Active Context</small></div>
           {message.reasoning && <details className="reasoning-panel"><summary><Brain size={13}/>Reasoning / Progress</summary><p>{message.reasoning}</p></details>}
           {message.toolCalls?.map(tool => <details className="tool-call" key={tool.id}><summary><Wrench size={13}/>Tool · {tool.name || '调用中'}</summary><pre>{tool.arguments || '{}'}</pre></details>)}
           <div className="answer-paragraph"><MarkdownContent content={message.text || (message.toolCalls?.length ? '正在等待工具结果…' : '')}/>{message.text && <button className="paragraph-branch" aria-label="讨论整个段落" title="将整段放入临时支线" onClick={() => openTemporary(message, message.text)}><TextSelect size={14}/></button>}</div>
-          {!message.pending && <div className="message-actions"><button onClick={() => navigator.clipboard?.writeText(message.text)}><Copy size={14}/>复制</button><button onClick={() => regenerate(message)}><RefreshCw size={14}/>重新生成</button><button onClick={() => void createFormalBranch(message)}><GitBranch size={14}/>创建正式支线</button><button onClick={() => openTemporary(message, message.text)}><GitBranch size={14}/>在临时支线中讨论</button><button><Link2 size={14}/>保存为引用</button><button><Check size={14}/>提取为状态</button></div>}
+          {!message.pending && <div className="message-actions">{onInspectContext && <button onClick={() => onInspectContext(message.id)}><FileText size={13}/>查看本轮上下文</button>}<button onClick={() => navigator.clipboard?.writeText(message.text)}><Copy size={14}/>复制</button><button onClick={() => regenerate(message)}><RefreshCw size={14}/>重新生成</button><button onClick={() => void createFormalBranch(message)}><GitBranch size={14}/>创建正式支线</button><button onClick={() => openTemporary(message, message.text)}><GitBranch size={14}/>在临时支线中讨论</button><button><Link2 size={14}/>保存为引用</button><button><Check size={14}/>提取为状态</button></div>}
           {message.usage && <div className="usage-line">{message.usage.estimated && '≈ '}Prompt {message.usage.promptTokens.toLocaleString()} · Completion {message.usage.completionTokens.toLocaleString()} · Total {message.usage.totalTokens.toLocaleString()} tokens</div>}
           {message.manifestId && manifestById.get(message.manifestId)?.contextItems ? <ManifestSummary manifest={manifestById.get(message.manifestId)!}/> : message.manifestId && <div className="branch-note"><span className="branch-line"/><GitMerge size={14}/><span>Context Manifest · {message.manifestId.slice(0, 8)}</span></div>}
         </article>)}

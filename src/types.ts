@@ -35,14 +35,24 @@ export interface ManifestContextItem {
   title: string; detail: string; role: ContextItem['role'];
   selectionMode: NonNullable<ContextItem['selectionMode']>; pinned: boolean; reason: string;
   tokenCount: number; contentVersion: number;
+  resourceId?: string; resourceVersionId?: string; digest?: string; priority?: number; contributorVersion?: string; originResourceVersionId?: string; originDigest?: string;
 }
 export interface ContextManifest {
+  schemaVersion?: '1.0.0';
+  omissions?: Array<{ sourceType: string; sourceId: string; title: string; tokenCount: number; code: string; reason: string }>;
+  cache?: { key: string; reason: string; vector: Record<string, string> };
+  versions?: { planner: string; compiler: string; contributors: Record<string, string>; tokenizer: string; selectionPolicy: string };
   id: string; projectId: string; nodeId: string; requestId: string; createdAt: string;
   mode: ContextMode; contextItemIds: string[]; excludedItemIds: string[];
   contextItems: ManifestContextItem[]; model: string; provider: string;
   runtime: 'provider-adapter' | 'librechat'; estimatedTokens: number; generation: GenerationOptions;
   operation: ChatOperation; sourceMessageId?: string; attachmentIds: string[];
   planner?: { candidateCount: number; selectedCount: number; elapsedMs: number; fallback: boolean; budget: number; usedTokens: number };
+}
+
+export interface ContextHistory {
+  manifest: ContextManifest;
+  sources: Array<{ sourceId: string } & ({ status: 'resolved'; content: string; resourceVersion: { id: string; version: number; digest: string } } | { status: 'missing_resource' | 'missing_version' | 'missing_blob' | 'digest_mismatch' | 'legacy_unversioned' })>;
 }
 
 export interface Message {
@@ -168,4 +178,19 @@ export interface ExecutionRun {
   input: { executor: { runtime: string; modelSpecRef: string; providerEndpointRef: string; model: string; provider: string }; request: { prompt: string; manifestId: string; attachments?: Array<{ id: string }>; generation?: GenerationOptions; operation?: ChatOperation } };
   error?: { code: string; class: string; message: string };
   telemetry: { durationMs?: number; ttftMs?: number; traceCount: number; usage?: TokenUsage };
+}
+
+export interface GraphObjectRef { workspaceId: string; objectType: string; objectId: string; versionId?: string }
+export interface GraphProjectedObject {
+  anchorText?: string;
+  ref: GraphObjectRef; revision: number; lifecycle: 'active' | 'archived' | 'tombstoned';
+  title: string; summary: string; kind: string; status: string; createdAt: string; updatedAt: string;
+  layout?: { x: number; y: number; collapsed?: boolean };
+}
+export interface GraphProjectedRelation {
+  id: string; source: GraphObjectRef; target: GraphObjectRef; relationType: string;
+  lifecycle: 'active' | 'retracted'; label: string; createdAt: string;
+}
+export interface GraphProjectionResult {
+  version: string; checkpoint: number; objects: GraphProjectedObject[]; relations: GraphProjectedRelation[]; nextCursor?: string;
 }

@@ -7,6 +7,7 @@ import { createSeedWorkspace } from './seed';
 import type { WorkspaceDirectoryPort } from './identity/workspace-directory';
 import type { WorkspaceRecord } from './contracts/application';
 import type { CommandFactContext, DomainEventDraft, DomainEventEnvelope } from './domain-journal';
+import type { WorkspaceGraphProjection } from './contracts/graph-projection';
 
 export interface TransactionalWorkspaceCommand<T> {
   context: CommandFactContext;
@@ -22,6 +23,10 @@ export interface TransactionalWorkspaceCommandResult<T> {
 }
 
 export interface WorkspaceRepository {
+  readContextHistory?(input: { manifestId: string } | { messageId: string }): Promise<import('./application/ports/workspace-unit-of-work').ContextHistoryFacts | undefined>;
+  readConversationPreparation?(attachmentIds: string[], sourceMessageId?: string): Promise<import('./application/ports/workspace-unit-of-work').ConversationPreparation>;
+  queryContextCandidates?(input: import('./context-runtime/contracts').ContextPlanningInput): Promise<import('./context-runtime/contracts').CandidateIndexSnapshot>;
+  rebuildContextCandidates?(): Promise<{ writes: number }>;
   listRuns?(limit?: number): Promise<import('./execution-runtime/run').ExecutionRun[]>;
   getRun?(runId: string): Promise<import('./execution-runtime/run').ExecutionRun | undefined>;
   writeRunTraces?(runId: string, attempt: number, traces: import('./execution-runtime/run').RunTrace[]): Promise<void>;
@@ -37,6 +42,8 @@ export interface WorkspaceRepository {
   backfillJournal?(): Promise<{ checksum: string; created: boolean; eventCount: number }>;
   readCommandReceipt?(commandId: string): Promise<import('./domain-journal').CommandReceipt | undefined>;
   executeWorkspaceLifecycle?(context: CommandFactContext, command: import('./application/ports/workspace-unit-of-work').WorkspaceLifecycleCommand): Promise<WorkspaceRecord>;
+  readGraphProjection?(): Promise<WorkspaceGraphProjection>;
+  rebuildGraphProjection?(): Promise<WorkspaceGraphProjection>;
 }
 
 export interface WorkspacePurgeCapability {
@@ -72,6 +79,7 @@ export function validateWorkspaceHistoryUpdate(previous: WorkspaceData, next: Wo
 
   for (const [id, manifest] of priorManifests) {
     const candidate = nextManifests.get(id);
+    if (!candidate && manifest.schemaVersion === '1.0.0') throw Object.assign(new Error('该节点仍有不可变执行上下文，请使用归档。'), { code: 'PURGE_HAS_EXECUTION_HISTORY', status: 409 });
     if (candidate && !isDeepStrictEqual(candidate, manifest)) {
       throw new Error(`Immutable Manifest ${id} cannot be rewritten`);
     }

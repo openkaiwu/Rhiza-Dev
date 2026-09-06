@@ -38,6 +38,28 @@ describe('GraphView', () => {
     await waitFor(() => expect(handlers.onRestoreNode).toHaveBeenCalledWith('archived'));
   });
 
+  it('rolls back a failed drag and keeps relation deletion available', async () => {
+    const handlers = callbacks();
+    handlers.onMove.mockRejectedValueOnce(new Error('save failed'));
+    const target = { ...node, id: 'target', title: '目标节点', x: 550 };
+    render(<GraphView nodes={[node, target]} edges={[{ id: 'relation', source: node.id, target: target.id, relation: 'related-to', label: '测试关系' }]} activeNodeId="root" {...handlers} />);
+    const element = screen.getByRole('button', { name: '讨论节点：根节点' });
+    element.setPointerCapture = vi.fn(); element.hasPointerCapture = () => false;
+    const pointer = (type: string, x: number) => {
+      const event = new MouseEvent(type, { bubbles: true, clientX: x, clientY: 200 });
+      Object.defineProperty(event, 'movementX', { value: 30 });
+      Object.defineProperty(event, 'movementY', { value: 0 });
+      fireEvent(element, event);
+    };
+    pointer('pointerdown', 350); pointer('pointermove', 380); pointer('pointerup', 380);
+    await waitFor(() => expect(handlers.onMove).toHaveBeenCalled());
+    await waitFor(() => expect(element.style.left).toBe('320px'));
+    expect(screen.getByRole('alert')).toHaveTextContent('无法保存节点位置');
+    fireEvent.click(screen.getByText('测试关系'));
+    fireEvent.click(screen.getByRole('button', { name: '删除选中关系' }));
+    await waitFor(() => expect(handlers.onDeleteEdge).toHaveBeenCalledWith('relation'));
+  });
+
   it('keeps 300 nodes navigable through search, focus and fit view', () => {
     const nodes = Array.from({ length: 300 }, (_, index) => ({ ...node, id: `node-${index}`, title: `讨论 ${index}`, summary: index === 287 ? '唯一检索目标' : '规模测试', x: (index % 20) * 100, y: Math.floor(index / 20) * 80 }));
     render(<GraphView nodes={nodes} edges={[]} activeNodeId="node-287" {...callbacks()} />);

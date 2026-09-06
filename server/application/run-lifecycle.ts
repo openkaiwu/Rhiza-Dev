@@ -4,6 +4,7 @@ import type { CommandFactContext } from '../domain-journal';
 import { activeRunStatuses, RunTraceBuffer, TransientStreamSink, type ContextEnvelope, type ExecutionRun, type RunMutation } from '../execution-runtime/run';
 import type { RuntimeEvent, RuntimePort, RuntimeRequest } from './ports/runtime';
 import type { WorkspaceUnitOfWork } from './ports/workspace-unit-of-work';
+import type { FrozenContextItem } from '../context-runtime/contracts';
 
 type Completion = Extract<RuntimeEvent, { type: 'RUN_END' }>;
 const stopped = () => applicationError('生成已停止。', 'GENERATION_STOPPED', 'conflict', 'retry', true, 499);
@@ -16,9 +17,9 @@ export class RunLifecycle {
     private readonly now: () => string, private readonly id: () => string,
     private readonly hash: (input: ContextEnvelope) => string) {}
 
-  private async change<T>(envelope: CommandEnvelope<CommandType>, mutation: RunMutation, value: T, commandId = this.id()) {
+  private async change<T>(envelope: CommandEnvelope<CommandType>, mutation: RunMutation, value: T, commandId = this.id(), frozen: readonly FrozenContextItem[] = []) {
     const context: CommandFactContext = { commandId, commandType: commandId === envelope.commandId ? envelope.commandType : 'TransitionExecutionRun', actor: envelope.actor, scope: envelope.scope, occurredAt: this.now(), correlationId: envelope.correlationId, expectedRevision: mutation.kind === 'create' ? envelope.expectedRevision : undefined };
-    return this.uow.withCommand!(context, async () => (await this.uow.execute({ policy: { kind: 'normal' }, run: mutation, apply: current => ({ next: current, value }) })).value);
+    return this.uow.withCommand!(context, async () => (await this.uow.execute({ policy: { kind: 'normal' }, run: mutation, apply: current => ({ next: frozen.length ? { ...current, resources: [...current.resources, ...frozen.map(item => item.resource)], resourceVersions: [...current.resourceVersions, ...frozen.map(item => item.resourceVersion)] } : current, value }) })).value);
   }
 
   async cancel(envelope: CommandEnvelope<CommandType>, runId: string): Promise<ExecutionRun> {
@@ -40,7 +41,7 @@ export class RunLifecycle {
   }
 
   async execute<T>(envelope: CommandEnvelope<CommandType>, request: RuntimeRequest, input: ContextEnvelope,
-    complete: (completion: Completion, mutation?: RunMutation) => Promise<T>, options?: CommandExecutionOptions, parentRunRef?: string): Promise<T> {
+    complete: (completion: Completion, mutation?: RunMutation) => Promise<T>, options?: CommandExecutionOptions, parentRunRef?: string, frozen: readonly FrozenContextItem[] = []): Promise<T> {
     if (!this.uow.tracksRuns) {
       request.signal = options?.signal;
       await options?.onReady?.();
@@ -59,7 +60,7 @@ export class RunLifecycle {
       const parent = await this.uow.getRun!(parentRunRef);
       if (!parent || parent.nodeId !== run.nodeId) throw applicationError('重试来源不属于当前讨论。', 'INVALID_PARENT_RUN', 'validation', 'none', false, 400);
     }
-    const stored = await this.change(envelope, { kind: 'create', run }, run, `run:create:${envelope.commandId}`);
+    const stored = await this.change(envelope, { kind: 'create', run }, run, `run:create:${envelope.commandId}`, frozen);
     if (stored.id !== run.id) throw applicationError('该命令已有执行记录，请查询执行历史。', 'RUN_ALREADY_EXISTS', 'conflict', 'none', false, 409);
     const controller = new AbortController();
     this.controllers.set(run.id, controller);

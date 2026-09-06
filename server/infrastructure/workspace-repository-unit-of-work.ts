@@ -1,4 +1,4 @@
-import type { WorkspaceExecutionResult, WorkspaceMutation, WorkspaceMutationPolicy, WorkspaceUnitOfWork } from '../application/ports/workspace-unit-of-work';
+import type { GraphChangesInput, GraphNeighborhoodInput, GraphPathInput, GraphTreeInput, WorkspaceExecutionResult, WorkspaceMutation, WorkspaceMutationPolicy, WorkspaceUnitOfWork } from '../application/ports/workspace-unit-of-work';
 import type { WorkspaceRepository, WorkspaceUpdateOptions } from '../store';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createSeedWorkspace } from '../seed';
@@ -6,6 +6,7 @@ import type { WorkspaceData } from '../domain';
 import type { RunMutation } from '../application/ports/workspace-unit-of-work';
 import type { CommandFactContext } from '../domain-journal';
 import { eventForCommand, toActivityItem } from '../domain-journal';
+import { buildWorkspaceGraphProjection, graphChanges, graphNeighborhood, graphPath, graphTree } from '../graph-projection/model';
 
 function updateOptions(policy: WorkspaceMutationPolicy | undefined): WorkspaceUpdateOptions | undefined {
   if (!policy || policy.kind === 'normal') return undefined;
@@ -24,6 +25,20 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
     return workspaceId ? this.repository.forWorkspace?.(workspaceId) ?? this.repository : this.repository;
   }
   async listRuns(limit = 50) { return this.runRepository().listRuns?.(limit) ?? []; }
+  async readContextHistory(input: { manifestId: string } | { messageId: string }) {
+    const target = this.runRepository();
+    if (target.readContextHistory) return target.readContextHistory(input);
+    const workspace = await this.selected();
+    const message = 'messageId' in input ? workspace.messages.find(item => item.id === input.messageId) : undefined;
+    const manifestId = 'manifestId' in input ? input.manifestId : message ? message.manifestId ?? workspace.messages.find(item => item.replyToMessageId === message.id && item.manifestId)?.manifestId : undefined;
+    const manifest = workspace.manifests.find(item => item.id === manifestId);
+    return manifest ? { manifest, resources: workspace.resources, versions: workspace.resourceVersions } : undefined;
+  }
+  async readConversationPreparation(attachmentIds: string[], sourceMessageId?: string) {
+    const target = this.runRepository();
+    if (!target.readConversationPreparation) throw new Error('CONVERSATION_PREPARATION_UNAVAILABLE');
+    return target.readConversationPreparation(attachmentIds, sourceMessageId);
+  }
   async getRun(runId: string) { return this.runRepository().getRun?.(runId); }
   async writeRunTraces(runId: string, attempt: number, traces: import('../application/ports/workspace-unit-of-work').RunTrace[]) { await this.runRepository().writeRunTraces?.(runId, attempt, traces); }
 
@@ -88,6 +103,24 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
     if (!target?.readJournal) return [];
     return (await target.readJournal(limit)).map(toActivityItem);
   }
+
+  async readGraphProjection() {
+    const target = this.runRepository();
+    if (target.readGraphProjection) return target.readGraphProjection();
+    const workspace = await this.selected();
+    const [runs, events] = await Promise.all([target.listRuns?.(10_000) ?? [], target.readJournal?.(10_000) ?? []]);
+    return buildWorkspaceGraphProjection(workspace, runs, events[0]?.sequence ?? 0, events);
+  }
+
+  async rebuildGraphProjection() {
+    const target = this.runRepository();
+    if (target.rebuildGraphProjection) return target.rebuildGraphProjection();
+    return this.readGraphProjection();
+  }
+  async queryGraphNeighborhood(input: GraphNeighborhoodInput) { return graphNeighborhood(await this.readGraphProjection(), input); }
+  async queryGraphPath(input: GraphPathInput) { return graphPath(await this.readGraphProjection(), input.from, input.to, input.nodeLimit); }
+  async queryGraphTree(input: GraphTreeInput) { return graphTree(await this.readGraphProjection(), input.root, input.depth, input.nodeLimit); }
+  async queryGraphChanges(input: GraphChangesInput) { return graphChanges(await this.readGraphProjection(), input.cursor, input.limit); }
 
   async readCommittedResult<T>(): Promise<{ found: false } | { found: true; value: T }> {
     const context = this.command.getStore();

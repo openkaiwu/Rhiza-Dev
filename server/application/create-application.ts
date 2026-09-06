@@ -1,4 +1,6 @@
+import type { ContextCompiler, ContextVersionVector, FrozenContextItem, IndexedContextPlanningPort } from '../context-runtime/contracts';
 import { RunLifecycle } from './run-lifecycle';
+import { resolveContextHistory } from './context-history';
 import type { ContextEnvelope, RunMutation } from '../execution-runtime/run';
 import { ApplicationError, applicationError } from '../contracts/application-error';
 import type { Application, CommandEnvelope, CommandExecutionOptions, CommandMap, CommandResult, CommandType, QueryEnvelope, QueryMap, QueryResult, QueryType } from '../contracts/application';
@@ -24,6 +26,9 @@ export interface RhizaApplicationDependencies {
   host: HostRuntimePort;
   textExtraction: LegacyTextExtractionPort;
   planner: ContextPlannerPort;
+  indexedPlanner?: IndexedContextPlanningPort;
+  contextCompiler?: ContextCompiler;
+  contextVersions?: ContextVersionVector;
   id: () => string;
   now: () => string;
   log?: { error(message: string, error?: unknown): void };
@@ -33,7 +38,7 @@ export interface RhizaApplicationDependencies {
 }
 
 type Completion = { text: string; model: string; provider: string; reasoning?: string; toolCalls?: StoredMessage['toolCalls']; usage?: StoredMessage['usage'] };
-type PreparedRun = { manifest: ContextManifest; request: RuntimeRequest; createdAt: string; userMessageId: string; versionGroupId: string; version: number };
+type PreparedRun = { frozen: FrozenContextItem[]; sourceRunId?: string; manifest: ContextManifest; request: RuntimeRequest; createdAt: string; userMessageId: string; versionGroupId: string; version: number };
 type AnyCommandEnvelope = { [K in CommandType]: Omit<CommandEnvelope<K>, 'commandType' | 'payload'> & { commandType: K; payload: CommandMap[K]['payload'] } }[CommandType];
 type AnyQueryEnvelope = { [K in QueryType]: Omit<QueryEnvelope<K>, 'queryType' | 'payload'> & { queryType: K; payload: QueryMap[K]['payload'] } }[QueryType];
 type DispatchPayload = {
@@ -128,14 +133,23 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
   const mutateWorkspace = async (work: (current: WorkspaceData) => { next: WorkspaceData; value: unknown }) => (await mutate(work)).workspace;
 
   const prepareRun = async (payload: Extract<CommandEnvelope<'CreateConversationRun'>['payload'], object>): Promise<PreparedRun> => {
-    const current = await unitOfWork.read(workspace => workspace);
+    const legacyWorkspace = dependencies.indexedPlanner ? undefined : await unitOfWork.read(workspace => workspace);
+    const current = legacyWorkspace
+      ? { ...legacyWorkspace, node: legacyWorkspace.discussionNodes.find(item => item.id === legacyWorkspace.activeNodeId), sourceRunId: legacyWorkspace.manifests.find(item => item.id === legacyWorkspace.messages.find(message => message.id === payload.sourceMessageId)?.manifestId)?.requestId }
+      : await unitOfWork.readConversationPreparation?.(payload.attachmentIds, payload.sourceMessageId);
+    if (!current) throw new Error('CONVERSATION_PREPARATION_UNAVAILABLE');
     const nodeId = current.activeNodeId;
-    const node = current.discussionNodes.find(item => item.id === nodeId);
+    const node = current.node;
     if (!node) throw legacyError('当前讨论节点不存在。', 404, 'NODE_NOT_FOUND');
     if (node.status === 'archived') throw legacyError('归档节点为只读，请先恢复后再继续讨论。', 409, 'NODE_ARCHIVED');
-    let plan: ReturnType<ContextPlannerPort['plan']>;
-    try { plan = planner.plan(current, payload.prompt, payload.attachmentIds, budget); }
+    let plan: Awaited<ReturnType<IndexedContextPlanningPort['plan']>>;
+    try {
+      plan = dependencies.indexedPlanner
+        ? await dependencies.indexedPlanner.plan({ workspaceId: current.projectId, nodeId, mode: current.mode, query: payload.prompt, selection: current.contextItems, attachmentIds: payload.attachmentIds, budget })
+        : planner.plan(legacyWorkspace!, payload.prompt, payload.attachmentIds, budget);
+    }
     catch (error) {
+      if (dependencies.indexedPlanner) throw error;
       log?.error('[planner] degraded to explicit context', error);
       const items = current.contextItems.filter(item => item.status === 'active');
       plan = { items, diagnostics: { candidateCount: 0, selectedCount: items.length, elapsedMs: 0, fallback: true, budget, usedTokens: items.reduce((sum, item) => sum + item.tokens, 0) } };
@@ -162,13 +176,15 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
       else throw legacyError('附件尚未完成 ResourceVersion 回填。', 409, 'RESOURCE_BACKFILL_REQUIRED');
     }));
     const model = await activeModel(); const createdAt = now(); const requestId = id(); const manifestId = id();
+    const frozen = dependencies.contextCompiler ? await dependencies.contextCompiler.compile(current.projectId, plan.items) : [];
     const manifest: ContextManifest = {
+      ...(dependencies.contextCompiler ? { schemaVersion: '1.0.0' as const, versions: dependencies.contextVersions, omissions: plan.omissions, cache: plan.cache } : {}),
       id: manifestId, projectId: current.projectId, nodeId, requestId, createdAt, mode: current.mode, model: model.model, provider: model.provider, runtime: runtime.kind || 'provider-adapter',
       contextItemIds: current.contextItems.filter(item => item.status === 'active').map(item => item.id), excludedItemIds: current.contextItems.filter(item => item.status === 'excluded').map(item => item.id),
-      contextItems: plan.items.map(item => ({ sourceType: item.sourceType || 'reference', sourceId: item.sourceId || item.id, sourceNodeId: item.sourceNodeId, title: item.title, detail: item.detail, role: item.role, selectionMode: item.selectionMode || 'CURRENT', pinned: Boolean(item.pinned), reason: item.reason || (item.selectionMode === 'CURRENT' ? '当前讨论节点。' : '已加入 Active Context。'), tokenCount: item.tokens, contentVersion: item.contentVersion || 1 })),
+      contextItems: plan.items.map((item, index) => ({ ...(frozen[index] ? { resourceId: frozen[index].resource.id, resourceVersionId: frozen[index].resourceVersion.id, digest: frozen[index].resourceVersion.digest, priority: frozen[index].priority, contributorVersion: frozen[index].contributorVersion, originResourceVersionId: plan.sourceVersions?.find(source => source.sourceType === item.sourceType && source.sourceId === item.sourceId)?.resourceVersionId, originDigest: plan.sourceVersions?.find(source => source.sourceType === item.sourceType && source.sourceId === item.sourceId)?.resourceDigest } : {}), sourceType: item.sourceType || 'reference', sourceId: item.sourceId || item.id, sourceNodeId: item.sourceNodeId, title: item.title, detail: item.detail, role: item.role, selectionMode: item.selectionMode || 'CURRENT', pinned: Boolean(item.pinned), reason: item.reason || (item.selectionMode === 'CURRENT' ? '当前讨论节点。' : '已加入 Active Context。'), tokenCount: item.tokens, contentVersion: item.contentVersion || 1 })),
       estimatedTokens: plan.items.reduce((sum, item) => sum + item.tokens, 0), generation: payload.generation, operation: payload.operation, sourceMessageId: payload.sourceMessageId, attachmentIds: payload.attachmentIds, planner: plan.diagnostics,
     };
-    return { manifest, createdAt, userMessageId, versionGroupId: version.versionGroupId, version: version.version, request: { modelSnapshot: model, requestId, manifestId, projectId: current.projectId, nodeId, modelId: model.id, prompt, history, contextItems: plan.items, mode: current.mode, attachments: attachments.filter((item): item is StoredAttachment => Boolean(item)), generation: payload.generation, operation: payload.operation, sourceMessageId: payload.sourceMessageId } };
+    return { frozen, sourceRunId: current.sourceRunId, manifest, createdAt, userMessageId, versionGroupId: version.versionGroupId, version: version.version, request: { modelSnapshot: model, requestId, manifestId, projectId: current.projectId, nodeId, modelId: model.id, prompt, history, contextItems: plan.items, mode: current.mode, attachments: attachments.filter((item): item is StoredAttachment => Boolean(item)), generation: payload.generation, operation: payload.operation, sourceMessageId: payload.sourceMessageId } };
   };
 
   const commitRun = async (run: PreparedRun, completion: Completion, mutation?: RunMutation) => {
@@ -180,7 +196,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
       const target = current.discussionNodes.find(node => node.id === run.request.nodeId);
       if (!target) throw legacyError('生成期间讨论节点已被删除，结果未写入。', 409, 'NODE_REMOVED_DURING_RUN');
       if (target.status === 'archived') throw legacyError('生成期间讨论节点已归档，结果未写入。', 409, 'NODE_ARCHIVED_DURING_RUN');
-      return { next: { ...current, messages: [...current.messages, userMessage, assistantMessage], manifests: [...current.manifests, run.manifest] }, value: { userMessage, assistantMessage, manifest: run.manifest } };
+      return { next: { ...current, resources: [...current.resources, ...run.frozen.map(item => item.resource).filter(resource => !current.resources.some(item => item.id === resource.id))], resourceVersions: [...current.resourceVersions, ...run.frozen.map(item => item.resourceVersion).filter(version => !current.resourceVersions.some(item => item.id === version.id))], messages: [...current.messages, userMessage, assistantMessage], manifests: [...current.manifests, run.manifest] }, value: { userMessage, assistantMessage, manifest: run.manifest } };
     }, undefined, mutation);
     return committed.value;
   };
@@ -311,15 +327,20 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
           if (!existing) throw legacyError('Resource 不存在。', 404, 'RESOURCE_NOT_FOUND');
           return await registerResourceVersion({ ...payload, name: existing.name, mimeType: existing.mimeType }, existing.id);
         }
+        case 'RebuildGraphProjection': {
+          const projection = await unitOfWork.rebuildGraphProjection?.();
+          if (!projection) throw legacyError('Graph Projection 不可用。', 503, 'GRAPH_PROJECTION_UNAVAILABLE');
+          return { version: projection.version, checkpoint: projection.checkpoint, checksum: projection.checksum };
+        }
         case 'CreateConversationRun': {
           const previous = await unitOfWork.readCommittedResult?.<CommandMap['CreateConversationRun']['result']>();
           if (previous?.found) { await options?.onReady?.(); return previous.value; }
           const run = await prepareRun(payload);
           const parentRunRef = (envelope.payload as CommandMap['CreateConversationRun']['payload']).parentRunRef;
           // Regenerate uses the source message's manifest to find its immutable execution parent.
-          const sourceRunId = payload.sourceMessageId ? await unitOfWork.read(current => { const manifestId = current.messages.find(item => item.id === payload.sourceMessageId)?.manifestId; return current.manifests.find(item => item.id === manifestId)?.requestId; }) : undefined;
+          const sourceRunId = run.sourceRunId;
           const lineage = parentRunRef ?? (sourceRunId ? (await unitOfWork.getRun?.(sourceRunId))?.id : undefined);
-          return runs.execute(envelope, run.request, inputFor(run.request), (completion, mutation) => commitRun(run, completion, mutation), options, lineage);
+          return runs.execute(envelope, run.request, inputFor(run.request), (completion, mutation) => commitRun(run, completion, mutation), options, lineage, run.frozen);
         }
         case 'CancelExecutionRun': return runs.cancel(envelope, (envelope.payload as { runId: string }).runId);
         case 'ChangeContextMode': {
@@ -337,7 +358,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
         case 'ChangeNodeStatus': return mutateWorkspace(current => changeNodeStatus(current, payload.nodeId, payload.status as 'draft' | 'active' | 'resolved' | 'stale' | 'archived', now, planner));
         case 'ArchiveObject': return mutateWorkspace(current => changeNodeStatus(current, payload.nodeId, 'archived', now, planner));
         case 'CreateSegment': { const committed = await mutate(current => { const node = current.discussionNodes.find(item => item.id === payload.nodeId); if (!node) throw legacyError('讨论节点不存在。', 404, 'NODE_NOT_FOUND'); if (node.status === 'archived') throw legacyError('归档节点为只读；请先恢复。', 409, 'NODE_ARCHIVED_READ_ONLY'); if (payload.messageIds.some((messageId: string) => !current.messages.some(message => message.id === messageId && message.nodeId === node.id))) throw legacyError('Segment 只能包含所属节点中的 Event。', 400, 'INVALID_SEGMENT_EVENT'); const segment = { id: id(), nodeId: node.id, ordinal: Math.max(-1, ...current.segments.filter(item => item.nodeId === node.id).map(item => item.ordinal)) + 1, title: payload.title, createdAt: now() }; const workspace = { ...current, segments: [...current.segments, segment], messages: current.messages.map(message => payload.messageIds.includes(message.id) ? { ...message, segmentId: segment.id } : message) }; return { next: workspace, value: segment }; }); return { workspace: committed.workspace, segment: committed.value }; }
-        case 'UpdateGraphLayout': return mutateWorkspace(current => { const positions = payload.positions; for (const position of positions) { const node = current.discussionNodes.find(item => item.id === position.nodeId); if (!node) throw legacyError('讨论节点不存在。', 404, 'NODE_NOT_FOUND'); if (node.status === 'archived') throw legacyError('归档节点为只读；请先恢复。', 409, 'NODE_ARCHIVED_READ_ONLY'); if (!Number.isFinite(position.x) || !Number.isFinite(position.y) || position.x < 0 || position.y < 0 || position.x > 5000 || position.y > 5000) throw legacyError('节点坐标无效。', 400, 'INVALID_POSITION'); } const changed = new Map(positions.map(position => [position.nodeId, { ...position, x: Math.round(position.x), y: Math.round(position.y) }])); const next = { ...current, discussionNodes: current.discussionNodes.map(node => changed.has(node.id) ? { ...node, ...changed.get(node.id)!, updatedAt: now() } : node) }; return { next, value: undefined }; });
+        case 'UpdateGraphLayout': return mutateWorkspace(current => { const positions = payload.positions; for (const position of positions) { const node = current.discussionNodes.find(item => item.id === position.nodeId); if (!node) throw legacyError('讨论节点不存在。', 404, 'NODE_NOT_FOUND'); if (node.status === 'archived') throw legacyError('归档节点为只读；请先恢复。', 409, 'NODE_ARCHIVED_READ_ONLY'); if (!Number.isFinite(position.x) || !Number.isFinite(position.y) || position.x < 0 || position.y < 0 || position.x > 5000 || position.y > 5000) throw legacyError('节点坐标无效。', 400, 'INVALID_POSITION'); } const changed = new Map(positions.map(position => [position.nodeId, { x: Math.round(position.x), y: Math.round(position.y) }])); const next = { ...current, discussionNodes: current.discussionNodes.map(node => changed.has(node.id) ? { ...node, ...changed.get(node.id)!, updatedAt: now() } : node) }; return { next, value: undefined }; });
         case 'CreateRelation': return mutateWorkspace(current => { const source = current.discussionNodes.find(node => node.id === payload.source); const target = current.discussionNodes.find(node => node.id === payload.target); if (!source || !target) throw legacyError('关系节点不存在。', 404, 'NODE_NOT_FOUND'); if (source.status === 'archived' || target.status === 'archived') throw legacyError('归档节点为只读；请先恢复。', 409, 'NODE_ARCHIVED_READ_ONLY'); if (current.discussionEdges.some(edge => edge.source === payload.source && edge.target === payload.target && edge.relation === payload.relation)) throw legacyError('相同关系已经存在。', 409, 'EDGE_ALREADY_EXISTS'); const next = { ...current, discussionEdges: [...current.discussionEdges, { id: id(), source: payload.source, target: payload.target, relation: payload.relation, label: payload.label || '', createdAt: now() }] }; return { next, value: undefined }; });
         case 'RemoveRelation': return mutateWorkspace(current => { const edge = current.discussionEdges.find(item => item.id === payload.edgeId); if (!edge) throw legacyError('关系不存在。', 404, 'EDGE_NOT_FOUND'); if (current.discussionNodes.some(node => (node.id === edge.source || node.id === edge.target) && node.status === 'archived')) throw legacyError('归档节点及其关系为只读；请先恢复。', 409, 'NODE_ARCHIVED_READ_ONLY'); const next = { ...current, discussionEdges: current.discussionEdges.filter(item => item.id !== edge.id) }; return { next, value: undefined }; });
         case 'CreateMergeRevision': return mutateWorkspace(current => { const result = mergeRevision(current, payload.sourceNodeId, payload.targetNodeId || current.discussionNodes.find(node => node.id === payload.sourceNodeId)?.sourceNodeId || '', payload.summary, id, now, planner); return { next: result.next, value: undefined }; });
@@ -362,18 +383,39 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
       if (envelope.queryType === 'ListWorkspaces') return workspaceDirectory.list(envelope.actor, Boolean((envelope.payload as { includeArchived?: boolean }).includeArchived));
       await ensureDefaultWorkspace(envelope.actor, envelope.workspaceId, envelope.scope);
       await workspaceDirectory.require(envelope.actor, envelope.workspaceId, envelope.scope);
-      if (unitOfWork.withWorkspace) return unitOfWork.withWorkspace(envelope.workspaceId, () => dispatchQueryScoped(envelope));
-      return dispatchQueryScoped(envelope);
+      if (unitOfWork.withWorkspace) return await unitOfWork.withWorkspace(envelope.workspaceId, () => dispatchQueryScoped(envelope));
+      return await dispatchQueryScoped(envelope);
     } catch (error) { throw asApplicationError(error); }
   };
   const dispatchQueryScoped = async (envelope: AnyQueryEnvelope): Promise<unknown> => {
     try {
       switch (envelope.queryType) {
+        case 'GetContextHistory': {
+          const facts = await unitOfWork.readContextHistory?.(envelope.payload as QueryMap['GetContextHistory']['payload']);
+          if (!facts) throw legacyError('上下文记录不存在。', 404, 'CONTEXT_MANIFEST_NOT_FOUND');
+          return resolveContextHistory(facts, host.blobs);
+        }
         case 'ListExecutionRuns': return unitOfWork.listRuns?.(Math.min(100, Math.max(1, Number((envelope.payload as { limit?: number }).limit || 50)))) ?? [];
         case 'GetExecutionRun': { const run = await unitOfWork.getRun?.((envelope.payload as { runId: string }).runId); if (!run) throw legacyError('执行记录不存在。', 404, 'RUN_NOT_FOUND'); return run; }
         case 'GetHealth': return { ok: true };
         case 'GetWorkspace': return unitOfWork.read(workspace => workspace);
         case 'GetWorkspaceActivity': return unitOfWork.readActivity?.(Math.min(100, Math.max(1, Number((envelope.payload as { limit?: number }).limit || 50)))) ?? [];
+        case 'GetGraphNeighborhood': {
+          if (!unitOfWork.queryGraphNeighborhood) throw legacyError('Graph Projection 不可用。', 503, 'GRAPH_PROJECTION_UNAVAILABLE');
+          return unitOfWork.queryGraphNeighborhood(envelope.payload as QueryMap['GetGraphNeighborhood']['payload']);
+        }
+        case 'GetGraphPath': {
+          if (!unitOfWork.queryGraphPath) throw legacyError('Graph Projection 不可用。', 503, 'GRAPH_PROJECTION_UNAVAILABLE');
+          return unitOfWork.queryGraphPath(envelope.payload as QueryMap['GetGraphPath']['payload']);
+        }
+        case 'GetGraphTree': {
+          if (!unitOfWork.queryGraphTree) throw legacyError('Graph Projection 不可用。', 503, 'GRAPH_PROJECTION_UNAVAILABLE');
+          return unitOfWork.queryGraphTree(envelope.payload as QueryMap['GetGraphTree']['payload']);
+        }
+        case 'GetGraphChanges': {
+          if (!unitOfWork.queryGraphChanges) throw legacyError('Graph Projection 不可用。', 503, 'GRAPH_PROJECTION_UNAVAILABLE');
+          return unitOfWork.queryGraphChanges(envelope.payload as QueryMap['GetGraphChanges']['payload']);
+        }
         case 'GetProviders': return providers.snapshot();
         case 'GetProviderStatus': {
           if (runtime.kind !== 'librechat') return providers.activeStatus();

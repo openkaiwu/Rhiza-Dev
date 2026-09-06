@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Attachment, ContextManifest, ContextMode, ContextStatus, DiscussionEdge, DiscussionNode, Message, ProviderCatalog, ProviderPresetInfo, ProviderStatus, Segment, View, WorkspaceActivityItem, WorkspaceSnapshot, WorkspaceRecord } from './types';
+import type { Attachment, ContextManifest, ContextMode, ContextStatus, DiscussionEdge, DiscussionNode, GraphProjectionResult, Message, ProviderCatalog, ProviderPresetInfo, ProviderStatus, Segment, View, WorkspaceActivityItem, WorkspaceSnapshot, WorkspaceRecord } from './types';
 import { api, type ChatRequestOptions } from './api';
 import { presentErrorText } from './error-presentation';
 import { Sidebar } from './components/Sidebar';
 import { ChatView } from './components/ChatView';
 import { GraphView } from './components/GraphView';
 import { StateView } from './components/StateView';
+import type { ContextHistoryState } from './components/ContextHistoryPanel';
 import { ContextPanel } from './components/ContextPanel';
 import { ProviderSettings, type ProviderFormState } from './components/ProviderSettings';
 import { RunHistory } from './components/RunHistory';
 import { ActivityView } from './components/ActivityView';
 import { AppShell } from './components/AppShell';
-import { toGraphPresentationModel } from './components/graph-model';
+import { projectionToGraphPresentationModel, toGraphPresentationModel } from './components/graph-model';
 
 export function App() {
   const initialNode: DiscussionNode = { id: 'information-architecture', title: '信息架构方向', summary: '探索首屏的内容层级、上下文入口与专业能力的渐进呈现方式。', status: 'active', kind: 'main', x: 350, y: 150, createdAt: '2026-08-09T12:00:00.000Z', updatedAt: '2026-08-09T12:00:00.000Z' };
@@ -29,6 +30,8 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [syncError, setSyncError] = useState('');
   const [contextOpen, setContextOpen] = useState(false);
+  const [contextHistory, setContextHistory] = useState<ContextHistoryState>();
+  const historyRequestRef = useRef(0);
   const [manifests, setManifests] = useState<ContextManifest[]>([]);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [boot, setBoot] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -43,6 +46,12 @@ export function App() {
   const [activity, setActivity] = useState<WorkspaceActivityItem[]>([]);
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState('');
+  const [graphProjection, setGraphProjection] = useState<GraphProjectionResult>();
+  const [graphLoading, setGraphLoading] = useState(false);
+  const [graphError, setGraphError] = useState('');
+  const graphRequestRef = useRef(0);
+  const graphPagesRef = useRef(1);
+  const graphCompleteRef = useRef(false);
   const workspaceGenerationRef = useRef(0);
   const selectedWorkspaceRef = useRef<string | undefined>(undefined);
   const modalReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -55,6 +64,7 @@ export function App() {
     setMode(workspace.mode);
     setDiscussionNodes(workspace.discussionNodes);
     setDiscussionEdges(workspace.discussionEdges);
+    graphRequestRef.current += 1;
     setActiveNodeId(workspace.activeNodeId);
     setManifests(workspace.manifests || []);
     setSegments(workspace.segments || []);
@@ -109,10 +119,52 @@ export function App() {
     }
   }, []);
   useEffect(() => { if (view === 'activity' && boot === 'ready') void loadActivity(); }, [view, boot, currentWorkspaceId, loadActivity]);
+  const loadGraph = useCallback(async (cursor?: string) => {
+    const workspaceId = selectedWorkspaceRef.current; const generation = workspaceGenerationRef.current;
+    const requestId = ++graphRequestRef.current;
+    const current = () => requestId === graphRequestRef.current && generation === workspaceGenerationRef.current && workspaceId === selectedWorkspaceRef.current;
+    setGraphLoading(true); setGraphError('');
+    try {
+      let { graph } = await api.getGraphNeighborhood({ nodeLimit: 100, cursor });
+      let pages = 1;
+      // Refresh the user's loaded range after edits, including a new final page when needed.
+      const targetPages = cursor ? 1 : graphPagesRef.current + Number(graphCompleteRef.current);
+      while (graph.nextCursor && pages < targetPages && current()) {
+        const next = (await api.getGraphNeighborhood({ nodeLimit: 100, cursor: graph.nextCursor })).graph;
+        graph = { ...next, objects: [...graph.objects, ...next.objects], relations: [...graph.relations, ...next.relations] };
+        pages += 1;
+      }
+      if (!current()) return;
+      graphPagesRef.current = cursor ? graphPagesRef.current + 1 : pages;
+      graphCompleteRef.current = !graph.nextCursor;
+      setGraphProjection(previous => cursor && previous && previous.checkpoint === graph.checkpoint ? {
+        ...graph,
+        objects: [...new Map([...previous.objects, ...graph.objects].map(item => [item.ref.objectId, item])).values()],
+        relations: [...new Map([...previous.relations, ...graph.relations].map(item => [item.id, item])).values()],
+      } : graph);
+    } catch (error) {
+      if (current()) setGraphError(presentErrorText(error, { message: '无法加载图谱。', recovery: '请刷新图谱后重试。' }));
+    } finally { if (current()) setGraphLoading(false); }
+  }, []);
+  useEffect(() => { if (view === 'graph' && boot === 'ready') void loadGraph(); }, [view, boot, currentWorkspaceId, discussionNodes, loadGraph]);
   useEffect(() => { if (api.listWorkspaces) void api.listWorkspaces(true).then(result => setWorkspaces(result.workspaces)).catch(() => undefined); }, []);
+  const openCurrentContext = () => { historyRequestRef.current++; setContextHistory(undefined); setContextOpen(true); };
+  const inspectMessageContext = async (messageId: string) => {
+    const request = ++historyRequestRef.current;
+    const generation = workspaceGenerationRef.current;
+    setContextOpen(true); setContextHistory({ messageId, loading: true });
+    try {
+      const data = await api.getMessageContext(messageId);
+      if (request === historyRequestRef.current && generation === workspaceGenerationRef.current) setContextHistory({ messageId, loading: false, data });
+    } catch (error) {
+      if (request === historyRequestRef.current && generation === workspaceGenerationRef.current) setContextHistory({ messageId, loading: false, error: presentErrorText(error, { message: '无法读取这轮上下文。', recovery: '请重新加载。' }) });
+    }
+  };
   const switchWorkspace = async (workspaceId: string) => {
+    historyRequestRef.current++; setContextHistory(undefined);
     const generation = ++workspaceGenerationRef.current;
     selectedWorkspaceRef.current = workspaceId;
+    graphRequestRef.current += 1; graphPagesRef.current = 1; graphCompleteRef.current = false; setGraphProjection(undefined); setGraphError('');
     setMessages([]); setDiscussionNodes([]); setContextItems([]); setAttachments([]); setDiscussionEdges([]); setSegments([]); setManifests([]); setActivity([]); setActiveNodeId('');
     api.setWorkspace(workspaceId); setCurrentWorkspaceId(workspaceId);
     try {
@@ -135,13 +187,13 @@ export function App() {
     const goOnline = () => {
       setOnline(true);
       setNetworkNotice('网络已恢复，正在刷新工作区。');
-      void loadWorkspace(boot === 'ready').then(result => {
+      void loadWorkspace(Boolean(selectedWorkspaceRef.current)).then(result => {
         if (result !== 'stale') setNetworkNotice(result === 'loaded' ? '网络已恢复，工作区已刷新。' : '网络已恢复，但工作区刷新失败。');
       });
     };
     window.addEventListener('offline', goOffline); window.addEventListener('online', goOnline);
     return () => { window.removeEventListener('offline', goOffline); window.removeEventListener('online', goOnline); };
-  }, [boot, loadWorkspace]);
+  }, [loadWorkspace]);
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       const modifier = event.metaKey || event.ctrlKey;
@@ -383,8 +435,8 @@ export function App() {
   const activeNode = navigableNodes.find(node => node.id === activeNodeId) || navigableNodes[0] || initialNode;
   const activeMessages = messages.filter(message => message.nodeId === activeNode.id);
   const graphModel = useMemo(
-    () => toGraphPresentationModel(discussionNodes, discussionEdges),
-    [discussionNodes, discussionEdges],
+    () => graphProjection ? projectionToGraphPresentationModel(graphProjection) : toGraphPresentationModel([], []),
+    [graphProjection],
   );
 
   if (boot === 'loading') return <main className="app-loading" aria-busy="true" aria-live="polite"><strong>正在加载工作区…</strong><p>正在同步项目、讨论节点与上下文。</p></main>;
@@ -408,14 +460,14 @@ export function App() {
         provider={provider} providerCatalog={providerCatalog} syncError={syncError} online={online} focusComposerRequest={focusComposerRequest} onSend={sendMessage}
         onUpload={uploadAttachment} onTempSend={sendTemporaryMessage} onCreateBranch={createBranch}
         onActivateNode={id => activateNode(id, true)} onMerge={mergeNode} onSelectModel={selectModel}
-        onSettings={openSettings} onOpenContext={() => setContextOpen(open => !open)} onGraph={() => setView('graph')} onRuns={() => setView('runs')}
+        onSettings={openSettings} onOpenContext={() => { if (contextHistory) openCurrentContext(); else setContextOpen(open => !open); }} onInspectContext={id => void inspectMessageContext(id)} onGraph={() => setView('graph')} onRuns={() => setView('runs')}
       />,
-      graph: <GraphView nodes={graphModel.nodes} edges={graphModel.edges} activeNodeId={activeNode.id} onMove={moveNode} onActivate={id => activateNode(id, true)} onCreateNode={createGraphNode} onArchiveNode={archiveGraphNode} onRestoreNode={restoreGraphNode} onCreateEdge={createGraphEdge} onDeleteEdge={deleteGraphEdge}/>,
+      graph: <GraphView key={currentWorkspaceId} loading={graphLoading} error={graphError} hasMore={!!graphProjection?.nextCursor} onLoadMore={() => void loadGraph(graphProjection?.nextCursor)} onRefresh={() => void loadGraph()} nodes={graphModel.nodes} edges={graphModel.edges} activeNodeId={activeNode.id} onMove={moveNode} onActivate={id => activateNode(id, true)} onCreateNode={createGraphNode} onArchiveNode={archiveGraphNode} onRestoreNode={restoreGraphNode} onCreateEdge={createGraphEdge} onDeleteEdge={deleteGraphEdge}/>,
       state: <StateView/>,
       runs: <RunHistory key={currentWorkspaceId} onChanged={() => void loadWorkspace(true)}/>,
       activity: <ActivityView activity={activity} loading={activityLoading} error={activityError} onRefresh={() => void loadActivity()}/>,
     }}
-    contextSurface={<ContextPanel items={contextItems} mode={mode} nodes={discussionNodes} segments={segments} attachments={attachments} onMode={updateMode} onStatus={updateStatus} onPin={updatePin} onAddSource={addContextSource}/>}
+    contextSurface={<ContextPanel history={contextHistory} onBackToCurrent={openCurrentContext} onRetryHistory={() => { if (contextHistory) void inspectMessageContext(contextHistory.messageId); }} items={contextItems} mode={mode} nodes={discussionNodes} segments={segments} attachments={attachments} onMode={updateMode} onStatus={updateStatus} onPin={updatePin} onAddSource={addContextSource}/>}
     overlayLayer={<>
       {settingsOpen && <ProviderSettings catalog={providerCatalog} presets={providerPresets} onClose={() => setSettingsOpen(false)} onSave={saveProvider} onDiscover={discoverModels} onToggleModel={updateModel} onSelectModel={selectModel}/>}
       {paletteOpen && <div className="dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setPaletteOpen(false); }}><section ref={activeModalRef} className="command-palette" role="dialog" aria-modal="true" aria-label="命令面板"><header><strong>搜索或运行命令</strong><kbd>Esc</kbd></header><button onClick={() => runCommand(() => setView('chat'))}>当前讨论 <kbd>⌘1</kbd></button><button onClick={() => runCommand(() => setView('graph'))}>对话图谱 <kbd>⌘2</kbd></button><button onClick={() => runCommand(() => setView('state'))}>知识状态 <kbd>⌘3</kbd></button><button onClick={() => runCommand(() => setView('activity'))}>活动时间线 <kbd>⌘4</kbd></button><button onClick={() => runCommand(() => setContextOpen(true))}>打开 Context <kbd>⌘⇧C</kbd></button><button onClick={() => runCommand(() => { setView('chat'); setFocusComposerRequest(value => value + 1); })}>聚焦消息输入框 <kbd>/</kbd></button><button onClick={() => runCommand(() => setOnboardingOpen(true))}>帮助与快捷键</button></section></div>}

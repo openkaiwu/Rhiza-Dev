@@ -1,10 +1,14 @@
 import { Check, ChevronDown, EyeOff, FileText, GitBranch, Layers3, LockKeyhole, MoreHorizontal, PinOff, Plus, Sparkles, X } from 'lucide-react';
 import type { Attachment, ContextItem, ContextMode, ContextStatus, DiscussionNode, Segment } from '../types';
+import { ContextHistoryPanel, type ContextHistoryState } from './ContextHistoryPanel';
 
 const sectionTitle: Record<ContextStatus, string> = { active: 'Active · 本轮生效', recommended: 'Recommended · 待确认', excluded: 'Excluded · 已排除' };
 const budget = 32_000;
 
 interface ContextPanelProps {
+  history?: ContextHistoryState;
+  onBackToCurrent?: () => void;
+  onRetryHistory?: () => void;
   items: ContextItem[];
   mode: ContextMode;
   nodes: DiscussionNode[];
@@ -16,7 +20,8 @@ interface ContextPanelProps {
   onAddSource: (sourceType: 'node' | 'segment' | 'file', sourceId: string) => void | Promise<void>;
 }
 
-export function ContextPanel({ items, mode, nodes, segments, attachments, onMode, onStatus, onPin, onAddSource }: ContextPanelProps) {
+export function ContextPanel({ items, mode, nodes, segments, attachments, onMode, onStatus, onPin, onAddSource, history, onBackToCurrent, onRetryHistory }: ContextPanelProps) {
+  if (history && onBackToCurrent && onRetryHistory) return <ContextHistoryPanel history={history} onBack={onBackToCurrent} onRetry={onRetryHistory}/>;
   const activeItems = items.filter(item => item.status === 'active');
   const activeTokens = activeItems.reduce((sum, item) => sum + item.tokens, 0);
   const pinnedTokens = activeItems.filter(item => item.pinned).reduce((sum, item) => sum + item.tokens, 0);
@@ -30,14 +35,14 @@ export function ContextPanel({ items, mode, nodes, segments, attachments, onMode
 
   return (
     <aside className="context-panel">
-      <header className="panel-header"><div><span className="eyebrow">CONTEXT INSPECTOR</span><h2>本轮上下文</h2><p>推荐项不会自动进入模型输入。</p></div><button className="icon-button" aria-label="更多上下文操作"><MoreHorizontal size={18}/></button></header>
+      <header className="panel-header"><div><span className="eyebrow">CONTEXT INSPECTOR</span><h2>本轮上下文</h2><p>Strict 仅使用显式选择；其他模式按相关性补充。</p></div><button className="icon-button" aria-label="更多上下文操作"><MoreHorizontal size={18}/></button></header>
       <div className="mode-control" aria-label="上下文模式">
         {(['Auto', 'Assisted', 'Strict'] as ContextMode[]).map(option => <button key={option} className={mode === option ? 'active' : ''} onClick={() => onMode(option)}>{option}</button>)}
       </div>
       <div className={`budget-card ${overBudget ? 'over-budget' : ''}`}>
         <div className="budget-top"><span>上下文预算</span><strong>{(activeTokens / 1000).toFixed(1)}K <small>/ 32K</small></strong></div>
         <div className="budget-track"><span style={{ width: `${Math.min(100, Math.max(3, activeTokens / 320))}%` }} /></div>
-        <p>{overBudget ? `已超预算；${(pinnedTokens / 1000).toFixed(1)}K Pin 内容仍会完整保留，不会静默丢弃。` : `${activeItems.length} 个来源已冻结，Pin 内容优先保留。`}</p>
+        <p>{overBudget ? `已超预算；${(pinnedTokens / 1000).toFixed(1)}K Pin 内容仍会完整保留，不会静默丢弃。` : `${activeItems.length} 个来源已选择，将在发送时冻结。`}</p>
       </div>
       <details className="context-source-picker">
         <summary><Plus size={13}/>添加 Node / Segment / File</summary>
