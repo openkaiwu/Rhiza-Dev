@@ -37,6 +37,7 @@ import { SealedReceiptContent, type SealedReceiptRef } from '../server/infrastru
 import { SealedRunContent } from '../server/infrastructure/sealed-run-content';
 import { SealedJournalContent } from '../server/infrastructure/sealed-journal-content';
 import { SealedMessageContent } from '../server/infrastructure/sealed-message-content';
+import { manifestReferenceProjection } from '../server/infrastructure/sealed-manifest-content';
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -372,6 +373,22 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     await content.destroy(workspace.projectId, message.id, reference);
     await expect(reader.read()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     await expect(reader.readConversationPreparation([])).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+  });
+  it('M09 constrains sealed Manifest projections while retaining frozen-context validation', async () => {
+    const { app, database, store } = await setup(success);
+    const response = await request(app).post('/api/chat').send({ message: 'manifest encryption' }).expect(201);
+    const manifest = (await store.read()).manifests.find(item => item.id === response.body.manifest.id)!;
+    const projection = manifestReferenceProjection(manifest);
+    const reference = { format: 'rhiza.sealed-manifest.v1', contentId: 'manifest-content', reference: { version: 1, digest: 'a'.repeat(64), size: 2,
+      ciphertext: { digestAlgorithm: 'sha256', digest: 'b'.repeat(64), blobRef: `sha256/bb/${'b'.repeat(64)}`, size: 31 } } };
+    const insert = (value: unknown, ref: unknown = reference) => database.query(`INSERT INTO rhiza_context_manifests(id,project_id,node_id,request_id,mode,provider,model,runtime,estimated_tokens,manifest,created_at,content_ref)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12::jsonb)`, [randomUUID(),manifest.projectId,manifest.nodeId,randomUUID(),manifest.mode,manifest.provider,manifest.model,manifest.runtime,manifest.estimatedTokens,JSON.stringify(value),manifest.createdAt,JSON.stringify(ref)]);
+    await insert(projection);
+    await expect(insert({ ...projection, privateText: 'private' })).rejects.toThrow('manifest_sealed_content_valid');
+    await expect(insert(projection, { format: reference.format })).rejects.toThrow('manifest_sealed_content_valid');
+    await expect(insert({ ...projection, contextItems: [{ resourceId: 'missing', resourceVersionId: 'missing', digest: 'a'.repeat(64), contributorVersion: '1', selectionMode: 'CURRENT', priority: 1, reason: '[sealed]' }] })).rejects.toThrow('existing scoped ResourceVersion');
+    await expect(database.exec(await readFile('db/migrations/0020_sealed_manifest_content.down.sql', 'utf8'))).rejects.toThrow('Cannot remove sealed Manifest references');
+    await expect(database.query('UPDATE rhiza_context_manifests SET content_ref=NULL WHERE content_ref IS NOT NULL')).rejects.toThrow('immutable');
   });
   it('M09 forbids plaintext message replicas beside sealed content references', async () => {
     const { database, store } = await setup(success);
