@@ -55,6 +55,18 @@ function fixture(options: { indexedPlanning?: boolean; failMutation?: boolean; c
 }
 
 describe('Rhiza Application', () => {
+  it.each([false, undefined])('denies Purge before mutation when owner capability returns %s', async owner => {
+    const record = { workspaceId: '00000000-0000-4000-8000-000000000001', name: 'Shared', status: 'active' as const, createdBy: LOCAL_USER_ID, revision: 1 };
+    const directory = new WorkspaceDirectory({
+      isOwner: owner === undefined ? undefined : async () => owner,
+      listWorkspaces: async () => [record], createWorkspace: async () => ({ record, created: false }),
+      updateWorkspace: async () => record, ensureWorkspace: async () => record,
+    });
+    const { application, commits } = fixture({ workspaceDirectory: directory });
+    await expect(application.execute(createLegacyCommandEnvelope('purge-member', 'PurgeObject', { nodeId: 'node', confirmation: 'PURGE node', reason: 'test' })))
+      .rejects.toMatchObject({ details: { code: 'WORKSPACE_OWNER_REQUIRED', status: 403 } });
+    expect(commits).toEqual([]);
+  });
   it('executes a conversation run with readiness, runtime observation, and one atomic commit', async () => {
     const { application, commits, workspace } = fixture(); const events: string[] = []; let ready = false;
     const result = await application.execute(createLegacyCommandEnvelope('command-1', 'CreateConversationRun', { prompt: 'hello', operation: 'send', attachmentIds: [], generation: { temperature: 0.4, topP: 1, maxTokens: 50 } }), { onReady: () => { ready = true; }, onRuntimeEvent: event => { events.push(event.type); } });

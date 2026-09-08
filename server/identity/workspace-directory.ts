@@ -4,6 +4,7 @@ import { assertWorkspaceScope } from './workspace-scope';
 import { applicationError } from '../contracts/application-error';
 
 export interface WorkspaceDirectoryPort {
+  isOwner?(userId: string, workspaceId: string): Promise<boolean>;
   listWorkspaces(userId: string, includeArchived?: boolean): Promise<WorkspaceRecord[]>;
   createWorkspace(record: WorkspaceRecord): Promise<{ record: WorkspaceRecord; created: boolean }>;
   updateWorkspace(record: WorkspaceRecord, expectedRevision: number): Promise<WorkspaceRecord | undefined>;
@@ -19,6 +20,10 @@ export class WorkspaceDirectory {
     return record!;
   }
   list(actor: ActorRef, includeArchived = false) { return this.port.listWorkspaces(actor.actorId, includeArchived); }
+  async requireOwner(actor: ActorRef, workspaceId: string, scope: ScopeRef) {
+    await this.require(actor, workspaceId, scope);
+    if (!await this.port.isOwner?.(actor.actorId, workspaceId)) throw applicationError('Purge 仅限 Workspace owner。', 'WORKSPACE_OWNER_REQUIRED', 'permission', 'none', false, 403);
+  }
   async create(actor: ActorRef, workspaceId: string, name: string) {
     const existing = (await this.port.listWorkspaces(actor.actorId, true)).find(item => item.workspaceId === workspaceId);
     if (existing) return { record: existing, created: false };

@@ -104,6 +104,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
   const inputFor = (request: RuntimeRequest): ContextEnvelope => ({ schemaVersion: '1.0.0', request, executor: { runtime: runtime.kind ?? 'provider-adapter', modelSpecRef: request.modelId, providerEndpointRef: request.modelSnapshot?.providerEndpointRef ?? request.modelId, model: request.modelSnapshot?.model ?? request.modelId, provider: request.modelSnapshot?.provider ?? runtime.kind ?? 'unknown' } });
   const fallbackWorkspaces = new Map<string, import('../contracts/application').WorkspaceRecord>([['00000000-0000-4000-8000-000000000001', { workspaceId: '00000000-0000-4000-8000-000000000001', name: 'Rhiza 产品研究', status: 'active', createdBy: '00000000-0000-4000-8000-000000000002', revision: 1 }]]);
   const workspaceDirectory = dependencies.workspaceDirectory ?? new WorkspaceDirectory({
+    isOwner: async (userId, workspaceId) => fallbackWorkspaces.get(workspaceId)?.createdBy === userId,
     listWorkspaces: async (userId, includeArchived = false) => [...fallbackWorkspaces.values()].filter(item => item.createdBy === userId && (includeArchived || item.status === 'active')),
     createWorkspace: async record => {
       const existing = fallbackWorkspaces.get(record.workspaceId);
@@ -303,6 +304,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
       }
       await ensureDefaultWorkspace(envelope.actor, envelope.workspaceId, envelope.scope);
       const record = await workspaceDirectory.require(envelope.actor, envelope.workspaceId, envelope.scope);
+      if (envelope.commandType === 'PurgeObject') await workspaceDirectory.requireOwner(envelope.actor, envelope.workspaceId, envelope.scope);
       const prior = unitOfWork.withWorkspace && unitOfWork.withCommand && unitOfWork.readCommittedResult
         ? await unitOfWork.withWorkspace(envelope.workspaceId, () => unitOfWork.withCommand!(factContext, () => unitOfWork.readCommittedResult!()))
         : undefined;

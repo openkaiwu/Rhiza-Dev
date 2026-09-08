@@ -143,6 +143,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   }
 
   readonly workspaceDirectory: WorkspaceDirectoryPort = {
+    isOwner: async (userId, workspaceId) => (await this.database.query("SELECT 1 FROM workspace_members WHERE user_id=$1 AND workspace_id=$2 AND role='owner'", [userId, workspaceId])).rows.length > 0,
     listWorkspaces: async (userId, includeArchived = false) => {
       const result = await this.database.query<{ workspace_id: string; name: string; status: 'active' | 'archived'; created_by: string; revision: number }>(`SELECT w.workspace_id,w.name,w.status,w.created_by,COALESCE((w.settings->>'revision')::integer,1) revision FROM workspace_members m JOIN workspaces w ON w.workspace_id=m.workspace_id WHERE m.user_id=$1${includeArchived ? '' : " AND w.status='active'"} ORDER BY w.updated_at DESC`, [userId]);
       return result.rows.map(row => ({ workspaceId: row.workspace_id, name: row.name, status: row.status, createdBy: row.created_by, revision: row.revision }));

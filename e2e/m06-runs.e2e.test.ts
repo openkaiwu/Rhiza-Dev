@@ -69,6 +69,18 @@ async function* success(input: RuntimeRequest) {
 for (const backend of ['embedded', 'postgres'] as const) {
 describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durable Chat execution (${backend})`, () => {
   const setup = (generate: AIRuntime['generate']) => fixture(generate, backend);
+  it('M09 authorizes Purge from current membership role rather than creator identity', async () => {
+    const { database, store, app } = await setup(success);
+    const userId = '00000000-0000-4000-8000-000000000002';
+    const workspaceId = '00000000-0000-4000-8000-000000000001';
+    expect(await store.workspaceDirectory.isOwner!(userId, workspaceId)).toBe(true);
+    await database.query("UPDATE workspace_members SET role='member' WHERE workspace_id=$1 AND user_id=$2", [workspaceId, userId]);
+    expect(await store.workspaceDirectory.isOwner!(userId, workspaceId)).toBe(false);
+    expect(await store.workspaceDirectory.listWorkspaces(userId)).toHaveLength(1);
+    expect(await store.workspaceDirectory.isOwner!(userId, randomUUID())).toBe(false);
+    const denied = await request(app).post('/api/graph/nodes/unknown/purge').send({ confirmation: 'PURGE unknown', reason: 'test' }).expect(403);
+    expect(denied.body.error.code).toBe('WORKSPACE_OWNER_REQUIRED');
+  });
   it('M09 persists owner-scoped import checkpoints without creating destination data', async () => {
     const { database } = await setup(success);
     const checkpoints = new SqlBundleImportCheckpoints(database);

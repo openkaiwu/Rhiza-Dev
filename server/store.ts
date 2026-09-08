@@ -179,6 +179,7 @@ export class WorkspaceStore implements WorkspaceRepository {
   }
 
   readonly workspaceDirectory: WorkspaceDirectoryPort = {
+    isOwner: async (userId, workspaceId) => (await this.readDirectory()).some(item => item.workspaceId === workspaceId && item.createdBy === userId),
     listWorkspaces: async (userId, includeArchived = false) => (await this.readDirectory()).filter(item => item.createdBy === userId && (includeArchived || item.status === 'active')),
     createWorkspace: record => this.inDirectoryQueue(async () => {
       const records = await this.readDirectory();
