@@ -69,6 +69,19 @@ async function* success(input: RuntimeRequest) {
 for (const backend of ['embedded', 'postgres'] as const) {
 describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durable Chat execution (${backend})`, () => {
   const setup = (generate: AIRuntime['generate']) => fixture(generate, backend);
+  it('M09 stores sealed receipt references without duplicate plaintext and guards rollback', async () => {
+    const { database } = await setup(success);
+    const workspaceId = '00000000-0000-4000-8000-000000000001';
+    const reference = { format: 'rhiza.sealed-receipt.v1', contentId: 'receipt-content', reference: { version: 1, digest: 'a'.repeat(64), size: 2,
+      ciphertext: { digestAlgorithm: 'sha256', digest: 'b'.repeat(64), blobRef: `sha256/bb/${'b'.repeat(64)}`, size: 31 } } };
+    const insert = (value: unknown, result: unknown = null) => database.query("INSERT INTO command_receipts (workspace_id,command_id,command_type,status,result,result_content_ref) VALUES ($1,$2,'test','committed',$3::jsonb,$4::jsonb)", [workspaceId, randomUUID(), result === null ? null : JSON.stringify(result), JSON.stringify(value)]);
+    await insert(reference);
+    await expect(insert(reference, { text: 'plaintext' })).rejects.toThrow('command_receipt_sealed_result_valid');
+    await expect(insert({ ...reference, plaintext: 'leak' })).rejects.toThrow('command_receipt_sealed_result_valid');
+    await expect(insert({ format: reference.format })).rejects.toThrow('command_receipt_sealed_result_valid');
+    await expect(insert({ ...reference, reference: { ...reference.reference, size: -1 } })).rejects.toThrow('command_receipt_sealed_result_valid');
+    await expect(database.exec(await readFile('db/migrations/0015_sealed_receipt_results.down.sql', 'utf8'))).rejects.toThrow('Cannot remove sealed receipt references');
+  });
   it('M09 authorizes Purge from current membership role rather than creator identity', async () => {
     const { database, store, app } = await setup(success);
     const userId = '00000000-0000-4000-8000-000000000002';
