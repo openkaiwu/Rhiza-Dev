@@ -12,6 +12,10 @@ export class SealedReceiptContent {
     return new SealedReceiptContent(new NodeSealedContentStore(new NodeFilesystemBlobStore(root), new NodeContentKeys(join(root, 'keys'))));
   }
   constructor(private readonly content: NodeSealedContentStore) {}
+  /** Requires exclusive publication ownership and both receipt kinds from every workspace. */
+  revokeUnreferencedKeys(references: Array<{ workspaceId: string; commandId: string; reference: SealedReceiptRef; kind: ReceiptContentKind }>) {
+    return this.content.revokeUnreferencedKeys(references.map(item => this.identity(item.workspaceId, item.commandId, item.reference.contentId, item.kind)));
+  }
   auditKeys(references: Array<{ workspaceId: string; commandId: string; reference: SealedReceiptRef; kind: ReceiptContentKind }>) {
     return this.content.auditKeys(references.map(item => this.identity(item.workspaceId, item.commandId, item.reference.contentId, item.kind)));
   }

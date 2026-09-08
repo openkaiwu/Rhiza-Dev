@@ -15,6 +15,9 @@ export class NodeSealedContentStore {
 
   auditKeys(identities: Iterable<ContentIdentity>) { return this.keys.audit(identities); }
 
+  /** Maintenance only; caller holds exclusive publication ownership throughout. */
+  revokeUnreferencedKeys(identities: Iterable<ContentIdentity>) { return this.keys.revokeUnreferenced(identities); }
+
   async put(identity: ContentIdentity, plaintext: Uint8Array): Promise<SealedContentRef> {
     if (plaintext.byteLength > maxDocumentBytes) throw new Error('CONTENT_DOCUMENT_TOO_LARGE');
     const content = Buffer.from(plaintext);
