@@ -289,33 +289,61 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   /** Maintenance only: scan all workspaces sharing this key store, never a scoped subset. */
   async auditReceiptKeys(database: SqlQueryable = this.database) {
     if (!this.receiptContent) throw new Error('RECEIPT_CONTENT_STORE_UNAVAILABLE');
+    return this.receiptContent.auditKeys(await this.receiptKeyReferences(database));
+  }
+
+  private async receiptKeyReferences(database: SqlQueryable) {
     const { rows } = await database.query<{ workspace_id: string; command_id: string; result_content_ref: unknown; error_content_ref: unknown }>(
       'SELECT workspace_id,command_id,result_content_ref,error_content_ref FROM command_receipts WHERE result_content_ref IS NOT NULL OR error_content_ref IS NOT NULL');
-    const references = rows.flatMap(row => (['result', 'error'] as const).flatMap(kind => {
+    return rows.flatMap(row => (['result', 'error'] as const).flatMap(kind => {
       const reference = row[`${kind}_content_ref`];
       return reference == null ? [] : [{ workspaceId: row.workspace_id, commandId: row.command_id, reference: asJson<SealedReceiptRef>(reference), kind }];
     }));
-    return this.receiptContent.auditKeys(references);
   }
 
   /** Pause transactional content writers while collecting the global reference/key snapshot. */
   async auditHistoricalKeys() {
-    const { runContent, journalContent, messageContent, manifestContent } = this;
-    if (!runContent || !journalContent || !messageContent || !manifestContent) throw new Error('HISTORY_CONTENT_STORES_UNAVAILABLE');
+    return (await this.inspectHistoricalKeys(false)).audit;
+  }
+
+  /** Offline maintenance only; all users of the content directories must be stopped. */
+  async reclaimHistoricalKeys() {
+    await this.acquireRuntimeOwnership();
+    return (await this.inspectHistoricalKeys(true)).revoked;
+  }
+
+  private async inspectHistoricalKeys(reclaim: boolean) {
+    const { receiptContent, runContent, journalContent, messageContent, manifestContent } = this;
+    if (!receiptContent || !runContent || !journalContent || !messageContent || !manifestContent) throw new Error('HISTORY_CONTENT_STORES_UNAVAILABLE');
     return this.inTransaction(async database => {
+      if (reclaim) await database.query('LOCK TABLE command_receipts,execution_runs,workspace_events,rhiza_messages,rhiza_nodes,rhiza_context_manifests IN SHARE MODE');
       const { rows } = await database.query<{ family: string; workspace_id: string; id: string; reference: unknown }>(`
         SELECT 'runs' AS family,workspace_id,run_id AS id,input_content_ref AS reference FROM execution_runs WHERE input_content_ref IS NOT NULL
         UNION ALL SELECT 'journal',workspace_id,event_id::text,payload_content_ref FROM workspace_events WHERE payload_content_ref IS NOT NULL
         UNION ALL SELECT 'messages',n.project_id,m.id::text,m.content_ref FROM rhiza_messages m JOIN rhiza_nodes n ON n.id=m.node_id WHERE m.content_ref IS NOT NULL
         UNION ALL SELECT 'manifests',project_id,id::text,content_ref FROM rhiza_context_manifests WHERE content_ref IS NOT NULL`);
       const references = (family: string) => rows.filter(row => row.family === family).map(row => ({ workspaceId: row.workspace_id, id: row.id, contentId: asJson<{ contentId: string }>(row.reference).contentId }));
-      return {
-        receipts: await this.auditReceiptKeys(database),
+      const receiptReferences = await this.receiptKeyReferences(database);
+      const audit = {
+        receipts: await receiptContent.auditKeys(receiptReferences),
         runs: await runContent.auditKeys(references('runs')),
         journal: await journalContent.auditKeys(references('journal')),
         messages: await messageContent.auditKeys(references('messages')),
         manifests: await manifestContent.auditKeys(references('manifests')),
       };
+      let revoked = 0;
+      if (reclaim) {
+        if (Object.values(audit).some(records => records.some(record => record.referenced && record.state !== 'active'))) {
+          throw new Error('CONTENT_KEY_REFERENCES_UNHEALTHY');
+        }
+        // File revocation is irreversible; a failed batch resumes by skipping tombstones.
+        revoked += await receiptContent.revokeUnreferencedKeys(receiptReferences);
+        revoked += await runContent.revokeUnreferencedKeys(references('runs'));
+        revoked += await journalContent.revokeUnreferencedKeys(references('journal'));
+        revoked += await messageContent.revokeUnreferencedKeys(references('messages'));
+        revoked += await manifestContent.revokeUnreferencedKeys(references('manifests'));
+      }
+      return { audit, revoked };
     }, true);
   }
 

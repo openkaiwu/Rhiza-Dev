@@ -24,6 +24,8 @@ Bundle 导出通过 `/api/v1/workspaces/:workspaceId/bundle` 读取同一事务�
 
 加密内容的事务写入在工作区锁之前获取 `rhiza:content-lifecycle` 共享事务锁；全历史密钥对账获取同名独占事务锁，并使用锁所属连接读取 SQL 引用，避免跨连接读到不一致状态。独占锁等待上限为 5 秒。此协议覆盖 Repository 事务路径，不授权根据返回的快照直接删除密钥；实际回收仍需在保护范围内重验，并遵守停服维护与外部写入边界。
 
+`reclaimHistoricalKeys` 是停服维护专用 Repository 操作：获取运行时独占权、内容独占事务锁和全部引用表的 SHARE 锁，在同一连接读取所有工作区引用。全部类别的已引用密钥元数据健康后才开始撤销未引用 active key；永久保留空 tombstone，失败后的重复执行跳过已撤销项。文件撤销不随 SQL 回滚恢复。内容目录必须仅属于当前数据库，调用前须停止所有目录使用者（包括直接文件发布者）；数据库锁无法保护其他数据库或进程直接访问同一目录。目前没有对外回收命令，真实 PostgreSQL 并发行为尚待验收，此操作不等同于对象 Purge。
+
 - React + TypeScript：界面与本地交互状态
 - Vite：开发服务器与生产构建
 - Express：Workspace、Context 与 Chat API

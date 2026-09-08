@@ -94,6 +94,12 @@ describe('embedded Workspace backend', () => {
       const candidates = (await reopened.auditHistoricalKeys()).messages.filter(record => !record.referenced);
       expect(candidates).toEqual([expect.objectContaining({ state: 'active' })]);
       expect(await content.read(seeded.projectId, 'uncommitted-message', candidate)).toEqual({ text: 'pending transaction' });
+      expect(await reopened.reclaimHistoricalKeys()).toBe(1);
+      await expect(content.read(seeded.projectId, 'uncommitted-message', candidate)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+      expect(await reopened.reclaimHistoricalKeys()).toBe(0);
+      expect((await reopened.read()).messages).toEqual(persistedMessages);
+      expect(await reopened.getRun(run.id)).toEqual(run);
+      expect((await reopened.readCommandReceipt(commandId))?.result).toEqual({ text: 'encrypted after reopen' });
       await reopened.close();
       const inspection = new PGlite(data);
       try {
