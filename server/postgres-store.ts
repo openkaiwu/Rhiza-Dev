@@ -28,9 +28,10 @@ import { SealedJournalContent, type SealedJournalRef } from './infrastructure/se
 import { SealedMessageContent, type SealedMessageRef } from './infrastructure/sealed-message-content';
 
 interface QueryResult<Row> { rows: Row[] }
-type PendingReceiptContent = { workspaceId: string; commandId: string; reference: SealedReceiptRef; kind?: 'result' | 'error' }
+type PendingContent = { workspaceId: string; commandId: string; reference: SealedReceiptRef; kind?: 'result' | 'error' }
   | { workspaceId: string; runId: string; reference: SealedRunInputRef }
-  | { workspaceId: string; eventId: string; reference: SealedJournalRef };
+  | { workspaceId: string; eventId: string; reference: SealedJournalRef }
+  | { workspaceId: string; messageId: string; reference: SealedMessageRef };
 export interface SqlQueryable {
   query<Row = Record<string, unknown>>(sql: string, values?: unknown[]): Promise<QueryResult<Row>>;
 }
@@ -120,7 +121,7 @@ function relationalSeed(projectId: string): WorkspaceData {
 }
 
 export class PostgresWorkspaceStore implements WorkspaceRepository {
-  private readonly transactionContent = new WeakMap<SqlQueryable, PendingReceiptContent[]>();
+  private readonly transactionContent = new WeakMap<SqlQueryable, PendingContent[]>();
   get bundleImportCheckpoints() { return new SqlBundleImportCheckpoints(this.database); }
   private runtimeOwner?: SqlQueryable & { release(): void };
   private queue: Promise<void> = Promise.resolve();
@@ -205,7 +206,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   }
 
   private async inTransaction<T>(callback: (database: SqlQueryable) => Promise<T>): Promise<T> {
-    const pending: PendingReceiptContent[] = [];
+    const pending: PendingContent[] = [];
     let operationFailed = false;
     const operation = async (database: SqlQueryable) => {
       this.transactionContent.set(database, pending);
@@ -216,7 +217,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     if (this.database.transaction) {
       try { return await this.database.transaction(operation); }
       catch (error) {
-        if (operationFailed) await this.discardReceiptContent(pending);
+        if (operationFailed) await this.discardPendingContent(pending);
         throw error;
       }
     }
@@ -232,18 +233,19 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     } catch (error) {
       await client.query('ROLLBACK');
       // A lost COMMIT response is ambiguous: never destroy potentially live keys.
-      if (!commitStarted) await this.discardReceiptContent(pending);
+      if (!commitStarted) await this.discardPendingContent(pending);
       throw error;
     } finally {
       client.release();
     }
   }
 
-  private async discardReceiptContent(pending: PendingReceiptContent[]) {
+  private async discardPendingContent(pending: PendingContent[]) {
     while (pending.length) {
       const item = pending[pending.length - 1];
       if ('runId' in item) await this.runContent!.destroy(item.workspaceId, item.runId, item.reference);
       else if ('eventId' in item) await this.journalContent!.destroy(item.workspaceId, item.eventId, item.reference);
+      else if ('messageId' in item) await this.messageContent!.destroy(item.workspaceId, item.messageId, item.reference);
       else await this.receiptContent!.destroy(item.workspaceId, item.commandId, item.reference, item.kind);
       pending.pop();
     }
@@ -609,7 +611,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
         const status = Number(candidate.details?.status ?? candidate.status ?? 500);
         if (candidate.storedReceipt || status < 400 || status >= 500) throw error;
         await database.query('ROLLBACK TO SAVEPOINT command_mutation');
-        await this.discardReceiptContent(this.transactionContent.get(database)!);
+        await this.discardPendingContent(this.transactionContent.get(database)!);
         const code = String(candidate.details?.code ?? candidate.code ?? 'COMMAND_REJECTED');
         const value = { message: candidate.message || 'Command rejected', code, status };
         const reference = await this.receiptContent?.seal(this.defaultWorkspaceId, context.commandId, value, 'error');
@@ -620,7 +622,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
           ON CONFLICT (workspace_id,command_id) DO NOTHING
           RETURNING command_id
         `, [this.defaultWorkspaceId, context.commandId, context.commandType, JSON.stringify(reference ? { sealed: true } : value), reference ? JSON.stringify(reference) : null]);
-        if (!inserted.rows.length) await this.discardReceiptContent(this.transactionContent.get(database)!);
+        if (!inserted.rows.length) await this.discardPendingContent(this.transactionContent.get(database)!);
         rejection = error;
         return undefined;
       }
@@ -1036,7 +1038,16 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     for (const manifest of manifests) await database.query(`INSERT INTO rhiza_context_manifests (id,project_id,node_id,request_id,mode,provider,model,runtime,estimated_tokens,manifest,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11)`, [manifest.id,workspace.projectId,manifest.nodeId,manifest.requestId,manifest.mode,manifest.provider,manifest.model,manifest.runtime,manifest.estimatedTokens,JSON.stringify(manifest),manifest.createdAt]);
     for (const materialization of materializations) await database.query(`INSERT INTO rhiza_resource_materializations (materialization_id,resource_version_id,kind,generator,created_at) VALUES ($1,$2,$3,$4,$5)`, [materialization.id,materialization.resourceVersionId,materialization.kind,materialization.generator,materialization.createdAt]);
     for (const attachment of attachments) await database.query(`INSERT INTO rhiza_attachments (id,project_id,name,mime_type,size_bytes,kind,storage_key,extracted_text,created_at,resource_id,resource_version_id,summary,chunk_count) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name,mime_type=EXCLUDED.mime_type,size_bytes=EXCLUDED.size_bytes,kind=EXCLUDED.kind,extracted_text=EXCLUDED.extracted_text,resource_id=EXCLUDED.resource_id,resource_version_id=EXCLUDED.resource_version_id,summary=EXCLUDED.summary,chunk_count=EXCLUDED.chunk_count`, [attachment.id,workspace.projectId,attachment.name,attachment.mimeType,attachment.size,attachment.kind,attachment.blobRef || attachment.id,attachment.extractedText || null,attachment.createdAt,attachment.resourceId || null,attachment.resourceVersionId || null,attachment.summary || null,attachment.chunkCount ?? null]);
-    for (const message of messages) await database.query(`INSERT INTO rhiza_messages (id,node_id,segment_id,kind,body,manifest_id,created_at,operation,version_group_id,version,usage,reasoning,tool_calls) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13::jsonb) ON CONFLICT (id) DO UPDATE SET segment_id=EXCLUDED.segment_id,body=EXCLUDED.body,manifest_id=EXCLUDED.manifest_id,operation=EXCLUDED.operation,version_group_id=EXCLUDED.version_group_id,version=EXCLUDED.version,usage=EXCLUDED.usage,reasoning=EXCLUDED.reasoning,tool_calls=EXCLUDED.tool_calls`, [message.id,message.nodeId,message.segmentId || null,message.kind,message.text,message.manifestId || null,message.createdAt,message.operation || 'send',message.versionGroupId || null,message.version || 1,JSON.stringify(message.usage || null),message.reasoning || null,JSON.stringify(message.toolCalls || null)]);
+    for (const message of messages) {
+      let reference: SealedMessageRef | undefined;
+      if (this.messageContent) {
+        const pending = this.transactionContent.get(database);
+        if (!pending) throw new Error('MESSAGE_CONTENT_REQUIRES_TRANSACTION');
+        reference = await this.messageContent.seal(workspace.projectId, message.id, message);
+        pending.push({ workspaceId: workspace.projectId, messageId: message.id, reference });
+      }
+      await database.query(`INSERT INTO rhiza_messages (id,node_id,segment_id,kind,body,manifest_id,created_at,operation,version_group_id,version,usage,reasoning,tool_calls,content_ref) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13::jsonb,$14::jsonb) ON CONFLICT (id) DO UPDATE SET segment_id=EXCLUDED.segment_id,body=EXCLUDED.body,manifest_id=EXCLUDED.manifest_id,operation=EXCLUDED.operation,version_group_id=EXCLUDED.version_group_id,version=EXCLUDED.version,usage=EXCLUDED.usage,reasoning=EXCLUDED.reasoning,tool_calls=EXCLUDED.tool_calls,content_ref=EXCLUDED.content_ref`, [message.id,message.nodeId,message.segmentId || null,message.kind,reference ? '' : message.text,message.manifestId || null,message.createdAt,message.operation || 'send',message.versionGroupId || null,message.version || 1,JSON.stringify(message.usage || null),reference ? null : message.reasoning || null,reference ? null : JSON.stringify(message.toolCalls || null),reference ? JSON.stringify(reference) : null]);
+    }
     for (const node of nodes) await database.query('UPDATE rhiza_nodes SET source_node_id=$2, source_message_id=$3 WHERE id=$1', [node.id,node.sourceNodeId || null,node.sourceMessageId || null]);
     for (const message of messages) await database.query('UPDATE rhiza_messages SET source_message_id=$2, reply_to_message_id=$3 WHERE id=$1', [message.id,message.sourceMessageId || null,message.replyToMessageId || null]);
     for (const anchor of anchors) await database.query(`INSERT INTO rhiza_anchors (id,project_id,node_id,message_id,segment_id,selected_text,start_offset,end_offset,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET node_id=EXCLUDED.node_id,message_id=EXCLUDED.message_id,segment_id=EXCLUDED.segment_id,selected_text=EXCLUDED.selected_text,start_offset=EXCLUDED.start_offset,end_offset=EXCLUDED.end_offset`, [anchor.id,workspace.projectId,anchor.nodeId,anchor.messageId || null,anchor.segmentId || null,anchor.selectedText || null,anchor.startOffset ?? null,anchor.endOffset ?? null,anchor.createdAt]);

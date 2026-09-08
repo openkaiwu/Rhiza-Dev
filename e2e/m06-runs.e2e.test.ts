@@ -325,7 +325,7 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     expect((await database.query('SELECT event_id FROM workspace_events')).rows).toHaveLength(1);
   });
   it('M09 restores encrypted message content for workspace export and conversation preparation', async () => {
-    const { app, database, store, uploadDirectory } = await setup(success);
+    const { app, database, store, uploadDirectory, provider, runtime } = await setup(success);
     const response = await request(app).post('/api/chat').send({ message: 'encrypted history message' }).expect(201);
     const workspace = await store.read();
     const message = workspace.messages.find(item => item.id === response.body.assistantMessage.id)!;
@@ -333,6 +333,20 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     const reference = await content.seal(workspace.projectId, message.id, message);
     await database.query("UPDATE rhiza_messages SET body='',reasoning=NULL,tool_calls=NULL,content_ref=$2::jsonb WHERE id=$1", [message.id, JSON.stringify(reference)]);
     const reader = new PostgresWorkspaceStore(database, undefined, undefined, undefined, undefined, content);
+    const encryptedApp = createApp(reader, provider, false, runtime, undefined, uploadDirectory);
+    await request(encryptedApp).post('/api/chat').send({ message: 'new encrypted message' }).expect(201);
+    const stored = (await database.query<{ body: string; reasoning: unknown; tool_calls: unknown }>('SELECT body,reasoning,tool_calls FROM rhiza_messages WHERE content_ref IS NOT NULL')).rows;
+    expect(stored.length).toBeGreaterThan(1);
+    expect(stored.every(row => row.body === '' && row.reasoning === null && row.tool_calls === null)).toBe(true);
+    const seal = vi.spyOn(content, 'seal');
+    await database.exec(`CREATE FUNCTION reject_message_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'message write interrupted'; END $$;
+      CREATE TRIGGER reject_message_write BEFORE INSERT ON rhiza_messages FOR EACH ROW EXECUTE FUNCTION reject_message_write();`);
+    await request(encryptedApp).post('/api/chat').send({ message: 'rollback message' }).expect(500);
+    expect(seal.mock.calls.length).toBeGreaterThan(0);
+    for (const [index, [workspaceId, messageId]] of seal.mock.calls.entries()) {
+      await expect(content.read(workspaceId, messageId, await seal.mock.results[index].value)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    }
+    await database.exec('DROP TRIGGER reject_message_write ON rhiza_messages; DROP FUNCTION reject_message_write();');
     expect((await reader.read()).messages.find(item => item.id === message.id)).toEqual(message);
     expect((await reader.readPortableWorkspace()).workspace.messages.find(item => item.id === message.id)).toEqual(message);
     expect((await reader.readConversationPreparation([])).messages.find(item => item.id === message.id)).toEqual(message);
