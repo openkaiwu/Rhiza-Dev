@@ -374,6 +374,27 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     await expect(reader.read()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     await expect(reader.readConversationPreparation([])).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
   });
+  it('M09 migrates old Manifests atomically and restores immutable protection after failure', async () => {
+    const { app, database, store, uploadDirectory } = await setup(success);
+    await request(app).post('/api/chat').send({ message: 'legacy Manifest' }).expect(201);
+    const original = (await store.read()).manifests;
+    const content = SealedManifestContent.atDirectory(join(uploadDirectory, 'manifest-migration'));
+    const migration = new PostgresWorkspaceStore(database, undefined, undefined, undefined, undefined, undefined, content);
+    const seal = vi.spyOn(content, 'seal');
+    await database.exec(`CREATE FUNCTION reject_manifest_migration() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'manifest migration interrupted'; END $$;
+      CREATE TRIGGER reject_manifest_migration BEFORE UPDATE ON rhiza_context_manifests FOR EACH ROW EXECUTE FUNCTION reject_manifest_migration();`);
+    await expect(migration.sealLegacyManifestContent()).rejects.toThrow('manifest migration interrupted');
+    expect((await store.read()).manifests).toEqual(original);
+    for (const [index, [failed]] of seal.mock.calls.entries()) {
+      await expect(content.read(failed.projectId, failed.id, await seal.mock.results[index].value, manifestReferenceProjection(failed))).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    }
+    await database.exec('DROP TRIGGER reject_manifest_migration ON rhiza_context_manifests; DROP FUNCTION reject_manifest_migration();');
+    await expect(database.query('UPDATE rhiza_context_manifests SET content_ref=NULL')).rejects.toThrow('immutable');
+    expect(await migration.sealLegacyManifestContent()).toBe(original.length);
+    expect(await migration.sealLegacyManifestContent()).toBe(0);
+    expect((await migration.read()).manifests).toEqual(original);
+    await expect(database.query('UPDATE rhiza_context_manifests SET content_ref=NULL')).rejects.toThrow('immutable');
+  });
   it('M09 restores encrypted Manifests for workspace and frozen context reads', async () => {
     const { app, database, store, uploadDirectory, provider, runtime } = await setup(success);
     const response = await request(app).post('/api/chat').send({ message: 'private manifest history' }).expect(201);

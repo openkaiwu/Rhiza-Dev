@@ -181,6 +181,8 @@ Rhiza 默认把工作空间数据保存在本机。Provider API Key 使用本机
 
 旧消息可在停服、完整备份后执行 `pnpm exec tsx scripts/seal-legacy-message-content.ts` 迁移。工具分批锁定消息，校验解密内容后替换正文、reasoning 与 tool calls；失败回滚，可重跑续迁，消息身份和关联字段不变。它不清除旧备份、WAL 或其他表中的消息副本。
 
+旧 Manifest 可在停服、完整备份后执行 `pnpm exec tsx scripts/seal-legacy-manifest-content.ts` 迁移，需要表所有者权限。每批独占锁定 Manifest 表，校验完整内容与身份后在事务内替换为引用投影和密文引用，并在提交前恢复不可变触发器；失败整体回滚，重跑跳过已迁移记录。历史资源引用不变，其他副本及旧备份不会被此工具清理。
+
 旧 Journal 正文可在停服、完整备份后执行 `pnpm exec tsx scripts/seal-legacy-journal-payloads.ts` 迁移。它需要表所有者权限，分批锁定事件表，加密校验后在事务内替换正文并恢复 append-only 触发器；失败整体回滚，重跑跳过已迁移事件。事件 ID、序号、时间和其他信封字段不变。此操作不清除其他表、旧备份或 WAL 中的正文副本。
 
 旧 Run 输入可在停服、完整备份后执行 `pnpm exec tsx scripts/seal-legacy-run-inputs.ts` 迁移。PostgreSQL 模式会先获取运行时独占权，并需要表所有者权限。每批在 Run 表独占锁下加密和校验，在同一事务内临时停用两项不可变触发器以替换输入，提交前恢复；失败时数据与触发器状态一起回滚，可重跑续迁。此工具不清理旧备份、WAL、Journal 等其他输入副本，不等于完整 Purge。

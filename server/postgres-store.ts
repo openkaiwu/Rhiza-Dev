@@ -408,6 +408,36 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     });
   }
 
+  /** Offline owner-level maintenance; ordinary Manifest writes remain immutable. */
+  async sealLegacyManifestContent(limit = 100): Promise<number> {
+    if (!this.manifestContent) throw new Error('MANIFEST_CONTENT_STORE_UNAVAILABLE');
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error('INVALID_MANIFEST_MIGRATION_LIMIT');
+    return this.inTransaction(async database => {
+      await database.query("SET LOCAL lock_timeout = '5s'");
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
+      await database.query('LOCK TABLE rhiza_context_manifests IN ACCESS EXCLUSIVE MODE');
+      const { rows } = await database.query<Record<string, unknown>>('SELECT id,manifest FROM rhiza_context_manifests WHERE project_id=$1 AND content_ref IS NULL ORDER BY created_at,id LIMIT $2', [this.defaultWorkspaceId, limit]);
+      if (!rows.length) return 0;
+      const replacements: Array<{ id: string; projection: ReturnType<typeof manifestReferenceProjection>; reference: SealedManifestRef }> = [];
+      for (const row of rows) {
+        const manifest = asJson<ContextManifest>(row.manifest);
+        if (manifest.projectId !== this.defaultWorkspaceId || manifest.id !== String(row.id)) throw new Error('MANIFEST_CONTENT_IDENTITY_MISMATCH');
+        const projection = manifestReferenceProjection(manifest);
+        const reference = await this.manifestContent!.seal(manifest);
+        this.transactionContent.get(database)!.push({ workspaceId: manifest.projectId, manifestId: manifest.id, reference });
+        const decoded = await this.manifestContent!.read(manifest.projectId, manifest.id, reference, projection);
+        if (semanticStateChecksum(decoded as unknown as Record<string, unknown>) !== semanticStateChecksum(manifest as unknown as Record<string, unknown>)) throw new Error('MANIFEST_MIGRATION_CHECKSUM_MISMATCH');
+        replacements.push({ id: manifest.id, projection, reference });
+      }
+      await database.query('ALTER TABLE rhiza_context_manifests DISABLE TRIGGER rhiza_context_manifests_immutable');
+      for (const item of replacements) {
+        await database.query('UPDATE rhiza_context_manifests SET manifest=$2::jsonb,content_ref=$3::jsonb WHERE id=$1', [item.id, JSON.stringify(item.projection), JSON.stringify(item.reference)]);
+      }
+      await database.query('ALTER TABLE rhiza_context_manifests ENABLE TRIGGER rhiza_context_manifests_immutable');
+      return replacements.length;
+    });
+  }
+
   async read(): Promise<WorkspaceData> {
     return this.inTransaction(async database => {
       const existing = await this.readFrom(database);
