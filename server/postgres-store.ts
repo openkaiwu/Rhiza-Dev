@@ -292,6 +292,24 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     return this.receiptContent.auditKeys(references);
   }
 
+  /** Global metadata snapshot, not proof that an unreferenced key can be deleted. */
+  async auditHistoricalKeys() {
+    if (!this.runContent || !this.journalContent || !this.messageContent || !this.manifestContent) throw new Error('HISTORY_CONTENT_STORES_UNAVAILABLE');
+    const { rows } = await this.database.query<{ family: string; workspace_id: string; id: string; reference: unknown }>(`
+      SELECT 'runs' AS family,workspace_id,run_id AS id,input_content_ref AS reference FROM execution_runs WHERE input_content_ref IS NOT NULL
+      UNION ALL SELECT 'journal',workspace_id,event_id::text,payload_content_ref FROM workspace_events WHERE payload_content_ref IS NOT NULL
+      UNION ALL SELECT 'messages',n.project_id,m.id::text,m.content_ref FROM rhiza_messages m JOIN rhiza_nodes n ON n.id=m.node_id WHERE m.content_ref IS NOT NULL
+      UNION ALL SELECT 'manifests',project_id,id::text,content_ref FROM rhiza_context_manifests WHERE content_ref IS NOT NULL`);
+    const references = (family: string) => rows.filter(row => row.family === family).map(row => ({ workspaceId: row.workspace_id, id: row.id, contentId: asJson<{ contentId: string }>(row.reference).contentId }));
+    return {
+      receipts: await this.auditReceiptKeys(),
+      runs: await this.runContent.auditKeys(references('runs')),
+      journal: await this.journalContent.auditKeys(references('journal')),
+      messages: await this.messageContent.auditKeys(references('messages')),
+      manifests: await this.manifestContent.auditKeys(references('manifests')),
+    };
+  }
+
   async sealLegacyReceiptErrors(limit = 100): Promise<number> {
     return this.sealLegacyReceiptField('error', limit);
   }

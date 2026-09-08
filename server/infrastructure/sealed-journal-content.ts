@@ -12,6 +12,9 @@ export class SealedJournalContent {
     return new SealedJournalContent(new NodeSealedContentStore(new NodeFilesystemBlobStore(root), new NodeContentKeys(join(root, 'keys'))));
   }
   constructor(private readonly content: NodeSealedContentStore) {}
+  auditKeys(references: Array<{ workspaceId: string; id: string; contentId: string }>) {
+    return this.content.auditKeys(references.map(item => this.identity(item.workspaceId, item.id, item.contentId)));
+  }
   private identity(workspaceId: string, eventId: string, contentId: string) {
     if (!eventId || !contentId) throw new Error('JOURNAL_CONTENT_IDENTITY_REQUIRED');
     return { workspaceId, contentId: JSON.stringify(['journal-payload', eventId, contentId]) };

@@ -26,6 +26,9 @@ export class SealedManifestContent {
     return new SealedManifestContent(new NodeSealedContentStore(new NodeFilesystemBlobStore(root), new NodeContentKeys(join(root, 'keys'))));
   }
   constructor(private readonly content: NodeSealedContentStore) {}
+  auditKeys(references: Array<{ workspaceId: string; id: string; contentId: string }>) {
+    return this.content.auditKeys(references.map(item => this.identity(item.workspaceId, item.id, item.contentId)));
+  }
   private identity(workspaceId: string, manifestId: string, contentId: string) {
     if (!manifestId || !contentId) throw new Error('MANIFEST_CONTENT_IDENTITY_REQUIRED');
     return { workspaceId, contentId: JSON.stringify(['context-manifest', manifestId, contentId]) };

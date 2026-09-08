@@ -8,6 +8,7 @@ import { createSeedWorkspace } from './seed';
 import { PostgresWorkspaceStore, relationalizeWorkspace } from './postgres-store';
 import { semanticChecksum, semanticStateChecksum } from './infrastructure/workspace-semantic-checksum';
 import type { ExecutionRun, ContextEnvelope } from './execution-runtime/run';
+import { SealedMessageContent } from './infrastructure/sealed-message-content';
 import { randomUUID } from 'node:crypto';
 
 describe('embedded Workspace backend', () => {
@@ -63,6 +64,16 @@ describe('embedded Workspace backend', () => {
       expect(await reopened.getRun(run.id)).toEqual(run);
       expect((await reopened.read()).messages).toEqual(persistedMessages);
       expect((await reopened.readJournal()).find(event => event.sequence === 1)?.payload.snapshot).toBeTruthy();
+      const audit = await reopened.auditHistoricalKeys();
+      for (const records of Object.values(audit)) expect(records.every(record => record.referenced && record.state === 'active')).toBe(true);
+      expect(audit.messages).toHaveLength(persistedMessages.length);
+      expect(audit.runs).toHaveLength(1);
+      expect(audit.journal).toHaveLength(2);
+      const content = SealedMessageContent.atDirectory(join(`${data}.content`, 'messages'));
+      const candidate = await content.seal(seeded.projectId, 'uncommitted-message', { text: 'pending transaction' });
+      const candidates = (await reopened.auditHistoricalKeys()).messages.filter(record => !record.referenced);
+      expect(candidates).toEqual([expect.objectContaining({ state: 'active' })]);
+      expect(await content.read(seeded.projectId, 'uncommitted-message', candidate)).toEqual({ text: 'pending transaction' });
       await reopened.close();
       const inspection = new PGlite(data);
       try {
