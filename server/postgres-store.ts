@@ -2,6 +2,7 @@ import { materializeContextCandidates, queryContextCandidates } from './context-
 import type { ContextPlanningInput } from './context-runtime/contracts';
 import { createHash, randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
+import { resolve } from 'node:path';
 import type { ExecutionRun, RunMutation, RunTrace } from './execution-runtime/run';
 import { semanticStateChecksum } from './infrastructure/workspace-semantic-checksum';
 import type { Anchor, AuditEvent, ContextManifest, DiscussionEdge, DiscussionNode, FileChunk, Resource, ResourceMaterialization, ResourceVersion, Segment, StoredAttachment, StoredMessage, WorkspaceData } from './domain';
@@ -177,8 +178,8 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     }),
   };
 
-  static fromConnectionString(connectionString: string, projectId?: string) {
-    return new PostgresWorkspaceStore(new Pool({ connectionString, max: 10, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 5_000 }), projectId);
+  static fromConnectionString(connectionString: string, projectId?: string, contentDirectory = resolve('var/receipt-content')) {
+    return new PostgresWorkspaceStore(new Pool({ connectionString, max: 10, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 5_000 }), projectId, SealedReceiptContent.atDirectory(contentDirectory));
   }
 
   /** PostgreSQL hosts admit one Chat runtime per database; a second host must not reconcile live work. */

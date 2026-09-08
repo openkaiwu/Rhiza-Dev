@@ -46,12 +46,22 @@ describe('embedded Workspace backend', () => {
       const first = await openEmbeddedWorkspaceStore(data);
       const seeded = await first.read();
       const baseline = await first.backfillJournal();
+      const commandId = randomUUID();
+      const context = { commandId, commandType: 'TestReceipt', actor: { actorType: 'human' as const, actorId: '00000000-0000-4000-8000-000000000002' }, scope: { scopeType: 'workspace' as const, scopeId: seeded.projectId }, occurredAt: new Date().toISOString() };
+      await first.executeCommand({ context, apply: async current => ({ next: current, value: { text: 'encrypted after reopen' } }), events: () => [{ eventType: 'workspace.renamed', aggregateType: 'workspace', aggregateId: seeded.projectId, payload: {} }] });
       await first.close();
 
       const reopened = await openEmbeddedWorkspaceStore(data, undefined, 'verify');
       expect(await reopened.read()).toMatchObject({ projectId: seeded.projectId, activeNodeId: seeded.activeNodeId });
-      expect(await reopened.backfillJournal()).toEqual({ checksum: baseline.checksum, created: false, eventCount: 1 });
+      expect(await reopened.backfillJournal()).toEqual({ checksum: baseline.checksum, created: false, eventCount: 2 });
+      expect((await reopened.readCommandReceipt(commandId))?.result).toEqual({ text: 'encrypted after reopen' });
       await reopened.close();
+      const inspection = new PGlite(data);
+      try {
+        const row = await inspection.query<{ result: unknown; result_content_ref: unknown }>('SELECT result,result_content_ref FROM command_receipts WHERE command_id=$1', [commandId]);
+        expect(row.rows[0].result).toBeNull();
+        expect(row.rows[0].result_content_ref).not.toBeNull();
+      } finally { await inspection.close(); }
     } finally { await rm(directory, { recursive: true, force: true }); }
   }, 30_000);
 

@@ -1,7 +1,6 @@
 // @vitest-environment node
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { loadMigrations } from '../scripts/migrate';
 import { PGlite } from '@electric-sql/pglite';
 import { Pool } from 'pg';
 import { describe, expect, it } from 'vitest';
@@ -41,17 +40,7 @@ async function migratedDatabase(backend: 'embedded' | 'postgres' = 'embedded') {
       close: async () => { await pool.end(); await admin.query(`DROP SCHEMA ${schema} CASCADE`); await admin.end(); },
     };
   }
-  for (const migration of ['0001_rhiza_core', '0002_chat_parity', '0003_domain_persistence', '0004_immutable_manifest_history']) {
-    await database.exec(await readFile(resolve(`db/migrations/${migration}.up.sql`), 'utf8'));
-  }
-  await database.exec(await readFile(resolve('db/migrations/0005_identity_workspace_scope.up.sql'), 'utf8'));
-  await database.exec(await readFile(resolve('db/migrations/0006_resource_blob_host.up.sql'), 'utf8'));
-  await database.exec(await readFile(resolve('db/migrations/0007_domain_journal_facts.up.sql'), 'utf8'));
-  await database.exec(await readFile(resolve('db/migrations/0008_execution_runs.up.sql'), 'utf8'));
-  await database.exec(await readFile(resolve('db/migrations/0009_graph_projection.up.sql'), 'utf8'));
-  await database.exec(await readFile(resolve('db/migrations/0010_graph_object_metadata.up.sql'), 'utf8'));
-  await database.exec(await readFile(resolve('db/migrations/0011_context_candidate_index.up.sql'), 'utf8'));
-  await database.exec(await readFile(resolve('db/migrations/0012_frozen_context.up.sql'), 'utf8'));
+  for (const migration of await loadMigrations()) await database.exec(migration.sql);
   return database;
 }
 

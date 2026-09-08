@@ -1,9 +1,15 @@
 import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
+import { NodeContentKeys } from './node-content-keys';
+import { NodeFilesystemBlobStore } from './node-host-runtime';
 import { NodeSealedContentStore, type SealedContentRef } from './node-sealed-content-store';
 
 export interface SealedReceiptRef { format: 'rhiza.sealed-receipt.v1'; contentId: string; reference: SealedContentRef }
 
 export class SealedReceiptContent {
+  static atDirectory(root: string) {
+    return new SealedReceiptContent(new NodeSealedContentStore(new NodeFilesystemBlobStore(root), new NodeContentKeys(join(root, 'keys'))));
+  }
   constructor(private readonly content: NodeSealedContentStore) {}
   private identity(workspaceId: string, commandId: string, contentId: string) {
     return { workspaceId, contentId: JSON.stringify(['command-receipt', commandId, contentId]) };

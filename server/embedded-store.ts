@@ -3,6 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { loadMigrations } from '../scripts/migrate';
 import { PostgresWorkspaceStore } from './postgres-store';
+import { SealedReceiptContent } from './infrastructure/sealed-receipt-content';
 
 /** Opens the durable local PostgreSQL-compatible adapter used when DATABASE_URL is absent. */
 export async function openEmbeddedWorkspaceStore(dataDirectory = resolve('var/rhiza.pglite'), workspaceId?: string, migrationMode: 'apply' | 'verify' = 'apply'): Promise<PostgresWorkspaceStore> {
@@ -31,7 +32,7 @@ export async function openEmbeddedWorkspaceStore(dataDirectory = resolve('var/rh
         await transaction.query('INSERT INTO rhiza_schema_migrations (version,name,checksum) VALUES ($1,$2,$3)', [migration.version, migration.name, migration.checksum]);
       });
     }
-    return new PostgresWorkspaceStore(database, workspaceId);
+    return new PostgresWorkspaceStore(database, workspaceId, SealedReceiptContent.atDirectory(`${resolve(dataDirectory)}.content`));
   } catch (error) {
     await database.close();
     throw error;

@@ -59,11 +59,11 @@ describe.skipIf(!databaseUrl)('PostgreSQL migration E2E', () => {
       expect(dangling.rows[0]?.count).toBe(0);
       await apply('0006');
       await apply('0007');
-      expect(await migrate(scopedUrl.href)).toEqual(['0008_execution_runs', '0009_graph_projection', '0010_graph_object_metadata', '0011_context_candidate_index', '0012_frozen_context', '0013_provenance_links', '0014_bundle_imports']);
+      expect(await migrate(scopedUrl.href)).toEqual(['0008_execution_runs', '0009_graph_projection', '0010_graph_object_metadata', '0011_context_candidate_index', '0012_frozen_context', '0013_provenance_links', '0014_bundle_imports', '0015_sealed_receipt_results']);
       expect(await migrate(scopedUrl.href)).toEqual([]);
       expect((await migrationStatus(scopedUrl.href)).map(({ version, applied }) => ({ version, applied }))).toEqual([
         { version: '0001', applied: true }, { version: '0002', applied: true }, { version: '0003', applied: true }, { version: '0004', applied: true }, { version: '0005', applied: true }, { version: '0006', applied: true }, { version: '0007', applied: true }, { version: '0008', applied: true }, { version: '0009', applied: true }, { version: '0010', applied: true }, { version: '0011', applied: true }, { version: '0012', applied: true }, { version: '0013', applied: true },
-        { version: '0014', applied: true },
+        { version: '0014', applied: true }, { version: '0015', applied: true },
       ]);
     } finally {
       await client.end();

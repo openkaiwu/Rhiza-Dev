@@ -171,6 +171,8 @@ AI_PROVIDER_NAME=Your Provider
 
 ### 数据与隐私
 
+M09 开发版已加密新写入的成功命令回执。Embedded 数据库的配套内容目录为 `<数据库目录>.content`（默认 `var/rhiza.pglite.content`）；PostgreSQL 模式默认为 `var/receipt-content`。备份与迁移需同时保存数据库和对应内容目录，包括其中的密钥；丢失密钥将无法读取加密回执。旧回执及其他历史字段的加密迁移尚未完成，不能视为全量数据已加密或已支持完整 Purge。保留旧密钥的备份仍可能恢复相应内容。
+
 Rhiza 默认把工作空间数据保存在本机。Provider API Key 使用本机生成的 AES-256-GCM 密钥加密后保存，不通过 API 回显，也不会提交到 Git。发送消息时，被选中的 Context 会交给你配置的模型服务处理，因此仍需遵守对应 Provider 的数据政策。
 
 当前 Preview 尚未提供登录和多用户权限隔离，请勿把它作为开放公网的多人服务直接部署。
