@@ -5,6 +5,7 @@ const store = process.env.DATABASE_URL
   ? PostgresWorkspaceStore.fromConnectionString(process.env.DATABASE_URL, process.env.RHIZA_PROJECT_ID)
   : await openEmbeddedWorkspaceStore(process.env.RHIZA_EMBEDDED_DATA_DIR, process.env.RHIZA_PROJECT_ID, 'verify');
 try {
+  await store.acquireRuntimeOwnership();
   for (const workspaceId of await store.listWorkspaceIds()) {
     const scoped = store.forWorkspace(workspaceId) as PostgresWorkspaceStore;
     let migrated = 0;
