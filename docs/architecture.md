@@ -18,7 +18,7 @@ Bundle 导出通过 `/api/v1/workspaces/:workspaceId/bundle` 读取同一事务�
 
 当前仓库不是 LibreChat fork。按 V4.2 基线，现有 `server/provider-*` 承担当前 API 配置的 Runtime Adapter 职责；`librechat-data-provider` 提供共享 Model Spec 与文件策略，Rhiza 的 Project、Node、Edge、Context 与 State 语义保持独立。后续迁移仍应扩展 Runtime 能力，而不是让 LibreChat Conversation/Mongo schema 进入 Rhiza Domain。旧映射仅见 `docs/archive/librechat-migration.md`，不定义当前架构。
 
-`POST /api/bundle/preview` 经 `PreviewWorkspaceBundle` Query 复用导入校验并检查归档 owner，返回名称、逻辑身份、归档摘要及消息/Run/资源版本数量。预检只使用临时 staging，结束后清理，不保留归档、不创建 checkpoint 或目标 Workspace。UI 先展示预检摘要，再由用户确认导入；正式导入重新校验并在事务中检查目标冲突。预检不是目标可激活的承诺。
+`POST /api/bundle/preview` 经 `PreviewWorkspaceBundle` Command 复用导入校验并检查归档 owner，返回名称、逻辑身份、归档摘要及消息/Run/资源版本数量。预检只使用临时 staging，结束后清理，不保留归档、不创建业务回执、Journal、checkpoint 或目标 Workspace。UI 先展示预检摘要，再由用户确认导入；正式导入重新校验并在事务中检查目标冲突。预检不是目标可激活的承诺。
 
 ## 2. Tech Stack
 

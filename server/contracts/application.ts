@@ -55,6 +55,7 @@ export interface WorkspaceRecord { workspaceId: string; name: string; status: 'a
 
 /** Versioned operation registry. Additive changes receive a new command key. */
 export interface CommandMap {
+  PreviewWorkspaceBundle: { payload: { bytes: AsyncIterable<Uint8Array> }; result: { workspaceId: string; name: string; archiveDigest: string; messages: number; runs: number; resourceVersions: number } };
   ImportWorkspaceBundle: { payload: { bytes: AsyncIterable<Uint8Array> }; result: { workspaceId: string; importId: string } };
   ReplayExecutionRun: { payload: { runId: string; policy: 'exact' | 'partial' | 'current-model' }; result: CreateConversationRunResult & { replay: { classification: 'exact' | 'partial' | 'current-model'; sourceRunRef: string; sourceManifestRef: string } } };
   CreateWorkspace: { payload: { name: string; workspaceId?: string }; result: WorkspaceRecord };
@@ -94,7 +95,6 @@ export interface CommandMap {
 }
 
 export interface QueryMap {
-  PreviewWorkspaceBundle: { payload: { bytes: AsyncIterable<Uint8Array> }; result: { workspaceId: string; name: string; archiveDigest: string; messages: number; runs: number; resourceVersions: number } };
   ExportWorkspaceBundle: { payload: Empty; result: import('../domain/portable-bundle').BundleExport };
   GetProvenance: { payload: { outputId: string }; result: import('../domain').ProvenanceLink };
   GetContextHistory: { payload: { manifestId: string } | { messageId: string }; result: import('../domain').ContextHistory };

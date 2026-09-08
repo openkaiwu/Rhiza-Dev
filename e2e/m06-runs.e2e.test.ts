@@ -589,6 +589,8 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     expect(preview.body.archiveDigest).toMatch(/^[a-f0-9]{64}$/);
     expect((await httpDatabase.query('SELECT * FROM bundle_imports')).rows).toHaveLength(0);
     expect((await httpDatabase.query('SELECT * FROM rhiza_projects')).rows).toHaveLength(0);
+    expect((await httpDatabase.query('SELECT * FROM command_receipts')).rows).toHaveLength(0);
+    expect((await httpDatabase.query('SELECT * FROM workspace_events')).rows).toHaveLength(0);
     await request(httpApp).post('/api/bundle/preview').send({}).expect(415);
     const upload = () => request(httpApp).post('/api/bundle/import').set('Content-Type', 'application/vnd.rhiza.workspace+zip').set('Idempotency-Key', 'import-roundtrip').send(download.body);
     const uploaded = await upload().expect(201);

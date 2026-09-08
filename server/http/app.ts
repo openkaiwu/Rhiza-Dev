@@ -191,7 +191,7 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
   app.post('/api/bundle/preview', async (request, response, next) => {
     try {
       if (!request.is('application/vnd.rhiza.workspace+zip')) rejectInput('需要 workspace.rhiza 归档。', 'BUNDLE_UNSUPPORTED_MEDIA_TYPE', 415);
-      response.json(await query(response, 'PreviewWorkspaceBundle', { bytes: request }));
+      response.json(await execute(response, 'PreviewWorkspaceBundle', { bytes: request }));
     } catch (error) { next(error); }
   });
 
