@@ -20,6 +20,7 @@ import type { PortableWorkspaceFacts } from './application/ports/portable-worksp
 import type { BundleImportCheckpoint } from './application/ports/bundle-import';
 import { validatePortableReferences } from './application/portable-references';
 import { validatePortableHistory } from './application/portable-history';
+import { SqlBundleImportCheckpoints } from './infrastructure/bundle-import-checkpoints';
 
 interface QueryResult<Row> { rows: Row[] }
 export interface SqlQueryable {
@@ -111,6 +112,7 @@ function relationalSeed(projectId: string): WorkspaceData {
 }
 
 export class PostgresWorkspaceStore implements WorkspaceRepository {
+  get bundleImportCheckpoints() { return new SqlBundleImportCheckpoints(this.database); }
   private runtimeOwner?: SqlQueryable & { release(): void };
   private queue: Promise<void> = Promise.resolve();
   private readonly scoped = new Map<string, PostgresWorkspaceStore>();
@@ -500,15 +502,16 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   }
 
   async activatePortableImport(importId: string, ownerId: string, facts: PortableWorkspaceFacts): Promise<void> {
-    if (facts.workspace.projectId !== this.defaultWorkspaceId) throw new Error('BUNDLE_WORKSPACE_MISMATCH');
+    const conflict = (code: string) => Object.assign(new Error(code), { code, status: 409 });
+    if (facts.workspace.projectId !== this.defaultWorkspaceId) throw conflict('BUNDLE_WORKSPACE_MISMATCH');
     validatePortableReferences(facts);
     validatePortableHistory(facts, semanticStateChecksum);
     await this.inTransaction(async database => {
       const checkpoints = await database.query<BundleImportCheckpoint>('SELECT workspace_id AS "workspaceId",state_digest AS "stateDigest",phase FROM bundle_imports WHERE import_id=$1 AND owner_id=$2 FOR UPDATE', [importId, ownerId]);
       const checkpoint = checkpoints.rows[0];
-      if (!checkpoint || checkpoint.workspaceId !== facts.workspace.projectId || checkpoint.stateDigest !== semanticStateChecksum({ facts })) throw new Error('BUNDLE_IMPORT_CONFLICT');
+      if (!checkpoint || checkpoint.workspaceId !== facts.workspace.projectId || checkpoint.stateDigest !== semanticStateChecksum({ facts })) throw conflict('BUNDLE_IMPORT_CONFLICT');
       if (checkpoint.phase === 'activated') return;
-      if (checkpoint.phase !== 'blobs-ready') throw new Error('BUNDLE_IMPORT_NOT_READY');
+      if (checkpoint.phase !== 'blobs-ready') throw conflict('BUNDLE_IMPORT_NOT_READY');
       // Import alone takes coarse locks: existing legacy upserts must not touch another Workspace's IDs.
       const collections: Array<[string, string, Array<{ id: string }>]> = [
         ['rhiza_nodes', 'id', facts.workspace.discussionNodes], ['rhiza_messages', 'id', facts.workspace.messages],
@@ -519,9 +522,9 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
         ['rhiza_resource_materializations', 'materialization_id', facts.workspace.materializations], ['execution_runs', 'run_id', facts.runs],
       ];
       await database.query(`LOCK TABLE rhiza_projects,workspaces,${collections.map(([table]) => table).join(',')} IN SHARE ROW EXCLUSIVE MODE`);
-      if ((await database.query('SELECT id FROM rhiza_projects WHERE id=$1', [this.defaultWorkspaceId])).rows.length) throw new Error('BUNDLE_TARGET_EXISTS');
+      if ((await database.query('SELECT id FROM rhiza_projects WHERE id=$1', [this.defaultWorkspaceId])).rows.length) throw conflict('BUNDLE_TARGET_EXISTS');
       for (const [table, key, values] of collections) {
-        if (values.length && (await database.query(`SELECT 1 FROM ${table} WHERE ${key}::text=ANY($1::text[]) LIMIT 1`, [values.map(value => value.id)])).rows.length) throw new Error('BUNDLE_IDENTITY_COLLISION');
+        if (values.length && (await database.query(`SELECT 1 FROM ${table} WHERE ${key}::text=ANY($1::text[]) LIMIT 1`, [values.map(value => value.id)])).rows.length) throw conflict('BUNDLE_IDENTITY_COLLISION');
       }
       await database.query('INSERT INTO rhiza_projects(id,title,state) VALUES ($1,$2,$3::jsonb)', [this.defaultWorkspaceId, facts.workspace.projectTitle, '{}']);
       for (const member of facts.members) await database.query("INSERT INTO users(user_id,display_name) VALUES ($1,'Imported user') ON CONFLICT DO NOTHING", [member.userId]);
@@ -535,7 +538,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
         siblings.push(run); children.set(run.parentRunRef, siblings);
       }
       for (let index = 0; index < ordered.length; index++) ordered.push(...(children.get(ordered[index].id) ?? []));
-      if (ordered.length !== facts.runs.length) throw new Error('BUNDLE_RUN_LINEAGE_CYCLE');
+      if (ordered.length !== facts.runs.length) throw conflict('BUNDLE_RUN_LINEAGE_CYCLE');
       for (const run of ordered) await database.query(`INSERT INTO execution_runs
         (run_id,workspace_id,command_id,node_id,status,attempt,parent_run_ref,input_envelope,input_hash,model_spec_ref,provider_endpoint_ref,record)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12::jsonb)`,

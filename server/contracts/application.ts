@@ -55,6 +55,7 @@ export interface WorkspaceRecord { workspaceId: string; name: string; status: 'a
 
 /** Versioned operation registry. Additive changes receive a new command key. */
 export interface CommandMap {
+  ImportWorkspaceBundle: { payload: { bytes: AsyncIterable<Uint8Array> }; result: { workspaceId: string; importId: string } };
   ReplayExecutionRun: { payload: { runId: string; policy: 'exact' | 'partial' | 'current-model' }; result: CreateConversationRunResult & { replay: { classification: 'exact' | 'partial' | 'current-model'; sourceRunRef: string; sourceManifestRef: string } } };
   CreateWorkspace: { payload: { name: string; workspaceId?: string }; result: WorkspaceRecord };
   RenameWorkspace: { payload: { name: string }; result: WorkspaceRecord };

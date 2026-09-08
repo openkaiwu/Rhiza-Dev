@@ -23,6 +23,7 @@ export interface TransactionalWorkspaceCommandResult<T> {
 }
 
 export interface WorkspaceRepository {
+  bundleImportCheckpoints?: import('./application/ports/bundle-import').BundleImportCheckpointPort;
   activatePortableImport?(importId: string, ownerId: string, facts: import('./application/ports/portable-workspace').PortableWorkspaceFacts): Promise<void>;
   readPortableWorkspace?(): Promise<import('./application/ports/portable-workspace').PortableWorkspaceFacts>;
   readProvenance?(outputId: string): Promise<import('./domain').ProvenanceLink | undefined>;

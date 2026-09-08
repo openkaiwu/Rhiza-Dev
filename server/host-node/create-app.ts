@@ -12,6 +12,7 @@ import { createHttpApp } from '../http/app';
 import { NodeFilesystemLegacyUpload } from '../infrastructure/node-filesystem-legacy-upload';
 import { NodeHostRuntimeAdapter } from '../infrastructure/node-host-runtime';
 import { NodePortableBundle } from '../infrastructure/portable-bundle';
+import { NodeBundleImport } from '../infrastructure/node-bundle-import';
 import { RepositoryWorkspaceUnitOfWork } from '../infrastructure/workspace-repository-unit-of-work';
 import { WorkspaceDirectory } from '../identity/workspace-directory';
 import { DEFAULT_WORKSPACE_ID } from '../identity/workspace-scope';
@@ -38,6 +39,9 @@ export function createApp(
     providers: provider,
     host,
     portableBundle: new NodePortableBundle(host.blobs),
+    bundleImport: new NodeBundleImport(resolve(uploadDirectory, 'imports'), host.blobs),
+    bundleImportCheckpoints: store.bundleImportCheckpoints,
+    hashPortableFacts: facts => semanticStateChecksum({ facts }),
     textExtraction: upload,
     planner: new LegacyContextPlanner(randomUUID),
     contextCompiler: store.queryContextCandidates ? new BlobContextCompiler(host.blobs, randomUUID, () => new Date().toISOString()) : undefined,

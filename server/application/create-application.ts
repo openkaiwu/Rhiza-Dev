@@ -15,11 +15,15 @@ import type { WorkspaceUnitOfWork } from './ports/workspace-unit-of-work';
 import type { HostRuntimePort } from './ports/host-runtime';
 import { WorkspaceDirectory } from '../identity/workspace-directory';
 import { DEFAULT_WORKSPACE_ID, LOCAL_USER_ID } from '../identity/workspace-scope';
+import { completeBundleImport } from './prepare-bundle-import';
 
 const nodeStatuses = new Set(['draft', 'active', 'resolved', 'stale', 'archived']);
 const textMimeTypes = new Set(['text/plain', 'text/markdown', 'text/csv', 'application/json', 'application/xml', 'text/xml', 'application/javascript', 'text/javascript']);
 
 export interface RhizaApplicationDependencies {
+  bundleImport?: import('./ports/bundle-import').BundleImportArchivePort;
+  bundleImportCheckpoints?: import('./ports/bundle-import').BundleImportCheckpointPort;
+  hashPortableFacts?: (facts: import('./ports/portable-workspace').PortableWorkspaceFacts) => string;
   portableBundle?: import('./ports/portable-workspace').PortableBundlePort;
   unitOfWork: WorkspaceUnitOfWork;
   hashRunInput?: (input: ContextEnvelope) => string;
@@ -271,6 +275,19 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
         expectedRevision: envelope.expectedRevision,
         occurredAt: now(),
       };
+      if (envelope.commandType === 'ImportWorkspaceBundle') {
+        if (!dependencies.bundleImport || !dependencies.bundleImportCheckpoints || !dependencies.hashPortableFacts) throw legacyError('Bundle 导入不可用。', 503, 'BUNDLE_IMPORT_UNAVAILABLE');
+        if (envelope.actor.actorType !== 'human') throw legacyError('导入需要用户身份。', 403, 'BUNDLE_IMPORT_FORBIDDEN');
+        const staged = await dependencies.bundleImport.receive(envelope.payload.bytes);
+        try {
+          if (!staged.facts.members.some(member => member.userId === envelope.actor.actorId && member.role === 'owner')) throw legacyError('当前用户不是归档中的 Workspace owner。', 403, 'BUNDLE_IMPORT_FORBIDDEN');
+          await staged.retain();
+          const identity = { importId: envelope.commandId, ownerId: envelope.actor.actorId, workspaceId: staged.facts.workspace.projectId,
+            archiveDigest: staged.archiveDigest, stateDigest: dependencies.hashPortableFacts(staged.facts) };
+          await completeBundleImport(identity, staged.facts, dependencies.bundleImportCheckpoints, staged.ingest, unitOfWork);
+          return { workspaceId: identity.workspaceId, importId: identity.importId };
+        } finally { await staged.dispose(); }
+      }
       if (envelope.commandType === 'CreateWorkspace') {
         const name = String((envelope.payload as { name?: string }).name || '').trim();
         if (!name || name.length > 200) throw legacyError('工作区名称不能为空且不能超过 200 字符。', 400, 'INVALID_WORKSPACE_NAME');

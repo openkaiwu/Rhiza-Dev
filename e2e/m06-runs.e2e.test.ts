@@ -137,6 +137,18 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     }).expect(200);
     expect(download.headers['content-disposition']).toContain('workspace.rhiza');
     const path = join(uploadDirectory, 'download.rhiza'); await writeFile(path, download.body);
+    const httpDatabase = new PGlite();
+    cleanups.push(() => httpDatabase.close());
+    for (const migration of await loadMigrations()) await httpDatabase.exec(migration.sql);
+    const httpStore = new PostgresWorkspaceStore(httpDatabase, portable.workspace.projectId);
+    const httpApp = createApp(httpStore, provider, false, runtime, undefined, join(uploadDirectory, 'http-import'));
+    const upload = () => request(httpApp).post('/api/bundle/import').set('Content-Type', 'application/vnd.rhiza.workspace+zip').set('Idempotency-Key', 'import-roundtrip').send(download.body);
+    const uploaded = await upload().expect(201);
+    expect(uploaded.body.workspaceId).toBe(portable.workspace.projectId);
+    expect((await upload().expect(201)).body).toEqual(uploaded.body);
+    const conflict = await request(httpApp).post('/api/bundle/import').set('Content-Type', 'application/vnd.rhiza.workspace+zip').send(download.body).expect(409);
+    expect(conflict.body.error.code).toBe('BUNDLE_TARGET_EXISTS');
+    await request(httpApp).post('/api/bundle/import').send({}).expect(415);
     const ready = await stagePortableWorkspace(path);
     const archiveRoot = join(uploadDirectory, 'retained-imports');
     const archives = new NodeImportArchiveStore(archiveRoot);
@@ -256,6 +268,17 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
       expect(() => validatePortableContent(wrongSize, staged.index)).toThrow('BUNDLE_SIZE_MISMATCH');
       expect(staged.files.has('schemas/bundle-index-v1.json')).toBe(true);
       const rootPath = staged.files.get(staged.index.root)!;
+      const foreignOwner = structuredClone(document);
+      const foreignUser = randomUUID();
+      foreignOwner.facts.directory.createdBy = foreignUser;
+      foreignOwner.facts.members = [{ userId: foreignUser, role: 'owner' }];
+      await writeFile(rootPath, JSON.stringify(foreignOwner));
+      const foreignIndex = { ...staged.index, entries: await Promise.all(staged.index.entries.map(entry => entry.path === staged.index.root
+        ? describeBundleFile(rootPath, entry.path, entry.mediaType) : entry)) };
+      const foreignPath = join(uploadDirectory, 'foreign-owner.rhiza');
+      await writeBundleArchive(foreignIndex, staged.files, foreignPath);
+      const forbidden = await request(httpApp).post('/api/bundle/import').set('Content-Type', 'application/vnd.rhiza.workspace+zip').send(await readFile(foreignPath)).expect(403);
+      expect(forbidden.body.error.code).toBe('BUNDLE_IMPORT_FORBIDDEN');
       for (const [name, content, code] of [
         ['syntax', Buffer.from('{invalid json'), 'BUNDLE_INVALID_DOCUMENT'],
         ['utf8', Buffer.from([0x22, 0xff, 0x22]), 'BUNDLE_INVALID_DOCUMENT'],
