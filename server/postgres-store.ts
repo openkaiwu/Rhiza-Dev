@@ -259,6 +259,18 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     return this.sealLegacyReceiptField('result', limit);
   }
 
+  /** Maintenance only: scan all workspaces sharing this key store, never a scoped subset. */
+  async auditReceiptKeys() {
+    if (!this.receiptContent) throw new Error('RECEIPT_CONTENT_STORE_UNAVAILABLE');
+    const { rows } = await this.database.query<{ workspace_id: string; command_id: string; result_content_ref: unknown; error_content_ref: unknown }>(
+      'SELECT workspace_id,command_id,result_content_ref,error_content_ref FROM command_receipts WHERE result_content_ref IS NOT NULL OR error_content_ref IS NOT NULL');
+    const references = rows.flatMap(row => (['result', 'error'] as const).flatMap(kind => {
+      const reference = row[`${kind}_content_ref`];
+      return reference == null ? [] : [{ workspaceId: row.workspace_id, commandId: row.command_id, reference: asJson<SealedReceiptRef>(reference), kind }];
+    }));
+    return this.receiptContent.auditKeys(references);
+  }
+
   async sealLegacyReceiptErrors(limit = 100): Promise<number> {
     return this.sealLegacyReceiptField('error', limit);
   }

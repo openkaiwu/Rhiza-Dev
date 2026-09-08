@@ -12,6 +12,9 @@ export class SealedReceiptContent {
     return new SealedReceiptContent(new NodeSealedContentStore(new NodeFilesystemBlobStore(root), new NodeContentKeys(join(root, 'keys'))));
   }
   constructor(private readonly content: NodeSealedContentStore) {}
+  auditKeys(references: Array<{ workspaceId: string; commandId: string; reference: SealedReceiptRef; kind: ReceiptContentKind }>) {
+    return this.content.auditKeys(references.map(item => this.identity(item.workspaceId, item.commandId, item.reference.contentId, item.kind)));
+  }
   private identity(workspaceId: string, commandId: string, contentId: string, kind: ReceiptContentKind) {
     return { workspaceId, contentId: JSON.stringify([kind === 'result' ? 'command-receipt' : 'command-receipt-error', commandId, contentId]) };
   }

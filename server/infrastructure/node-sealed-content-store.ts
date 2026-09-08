@@ -13,6 +13,8 @@ const digest = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest(
 export class NodeSealedContentStore {
   constructor(private readonly blobs: NodeFilesystemBlobStore, private readonly keys: NodeContentKeys) {}
 
+  auditKeys(identities: Iterable<ContentIdentity>) { return this.keys.audit(identities); }
+
   async put(identity: ContentIdentity, plaintext: Uint8Array): Promise<SealedContentRef> {
     if (plaintext.byteLength > maxDocumentBytes) throw new Error('CONTENT_DOCUMENT_TOO_LARGE');
     const content = Buffer.from(plaintext);

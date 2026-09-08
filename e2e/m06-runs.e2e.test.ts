@@ -127,6 +127,18 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     expect(await resumed.sealLegacyReceiptErrors()).toBe(0);
     expect((await resumed.readCommandReceipt('legacy-error'))?.error).toEqual(failure);
     expect((await database.query("SELECT error FROM command_receipts WHERE command_id='legacy-error'")).rows[0].error).toEqual({ sealed: true });
+    const beforeAudit = await resumed.auditReceiptKeys();
+    expect(beforeAudit.filter(item => item.referenced).every(item => item.state === 'active')).toBe(true);
+    expect(beforeAudit.filter(item => !item.referenced).every(item => item.state === 'revoked')).toBe(true);
+    // An unpublished key is a candidate, not permission to erase it.
+    const candidate = await content.seal(workspaceId, 'in-flight', { text: 'pending' });
+    const afterAudit = await resumed.auditReceiptKeys();
+    expect(afterAudit.filter(item => !item.referenced && item.state === 'active')).toHaveLength(1);
+    expect(await content.read(workspaceId, 'in-flight', candidate)).toEqual({ text: 'pending' });
+    expect(await (resumed.forWorkspace(randomUUID()) as PostgresWorkspaceStore).auditReceiptKeys()).toEqual(afterAudit);
+    const errorRef = (await database.query<{ error_content_ref: SealedReceiptRef }>("SELECT error_content_ref FROM command_receipts WHERE command_id='legacy-error'")).rows[0].error_content_ref;
+    await content.destroy(workspaceId, 'legacy-error', errorRef, 'error');
+    expect((await resumed.auditReceiptKeys()).filter(item => item.referenced && item.state === 'revoked')).toHaveLength(1);
   });
   it('M09 encrypts committed results and destroys keys after confirmed SQL rollback', async () => {
     const { database, uploadDirectory, provider, runtime } = await setup(success);
