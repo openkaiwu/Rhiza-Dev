@@ -23,6 +23,7 @@ import { validatePortableReferences } from './application/portable-references';
 import { validatePortableHistory } from './application/portable-history';
 import { SqlBundleImportCheckpoints } from './infrastructure/bundle-import-checkpoints';
 import { SealedReceiptContent, type SealedReceiptRef } from './infrastructure/sealed-receipt-content';
+import { SealedRunContent, type SealedRunInputRef } from './infrastructure/sealed-run-content';
 
 interface QueryResult<Row> { rows: Row[] }
 type PendingReceiptContent = { workspaceId: string; commandId: string; reference: SealedReceiptRef; kind?: 'result' | 'error' };
@@ -122,7 +123,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   private readonly scoped = new Map<string, PostgresWorkspaceStore>();
   readonly defaultWorkspaceId: string;
 
-  constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: string, private readonly receiptContent?: SealedReceiptContent) {
+  constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: string, private readonly receiptContent?: SealedReceiptContent, private readonly runContent?: SealedRunContent) {
     const configuredWorkspaceId = defaultWorkspaceId?.trim();
     if (configuredWorkspaceId && !uuidPattern.test(configuredWorkspaceId)) throw new Error('RHIZA_PROJECT_ID must be a UUID when set');
     this.defaultWorkspaceId = configuredWorkspaceId || DEFAULT_PROJECT_ID;
@@ -131,7 +132,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   forWorkspace(workspaceId: string): WorkspaceRepository {
     if (workspaceId === this.defaultWorkspaceId) return this;
     let scoped = this.scoped.get(workspaceId);
-    if (!scoped) { scoped = new PostgresWorkspaceStore(this.database, workspaceId, this.receiptContent); this.scoped.set(workspaceId, scoped); }
+    if (!scoped) { scoped = new PostgresWorkspaceStore(this.database, workspaceId, this.receiptContent, this.runContent); this.scoped.set(workspaceId, scoped); }
     return scoped;
   }
 
@@ -566,9 +567,17 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     return count;
   }
 
+  private async decodeRun(row: { record: ExecutionRun; input_content_ref: unknown }): Promise<ExecutionRun> {
+    const record = asJson<ExecutionRun>(row.record);
+    if (row.input_content_ref == null) return record;
+    if (!this.runContent) throw new Error('RUN_CONTENT_STORE_UNAVAILABLE');
+    const input = await this.runContent.read(record.workspaceId, record.id, asJson<SealedRunInputRef>(row.input_content_ref), record.inputHash);
+    return { ...record, input };
+  }
+
   async listRuns(limit = 50): Promise<ExecutionRun[]> {
-    const result = await this.database.query<{ record: ExecutionRun }>(`SELECT record FROM execution_runs WHERE workspace_id=$1 ORDER BY record->>'createdAt' DESC, run_id LIMIT $2`, [this.defaultWorkspaceId, Math.min(10000, Math.max(1, limit))]);
-    return result.rows.map(row => asJson<ExecutionRun>(row.record));
+    const result = await this.database.query<{ record: ExecutionRun; input_content_ref: unknown }>(`SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1 ORDER BY record->>'createdAt' DESC, run_id LIMIT $2`, [this.defaultWorkspaceId, Math.min(10000, Math.max(1, limit))]);
+    return Promise.all(result.rows.map(row => this.decodeRun(row)));
   }
 
   async readProvenance(outputId: string): Promise<ProvenanceLink | undefined> {
@@ -585,12 +594,12 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       const record = directory.rows[0];
       if (!record) throw Object.assign(new Error('Workspace directory missing'), { code: 'WORKSPACE_NOT_FOUND', status: 404 });
       const members = await database.query<{ user_id: string; role: 'owner' | 'member' }>('SELECT user_id,role FROM workspace_members WHERE workspace_id=$1 ORDER BY user_id', [this.defaultWorkspaceId]);
-      const runs = await database.query<{ record: ExecutionRun }>('SELECT record FROM execution_runs WHERE workspace_id=$1 ORDER BY run_id', [this.defaultWorkspaceId]);
+      const runs = await database.query<{ record: ExecutionRun; input_content_ref: unknown }>('SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1 ORDER BY run_id', [this.defaultWorkspaceId]);
       const provenance = await database.query<{ record: ProvenanceLink }>('SELECT record FROM provenance_links WHERE workspace_id=$1 ORDER BY output_ref', [this.defaultWorkspaceId]);
       const journal = await database.query<Record<string, unknown>>('SELECT * FROM workspace_events WHERE workspace_id=$1 ORDER BY sequence', [this.defaultWorkspaceId]);
       return { workspace, directory: { workspaceId: record.workspace_id, name: record.name, status: record.status, createdBy: record.created_by, revision: Number(record.revision) },
         members: members.rows.map(member => ({ userId: member.user_id, role: member.role })),
-        runs: runs.rows.map(row => asJson<ExecutionRun>(row.record)), provenance: provenance.rows.map(row => asJson<ProvenanceLink>(row.record)), journal: journal.rows.map(storedJournalEvent) };
+        runs: await Promise.all(runs.rows.map(row => this.decodeRun(row))), provenance: provenance.rows.map(row => asJson<ProvenanceLink>(row.record)), journal: journal.rows.map(storedJournalEvent) };
     });
   }
 
@@ -654,8 +663,8 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   }
 
   async getRun(runId: string): Promise<ExecutionRun | undefined> {
-    const result = await this.database.query<{ record: ExecutionRun }>('SELECT record FROM execution_runs WHERE workspace_id=$1 AND run_id=$2', [this.defaultWorkspaceId, runId]);
-    return result.rows[0] ? asJson<ExecutionRun>(result.rows[0].record) : undefined;
+    const result = await this.database.query<{ record: ExecutionRun; input_content_ref: unknown }>('SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1 AND run_id=$2', [this.defaultWorkspaceId, runId]);
+    return result.rows[0] ? this.decodeRun(result.rows[0]) : undefined;
   }
 
   async writeRunTraces(runId: string, attempt: number, traces: RunTrace[]) {
@@ -759,12 +768,12 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
       const workspace = await this.readFrom(database, true);
       if (!workspace) throw new Error('Workspace is unavailable');
-      const runs = await database.query<{ record: ExecutionRun }>('SELECT record FROM execution_runs WHERE workspace_id=$1', [this.defaultWorkspaceId]);
+      const runs = await database.query<{ record: ExecutionRun; input_content_ref: unknown }>('SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1', [this.defaultWorkspaceId]);
       const sequence = await database.query<{ sequence: number }>('SELECT COALESCE(MAX(sequence),0)::bigint AS sequence FROM workspace_events WHERE workspace_id=$1', [this.defaultWorkspaceId]);
       // Removal history must survive more than the activity endpoint's 10k-event window.
       const removed = await database.query<{ event_type: DomainEventEnvelope['eventType']; sequence: number; aggregate_revision: number; occurred_at: unknown; payload: DomainEventEnvelope['payload'] }>("SELECT event_type,sequence,aggregate_revision,occurred_at,payload FROM workspace_events WHERE workspace_id=$1 AND event_type IN ('object.purged','graph.relation.removed') ORDER BY sequence", [this.defaultWorkspaceId]);
       const events = removed.rows.map(row => ({ eventType: row.event_type, sequence: Number(row.sequence), aggregateRevision: Number(row.aggregate_revision), occurredAt: asIso(row.occurred_at), payload: asJson<DomainEventEnvelope['payload']>(row.payload) }));
-      const projection = buildWorkspaceGraphProjection(workspace, runs.rows.map(row => asJson<ExecutionRun>(row.record)), Number(sequence.rows[0]?.sequence ?? 0), events);
+      const projection = buildWorkspaceGraphProjection(workspace, await Promise.all(runs.rows.map(row => this.decodeRun(row))), Number(sequence.rows[0]?.sequence ?? 0), events);
       return new PostgresGraphProjectionAdapter({ query: database.query.bind(database), transaction: work => work(database) }, this.defaultWorkspaceId).materialize(projection, force);
     });
   }
@@ -927,8 +936,8 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     for (const output of messages.filter(message => message.kind === 'assistant')) {
       const node = workspace.discussionNodes.find(node => node.id === output.nodeId)!;
       const manifest = workspace.manifests.find(manifest => manifest.id === output.manifestId);
-      const runs = manifest ? await database.query<{ record: ExecutionRun }>('SELECT record FROM execution_runs WHERE workspace_id=$1 AND run_id=$2', [workspace.projectId, manifest.requestId]) : { rows: [] };
-      const link = deriveProvenance(workspace.projectId, output, node, manifest, runs.rows[0] ? asJson<ExecutionRun>(runs.rows[0].record) : undefined);
+      const runs = manifest ? await database.query<{ record: ExecutionRun; input_content_ref: unknown }>('SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1 AND run_id=$2', [workspace.projectId, manifest.requestId]) : { rows: [] };
+      const link = deriveProvenance(workspace.projectId, output, node, manifest, runs.rows[0] ? await this.decodeRun(runs.rows[0]) : undefined);
       const result = await database.query('INSERT INTO provenance_links (workspace_id,output_ref,provenance_id,record) VALUES ($1,$2,$3,$4::jsonb) ON CONFLICT (workspace_id,output_ref) DO NOTHING RETURNING output_ref', [workspace.projectId, output.id, link.id, JSON.stringify(link)]);
       inserted += result.rows.length;
     }

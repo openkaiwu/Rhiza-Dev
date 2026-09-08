@@ -34,6 +34,7 @@ import { RepositoryWorkspaceUnitOfWork } from '../server/infrastructure/workspac
 import { NodeContentKeys } from '../server/infrastructure/node-content-keys';
 import { NodeSealedContentStore } from '../server/infrastructure/node-sealed-content-store';
 import { SealedReceiptContent, type SealedReceiptRef } from '../server/infrastructure/sealed-receipt-content';
+import { SealedRunContent } from '../server/infrastructure/sealed-run-content';
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -200,6 +201,27 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     expect(await store.forWorkspace(randomUUID()).readCommandReceipt!(commandId)).toBeUndefined();
     await content.destroy(workspaceId, commandId, reference);
     await expect(store.readCommandReceipt(commandId)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+  });
+  it('M09 decrypts stored Run inputs for reads and export and fails closed without keys', async () => {
+    const { app, store, database, uploadDirectory } = await setup(success);
+    await request(app).post('/api/chat').send({ message: 'private Run input' }).expect(201);
+    const [source] = await store.listRuns();
+    const run = { ...source, id: randomUUID(), commandId: randomUUID() };
+    const content = SealedRunContent.atDirectory(join(uploadDirectory, 'run-inputs'));
+    const reference = await content.seal(run.workspaceId, run.id, run.input, run.inputHash);
+    await database.query(`INSERT INTO execution_runs(run_id,workspace_id,command_id,node_id,status,attempt,input_envelope,input_hash,model_spec_ref,provider_endpoint_ref,record,input_content_ref)
+      VALUES ($1,$2,$3,$4,$5,1,'{"sealed":true}'::jsonb,$6,$7,$8,$9::jsonb,$10::jsonb)`,
+    [run.id,run.workspaceId,run.commandId,run.nodeId,run.status,run.inputHash,run.input.executor.modelSpecRef,run.input.executor.providerEndpointRef,JSON.stringify({ ...run, input: { sealed: true } }),JSON.stringify(reference)]);
+    const reader = new PostgresWorkspaceStore(database, undefined, undefined, content);
+    expect(await reader.getRun(run.id)).toEqual(run);
+    expect((await reader.listRuns()).find(item => item.id === run.id)).toEqual(run);
+    expect((await reader.readPortableWorkspace()).runs.find(item => item.id === run.id)).toEqual(run);
+    await reader.readGraphProjection();
+    await expect(store.getRun(run.id)).rejects.toThrow('RUN_CONTENT_STORE_UNAVAILABLE');
+    expect(await reader.forWorkspace(randomUUID()).getRun!(run.id)).toBeUndefined();
+    await content.destroy(run.workspaceId, run.id, reference);
+    await expect(reader.getRun(run.id)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    await expect(reader.readPortableWorkspace()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
   });
   it('M09 constrains sealed Run input replicas and keeps references immutable', async () => {
     const { database, store } = await setup(success);
