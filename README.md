@@ -181,6 +181,8 @@ Rhiza 默认把工作空间数据保存在本机。Provider API Key 使用本机
 
 节点的标题、摘要与引用文本也默认加密，新内容存储在配套内容目录的 `nodes` 子目录；备份必须一并包含该目录。旧节点尚未迁移，其他当前状态和资源副本仍需覆盖。
 
+旧节点可在停服并完整备份后运行 `pnpm exec tsx scripts/seal-legacy-node-content.ts` 分批迁移。工具获取运行时独占权，逐批锁定记录并核对解密内容后替换三个正文属性；失败回滚并撤销新密钥，重复执行跳过已迁移节点。该操作不会擦除旧备份、WAL 或快照中的明文，也不处理其他内容副本。
+
 `pnpm exec tsx scripts/audit-history-keys.ts` 将同类只读检查扩展到回执、Run、Journal、消息、Manifest 和节点的全部工作区引用。结果按内容类别分组；它不是停写后的回收证明，不会删除未引用密钥。
 
 旧消息可在停服、完整备份后执行 `pnpm exec tsx scripts/seal-legacy-message-content.ts` 迁移。工具分批锁定消息，校验解密内容后替换正文、reasoning 与 tool calls；失败回滚，可重跑续迁，消息身份和关联字段不变。它不清除旧备份、WAL 或其他表中的消息副本。
