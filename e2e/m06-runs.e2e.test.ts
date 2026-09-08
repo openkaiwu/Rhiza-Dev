@@ -257,6 +257,26 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     await expect(reader.getRun(run.id)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     await expect(reader.readPortableWorkspace()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
   });
+  it('M09 constrains sealed Journal payloads and preserves append-only protection', async () => {
+    const { database, store } = await setup(success);
+    const reference = { format: 'rhiza.sealed-journal.v1', contentId: 'event-content', reference: { version: 1, digest: 'a'.repeat(64), size: 2,
+      ciphertext: { digestAlgorithm: 'sha256', digest: 'b'.repeat(64), blobRef: `sha256/bb/${'b'.repeat(64)}`, size: 31 } } };
+    let sequence = 100;
+    const insert = async (ref: unknown, payload: unknown = { sealed: true }) => {
+      const id = randomUUID();
+      await database.query(`INSERT INTO workspace_events(event_id,workspace_id,sequence,ce_specversion,rhiza_envelope_version,event_type,event_source,subject,data_schema,aggregate_type,aggregate_id,aggregate_revision,actor_ref,scope_ref,command_id,event_index,payload,occurred_at,payload_content_ref)
+        SELECT $1::uuid,workspace_id,$2,ce_specversion,rhiza_envelope_version,event_type,event_source,subject,data_schema,aggregate_type,aggregate_id,aggregate_revision,actor_ref,scope_ref,$1::text,0,$3::jsonb,occurred_at,$4::jsonb
+        FROM workspace_events WHERE workspace_id=$5 AND sequence=1`, [id, sequence++, JSON.stringify(payload), JSON.stringify(ref), store.defaultWorkspaceId]);
+      return id;
+    };
+    const id = await insert(reference);
+    await expect(insert(reference, { text: 'private payload' })).rejects.toThrow('journal_sealed_payload_valid');
+    await expect(insert({ format: reference.format })).rejects.toThrow('journal_sealed_payload_valid');
+    await expect(insert({ ...reference, extra: 'private' })).rejects.toThrow('journal_sealed_payload_valid');
+    await expect(database.query('UPDATE workspace_events SET payload_content_ref=NULL WHERE event_id=$1', [id])).rejects.toThrow('append-only');
+    await expect(database.query('DELETE FROM workspace_events WHERE event_id=$1', [id])).rejects.toThrow('append-only');
+    await expect(database.exec(await readFile('db/migrations/0018_sealed_journal_payloads.down.sql', 'utf8'))).rejects.toThrow('Cannot remove sealed Journal references');
+  });
   it('M09 constrains sealed Run input replicas and keeps references immutable', async () => {
     const { database, store } = await setup(success);
     const reference = { format: 'rhiza.sealed-run-input.v1', contentId: 'run-content', reference: { version: 1, digest: 'a'.repeat(64), size: 2,
