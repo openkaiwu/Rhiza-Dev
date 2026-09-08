@@ -323,6 +323,22 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     await expect(reader.backfillJournal()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     expect((await database.query('SELECT event_id FROM workspace_events')).rows).toHaveLength(1);
   });
+  it('M09 forbids plaintext message replicas beside sealed content references', async () => {
+    const { database, store } = await setup(success);
+    const workspace = await store.read();
+    const reference = { format: 'rhiza.sealed-message.v1', contentId: 'message-content', reference: { version: 1, digest: 'a'.repeat(64), size: 2,
+      ciphertext: { digestAlgorithm: 'sha256', digest: 'b'.repeat(64), blobRef: `sha256/bb/${'b'.repeat(64)}`, size: 31 } } };
+    const insert = (ref: unknown, body = '', reasoning: string | null = null, toolCalls: unknown = null) => database.query(
+      "INSERT INTO rhiza_messages(id,node_id,kind,body,reasoning,tool_calls,content_ref) VALUES ($1,$2,'assistant',$3,$4,$5::jsonb,$6::jsonb)",
+      [randomUUID(), workspace.activeNodeId, body, reasoning, toolCalls === null ? null : JSON.stringify(toolCalls), JSON.stringify(ref)]);
+    await insert(reference);
+    await expect(insert(reference, 'private text')).rejects.toThrow('message_sealed_content_valid');
+    await expect(insert(reference, '', 'private reasoning')).rejects.toThrow('message_sealed_content_valid');
+    await expect(insert(reference, '', null, [{ arguments: 'private' }])).rejects.toThrow('message_sealed_content_valid');
+    await expect(insert({ format: reference.format })).rejects.toThrow('message_sealed_content_valid');
+    await expect(insert({ ...reference, extra: 'private' })).rejects.toThrow('message_sealed_content_valid');
+    await expect(database.exec(await readFile('db/migrations/0019_sealed_message_content.down.sql', 'utf8'))).rejects.toThrow('Cannot remove sealed message references');
+  });
   it('M09 constrains sealed Journal payloads and preserves append-only protection', async () => {
     const { database, store } = await setup(success);
     const reference = { format: 'rhiza.sealed-journal.v1', contentId: 'event-content', reference: { version: 1, digest: 'a'.repeat(64), size: 2,
