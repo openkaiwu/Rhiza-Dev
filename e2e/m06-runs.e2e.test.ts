@@ -258,6 +258,29 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     await expect(reader.getRun(run.id)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     await expect(reader.readPortableWorkspace()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
   });
+  it('M09 migrates legacy Journal payloads with rollback and unchanged event envelopes', async () => {
+    const { app, store, database, uploadDirectory } = await setup(success);
+    await request(app).post('/api/chat').send({ message: 'legacy journal input' }).expect(201);
+    const original = await store.readJournal();
+    const content = SealedJournalContent.atDirectory(join(uploadDirectory, 'journal-migration'));
+    const migration = new PostgresWorkspaceStore(database, undefined, undefined, undefined, content);
+    const seal = vi.spyOn(content, 'seal');
+    await database.exec(`CREATE FUNCTION reject_journal_migration() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'journal migration interrupted'; END $$;
+      CREATE TRIGGER reject_journal_migration BEFORE UPDATE ON workspace_events FOR EACH ROW EXECUTE FUNCTION reject_journal_migration();`);
+    await expect(migration.sealLegacyJournalPayloads()).rejects.toThrow('journal migration interrupted');
+    expect(await store.readJournal()).toEqual(original);
+    for (const [index, [workspaceId, eventId]] of seal.mock.calls.entries()) {
+      await expect(content.read(workspaceId, eventId, await seal.mock.results[index].value)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    }
+    await database.exec('DROP TRIGGER reject_journal_migration ON workspace_events; DROP FUNCTION reject_journal_migration();');
+    await expect(database.query('DELETE FROM workspace_events WHERE event_id=$1', [original[0].eventId])).rejects.toThrow('append-only');
+    expect(await migration.sealLegacyJournalPayloads(1)).toBe(1);
+    expect(await migration.sealLegacyJournalPayloads()).toBe(original.length - 1);
+    expect(await migration.sealLegacyJournalPayloads()).toBe(0);
+    expect(await migration.readJournal()).toEqual(original);
+    expect(await migration.backfillJournal()).toMatchObject({ created: false, eventCount: original.length });
+    await expect(database.query('UPDATE workspace_events SET payload_content_ref=NULL WHERE event_id=$1', [original[0].eventId])).rejects.toThrow('append-only');
+  });
   it('M09 encrypts command and lifecycle Journal writes and revokes keys on rollback', async () => {
     const { database, uploadDirectory, provider, runtime } = await setup(success);
     const content = SealedJournalContent.atDirectory(join(uploadDirectory, 'journal-writes'));

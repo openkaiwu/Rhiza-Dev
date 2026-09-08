@@ -352,6 +352,35 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     });
   }
 
+  /** Offline owner-level migration; ordinary Journal commands remain append-only. */
+  async sealLegacyJournalPayloads(limit = 100): Promise<number> {
+    if (!this.journalContent) throw new Error('JOURNAL_CONTENT_STORE_UNAVAILABLE');
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error('INVALID_JOURNAL_MIGRATION_LIMIT');
+    return this.inTransaction(async database => {
+      await database.query("SET LOCAL lock_timeout = '5s'");
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
+      await database.query('LOCK TABLE workspace_events IN ACCESS EXCLUSIVE MODE');
+      const { rows } = await database.query<Record<string, unknown>>('SELECT * FROM workspace_events WHERE workspace_id=$1 AND payload_content_ref IS NULL ORDER BY sequence LIMIT $2', [this.defaultWorkspaceId, limit]);
+      if (!rows.length) return 0;
+      const replacements: Array<{ eventId: string; reference: SealedJournalRef }> = [];
+      for (const row of rows) {
+        const event = storedJournalEvent(row);
+        const reference = await this.journalContent!.seal(event.workspaceId, event.eventId, event.payload);
+        this.transactionContent.get(database)!.push({ workspaceId: event.workspaceId, eventId: event.eventId, reference });
+        const decoded = await this.journalContent!.read(event.workspaceId, event.eventId, reference);
+        if (semanticStateChecksum(decoded) !== semanticStateChecksum(event.payload)) throw new Error('JOURNAL_MIGRATION_CHECKSUM_MISMATCH');
+        replacements.push({ eventId: event.eventId, reference });
+      }
+      await database.query('ALTER TABLE workspace_events DISABLE TRIGGER workspace_events_append_only');
+      for (const { eventId, reference } of replacements) {
+        await database.query(`UPDATE workspace_events SET payload='{"sealed":true}'::jsonb,payload_content_ref=$3::jsonb
+          WHERE workspace_id=$1 AND event_id=$2`, [this.defaultWorkspaceId, eventId, JSON.stringify(reference)]);
+      }
+      await database.query('ALTER TABLE workspace_events ENABLE TRIGGER workspace_events_append_only');
+      return replacements.length;
+    });
+  }
+
   async read(): Promise<WorkspaceData> {
     return this.inTransaction(async database => {
       const existing = await this.readFrom(database);
