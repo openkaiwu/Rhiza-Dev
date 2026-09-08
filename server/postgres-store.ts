@@ -26,7 +26,8 @@ import { SealedReceiptContent, type SealedReceiptRef } from './infrastructure/se
 import { SealedRunContent, type SealedRunInputRef } from './infrastructure/sealed-run-content';
 
 interface QueryResult<Row> { rows: Row[] }
-type PendingReceiptContent = { workspaceId: string; commandId: string; reference: SealedReceiptRef; kind?: 'result' | 'error' };
+type PendingReceiptContent = { workspaceId: string; commandId: string; reference: SealedReceiptRef; kind?: 'result' | 'error' }
+  | { workspaceId: string; runId: string; reference: SealedRunInputRef };
 export interface SqlQueryable {
   query<Row = Record<string, unknown>>(sql: string, values?: unknown[]): Promise<QueryResult<Row>>;
 }
@@ -238,7 +239,8 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   private async discardReceiptContent(pending: PendingReceiptContent[]) {
     while (pending.length) {
       const item = pending[pending.length - 1];
-      await this.receiptContent!.destroy(item.workspaceId, item.commandId, item.reference, item.kind);
+      if ('runId' in item) await this.runContent!.destroy(item.workspaceId, item.runId, item.reference);
+      else await this.receiptContent!.destroy(item.workspaceId, item.commandId, item.reference, item.kind);
       pending.pop();
     }
   }
@@ -676,10 +678,18 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
 
   private async insertRun(database: SqlQueryable, run: ExecutionRun) {
     if (run.workspaceId !== this.defaultWorkspaceId || semanticStateChecksum(run.input as unknown as Record<string, unknown>) !== run.inputHash) throw new Error('Invalid ExecutionRun input');
+    let reference: SealedRunInputRef | undefined;
+    if (this.runContent) {
+      const pending = this.transactionContent.get(database);
+      if (!pending) throw new Error('RUN_CONTENT_REQUIRES_TRANSACTION');
+      reference = await this.runContent.seal(run.workspaceId, run.id, run.input, run.inputHash);
+      pending.push({ workspaceId: run.workspaceId, runId: run.id, reference });
+    }
+    const input = reference ? { sealed: true } : run.input;
     await database.query(`INSERT INTO execution_runs
-      (run_id,workspace_id,command_id,node_id,status,attempt,parent_run_ref,input_envelope,input_hash,model_spec_ref,provider_endpoint_ref,record)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12::jsonb)`,
-    [run.id,run.workspaceId,run.commandId,run.nodeId,run.status,run.attempt,run.parentRunRef ?? null,JSON.stringify(run.input),run.inputHash,run.input.executor.modelSpecRef,run.input.executor.providerEndpointRef,JSON.stringify(run)]);
+      (run_id,workspace_id,command_id,node_id,status,attempt,parent_run_ref,input_envelope,input_hash,model_spec_ref,provider_endpoint_ref,record,input_content_ref)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12::jsonb,$13::jsonb)`,
+    [run.id,run.workspaceId,run.commandId,run.nodeId,run.status,run.attempt,run.parentRunRef ?? null,JSON.stringify(input),run.inputHash,run.input.executor.modelSpecRef,run.input.executor.providerEndpointRef,JSON.stringify({ ...run, input }),reference ? JSON.stringify(reference) : null]);
   }
 
   private async applyRunMutation(database: SqlQueryable, mutation: RunMutation) {
@@ -888,11 +898,22 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   private async persist(database: SqlQueryable, workspace: WorkspaceData, previous?: WorkspaceData, options?: WorkspaceUpdateOptions): Promise<void> {
     if (options?.purge) {
       const nodeId = options.purge.nodeId;
+      const sealedRuns = await database.query<{ record: ExecutionRun; input_content_ref: unknown }>('SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1 AND input_content_ref IS NOT NULL', [workspace.projectId]);
+      let sealedReference = false;
+      for (const row of sealedRuns.rows) {
+        const run = await this.decodeRun(row);
+        if (run.nodeId === nodeId || run.nodeId === `temp:${nodeId}`
+          || run.input.request.history.some(item => item.nodeId === nodeId)
+          || run.input.request.contextItems.some(item => item.sourceNodeId === nodeId || (item.sourceType === 'node' && item.sourceId === nodeId))) {
+          sealedReference = true;
+          break;
+        }
+      }
       const retained = await database.query(`SELECT run_id FROM execution_runs WHERE workspace_id=$1 AND (
         node_id=$2 OR node_id='temp:' || $2 OR input_envelope->'request'->'history' @> $3::jsonb
         OR input_envelope->'request'->'contextItems' @> $4::jsonb OR input_envelope->'request'->'contextItems' @> $5::jsonb) LIMIT 1`,
         [workspace.projectId, nodeId, JSON.stringify([{ nodeId }]), JSON.stringify([{ sourceNodeId: nodeId }]), JSON.stringify([{ sourceType: 'node', sourceId: nodeId }])]);
-      if (retained.rows.length) throw Object.assign(new Error('该节点仍被不可变执行历史引用，请使用归档；物理删除需要统一的执行历史清理策略。'), { code: 'PURGE_HAS_EXECUTION_HISTORY', status: 409 });
+      if (sealedReference || retained.rows.length) throw Object.assign(new Error('该节点仍被不可变执行历史引用，请使用归档；物理删除需要统一的执行历史清理策略。'), { code: 'PURGE_HAS_EXECUTION_HISTORY', status: 409 });
     }
     const nodes = changedItems(workspace.discussionNodes, previous?.discussionNodes);
     const segments = changedItems(workspace.segments, previous?.segments);

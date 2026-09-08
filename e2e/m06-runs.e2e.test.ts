@@ -203,7 +203,7 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     await expect(store.readCommandReceipt(commandId)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
   });
   it('M09 decrypts stored Run inputs for reads and export and fails closed without keys', async () => {
-    const { app, store, database, uploadDirectory } = await setup(success);
+    const { app, store, database, uploadDirectory, provider, runtime } = await setup(success);
     await request(app).post('/api/chat').send({ message: 'private Run input' }).expect(201);
     const [source] = await store.listRuns();
     const run = { ...source, id: randomUUID(), commandId: randomUUID() };
@@ -213,6 +213,20 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
       VALUES ($1,$2,$3,$4,$5,1,'{"sealed":true}'::jsonb,$6,$7,$8,$9::jsonb,$10::jsonb)`,
     [run.id,run.workspaceId,run.commandId,run.nodeId,run.status,run.inputHash,run.input.executor.modelSpecRef,run.input.executor.providerEndpointRef,JSON.stringify({ ...run, input: { sealed: true } }),JSON.stringify(reference)]);
     const reader = new PostgresWorkspaceStore(database, undefined, undefined, content);
+    const encryptedApp = createApp(reader, provider, false, runtime, undefined, uploadDirectory);
+    await request(encryptedApp).post('/api/chat').send({ message: 'encrypted new input' }).expect(201);
+    const stored = (await database.query<{ input_envelope: unknown; record: { input: unknown }; input_content_ref: unknown }>('SELECT input_envelope,record,input_content_ref FROM execution_runs WHERE run_id<>$1 AND run_id<>$2', [source.id, run.id])).rows[0];
+    expect(stored.input_envelope).toEqual({ sealed: true });
+    expect(stored.record.input).toEqual({ sealed: true });
+    expect(stored.input_content_ref).toBeTruthy();
+    const seal = vi.spyOn(content, 'seal');
+    await database.exec(`CREATE FUNCTION reject_test_run() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test run insert failure'; END $$;
+      CREATE TRIGGER reject_test_run BEFORE INSERT ON execution_runs FOR EACH ROW EXECUTE FUNCTION reject_test_run();`);
+    await request(encryptedApp).post('/api/chat').send({ message: 'rollback input' }).expect(500);
+    const failedRef = await seal.mock.results[0].value;
+    const [failedWorkspace, failedRun, , failedHash] = seal.mock.calls[0];
+    await expect(content.read(failedWorkspace, failedRun, failedRef, failedHash)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    await database.exec('DROP TRIGGER reject_test_run ON execution_runs; DROP FUNCTION reject_test_run();');
     expect(await reader.getRun(run.id)).toEqual(run);
     expect((await reader.listRuns()).find(item => item.id === run.id)).toEqual(run);
     expect((await reader.readPortableWorkspace()).runs.find(item => item.id === run.id)).toEqual(run);
