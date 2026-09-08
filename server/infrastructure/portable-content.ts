@@ -2,6 +2,9 @@ import type { PortableWorkspaceFacts } from '../application/ports/portable-works
 import type { BundleIndex } from '../domain/portable-bundle';
 import { BUNDLE_LIMITS, bundleError, type BundleLimits } from '../domain/portable-bundle';
 import { createReadStream } from 'node:fs';
+import { stat } from 'node:fs/promises';
+import { join } from 'node:path';
+import { NodeFilesystemBlobStore } from './node-host-runtime';
 import { stageBundleArchive, type StagedBundleArchive } from './bundle-archive';
 import { semanticStateChecksum } from './workspace-semantic-checksum';
 import Ajv2020 from 'ajv/dist/2020.js';
@@ -24,6 +27,26 @@ addFormats(ajv); ajv.addSchema(journalSchema);
 const validateDocument = ajv.compile<PortableDocument>(portableWorkspaceSchema);
 
 export interface StagedPortableWorkspace extends StagedBundleArchive { facts: PortableWorkspaceFacts }
+
+/** Separate from resource GC; checkpoints retain the archive digest needed after process loss. */
+export class NodeImportArchiveStore {
+  private readonly blobs: NodeFilesystemBlobStore;
+  constructor(private readonly root: string) { this.blobs = new NodeFilesystemBlobStore(root); }
+  async retain(path: string, expectedDigest: string): Promise<void> {
+    const file = await stat(path);
+    if (!file.isFile() || file.size > BUNDLE_LIMITS.maxArchiveBytes) throw bundleError('BUNDLE_QUOTA_EXCEEDED');
+    await this.blobs.putStream(createReadStream(path), expectedDigest, file.size);
+  }
+  async stage(digest: string): Promise<StagedPortableWorkspace> {
+    if (!/^[a-f0-9]{64}$/.test(digest)) throw bundleError('BUNDLE_INVALID_ARCHIVE_DIGEST');
+    const staged = await stagePortableWorkspace(join(this.root, 'blobs', 'sha256', digest.slice(0, 2), digest));
+    if (staged.archiveDigest !== digest) {
+      await staged.dispose();
+      throw bundleError('BUNDLE_ARCHIVE_DIGEST_MISMATCH');
+    }
+    return staged;
+  }
+}
 
 /** Re-running after interruption re-verifies existing content; it never replaces corrupt blobs. */
 export async function ingestPortableBlobs(staged: StagedPortableWorkspace, blobs: BlobStorePort): Promise<string[]> {

@@ -21,7 +21,7 @@ import { semanticStateChecksum } from '../server/infrastructure/workspace-semant
 import { portableWorkspaceFacts } from '../server/application/portable-workspace';
 import { validatePortableReferences } from '../server/application/portable-references';
 import { stageBundleArchive, describeBundleFile, writeBundleArchive } from '../server/infrastructure/bundle-archive';
-import { decodePortableDocument, ingestPortableBlobs, stagePortableWorkspace, validatePortableContent } from '../server/infrastructure/portable-content';
+import { decodePortableDocument, ingestPortableBlobs, NodeImportArchiveStore, stagePortableWorkspace, validatePortableContent } from '../server/infrastructure/portable-content';
 import { BUNDLE_LIMITS } from '../server/domain/portable-bundle';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
@@ -138,6 +138,15 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     expect(download.headers['content-disposition']).toContain('workspace.rhiza');
     const path = join(uploadDirectory, 'download.rhiza'); await writeFile(path, download.body);
     const ready = await stagePortableWorkspace(path);
+    const archiveRoot = join(uploadDirectory, 'retained-imports');
+    const archives = new NodeImportArchiveStore(archiveRoot);
+    await archives.retain(path, ready.archiveDigest);
+    await archives.retain(path, ready.archiveDigest);
+    const recoveredArchive = await new NodeImportArchiveStore(archiveRoot).stage(ready.archiveDigest);
+    expect(recoveredArchive.facts).toEqual(ready.facts);
+    await recoveredArchive.dispose();
+    await expect(archives.retain(path, '0'.repeat(64))).rejects.toThrow('digest mismatch');
+    await expect(archives.stage('../escape')).rejects.toThrow('BUNDLE_INVALID_ARCHIVE_DIGEST');
     expect(ready.facts).toEqual(JSON.parse(JSON.stringify(portable)));
     const destinationBlobs = new NodeFilesystemBlobStore(join(uploadDirectory, 'imported-blobs'));
     const checkpoints = new SqlBundleImportCheckpoints(database);
@@ -157,11 +166,12 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     expect(importedRefs.length).toBeGreaterThan(0);
     expect(await ingestPortableBlobs(ready, destinationBlobs)).toEqual(importedRefs);
     for (const version of portable.workspace.resourceVersions) await expect(destinationBlobs.read(version.blobRef, version.digest)).resolves.toHaveLength(version.size);
-    const destination = new PGlite();
+    const destinationPath = join(uploadDirectory, 'import-database');
+    let destination = new PGlite(destinationPath);
     cleanups.push(() => destination.close());
     for (const migration of await loadMigrations()) await destination.exec(migration.sql);
-    const target = new PostgresWorkspaceStore(destination, portable.workspace.projectId);
-    const targetCheckpoints = new SqlBundleImportCheckpoints(destination);
+    let target = new PostgresWorkspaceStore(destination, portable.workspace.projectId);
+    let targetCheckpoints = new SqlBundleImportCheckpoints(destination);
     await prepareBundleImport(identity, targetCheckpoints, () => ingestPortableBlobs(ready, destinationBlobs));
     const occupiedProject = randomUUID();
     const occupiedNode = portable.workspace.discussionNodes[0].id;
@@ -178,7 +188,15 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     expect(await target.readExisting()).toBeUndefined();
     expect(await targetCheckpoints.read(identity.importId, identity.ownerId)).toMatchObject({ phase: 'blobs-ready' });
     await destination.exec('DROP TRIGGER fail_import_journal ON workspace_events; DROP FUNCTION fail_import_journal();');
-    await completeBundleImport(identity, portable, targetCheckpoints, () => ingestPortableBlobs(ready, destinationBlobs), new RepositoryWorkspaceUnitOfWork(target));
+    await destination.close();
+    destination = new PGlite(destinationPath);
+    target = new PostgresWorkspaceStore(destination, portable.workspace.projectId);
+    targetCheckpoints = new SqlBundleImportCheckpoints(destination);
+    expect(await targetCheckpoints.read(identity.importId, identity.ownerId)).toMatchObject({ phase: 'blobs-ready' });
+    const resumedArchive = await new NodeImportArchiveStore(archiveRoot).stage(identity.archiveDigest);
+    try {
+      await completeBundleImport(identity, resumedArchive.facts, targetCheckpoints, () => ingestPortableBlobs(resumedArchive, destinationBlobs), new RepositoryWorkspaceUnitOfWork(target));
+    } finally { await resumedArchive.dispose(); }
     await target.activatePortableImport(identity.importId, identity.ownerId, portable);
     expect(await targetCheckpoints.read(identity.importId, identity.ownerId)).toMatchObject({ phase: 'activated', revision: 3 });
     const restored = portableWorkspaceFacts(await target.readPortableWorkspace(), input => semanticStateChecksum(input as Record<string, unknown>));
