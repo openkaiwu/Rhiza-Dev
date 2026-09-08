@@ -21,7 +21,11 @@ import { semanticStateChecksum } from '../server/infrastructure/workspace-semant
 import { portableWorkspaceFacts } from '../server/application/portable-workspace';
 import { validatePortableReferences } from '../server/application/portable-references';
 import { stageBundleArchive } from '../server/infrastructure/bundle-archive';
-import { validatePortableContent } from '../server/infrastructure/portable-content';
+import { decodePortableDocument, validatePortableContent } from '../server/infrastructure/portable-content';
+import Ajv2020 from 'ajv/dist/2020.js';
+import addFormats from 'ajv-formats';
+import { portableWorkspaceSchema } from '../server/domain/portable-workspace-schema';
+import journalSchema from '../server/contracts/domain-event-envelope.schema.json';
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -95,6 +99,25 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     const staged = await stageBundleArchive(path);
     try {
       const document = JSON.parse(await readFile(staged.files.get(staged.index.root)!, 'utf8'));
+      const ajv = new Ajv2020({ strict: true });
+      addFormats(ajv); ajv.addSchema(journalSchema);
+      const validate = ajv.compile(portableWorkspaceSchema);
+      expect(validate(document), JSON.stringify(validate.errors)).toBe(true);
+      expect(decodePortableDocument(document, staged.index)).toEqual(document.facts);
+      const malformed = structuredClone(document);
+      malformed.facts.runs[0].input.request.history = {};
+      expect(validate(malformed)).toBe(false);
+      expect(() => decodePortableDocument(malformed, staged.index)).toThrow('BUNDLE_INVALID_DOCUMENT');
+      const secret = structuredClone(document);
+      secret.providerEndpoints[0].apiKey = 'forbidden';
+      expect(validate(secret)).toBe(false);
+      expect(() => decodePortableDocument(secret, staged.index)).toThrow('BUNDLE_INVALID_DOCUMENT');
+      const swappedModel = structuredClone(document);
+      swappedModel.modelSpecs[0].model = 'different-model';
+      expect(() => decodePortableDocument(swappedModel, staged.index)).toThrow('BUNDLE_DESCRIPTOR_MISMATCH');
+      const duplicateDescriptor = structuredClone(document);
+      duplicateDescriptor.runtimeSnapshots.push(duplicateDescriptor.runtimeSnapshots[0]);
+      expect(() => decodePortableDocument(duplicateDescriptor, staged.index)).toThrow('BUNDLE_DESCRIPTOR_MISMATCH');
       expect(document.facts).toEqual(JSON.parse(JSON.stringify(portable)));
       expect(document.providerEndpoints.every((endpoint: { credential_required: boolean }) => endpoint.credential_required)).toBe(true);
       expect(document.runtimeSnapshots).toHaveLength(1);

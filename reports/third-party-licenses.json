@@ -374,6 +374,18 @@
       "publisher": "Nathan Rajlich",
       "copyright": null
     },
+    "ajv-formats@3.0.1": {
+      "licenses": "MIT",
+      "repository": "https://github.com/ajv-validator/ajv-formats",
+      "publisher": "Evgeny Poberezkin",
+      "copyright": null
+    },
+    "ajv@8.20.0": {
+      "licenses": "MIT",
+      "repository": "https://github.com/ajv-validator/ajv",
+      "publisher": "Evgeny Poberezkin",
+      "copyright": null
+    },
     "argparse@2.0.1": {
       "licenses": "Python-2.0",
       "repository": "https://github.com/nodeca/argparse",
@@ -932,6 +944,18 @@
       "publisher": "Stefan Thomas",
       "copyright": null
     },
+    "fast-deep-equal@3.1.3": {
+      "licenses": "MIT",
+      "repository": "https://github.com/epoberezkin/fast-deep-equal",
+      "publisher": "Evgeny Poberezkin",
+      "copyright": null
+    },
+    "fast-uri@3.1.5": {
+      "licenses": "BSD-3-Clause",
+      "repository": "https://github.com/fastify/fast-uri",
+      "publisher": "Vincent Le Goff",
+      "copyright": null
+    },
     "fdir@6.5.0": {
       "licenses": "MIT",
       "repository": "https://github.com/thecodrr/fdir",
@@ -1182,6 +1206,12 @@
       "licenses": "MIT",
       "repository": "https://github.com/nodeca/js-yaml",
       "publisher": "Vladimir Zapparov",
+      "copyright": null
+    },
+    "json-schema-traverse@1.0.0": {
+      "licenses": "MIT",
+      "repository": "https://github.com/epoberezkin/json-schema-traverse",
+      "publisher": "Evgeny Poberezkin",
       "copyright": null
     },
     "katex@0.16.47": {
@@ -1836,6 +1866,12 @@
       "licenses": "MIT",
       "repository": "https://github.com/remarkjs/remark.git#main",
       "publisher": "Titus Wormer",
+      "copyright": null
+    },
+    "require-from-string@2.0.2": {
+      "licenses": "MIT",
+      "repository": "https://github.com/floatdrop/require-from-string",
+      "publisher": "Vsevolod Strukchinsky",
       "copyright": null
     },
     "robust-predicates@3.0.3": {

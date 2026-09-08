@@ -13,7 +13,9 @@ import { canonicalJson } from '../domain/canonical-json';
 import { semanticStateChecksum } from './workspace-semantic-checksum';
 import { describeBundleFile, writeBundleArchive } from './bundle-archive';
 import indexSchema from '../contracts/bundle-index.schema.json';
-import { validatePortableContent } from './portable-content';
+import { decodePortableDocument } from './portable-content';
+import { portableWorkspaceSchema } from '../domain/portable-workspace-schema';
+import journalSchema from '../contracts/domain-event-envelope.schema.json';
 
 export class NodePortableBundle implements PortableBundlePort {
   constructor(private readonly blobs: BlobStorePort) {}
@@ -39,11 +41,14 @@ export class NodePortableBundle implements PortableBundlePort {
       };
       await add('rhiza-layout.json', { formatVersion: '1.0.0', index: 'index.json' });
       await add('schemas/bundle-index-v1.json', indexSchema, 'application/schema+json');
+      await add('schemas/portable-workspace-v1.json', portableWorkspaceSchema, 'application/schema+json');
+      await add('schemas/domain-event-envelope-v1.json', journalSchema, 'application/schema+json');
       const runtimeSnapshots = facts.runs.map(run => ({ id: `run:${run.id}:input:${run.originInputHash ?? run.inputHash}`, runRef: run.id, digest: `sha256:${run.inputHash}` }));
       const providerEndpoints = facts.runs.map(run => ({ id: run.input.executor.providerEndpointRef, runRef: run.id, providerType: run.input.executor.provider,
         configurationVersion: run.input.request.modelSnapshot?.endpointVersion ?? null, credential_ref: null, credential_required: true }));
       const modelSpecs = facts.runs.map(run => ({ id: run.input.executor.modelSpecRef, runRef: run.id, model: run.input.executor.model, provider: run.input.executor.provider }));
-      await add('workspace.json', { schemaVersion: '1.0.0', facts, runtimeSnapshots, providerEndpoints, modelSpecs });
+      const document = { schemaVersion: '1.0.0', facts, runtimeSnapshots, providerEndpoints, modelSpecs };
+      await add('workspace.json', document);
       for (const run of facts.runs) {
         const name = `blobs/sha256/${run.inputHash}`;
         if (!files.has(name)) await add(name, run.input, 'application/vnd.rhiza.context-envelope.v1+json');
@@ -65,7 +70,7 @@ export class NodePortableBundle implements PortableBundlePort {
       }
       const destination = join(directory, 'workspace.rhiza');
       const index: BundleIndex = { mediaType: BUNDLE_MEDIA_TYPE, formatVersion: '1.0.0', workspaceId: facts.workspace.projectId, root: 'workspace.json', entries };
-      validatePortableContent(facts, index);
+      decodePortableDocument(document, index);
       await writeBundleArchive(index, files, destination);
       const size = (await stat(destination)).size;
       if (size > BUNDLE_LIMITS.maxArchiveBytes) throw bundleError('BUNDLE_QUOTA_EXCEEDED');
