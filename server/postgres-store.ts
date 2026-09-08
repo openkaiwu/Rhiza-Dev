@@ -16,6 +16,10 @@ import type { WorkspaceRecord } from './contracts/application';
 import { buildWorkspaceGraphProjection } from './graph-projection/model';
 import { PostgresGraphProjectionAdapter } from './graph-projection/postgres-adapter';
 import { deriveProvenance, type ProvenanceLink } from './provenance/model';
+import type { PortableWorkspaceFacts } from './application/ports/portable-workspace';
+import type { BundleImportCheckpoint } from './application/ports/bundle-import';
+import { validatePortableReferences } from './application/portable-references';
+import { validatePortableHistory } from './application/portable-history';
 
 interface QueryResult<Row> { rows: Row[] }
 export interface SqlQueryable {
@@ -492,6 +496,58 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       return { workspace, directory: { workspaceId: record.workspace_id, name: record.name, status: record.status, createdBy: record.created_by, revision: Number(record.revision) },
         members: members.rows.map(member => ({ userId: member.user_id, role: member.role })),
         runs: runs.rows.map(row => asJson<ExecutionRun>(row.record)), provenance: provenance.rows.map(row => asJson<ProvenanceLink>(row.record)), journal: journal.rows.map(storedJournalEvent) };
+    });
+  }
+
+  async activatePortableImport(importId: string, ownerId: string, facts: PortableWorkspaceFacts): Promise<void> {
+    if (facts.workspace.projectId !== this.defaultWorkspaceId) throw new Error('BUNDLE_WORKSPACE_MISMATCH');
+    validatePortableReferences(facts);
+    validatePortableHistory(facts, semanticStateChecksum);
+    await this.inTransaction(async database => {
+      const checkpoints = await database.query<BundleImportCheckpoint>('SELECT workspace_id AS "workspaceId",state_digest AS "stateDigest",phase FROM bundle_imports WHERE import_id=$1 AND owner_id=$2 FOR UPDATE', [importId, ownerId]);
+      const checkpoint = checkpoints.rows[0];
+      if (!checkpoint || checkpoint.workspaceId !== facts.workspace.projectId || checkpoint.stateDigest !== semanticStateChecksum({ facts })) throw new Error('BUNDLE_IMPORT_CONFLICT');
+      if (checkpoint.phase === 'activated') return;
+      if (checkpoint.phase !== 'blobs-ready') throw new Error('BUNDLE_IMPORT_NOT_READY');
+      // Import alone takes coarse locks: existing legacy upserts must not touch another Workspace's IDs.
+      const collections: Array<[string, string, Array<{ id: string }>]> = [
+        ['rhiza_nodes', 'id', facts.workspace.discussionNodes], ['rhiza_messages', 'id', facts.workspace.messages],
+        ['rhiza_segments', 'id', facts.workspace.segments], ['rhiza_context_manifests', 'id', facts.workspace.manifests],
+        ['rhiza_attachments', 'id', facts.workspace.attachments], ['rhiza_anchors', 'id', facts.workspace.anchors],
+        ['rhiza_edges', 'id', facts.workspace.discussionEdges], ['rhiza_audit_events', 'id', facts.workspace.auditEvents],
+        ['rhiza_resources', 'resource_id', facts.workspace.resources], ['rhiza_resource_versions', 'resource_version_id', facts.workspace.resourceVersions],
+        ['rhiza_resource_materializations', 'materialization_id', facts.workspace.materializations], ['execution_runs', 'run_id', facts.runs],
+      ];
+      await database.query(`LOCK TABLE rhiza_projects,workspaces,${collections.map(([table]) => table).join(',')} IN SHARE ROW EXCLUSIVE MODE`);
+      if ((await database.query('SELECT id FROM rhiza_projects WHERE id=$1', [this.defaultWorkspaceId])).rows.length) throw new Error('BUNDLE_TARGET_EXISTS');
+      for (const [table, key, values] of collections) {
+        if (values.length && (await database.query(`SELECT 1 FROM ${table} WHERE ${key}::text=ANY($1::text[]) LIMIT 1`, [values.map(value => value.id)])).rows.length) throw new Error('BUNDLE_IDENTITY_COLLISION');
+      }
+      await database.query('INSERT INTO rhiza_projects(id,title,state) VALUES ($1,$2,$3::jsonb)', [this.defaultWorkspaceId, facts.workspace.projectTitle, '{}']);
+      for (const member of facts.members) await database.query("INSERT INTO users(user_id,display_name) VALUES ($1,'Imported user') ON CONFLICT DO NOTHING", [member.userId]);
+      const record = facts.directory;
+      await database.query('INSERT INTO workspaces(workspace_id,name,status,created_by,settings) VALUES ($1,$2,$3,$4,$5::jsonb)', [record.workspaceId, record.name, record.status, record.createdBy, JSON.stringify({ revision: record.revision })]);
+      for (const member of facts.members) await database.query('INSERT INTO workspace_members(workspace_id,user_id,role) VALUES ($1,$2,$3)', [record.workspaceId, member.userId, member.role]);
+      const children = new Map<string, ExecutionRun[]>();
+      const ordered = facts.runs.filter(run => !run.parentRunRef);
+      for (const run of facts.runs) if (run.parentRunRef) {
+        const siblings = children.get(run.parentRunRef) ?? [];
+        siblings.push(run); children.set(run.parentRunRef, siblings);
+      }
+      for (let index = 0; index < ordered.length; index++) ordered.push(...(children.get(ordered[index].id) ?? []));
+      if (ordered.length !== facts.runs.length) throw new Error('BUNDLE_RUN_LINEAGE_CYCLE');
+      for (const run of ordered) await database.query(`INSERT INTO execution_runs
+        (run_id,workspace_id,command_id,node_id,status,attempt,parent_run_ref,input_envelope,input_hash,model_spec_ref,provider_endpoint_ref,record)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12::jsonb)`,
+      [run.id,run.workspaceId,run.commandId,run.nodeId,run.status,run.attempt,run.parentRunRef ?? null,JSON.stringify(run.input),run.inputHash,run.input.executor.modelSpecRef,run.input.executor.providerEndpointRef,JSON.stringify(run)]);
+      for (const link of facts.provenance) await database.query('INSERT INTO provenance_links(workspace_id,output_ref,provenance_id,record) VALUES ($1,$2,$3,$4::jsonb)', [link.workspaceId, link.outputRef, link.id, JSON.stringify(link)]);
+      await this.persist(database, facts.workspace);
+      for (const event of facts.journal) await database.query(`INSERT INTO workspace_events
+        (event_id,workspace_id,sequence,ce_specversion,rhiza_envelope_version,event_type,event_source,subject,data_schema,aggregate_type,aggregate_id,aggregate_revision,actor_ref,scope_ref,command_id,event_index,causation_id,correlation_id,payload,occurred_at,recorded_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb,$15,$16,$17,$18,$19::jsonb,$20,$21)`,
+      [event.eventId,event.workspaceId,event.sequence,event.ceSpecversion,event.envelopeVersion,event.eventType,event.eventSource,event.subject,event.dataSchema,event.aggregateType,event.aggregateId,event.aggregateRevision,JSON.stringify(event.actor),JSON.stringify(event.scope),event.commandId,event.eventIndex,event.causationId ?? null,event.correlationId ?? null,JSON.stringify(event.payload),event.occurredAt,event.recordedAt]);
+      await database.query('INSERT INTO workspace_event_heads(workspace_id,last_sequence) VALUES ($1,$2)', [record.workspaceId, facts.journal.length]);
+      await database.query("UPDATE bundle_imports SET phase='activated',revision=revision+1,updated_at=now() WHERE import_id=$1", [importId]);
     });
   }
 

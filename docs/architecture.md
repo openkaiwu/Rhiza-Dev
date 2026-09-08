@@ -2,7 +2,7 @@
 
 > M09 开发中：Provenance 与 Replay 服务端初步实现已加入；M09/M10 尚未接受。下述 M01–M08 门禁结论仍仅覆盖原提交。
 
-Bundle staging 已接通归档文件、固定 schema 解码、引用/内容/历史最终状态对账，并在失败时清理临时目录；未写入正式存储。当前操作配额：Workspace JSON 为 64 MiB，JSON 嵌套深度最多 128，index/layout 为 16 MiB；Blob 仍按独立的流式归档配额处理。导出同样执行文档大小限制。迁移 0014 新增独立的导入 checkpoint 元数据：绑定用户、Workspace 和归档/状态摘要，幂等创建、版本化阶段推进，数据库拒绝身份修改和阶段倒退；该表不提前创建目标 Workspace。checkpoint 与导入协调流程的接线、崩溃恢复与原子激活仍待完成。
+Bundle staging 已接通归档文件、固定 schema 解码、引用/内容/历史最终状态对账，并在失败时清理临时目录。当前操作配额：Workspace JSON 为 64 MiB，JSON 嵌套深度最多 128，index/layout 为 16 MiB；Blob 仍按独立的流式归档配额处理。导出同样执行文档大小限制。迁移 0014 新增独立的导入 checkpoint 元数据：绑定用户、Workspace 和归档/状态摘要，幂等创建、版本化阶段推进，数据库拒绝身份修改和阶段倒退；该表不提前创建目标 Workspace。Application 经 UnitOfWork 将空目标的 Workspace、成员、Run、Provenance、Journal 和 activated checkpoint 写入同一事务；失败全部回滚。导入期间暂用粗粒度表锁并拒绝全局 ID 碰撞，以隔离既有 upsert 写入路径；M10 仍须清理这些旧路径。已验证新 PGlite 库的事实往返及 Journal 阶段回滚。HTTP/UI、GC 保护、持久归档恢复、完整 Conversation/投影验收仍待完成。
 
 > **文档地位（2026-09-06 刷新）**：本文是 **Current Implementation Snapshot**，只描述当前已落地行为；目标架构与开发顺序以 `docs/Rhiza_技术架构设计书_V4.2_20260829.md` 和 `docs/Rhiza_开发路线图_V4.2_20260829.md` 为准。M01–M08 的接受结论以 `docs/architecture-gates/` 中的 commit-bound evidence 为准；未配置 `DATABASE_URL` 时，真实 PostgreSQL 用例为 skipped，不视为通过。
 
@@ -12,7 +12,7 @@ Bundle staging 已接通归档文件、固定 schema 解码、引用/内容/历�
 
 M09 当前实现：新 Assistant output 在原事务内写入 `provenance_links`。`GetProvenance` 通过 Workspace membership 与 scoped UnitOfWork 读取来源关系，检查 Run、Manifest 与冻结内容缺失；旧输出按实际证据标记 pre-run。迁移后可执行 `pnpm run provenance:backfill` 幂等回填现有输出，脚本不初始化缺失的 embedded 数据库。Replay Command 直接消费历史 Run request 与冻结 Manifest，经现有 RunLifecycle 创建有 parentRunRef 的新执行，记录显式 replay policy；历史版本或内容缺失时不派发。Exact 校验 runtime/model/endpoint 配置，Partial 与 Current-model 由调用方明确选择。API 为 `/api/v1/workspaces/:workspaceId/objects/:outputId/provenance` 与 `/api/v1/workspaces/:workspaceId/runs/:runId/replay`。Bundle 导入、Purge 内容迁移、产品 UI 与里程碑全量验收仍在开发范围内。
 
-Bundle 导出通过 `/api/v1/workspaces/:workspaceId/bundle` 读取同一事务中的完整 Workspace、Run、Provenance 与 Journal；Application 构造去除运行环境位置和凭据元数据的 portable DTO，Node adapter 以 ZIP 和 SHA-256 描述符输出冻结内容。去除 endpoint 配置后重新计算 portable inputHash，并用 originInputHash 保留原执行引用；该快照不能直接声明 Exact Replay。归档 staging 工具使用独立临时目录，校验路径、条目类型、大小、压缩比和摘要，失败清理；目前尚未接入导入命令、恢复 checkpoint 或原子激活。Domain 定义 portable Workspace v1 schema；Node 解码器使用本地固定 schema 校验字段、引用闭合、内容摘要与每个 Run 的描述符身份，归档携带的 schema 仅作文档。Journal payload 继续使用现有 envelope schema，逐事件历史一致性恢复与目标身份映射仍需实现，结构校验成功不等于可激活。
+Bundle 导出通过 `/api/v1/workspaces/:workspaceId/bundle` 读取同一事务中的完整 Workspace、Run、Provenance 与 Journal；Application 构造去除运行环境位置和凭据元数据的 portable DTO，Node adapter 以 ZIP 和 SHA-256 描述符输出冻结内容。去除 endpoint 配置后重新计算 portable inputHash，并用 originInputHash 保留原执行引用；该快照不能直接声明 Exact Replay。Domain 定义 portable Workspace v1 schema；Node 解码器使用本地固定 schema 校验字段、引用闭合、内容摘要与每个 Run 的描述符身份，归档携带的 schema 仅作文档。Journal payload 继续使用现有 envelope schema，逐事件历史一致性恢复仍需实现。空目标导入保留原逻辑身份，既有目标拒绝覆盖；同一已激活 checkpoint 的重复调用幂等。HTTP 导入尚未开放。
 
 当前仓库不是 LibreChat fork。按 V4.2 基线，现有 `server/provider-*` 承担当前 API 配置的 Runtime Adapter 职责；`librechat-data-provider` 提供共享 Model Spec 与文件策略，Rhiza 的 Project、Node、Edge、Context 与 State 语义保持独立。后续迁移仍应扩展 Runtime 能力，而不是让 LibreChat Conversation/Mongo schema 进入 Rhiza Domain。旧映射仅见 `docs/archive/librechat-migration.md`，不定义当前架构。
 

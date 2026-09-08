@@ -1,4 +1,14 @@
 import type { BundleImportCheckpoint, BundleImportCheckpointPort, BundleImportIdentity } from './ports/bundle-import';
+import type { WorkspaceUnitOfWork } from './ports/workspace-unit-of-work';
+import type { PortableWorkspaceFacts } from './ports/portable-workspace';
+
+export async function completeBundleImport(identity: BundleImportIdentity, facts: PortableWorkspaceFacts,
+  checkpoints: BundleImportCheckpointPort, ingestAndVerify: () => Promise<unknown>, uow: WorkspaceUnitOfWork): Promise<void> {
+  if (!uow.activatePortableImport || !uow.withWorkspace) throw new Error('PORTABLE_WORKSPACE_UNAVAILABLE');
+  if (identity.workspaceId !== facts.workspace.projectId) throw new Error('BUNDLE_WORKSPACE_MISMATCH');
+  await prepareBundleImport(identity, checkpoints, ingestAndVerify);
+  await uow.withWorkspace(identity.workspaceId, () => uow.activatePortableImport!(identity.importId, identity.ownerId, facts));
+}
 
 /** Content verification precedes the durable phase change, including when resuming blobs-ready. */
 export async function prepareBundleImport(identity: BundleImportIdentity, checkpoints: BundleImportCheckpointPort,

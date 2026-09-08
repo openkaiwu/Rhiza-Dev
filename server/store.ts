@@ -23,6 +23,7 @@ export interface TransactionalWorkspaceCommandResult<T> {
 }
 
 export interface WorkspaceRepository {
+  activatePortableImport?(importId: string, ownerId: string, facts: import('./application/ports/portable-workspace').PortableWorkspaceFacts): Promise<void>;
   readPortableWorkspace?(): Promise<import('./application/ports/portable-workspace').PortableWorkspaceFacts>;
   readProvenance?(outputId: string): Promise<import('./domain').ProvenanceLink | undefined>;
   readContextHistory?(input: { manifestId: string } | { messageId: string }): Promise<import('./application/ports/workspace-unit-of-work').ContextHistoryFacts | undefined>;

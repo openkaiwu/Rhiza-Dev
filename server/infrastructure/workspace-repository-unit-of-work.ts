@@ -31,6 +31,11 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
     if (!repository.readPortableWorkspace) throw new Error('PORTABLE_WORKSPACE_UNAVAILABLE');
     return repository.readPortableWorkspace();
   }
+  async activatePortableImport(importId: string, ownerId: string, facts: import('../application/ports/portable-workspace').PortableWorkspaceFacts) {
+    const repository = this.runRepository();
+    if (!repository.activatePortableImport) throw new Error('PORTABLE_WORKSPACE_UNAVAILABLE');
+    await repository.activatePortableImport(importId, ownerId, facts);
+  }
   async readContextHistory(input: { manifestId: string } | { messageId: string }) {
     const target = this.runRepository();
     if (target.readContextHistory) return target.readContextHistory(input);
