@@ -1,11 +1,16 @@
 // @vitest-environment node
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { expect, it } from 'vitest';
 import { loadMigrations } from './migrate';
+import { SealedAnchorContent } from '../server/infrastructure/sealed-anchor-content';
+import { PostgresWorkspaceStore } from '../server/postgres-store';
 
 it('requires an association for sealed anchor text and refuses plaintext coexistence or lossy rollback', async () => {
   const database = new PGlite();
+  const root = await mkdtemp(join(tmpdir(), 'rhiza-anchor-sql-'));
   try {
     for (const migration of await loadMigrations()) await database.exec(migration.sql);
     const ids = [1, 2, 3, 4].map(id => `00000000-0000-4000-8000-${String(id).padStart(12, '0')}`);
@@ -24,5 +29,13 @@ it('requires an association for sealed anchor text and refuses plaintext coexist
       await expect(database.query(`UPDATE rhiza_anchors SET ${assignment} WHERE id=$1`, [anchor])).rejects.toThrow();
     }
     await expect(database.exec(await readFile('db/migrations/0022_sealed_anchor_content.down.sql', 'utf8'))).rejects.toThrow('Cannot remove sealed anchor references');
-  } finally { await database.close(); }
+    const content = SealedAnchorContent.atDirectory(root);
+    const reference = await content.seal(workspace, anchor, { selectedText: 'private quotation' });
+    await database.query('UPDATE rhiza_anchors SET content_ref=$2,start_offset=0,end_offset=17 WHERE id=$1', [anchor, JSON.stringify(reference)]);
+    const store = new PostgresWorkspaceStore(database, undefined, undefined, undefined, undefined, undefined, undefined, undefined, content);
+    expect((await store.forWorkspace(workspace).read()).anchors).toEqual([expect.objectContaining({ id: anchor, nodeId: node, segmentId: segment, selectedText: 'private quotation', startOffset: 0, endOffset: 17 })]);
+    await expect(new PostgresWorkspaceStore(database, workspace).read()).rejects.toThrow('ANCHOR_CONTENT_STORE_UNAVAILABLE');
+    await content.destroy(workspace, anchor, reference);
+    await expect(store.forWorkspace(workspace).read()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+  } finally { await database.close(); await rm(root, { recursive: true, force: true }); }
 }, 30_000);
