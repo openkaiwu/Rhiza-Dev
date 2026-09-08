@@ -35,6 +35,7 @@ import { NodeContentKeys } from '../server/infrastructure/node-content-keys';
 import { NodeSealedContentStore } from '../server/infrastructure/node-sealed-content-store';
 import { SealedReceiptContent, type SealedReceiptRef } from '../server/infrastructure/sealed-receipt-content';
 import { SealedRunContent } from '../server/infrastructure/sealed-run-content';
+import { SealedJournalContent } from '../server/infrastructure/sealed-journal-content';
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -256,6 +257,26 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     await content.destroy(run.workspaceId, run.id, reference);
     await expect(reader.getRun(run.id)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     await expect(reader.readPortableWorkspace()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+  });
+  it('M09 reads an encrypted Journal baseline without duplicating it and fails closed after revocation', async () => {
+    const { database, store, uploadDirectory } = await setup(success);
+    const [event] = await store.readJournal();
+    const content = SealedJournalContent.atDirectory(join(uploadDirectory, 'journal-content'));
+    const reference = await content.seal(event.workspaceId, event.eventId, event.payload);
+    // Isolated fixture models a migrated row; production migration is separate.
+    await database.exec('ALTER TABLE workspace_events DISABLE TRIGGER workspace_events_append_only');
+    try {
+      await database.query(`UPDATE workspace_events SET payload='{"sealed":true}'::jsonb,payload_content_ref=$2::jsonb WHERE event_id=$1`, [event.eventId, JSON.stringify(reference)]);
+    } finally { await database.exec('ALTER TABLE workspace_events ENABLE TRIGGER workspace_events_append_only'); }
+    const reader = new PostgresWorkspaceStore(database, undefined, undefined, undefined, content);
+    expect(await reader.readJournal()).toEqual([event]);
+    expect((await reader.readPortableWorkspace()).journal).toEqual([event]);
+    expect(await reader.backfillJournal()).toMatchObject({ created: false, eventCount: 1 });
+    await expect(store.readJournal()).rejects.toThrow('JOURNAL_CONTENT_STORE_UNAVAILABLE');
+    await content.destroy(event.workspaceId, event.eventId, reference);
+    await expect(reader.readJournal()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    await expect(reader.backfillJournal()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    expect((await database.query('SELECT event_id FROM workspace_events')).rows).toHaveLength(1);
   });
   it('M09 constrains sealed Journal payloads and preserves append-only protection', async () => {
     const { database, store } = await setup(success);

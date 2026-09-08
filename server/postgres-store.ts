@@ -24,6 +24,7 @@ import { validatePortableHistory } from './application/portable-history';
 import { SqlBundleImportCheckpoints } from './infrastructure/bundle-import-checkpoints';
 import { SealedReceiptContent, type SealedReceiptRef } from './infrastructure/sealed-receipt-content';
 import { SealedRunContent, type SealedRunInputRef } from './infrastructure/sealed-run-content';
+import { SealedJournalContent, type SealedJournalRef } from './infrastructure/sealed-journal-content';
 
 interface QueryResult<Row> { rows: Row[] }
 type PendingReceiptContent = { workspaceId: string; commandId: string; reference: SealedReceiptRef; kind?: 'result' | 'error' }
@@ -124,7 +125,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   private readonly scoped = new Map<string, PostgresWorkspaceStore>();
   readonly defaultWorkspaceId: string;
 
-  constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: string, private readonly receiptContent?: SealedReceiptContent, private readonly runContent?: SealedRunContent) {
+  constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: string, private readonly receiptContent?: SealedReceiptContent, private readonly runContent?: SealedRunContent, private readonly journalContent?: SealedJournalContent) {
     const configuredWorkspaceId = defaultWorkspaceId?.trim();
     if (configuredWorkspaceId && !uuidPattern.test(configuredWorkspaceId)) throw new Error('RHIZA_PROJECT_ID must be a UUID when set');
     this.defaultWorkspaceId = configuredWorkspaceId || DEFAULT_PROJECT_ID;
@@ -133,7 +134,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   forWorkspace(workspaceId: string): WorkspaceRepository {
     if (workspaceId === this.defaultWorkspaceId) return this;
     let scoped = this.scoped.get(workspaceId);
-    if (!scoped) { scoped = new PostgresWorkspaceStore(this.database, workspaceId, this.receiptContent, this.runContent); this.scoped.set(workspaceId, scoped); }
+    if (!scoped) { scoped = new PostgresWorkspaceStore(this.database, workspaceId, this.receiptContent, this.runContent, this.journalContent); this.scoped.set(workspaceId, scoped); }
     return scoped;
   }
 
@@ -633,7 +634,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       const journal = await database.query<Record<string, unknown>>('SELECT * FROM workspace_events WHERE workspace_id=$1 ORDER BY sequence', [this.defaultWorkspaceId]);
       return { workspace, directory: { workspaceId: record.workspace_id, name: record.name, status: record.status, createdBy: record.created_by, revision: Number(record.revision) },
         members: members.rows.map(member => ({ userId: member.user_id, role: member.role })),
-        runs: await Promise.all(runs.rows.map(row => this.decodeRun(row))), provenance: provenance.rows.map(row => asJson<ProvenanceLink>(row.record)), journal: journal.rows.map(storedJournalEvent) };
+        runs: await Promise.all(runs.rows.map(row => this.decodeRun(row))), provenance: provenance.rows.map(row => asJson<ProvenanceLink>(row.record)), journal: await Promise.all(journal.rows.map(row => this.decodeJournalEvent(row))) };
     });
   }
 
@@ -737,11 +738,18 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     if (!result.rows.length) throw Object.assign(new Error('执行已终止或状态已变化，迟到结果未写入。'), { code: 'RUN_STATE_CONFLICT', status: 409 });
   }
 
+  private async decodeJournalEvent(row: Record<string, unknown>): Promise<DomainEventEnvelope> {
+    const event = storedJournalEvent(row);
+    if (row.payload_content_ref == null) return event;
+    if (!this.journalContent) throw new Error('JOURNAL_CONTENT_STORE_UNAVAILABLE');
+    return { ...event, payload: await this.journalContent.read(event.workspaceId, event.eventId, asJson<SealedJournalRef>(row.payload_content_ref)) };
+  }
+
   async readJournal(limit = 50): Promise<DomainEventEnvelope[]> {
     const result = await this.database.query<Record<string, unknown>>(`
       SELECT * FROM workspace_events WHERE workspace_id=$1 ORDER BY sequence DESC LIMIT $2
     `, [this.defaultWorkspaceId, Math.min(10_000, Math.max(1, limit))]);
-    return result.rows.map(storedJournalEvent);
+    return Promise.all(result.rows.map(row => this.decodeJournalEvent(row)));
   }
 
   async readContextHistory(input: { manifestId: string } | { messageId: string }): Promise<import('./application/ports/workspace-unit-of-work').ContextHistoryFacts | undefined> {
@@ -813,8 +821,8 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       const runs = await database.query<{ record: ExecutionRun; input_content_ref: unknown }>('SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1', [this.defaultWorkspaceId]);
       const sequence = await database.query<{ sequence: number }>('SELECT COALESCE(MAX(sequence),0)::bigint AS sequence FROM workspace_events WHERE workspace_id=$1', [this.defaultWorkspaceId]);
       // Removal history must survive more than the activity endpoint's 10k-event window.
-      const removed = await database.query<{ event_type: DomainEventEnvelope['eventType']; sequence: number; aggregate_revision: number; occurred_at: unknown; payload: DomainEventEnvelope['payload'] }>("SELECT event_type,sequence,aggregate_revision,occurred_at,payload FROM workspace_events WHERE workspace_id=$1 AND event_type IN ('object.purged','graph.relation.removed') ORDER BY sequence", [this.defaultWorkspaceId]);
-      const events = removed.rows.map(row => ({ eventType: row.event_type, sequence: Number(row.sequence), aggregateRevision: Number(row.aggregate_revision), occurredAt: asIso(row.occurred_at), payload: asJson<DomainEventEnvelope['payload']>(row.payload) }));
+      const removed = await database.query<Record<string, unknown>>("SELECT * FROM workspace_events WHERE workspace_id=$1 AND event_type IN ('object.purged','graph.relation.removed') ORDER BY sequence", [this.defaultWorkspaceId]);
+      const events = await Promise.all(removed.rows.map(row => this.decodeJournalEvent(row)));
       const projection = buildWorkspaceGraphProjection(workspace, await Promise.all(runs.rows.map(row => this.decodeRun(row))), Number(sequence.rows[0]?.sequence ?? 0), events);
       return new PostgresGraphProjectionAdapter({ query: database.query.bind(database), transaction: work => work(database) }, this.defaultWorkspaceId).materialize(projection, force);
     });
@@ -853,9 +861,10 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       const workspace = await this.readFrom(database, true);
       if (!workspace) throw new Error(`Workspace ${this.defaultWorkspaceId} does not exist`);
       const checksum = semanticChecksum(workspace);
-      const existing = await database.query<{ count: number; baseline_count: number }>("SELECT count(*)::int count,count(*) FILTER (WHERE sequence=1 AND event_type IN ('workspace.baseline.backfilled','workspace.created') AND payload->'snapshot' IS NOT NULL)::int baseline_count FROM workspace_events WHERE workspace_id=$1", [this.defaultWorkspaceId]);
+      const existing = await database.query<{ count: number }>('SELECT count(*)::int count FROM workspace_events WHERE workspace_id=$1', [this.defaultWorkspaceId]);
       const eventCount = Number(existing.rows[0]?.count || 0);
-      if (Number(existing.rows[0]?.baseline_count || 0) === 1) return { checksum, created: false, eventCount };
+      const baseline = await database.query<Record<string, unknown>>("SELECT * FROM workspace_events WHERE workspace_id=$1 AND sequence=1 AND event_type IN ('workspace.baseline.backfilled','workspace.created')", [this.defaultWorkspaceId]);
+      if (baseline.rows[0] && (await this.decodeJournalEvent(baseline.rows[0])).payload.snapshot != null) return { checksum, created: false, eventCount };
       if (eventCount > 0) throw Object.assign(new Error(`Workspace ${this.defaultWorkspaceId} has Journal events but no sequence-1 baseline`), { code: 'JOURNAL_BASELINE_ORDER_CONFLICT', status: 409 });
       const sequence = 1;
       await database.query('INSERT INTO workspace_event_heads (workspace_id,last_sequence) VALUES ($1,$2) ON CONFLICT (workspace_id) DO NOTHING', [this.defaultWorkspaceId, sequence]);
