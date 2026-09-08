@@ -255,6 +255,30 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     [workspaceId, commandId, commandType, firstSequence, lastSequence, reference ? null : JSON.stringify(value ?? null), reference ? JSON.stringify(reference) : null]);
   }
 
+  async sealLegacyReceiptResults(limit = 100): Promise<number> {
+    if (!this.receiptContent) throw new Error('RECEIPT_CONTENT_STORE_UNAVAILABLE');
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error('INVALID_RECEIPT_MIGRATION_LIMIT');
+    let migrated = 0;
+    while (migrated < limit) {
+      const changed = await this.inTransaction(async database => {
+        await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
+        const result = await database.query<{ command_id: string; result: unknown }>("SELECT command_id,result FROM command_receipts WHERE workspace_id=$1 AND status='committed' AND result_content_ref IS NULL ORDER BY command_id LIMIT 1 FOR UPDATE", [this.defaultWorkspaceId]);
+        const row = result.rows[0];
+        if (!row) return false;
+        const value = asJson(row.result);
+        const reference = await this.receiptContent!.seal(this.defaultWorkspaceId, row.command_id, value);
+        this.transactionContent.get(database)!.push({ workspaceId: this.defaultWorkspaceId, commandId: row.command_id, reference });
+        const decoded = await this.receiptContent!.read(this.defaultWorkspaceId, row.command_id, reference);
+        if (semanticStateChecksum({ value }) !== semanticStateChecksum({ value: decoded })) throw new Error('RECEIPT_MIGRATION_CHECKSUM_MISMATCH');
+        await database.query('UPDATE command_receipts SET result=NULL,result_content_ref=$3::jsonb WHERE workspace_id=$1 AND command_id=$2', [this.defaultWorkspaceId, row.command_id, JSON.stringify(reference)]);
+        return true;
+      });
+      if (!changed) break;
+      migrated += 1;
+    }
+    return migrated;
+  }
+
   async read(): Promise<WorkspaceData> {
     return this.inTransaction(async database => {
       const existing = await this.readFrom(database);

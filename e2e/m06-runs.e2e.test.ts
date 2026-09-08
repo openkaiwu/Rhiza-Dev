@@ -73,6 +73,28 @@ async function* success(input: RuntimeRequest) {
 for (const backend of ['embedded', 'postgres'] as const) {
 describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durable Chat execution (${backend})`, () => {
   const setup = (generate: AIRuntime['generate']) => fixture(generate, backend);
+  it('M09 resumes legacy receipt encryption and keeps plaintext when verification fails', async () => {
+    const { database, uploadDirectory } = await setup(success);
+    const content = SealedReceiptContent.atDirectory(join(uploadDirectory, 'receipt-migration'));
+    const store = new PostgresWorkspaceStore(database, undefined, content);
+    await store.sealLegacyReceiptResults();
+    const workspaceId = store.defaultWorkspaceId;
+    for (const commandId of ['legacy-a', 'legacy-b']) await database.query("INSERT INTO command_receipts (workspace_id,command_id,command_type,status,result) VALUES ($1,$2,'test','committed',$3::jsonb)", [workspaceId, commandId, JSON.stringify({ text: commandId })]);
+    expect(await store.sealLegacyReceiptResults(1)).toBe(1);
+    expect((await store.readCommandReceipt('legacy-a'))?.result).toEqual({ text: 'legacy-a' });
+    const seal = vi.spyOn(content, 'seal');
+    const read = vi.spyOn(content, 'read').mockResolvedValueOnce({ corrupted: true });
+    await expect(store.sealLegacyReceiptResults(1)).rejects.toThrow('RECEIPT_MIGRATION_CHECKSUM_MISMATCH');
+    read.mockRestore();
+    const failedReference = await seal.mock.results[0].value;
+    await expect(content.read(workspaceId, 'legacy-b', failedReference)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    expect((await database.query<{ result: unknown; result_content_ref: unknown }>("SELECT result,result_content_ref FROM command_receipts WHERE command_id='legacy-b'")).rows[0]).toEqual({ result: { text: 'legacy-b' }, result_content_ref: null });
+    const resumed = new PostgresWorkspaceStore(database, undefined, SealedReceiptContent.atDirectory(join(uploadDirectory, 'receipt-migration')));
+    expect(await resumed.sealLegacyReceiptResults(1)).toBe(1);
+    expect(await resumed.sealLegacyReceiptResults()).toBe(0);
+    expect((await resumed.readCommandReceipt('legacy-b'))?.result).toEqual({ text: 'legacy-b' });
+    expect((await database.query("SELECT command_id FROM command_receipts WHERE status='committed' AND result_content_ref IS NULL")).rows).toHaveLength(0);
+  });
   it('M09 encrypts committed results and destroys keys after confirmed SQL rollback', async () => {
     const { database, uploadDirectory, provider, runtime } = await setup(success);
     const content = new SealedReceiptContent(new NodeSealedContentStore(new NodeFilesystemBlobStore(uploadDirectory), new NodeContentKeys(join(uploadDirectory, 'receipt-keys'))));
