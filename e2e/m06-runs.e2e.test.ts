@@ -202,6 +202,26 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     await content.destroy(workspaceId, commandId, reference);
     await expect(store.readCommandReceipt(commandId)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
   });
+  it('M09 migrates legacy terminal Run inputs atomically and restores immutable guards', async () => {
+    const { app, store, database, uploadDirectory } = await setup(success);
+    await request(app).post('/api/chat').send({ message: 'legacy input' }).expect(201);
+    const [run] = await store.listRuns();
+    const content = SealedRunContent.atDirectory(join(uploadDirectory, 'run-migration'));
+    const migration = new PostgresWorkspaceStore(database, undefined, undefined, content);
+    const seal = vi.spyOn(content, 'seal');
+    await database.exec(`CREATE FUNCTION reject_run_migration() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'migration interrupted'; END $$;
+      CREATE TRIGGER reject_run_migration BEFORE UPDATE ON execution_runs FOR EACH ROW EXECUTE FUNCTION reject_run_migration();`);
+    await expect(migration.sealLegacyRunInputs()).rejects.toThrow('migration interrupted');
+    expect(await store.getRun(run.id)).toEqual(run);
+    await expect(content.read(run.workspaceId, run.id, await seal.mock.results[0].value, run.inputHash)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    await database.exec('DROP TRIGGER reject_run_migration ON execution_runs; DROP FUNCTION reject_run_migration();');
+    await expect(database.query("UPDATE execution_runs SET input_envelope='{}'::jsonb WHERE run_id=$1", [run.id])).rejects.toThrow('immutable');
+    expect(await migration.sealLegacyRunInputs(1)).toBe(1);
+    expect(await migration.sealLegacyRunInputs()).toBe(0);
+    expect(await migration.getRun(run.id)).toEqual(run);
+    await expect(database.query("UPDATE execution_runs SET input_content_ref=NULL WHERE run_id=$1", [run.id])).rejects.toThrow('immutable');
+    await expect(database.query("DELETE FROM execution_runs WHERE run_id=$1", [run.id])).rejects.toThrow('immutable');
+  });
   it('M09 decrypts stored Run inputs for reads and export and fails closed without keys', async () => {
     const { app, store, database, uploadDirectory, provider, runtime } = await setup(success);
     await request(app).post('/api/chat').send({ message: 'private Run input' }).expect(201);

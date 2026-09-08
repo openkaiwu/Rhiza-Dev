@@ -179,6 +179,8 @@ Rhiza 默认把工作空间数据保存在本机。Provider API Key 使用本机
 
 `pnpm exec tsx scripts/audit-receipt-keys.ts` 只读对照所有工作区的回执引用与密钥文件元数据，报告缺失、撤销或异常状态。未引用项只是候选，可能属于进行中或提交结果不确定的事务；工具不会删除它们。此检查不验证密文可解密性，也不是完整 Purge 验收。
 
+旧 Run 输入可在停服、完整备份后执行 `pnpm exec tsx scripts/seal-legacy-run-inputs.ts` 迁移。PostgreSQL 模式会先获取运行时独占权，并需要表所有者权限。每批在 Run 表独占锁下加密和校验，在同一事务内临时停用两项不可变触发器以替换输入，提交前恢复；失败时数据与触发器状态一起回滚，可重跑续迁。此工具不清理旧备份、WAL、Journal 等其他输入副本，不等于完整 Purge。
+
 当前 Preview 尚未提供登录和多用户权限隔离，请勿把它作为开放公网的多人服务直接部署。
 
 ## 继续了解 Rhiza

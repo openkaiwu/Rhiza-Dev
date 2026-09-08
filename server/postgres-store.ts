@@ -308,6 +308,38 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     return migrated;
   }
 
+  /** Offline owner-level maintenance. Trigger changes and replacement are one locked transaction. */
+  async sealLegacyRunInputs(limit = 100): Promise<number> {
+    if (!this.runContent) throw new Error('RUN_CONTENT_STORE_UNAVAILABLE');
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error('INVALID_RUN_MIGRATION_LIMIT');
+    return this.inTransaction(async database => {
+      await database.query("SET LOCAL lock_timeout = '5s'");
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
+      await database.query('LOCK TABLE execution_runs IN ACCESS EXCLUSIVE MODE');
+      const { rows } = await database.query<{ record: ExecutionRun }>('SELECT record FROM execution_runs WHERE workspace_id=$1 AND input_content_ref IS NULL ORDER BY run_id LIMIT $2', [this.defaultWorkspaceId, limit]);
+      if (!rows.length) return 0;
+      const replacements: Array<{ run: ExecutionRun; reference: SealedRunInputRef }> = [];
+      for (const row of rows) {
+        const run = asJson<ExecutionRun>(row.record);
+        const reference = await this.runContent!.seal(run.workspaceId, run.id, run.input, run.inputHash);
+        this.transactionContent.get(database)!.push({ workspaceId: run.workspaceId, runId: run.id, reference });
+        const decoded = await this.runContent!.read(run.workspaceId, run.id, reference, run.inputHash);
+        if (semanticStateChecksum(decoded as unknown as Record<string, unknown>) !== run.inputHash) throw new Error('RUN_MIGRATION_CHECKSUM_MISMATCH');
+        replacements.push({ run, reference });
+      }
+      await database.query('ALTER TABLE execution_runs DISABLE TRIGGER execution_run_history');
+      await database.query('ALTER TABLE execution_runs DISABLE TRIGGER execution_run_content_ref_immutable');
+      for (const { run, reference } of replacements) {
+        await database.query(`UPDATE execution_runs SET input_envelope='{"sealed":true}'::jsonb,
+          record=jsonb_set(record,'{input}','{"sealed":true}'::jsonb),input_content_ref=$3::jsonb
+          WHERE workspace_id=$1 AND run_id=$2`, [this.defaultWorkspaceId, run.id, JSON.stringify(reference)]);
+      }
+      await database.query('ALTER TABLE execution_runs ENABLE TRIGGER execution_run_history');
+      await database.query('ALTER TABLE execution_runs ENABLE TRIGGER execution_run_content_ref_immutable');
+      return replacements.length;
+    });
+  }
+
   async read(): Promise<WorkspaceData> {
     return this.inTransaction(async database => {
       const existing = await this.readFrom(database);
