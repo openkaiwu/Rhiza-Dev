@@ -28,6 +28,7 @@ import addFormats from 'ajv-formats';
 import { portableWorkspaceSchema } from '../server/domain/portable-workspace-schema';
 import journalSchema from '../server/contracts/domain-event-envelope.schema.json';
 import { validatePortableHistory } from '../server/application/portable-history';
+import { SqlBundleImportCheckpoints } from '../server/infrastructure/bundle-import-checkpoints';
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -66,6 +67,27 @@ async function* success(input: RuntimeRequest) {
 for (const backend of ['embedded', 'postgres'] as const) {
 describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durable Chat execution (${backend})`, () => {
   const setup = (generate: AIRuntime['generate']) => fixture(generate, backend);
+  it('M09 persists owner-scoped import checkpoints without creating destination data', async () => {
+    const { database } = await setup(success);
+    const checkpoints = new SqlBundleImportCheckpoints(database);
+    const identity = { importId: randomUUID(), ownerId: 'import-owner', workspaceId: randomUUID(), archiveDigest: 'a'.repeat(64), stateDigest: 'b'.repeat(64) };
+    const first = await checkpoints.begin(identity);
+    expect(first).toEqual({ ...identity, phase: 'validated', revision: 1 });
+    expect(await checkpoints.begin(identity)).toEqual(first);
+    await expect(database.query("UPDATE bundle_imports SET phase='activated',revision=revision+1 WHERE import_id=$1", [identity.importId])).rejects.toThrow('BUNDLE_IMPORT_INVALID_TRANSITION');
+    await expect(database.query("UPDATE bundle_imports SET owner_id='intruder' WHERE import_id=$1", [identity.importId])).rejects.toThrow('BUNDLE_IMPORT_INVALID_TRANSITION');
+    await expect(checkpoints.begin({ ...identity, archiveDigest: 'c'.repeat(64) })).rejects.toThrow('BUNDLE_IMPORT_CONFLICT');
+    await expect(checkpoints.begin({ ...identity, ownerId: 'other-owner' })).rejects.toThrow('BUNDLE_IMPORT_CONFLICT');
+    expect(await checkpoints.read(identity.importId, 'other-owner')).toBeUndefined();
+    await expect(checkpoints.markBlobsReady(identity.importId, 'other-owner', 1)).rejects.toThrow('BUNDLE_IMPORT_CONFLICT');
+    const results = await Promise.allSettled([checkpoints.markBlobsReady(identity.importId, identity.ownerId, 1), checkpoints.markBlobsReady(identity.importId, identity.ownerId, 1)]);
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter(result => result.status === 'rejected')).toHaveLength(1);
+    expect(await new SqlBundleImportCheckpoints(database).read(identity.importId, identity.ownerId)).toEqual({ ...identity, phase: 'blobs-ready', revision: 2 });
+    await expect(database.query("UPDATE bundle_imports SET phase='validated',revision=revision+1 WHERE import_id=$1", [identity.importId])).rejects.toThrow('BUNDLE_IMPORT_INVALID_TRANSITION');
+    expect((await database.query('SELECT id FROM rhiza_projects WHERE id=$1', [identity.workspaceId])).rows).toHaveLength(0);
+    expect((await database.query('SELECT workspace_id FROM workspaces WHERE workspace_id=$1', [identity.workspaceId])).rows).toHaveLength(0);
+  });
   it('M09 captures complete portable facts with closed historical references', async () => {
     const { app, store, uploadDirectory } = await setup(success);
     await request(app).post('/api/chat').send({ message: 'portable history' }).expect(201);
