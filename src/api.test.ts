@@ -7,6 +7,17 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it('uploads raw bundle content globally with a stable retry key', async () => {
+  const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ workspaceId: 'imported', importId: 'job' }), { status: 201 }));
+  vi.stubGlobal('fetch', fetch);
+  api.setWorkspace('existing');
+  const file = new File(['archive'], 'workspace.rhiza');
+  await api.importWorkspaceBundle(file, 'retry-key');
+  expect(fetch).toHaveBeenCalledWith('/api/bundle/import', {
+    method: 'POST', body: file, headers: { 'Content-Type': 'application/vnd.rhiza.workspace+zip', 'Idempotency-Key': 'retry-key' },
+  });
+});
+
 it('keeps the first workspace read legacy, then scopes subsequent requests to its configured default', async () => {
   const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ workspace: { projectId: 'custom-default' } }), { status: 200 }));
   vi.stubGlobal('fetch', fetch);

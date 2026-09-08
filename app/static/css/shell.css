@@ -1,4 +1,10 @@
 /* Application shell, navigation, workspace frame, and responsive composition. */
+.bundle-controls { margin: 0 0 9px; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: 11px; color: var(--ink-2); max-height: 280px; overflow: auto; }
+.bundle-controls summary { cursor: pointer; }
+.bundle-controls p { line-height: 1.5; overflow-wrap: anywhere; }
+.bundle-controls input { display: block; width: 100%; margin: 7px 0; font: inherit; }
+.bundle-controls button { padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-raised); color: var(--ink); font: inherit; cursor: pointer; }
+.bundle-controls button:disabled { opacity: .5; cursor: default; }
 .app-shell { display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--context-width); height: 100dvh; min-height: 650px; position: relative; overflow: hidden; }
 .ambient-grid { position: fixed; inset: 0; pointer-events: none; opacity: .26; background-image: radial-gradient(#aeb9ae 0.65px, transparent 0.65px); background-size: 17px 17px; mask-image: linear-gradient(110deg, transparent 6%, black 42%, transparent 78%); }
 .sidebar { position: relative; z-index: 2; border-right: 1px solid var(--line); background: rgba(247, 248, 243, .92); padding: 18px 12px 12px; display: flex; flex-direction: column; min-width: 0; }

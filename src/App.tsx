@@ -451,7 +451,12 @@ export function App() {
     contextOpen={contextOpen}
     networkNotice={networkNotice}
     onCloseContext={() => setContextOpen(false)}
-    sidebar={<Sidebar view={view} nodes={navigableNodes} messages={messages} activeNodeId={activeNode.id} onView={setView} onNode={id => activateNode(id, true)} onSettings={openSettings} onCommand={() => setPaletteOpen(true)} onHelp={() => setOnboardingOpen(true)} workspaces={workspaces} currentWorkspaceId={currentWorkspaceId} onWorkspace={id => void switchWorkspace(id)} onCreateWorkspace={() => void createWorkspace()} onRenameWorkspace={() => void renameWorkspace()} onArchiveWorkspace={() => void archiveWorkspace()} onRestoreWorkspace={() => void restoreWorkspace()}/>}
+    sidebar={<Sidebar view={view} nodes={navigableNodes} messages={messages} activeNodeId={activeNode.id} onView={setView} onNode={id => activateNode(id, true)} onSettings={openSettings} onCommand={() => setPaletteOpen(true)} onHelp={() => setOnboardingOpen(true)} workspaces={workspaces} currentWorkspaceId={currentWorkspaceId} onWorkspace={id => void switchWorkspace(id)} onCreateWorkspace={() => void createWorkspace()} onRenameWorkspace={() => void renameWorkspace()} onArchiveWorkspace={() => void archiveWorkspace()} onRestoreWorkspace={() => void restoreWorkspace()} onBundleImported={async workspaceId => {
+      if (selectedWorkspaceRef.current !== currentWorkspaceId) return;
+      const current = workspaceMutation();
+      await refreshWorkspaces();
+      if (current()) await switchWorkspace(workspaceId);
+    }}/>}
     emptySurface={<main id="workspace-main" className="workspace-empty"><h1>这个工作区还没有讨论节点</h1><p>请通过项目入口创建第一个节点，然后开始建立上下文。</p></main>}
     surfaces={{
       chat: <ChatView
