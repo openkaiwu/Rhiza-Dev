@@ -168,6 +168,12 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     await expect(insert({ format: reference.format })).rejects.toThrow('command_receipt_sealed_result_valid');
     await expect(insert({ ...reference, reference: { ...reference.reference, size: -1 } })).rejects.toThrow('command_receipt_sealed_result_valid');
     await expect(database.exec(await readFile('db/migrations/0015_sealed_receipt_results.down.sql', 'utf8'))).rejects.toThrow('Cannot remove sealed receipt references');
+    const insertError = (value: unknown, error: unknown = { sealed: true }) => database.query("INSERT INTO command_receipts (workspace_id,command_id,command_type,status,error,error_content_ref) VALUES ($1,$2,'test','rejected',$3::jsonb,$4::jsonb)", [workspaceId, randomUUID(), JSON.stringify(error), JSON.stringify(value)]);
+    await insertError(reference);
+    await expect(insertError(reference, { message: 'sensitive error', sealed: true })).rejects.toThrow('command_receipt_sealed_error_valid');
+    await expect(insertError({ format: reference.format })).rejects.toThrow('command_receipt_sealed_error_valid');
+    await expect(insertError({ ...reference, extra: 'plaintext' })).rejects.toThrow('command_receipt_sealed_error_valid');
+    await expect(database.exec(await readFile('db/migrations/0016_sealed_receipt_errors.down.sql', 'utf8'))).rejects.toThrow('Cannot remove sealed error references');
   });
   it('M09 authorizes Purge from current membership role rather than creator identity', async () => {
     const { database, store, app } = await setup(success);
