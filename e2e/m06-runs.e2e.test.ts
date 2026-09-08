@@ -324,6 +324,24 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     await expect(reader.backfillJournal()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     expect((await database.query('SELECT event_id FROM workspace_events')).rows).toHaveLength(1);
   });
+  it('M09 migrates legacy message content without changing identities and rolls back failures', async () => {
+    const { app, database, store, uploadDirectory } = await setup(success);
+    await request(app).post('/api/chat').send({ message: 'legacy message' }).expect(201);
+    const original = (await store.read()).messages;
+    const content = SealedMessageContent.atDirectory(join(uploadDirectory, 'message-migration'));
+    const migration = new PostgresWorkspaceStore(database, undefined, undefined, undefined, undefined, content);
+    const seal = vi.spyOn(content, 'seal');
+    const read = vi.spyOn(content, 'read').mockResolvedValueOnce({ text: 'corrupt' });
+    await expect(migration.sealLegacyMessageContent()).rejects.toThrow('MESSAGE_MIGRATION_CHECKSUM_MISMATCH');
+    read.mockRestore();
+    expect((await store.read()).messages).toEqual(original);
+    const [workspaceId, messageId] = seal.mock.calls[0];
+    await expect(content.read(workspaceId, messageId, await seal.mock.results[0].value)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    expect(await migration.sealLegacyMessageContent(1)).toBe(1);
+    expect(await migration.sealLegacyMessageContent()).toBe(original.length - 1);
+    expect(await migration.sealLegacyMessageContent()).toBe(0);
+    expect((await migration.read()).messages).toEqual(original);
+  });
   it('M09 restores encrypted message content for workspace export and conversation preparation', async () => {
     const { app, database, store, uploadDirectory, provider, runtime } = await setup(success);
     const response = await request(app).post('/api/chat').send({ message: 'encrypted history message' }).expect(201);

@@ -384,6 +384,27 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     });
   }
 
+  async sealLegacyMessageContent(limit = 100): Promise<number> {
+    if (!this.messageContent) throw new Error('MESSAGE_CONTENT_STORE_UNAVAILABLE');
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error('INVALID_MESSAGE_MIGRATION_LIMIT');
+    return this.inTransaction(async database => {
+      await database.query("SET LOCAL lock_timeout = '5s'");
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
+      const { rows } = await database.query<Record<string, unknown>>(`SELECT m.* FROM rhiza_messages m JOIN rhiza_nodes n ON n.id=m.node_id
+        WHERE n.project_id=$1 AND m.content_ref IS NULL ORDER BY m.event_ordinal,m.id LIMIT $2 FOR UPDATE OF m`, [this.defaultWorkspaceId, limit]);
+      for (const row of rows) {
+        const message = storedMessage(row, []);
+        const reference = await this.messageContent!.seal(this.defaultWorkspaceId, message.id, message);
+        this.transactionContent.get(database)!.push({ workspaceId: this.defaultWorkspaceId, messageId: message.id, reference });
+        const decoded = await this.messageContent!.read(this.defaultWorkspaceId, message.id, reference);
+        const original = { text: message.text, reasoning: message.reasoning, toolCalls: message.toolCalls };
+        if (semanticStateChecksum(decoded) !== semanticStateChecksum(original)) throw new Error('MESSAGE_MIGRATION_CHECKSUM_MISMATCH');
+        await database.query("UPDATE rhiza_messages SET body='',reasoning=NULL,tool_calls=NULL,content_ref=$2::jsonb WHERE id=$1", [message.id, JSON.stringify(reference)]);
+      }
+      return rows.length;
+    });
+  }
+
   async read(): Promise<WorkspaceData> {
     return this.inTransaction(async database => {
       const existing = await this.readFrom(database);
