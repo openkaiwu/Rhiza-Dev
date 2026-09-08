@@ -37,7 +37,7 @@ import { SealedReceiptContent, type SealedReceiptRef } from '../server/infrastru
 import { SealedRunContent } from '../server/infrastructure/sealed-run-content';
 import { SealedJournalContent } from '../server/infrastructure/sealed-journal-content';
 import { SealedMessageContent } from '../server/infrastructure/sealed-message-content';
-import { manifestReferenceProjection } from '../server/infrastructure/sealed-manifest-content';
+import { manifestReferenceProjection, SealedManifestContent } from '../server/infrastructure/sealed-manifest-content';
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -373,6 +373,25 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     await content.destroy(workspace.projectId, message.id, reference);
     await expect(reader.read()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     await expect(reader.readConversationPreparation([])).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+  });
+  it('M09 restores encrypted Manifests for workspace and frozen context reads', async () => {
+    const { app, database, store, uploadDirectory } = await setup(success);
+    const response = await request(app).post('/api/chat').send({ message: 'private manifest history' }).expect(201);
+    const manifest = (await store.read()).manifests.find(item => item.id === response.body.manifest.id)!;
+    const content = SealedManifestContent.atDirectory(join(uploadDirectory, 'manifest-reads'));
+    const reference = await content.seal(manifest);
+    await database.exec('ALTER TABLE rhiza_context_manifests DISABLE TRIGGER rhiza_context_manifests_immutable');
+    try {
+      await database.query('UPDATE rhiza_context_manifests SET manifest=$2::jsonb,content_ref=$3::jsonb WHERE id=$1', [manifest.id, JSON.stringify(manifestReferenceProjection(manifest)), JSON.stringify(reference)]);
+    } finally { await database.exec('ALTER TABLE rhiza_context_manifests ENABLE TRIGGER rhiza_context_manifests_immutable'); }
+    const reader = new PostgresWorkspaceStore(database, undefined, undefined, undefined, undefined, undefined, content);
+    expect((await reader.read()).manifests.find(item => item.id === manifest.id)).toEqual(manifest);
+    expect((await reader.readContextHistory({ manifestId: manifest.id }))?.manifest).toEqual(manifest);
+    expect((await reader.readPortableWorkspace()).workspace.manifests.find(item => item.id === manifest.id)).toEqual(manifest);
+    await expect(store.read()).rejects.toThrow('MANIFEST_CONTENT_STORE_UNAVAILABLE');
+    await content.destroy(manifest.projectId, manifest.id, reference);
+    await expect(reader.readContextHistory({ manifestId: manifest.id })).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    await expect(reader.read()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
   });
   it('M09 constrains sealed Manifest projections while retaining frozen-context validation', async () => {
     const { app, database, store } = await setup(success);

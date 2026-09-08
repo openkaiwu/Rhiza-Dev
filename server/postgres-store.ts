@@ -26,6 +26,7 @@ import { SealedReceiptContent, type SealedReceiptRef } from './infrastructure/se
 import { SealedRunContent, type SealedRunInputRef } from './infrastructure/sealed-run-content';
 import { SealedJournalContent, type SealedJournalRef } from './infrastructure/sealed-journal-content';
 import { SealedMessageContent, type SealedMessageRef } from './infrastructure/sealed-message-content';
+import { SealedManifestContent, type SealedManifestRef } from './infrastructure/sealed-manifest-content';
 
 interface QueryResult<Row> { rows: Row[] }
 type PendingContent = { workspaceId: string; commandId: string; reference: SealedReceiptRef; kind?: 'result' | 'error' }
@@ -128,7 +129,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   private readonly scoped = new Map<string, PostgresWorkspaceStore>();
   readonly defaultWorkspaceId: string;
 
-  constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: string, private readonly receiptContent?: SealedReceiptContent, private readonly runContent?: SealedRunContent, private readonly journalContent?: SealedJournalContent, private readonly messageContent?: SealedMessageContent) {
+  constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: string, private readonly receiptContent?: SealedReceiptContent, private readonly runContent?: SealedRunContent, private readonly journalContent?: SealedJournalContent, private readonly messageContent?: SealedMessageContent, private readonly manifestContent?: SealedManifestContent) {
     const configuredWorkspaceId = defaultWorkspaceId?.trim();
     if (configuredWorkspaceId && !uuidPattern.test(configuredWorkspaceId)) throw new Error('RHIZA_PROJECT_ID must be a UUID when set');
     this.defaultWorkspaceId = configuredWorkspaceId || DEFAULT_PROJECT_ID;
@@ -137,7 +138,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   forWorkspace(workspaceId: string): WorkspaceRepository {
     if (workspaceId === this.defaultWorkspaceId) return this;
     let scoped = this.scoped.get(workspaceId);
-    if (!scoped) { scoped = new PostgresWorkspaceStore(this.database, workspaceId, this.receiptContent, this.runContent, this.journalContent, this.messageContent); this.scoped.set(workspaceId, scoped); }
+    if (!scoped) { scoped = new PostgresWorkspaceStore(this.database, workspaceId, this.receiptContent, this.runContent, this.journalContent, this.messageContent, this.manifestContent); this.scoped.set(workspaceId, scoped); }
     return scoped;
   }
 
@@ -827,9 +828,9 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     const manifestId = 'manifestId' in input ? input.manifestId : (await this.database.query<{ manifest_id: string }>(
       'SELECT coalesce(m.manifest_id,(SELECT reply.manifest_id FROM rhiza_messages reply WHERE reply.reply_to_message_id=m.id AND reply.node_id=m.node_id AND reply.manifest_id IS NOT NULL ORDER BY reply.event_ordinal LIMIT 1)) AS manifest_id FROM rhiza_messages m JOIN rhiza_nodes n ON n.id=m.node_id WHERE n.project_id=$1 AND m.id::text=$2', [this.defaultWorkspaceId, input.messageId])).rows[0]?.manifest_id;
     if (!manifestId) return undefined;
-    const result = await this.database.query<{ manifest: unknown }>('SELECT manifest FROM rhiza_context_manifests WHERE project_id=$1 AND id::text=$2', [this.defaultWorkspaceId, manifestId]);
+    const result = await this.database.query<Record<string, unknown>>('SELECT id,manifest,content_ref FROM rhiza_context_manifests WHERE project_id=$1 AND id::text=$2', [this.defaultWorkspaceId, manifestId]);
     if (!result.rows[0]) return undefined;
-    const manifest = asJson<ContextManifest>(result.rows[0].manifest);
+    const manifest = await this.decodeManifest(result.rows[0]);
     const [resources, versions] = await Promise.all([
       this.database.query<Record<string, unknown>>('SELECT * FROM rhiza_resources WHERE workspace_id=$1 AND resource_id=ANY($2::text[])', [this.defaultWorkspaceId, manifest.contextItems.flatMap(item => item.resourceId ? [item.resourceId] : [])]),
       this.database.query<Record<string, unknown>>('SELECT rv.* FROM rhiza_resource_versions rv JOIN rhiza_resources r ON r.resource_id=rv.resource_id WHERE r.workspace_id=$1 AND rv.resource_version_id=ANY($2::text[])', [this.defaultWorkspaceId, manifest.contextItems.flatMap(item => item.resourceVersionId ? [item.resourceVersionId] : [])]),
@@ -964,6 +965,12 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     });
   }
 
+  private async decodeManifest(row: Record<string, unknown>): Promise<ContextManifest> {
+    if (row.content_ref == null) return asJson<ContextManifest>(row.manifest);
+    if (!this.manifestContent) throw new Error('MANIFEST_CONTENT_STORE_UNAVAILABLE');
+    return this.manifestContent.read(this.defaultWorkspaceId, String(row.id), asJson<SealedManifestRef>(row.content_ref), asJson<Record<string, unknown>>(row.manifest));
+  }
+
   private async decodeMessage(row: Record<string, unknown>, attachmentIds: string[]): Promise<StoredMessage> {
     const message = storedMessage(row, attachmentIds);
     if (row.content_ref == null) return message;
@@ -1002,7 +1009,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       segments: segmentsResult.rows.map(row => ({ id: String(row.id), nodeId: String(row.node_id), ordinal: Number(row.ordinal), title: String(row.title), createdAt: asIso(row.created_at) } satisfies Segment)),
       anchors: anchorsResult.rows.map(row => ({ id: String(row.id), nodeId: String(row.node_id), messageId: row.message_id ? String(row.message_id) : undefined, segmentId: row.segment_id ? String(row.segment_id) : undefined, selectedText: row.selected_text ? String(row.selected_text) : undefined, startOffset: row.start_offset === null ? undefined : Number(row.start_offset), endOffset: row.end_offset === null ? undefined : Number(row.end_offset), createdAt: asIso(row.created_at) } satisfies Anchor)),
       discussionEdges: edgesResult.rows.map(row => ({ id: String(row.id), source: String(row.source_node_id), target: String(row.target_node_id), relation: relationFromDb(String(row.relation)), anchorId: row.anchor_id ? String(row.anchor_id) : undefined, label: String(row.label), createdAt: asIso(row.created_at) })),
-      manifests: manifestsResult.rows.map(row => asJson<ContextManifest>(row.manifest)),
+      manifests: await Promise.all(manifestsResult.rows.map(row => this.decodeManifest(row))),
       attachments: attachmentsResult.rows.map(row => {
         const version = resourceVersionsResult.rows.find(item => String(item.resource_version_id) === String(row.resource_version_id));
         return storedAttachment({ ...row, digest: version?.digest, blob_ref: version?.blob_ref });
