@@ -29,6 +29,7 @@ import { portableWorkspaceSchema } from '../server/domain/portable-workspace-sch
 import journalSchema from '../server/contracts/domain-event-envelope.schema.json';
 import { validatePortableHistory } from '../server/application/portable-history';
 import { SqlBundleImportCheckpoints } from '../server/infrastructure/bundle-import-checkpoints';
+import { prepareBundleImport } from '../server/application/prepare-bundle-import';
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -87,9 +88,17 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     await expect(database.query("UPDATE bundle_imports SET phase='validated',revision=revision+1 WHERE import_id=$1", [identity.importId])).rejects.toThrow('BUNDLE_IMPORT_INVALID_TRANSITION');
     expect((await database.query('SELECT id FROM rhiza_projects WHERE id=$1', [identity.workspaceId])).rows).toHaveLength(0);
     expect((await database.query('SELECT workspace_id FROM workspaces WHERE workspace_id=$1', [identity.workspaceId])).rows).toHaveLength(0);
+    const concurrentIdentity = { ...identity, importId: randomUUID() };
+    let release!: () => void;
+    const bothIngesting = new Promise<void>(resolve => { release = resolve; });
+    let arrivals = 0;
+    const ingest = async () => { if (++arrivals === 2) release(); await bothIngesting; };
+    const prepared = await Promise.all([prepareBundleImport(concurrentIdentity, checkpoints, ingest), prepareBundleImport(concurrentIdentity, checkpoints, ingest)]);
+    expect(prepared[0]).toEqual(prepared[1]);
+    expect(prepared[0]).toMatchObject({ phase: 'blobs-ready', revision: 2 });
   });
   it('M09 captures complete portable facts with closed historical references', async () => {
-    const { app, store, uploadDirectory } = await setup(success);
+    const { app, store, uploadDirectory, database } = await setup(success);
     await request(app).post('/api/chat').send({ message: 'portable history' }).expect(201);
     const facts = await store.readPortableWorkspace();
     expect(facts.runs).toHaveLength(1);
@@ -130,6 +139,19 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     const ready = await stagePortableWorkspace(path);
     expect(ready.facts).toEqual(JSON.parse(JSON.stringify(portable)));
     const destinationBlobs = new NodeFilesystemBlobStore(join(uploadDirectory, 'imported-blobs'));
+    const checkpoints = new SqlBundleImportCheckpoints(database);
+    const identity = { importId: randomUUID(), ownerId: 'import-owner', workspaceId: portable.workspace.projectId,
+      archiveDigest: ready.archiveDigest, stateDigest: semanticStateChecksum({ facts: portable }) };
+    const interruptedBlobs = new NodeFilesystemBlobStore(join(uploadDirectory, 'imported-blobs'), () => { throw new Error('ingest-interrupted'); });
+    await expect(prepareBundleImport(identity, checkpoints, () => ingestPortableBlobs(ready, interruptedBlobs))).rejects.toThrow('ingest-interrupted');
+    expect(await checkpoints.read(identity.importId, identity.ownerId)).toMatchObject({ phase: 'validated', revision: 1 });
+    const prepared = await prepareBundleImport(identity, checkpoints, () => ingestPortableBlobs(ready, destinationBlobs));
+    expect(prepared).toMatchObject({ phase: 'blobs-ready', revision: 2 });
+    const retryVerification = vi.fn(() => ingestPortableBlobs(ready, destinationBlobs));
+    expect(await prepareBundleImport(identity, checkpoints, retryVerification)).toEqual(prepared);
+    expect(retryVerification).toHaveBeenCalledOnce();
+    await expect(prepareBundleImport({ ...identity, archiveDigest: '0'.repeat(64) }, checkpoints, retryVerification)).rejects.toThrow('BUNDLE_IMPORT_CONFLICT');
+    expect(retryVerification).toHaveBeenCalledOnce();
     const importedRefs = await ingestPortableBlobs(ready, destinationBlobs);
     expect(importedRefs.length).toBeGreaterThan(0);
     expect(await ingestPortableBlobs(ready, destinationBlobs)).toEqual(importedRefs);
