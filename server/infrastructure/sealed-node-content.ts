@@ -13,6 +13,13 @@ export class SealedNodeContent {
     return new SealedNodeContent(new NodeSealedContentStore(new NodeFilesystemBlobStore(root), new NodeContentKeys(join(root, 'keys'))));
   }
   constructor(private readonly content: NodeSealedContentStore) {}
+  auditKeys(references: Array<{ workspaceId: string; id: string; contentId: string }>) {
+    return this.content.auditKeys(references.map(item => this.identity(item.workspaceId, item.id, item.contentId)));
+  }
+  /** Requires exclusive publication ownership and every workspace's references. */
+  revokeUnreferencedKeys(references: Array<{ workspaceId: string; id: string; contentId: string }>) {
+    return this.content.revokeUnreferencedKeys(references.map(item => this.identity(item.workspaceId, item.id, item.contentId)));
+  }
   private identity(workspaceId: string, nodeId: string, contentId: string) {
     if (!nodeId || !contentId) throw new Error('NODE_CONTENT_IDENTITY_REQUIRED');
     return { workspaceId, contentId: JSON.stringify(['node-content', nodeId, contentId]) };

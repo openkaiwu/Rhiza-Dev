@@ -179,7 +179,9 @@ Rhiza 默认把工作空间数据保存在本机。Provider API Key 使用本机
 
 `pnpm exec tsx scripts/audit-receipt-keys.ts` 只读对照所有工作区的回执引用与密钥文件元数据，报告缺失、撤销或异常状态。未引用项只是候选，可能属于进行中或提交结果不确定的事务；工具不会删除它们。此检查不验证密文可解密性，也不是完整 Purge 验收。
 
-`pnpm exec tsx scripts/audit-history-keys.ts` 将同类只读检查扩展到回执、Run、Journal、消息和 Manifest 的全部工作区引用。结果按内容类别分组；它不是停写后的回收证明，不会删除未引用密钥。
+节点的标题、摘要与引用文本也默认加密，新内容存储在配套内容目录的 `nodes` 子目录；备份必须一并包含该目录。旧节点尚未迁移，其他当前状态和资源副本仍需覆盖。
+
+`pnpm exec tsx scripts/audit-history-keys.ts` 将同类只读检查扩展到回执、Run、Journal、消息、Manifest 和节点的全部工作区引用。结果按内容类别分组；它不是停写后的回收证明，不会删除未引用密钥。
 
 旧消息可在停服、完整备份后执行 `pnpm exec tsx scripts/seal-legacy-message-content.ts` 迁移。工具分批锁定消息，校验解密内容后替换正文、reasoning 与 tool calls；失败回滚，可重跑续迁，消息身份和关联字段不变。它不清除旧备份、WAL 或其他表中的消息副本。
 

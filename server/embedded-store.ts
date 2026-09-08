@@ -8,6 +8,7 @@ import { SealedRunContent } from './infrastructure/sealed-run-content';
 import { SealedJournalContent } from './infrastructure/sealed-journal-content';
 import { SealedMessageContent } from './infrastructure/sealed-message-content';
 import { SealedManifestContent } from './infrastructure/sealed-manifest-content';
+import { SealedNodeContent } from './infrastructure/sealed-node-content';
 
 /** Opens the durable local PostgreSQL-compatible adapter used when DATABASE_URL is absent. */
 export async function openEmbeddedWorkspaceStore(dataDirectory = resolve('var/rhiza.pglite'), workspaceId?: string, migrationMode: 'apply' | 'verify' = 'apply'): Promise<PostgresWorkspaceStore> {
@@ -37,7 +38,7 @@ export async function openEmbeddedWorkspaceStore(dataDirectory = resolve('var/rh
       });
     }
     const contentDirectory = `${resolve(dataDirectory)}.content`;
-    return new PostgresWorkspaceStore(database, workspaceId, SealedReceiptContent.atDirectory(contentDirectory), SealedRunContent.atDirectory(join(contentDirectory, 'runs')), SealedJournalContent.atDirectory(join(contentDirectory, 'journal')), SealedMessageContent.atDirectory(join(contentDirectory, 'messages')), SealedManifestContent.atDirectory(join(contentDirectory, 'manifests')));
+    return new PostgresWorkspaceStore(database, workspaceId, SealedReceiptContent.atDirectory(contentDirectory), SealedRunContent.atDirectory(join(contentDirectory, 'runs')), SealedJournalContent.atDirectory(join(contentDirectory, 'journal')), SealedMessageContent.atDirectory(join(contentDirectory, 'messages')), SealedManifestContent.atDirectory(join(contentDirectory, 'manifests')), SealedNodeContent.atDirectory(join(contentDirectory, 'nodes')));
   } catch (error) {
     await database.close();
     throw error;
