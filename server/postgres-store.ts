@@ -632,10 +632,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       }
       for (let index = 0; index < ordered.length; index++) ordered.push(...(children.get(ordered[index].id) ?? []));
       if (ordered.length !== facts.runs.length) throw conflict('BUNDLE_RUN_LINEAGE_CYCLE');
-      for (const run of ordered) await database.query(`INSERT INTO execution_runs
-        (run_id,workspace_id,command_id,node_id,status,attempt,parent_run_ref,input_envelope,input_hash,model_spec_ref,provider_endpoint_ref,record)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12::jsonb)`,
-      [run.id,run.workspaceId,run.commandId,run.nodeId,run.status,run.attempt,run.parentRunRef ?? null,JSON.stringify(run.input),run.inputHash,run.input.executor.modelSpecRef,run.input.executor.providerEndpointRef,JSON.stringify(run)]);
+      for (const run of ordered) await this.insertRun(database, run);
       for (const link of facts.provenance) await database.query('INSERT INTO provenance_links(workspace_id,output_ref,provenance_id,record) VALUES ($1,$2,$3,$4::jsonb)', [link.workspaceId, link.outputRef, link.id, JSON.stringify(link)]);
       await this.persist(database, facts.workspace);
       for (const event of facts.journal) await database.query(`INSERT INTO workspace_events
@@ -668,14 +665,19 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       ON CONFLICT (run_id,attempt,sequence) DO NOTHING`, [this.defaultWorkspaceId, runId, attempt, JSON.stringify(traces)]);
   }
 
+  private async insertRun(database: SqlQueryable, run: ExecutionRun) {
+    if (run.workspaceId !== this.defaultWorkspaceId || semanticStateChecksum(run.input as unknown as Record<string, unknown>) !== run.inputHash) throw new Error('Invalid ExecutionRun input');
+    await database.query(`INSERT INTO execution_runs
+      (run_id,workspace_id,command_id,node_id,status,attempt,parent_run_ref,input_envelope,input_hash,model_spec_ref,provider_endpoint_ref,record)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12::jsonb)`,
+    [run.id,run.workspaceId,run.commandId,run.nodeId,run.status,run.attempt,run.parentRunRef ?? null,JSON.stringify(run.input),run.inputHash,run.input.executor.modelSpecRef,run.input.executor.providerEndpointRef,JSON.stringify(run)]);
+  }
+
   private async applyRunMutation(database: SqlQueryable, mutation: RunMutation) {
     if (mutation.kind === 'create') {
       const run = mutation.run;
-      if (run.workspaceId !== this.defaultWorkspaceId || run.status !== 'created' || semanticStateChecksum(run.input as unknown as Record<string, unknown>) !== run.inputHash) throw new Error('Invalid ExecutionRun input');
-      await database.query(`INSERT INTO execution_runs
-        (run_id,workspace_id,command_id,node_id,status,attempt,parent_run_ref,input_envelope,input_hash,model_spec_ref,provider_endpoint_ref,record)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12::jsonb)`,
-        [run.id,run.workspaceId,run.commandId,run.nodeId,run.status,run.attempt,run.parentRunRef ?? null,JSON.stringify(run.input),run.inputHash,run.input.executor.modelSpecRef,run.input.executor.providerEndpointRef,JSON.stringify(run)]);
+      if (run.status !== 'created') throw new Error('Invalid ExecutionRun input');
+      await this.insertRun(database, run);
       return;
     }
     const result = await database.query(`UPDATE execution_runs SET status=$4,record=record || $5::jsonb
