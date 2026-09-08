@@ -439,6 +439,17 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
 
   const dispatchQuery = async (envelope: AnyQueryEnvelope): Promise<unknown> => {
     try {
+      if (envelope.queryType === 'PreviewWorkspaceBundle') {
+        if (!dependencies.bundleImport) throw legacyError('Bundle 导入不可用。', 503, 'BUNDLE_IMPORT_UNAVAILABLE');
+        if (envelope.actor?.actorType !== 'human') throw legacyError('导入需要用户身份。', 403, 'BUNDLE_IMPORT_FORBIDDEN');
+        const staged = await dependencies.bundleImport.receive(envelope.payload.bytes);
+        try {
+          if (!staged.facts.members.some(member => member.userId === envelope.actor.actorId && member.role === 'owner')) throw legacyError('当前用户不是归档中的 Workspace owner。', 403, 'BUNDLE_IMPORT_FORBIDDEN');
+          const { facts } = staged;
+          return { workspaceId: facts.workspace.projectId, name: facts.directory.name, archiveDigest: staged.archiveDigest,
+            messages: facts.workspace.messages.length, runs: facts.runs.length, resourceVersions: facts.workspace.resourceVersions.length };
+        } finally { await staged.dispose(); }
+      }
       if (envelope.queryType === 'ListWorkspaces') return workspaceDirectory.list(envelope.actor, Boolean((envelope.payload as { includeArchived?: boolean }).includeArchived));
       await ensureDefaultWorkspace(envelope.actor, envelope.workspaceId, envelope.scope);
       await workspaceDirectory.require(envelope.actor, envelope.workspaceId, envelope.scope);

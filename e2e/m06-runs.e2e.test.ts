@@ -142,6 +142,13 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     for (const migration of await loadMigrations()) await httpDatabase.exec(migration.sql);
     const httpStore = new PostgresWorkspaceStore(httpDatabase, portable.workspace.projectId);
     const httpApp = createApp(httpStore, provider, false, runtime, undefined, join(uploadDirectory, 'http-import'));
+    const preview = await request(httpApp).post('/api/bundle/preview').set('Content-Type', 'application/vnd.rhiza.workspace+zip').send(download.body).expect(200);
+    expect(preview.body).toMatchObject({ workspaceId: portable.workspace.projectId, name: portable.directory.name,
+      messages: portable.workspace.messages.length, runs: portable.runs.length, resourceVersions: portable.workspace.resourceVersions.length });
+    expect(preview.body.archiveDigest).toMatch(/^[a-f0-9]{64}$/);
+    expect((await httpDatabase.query('SELECT * FROM bundle_imports')).rows).toHaveLength(0);
+    expect((await httpDatabase.query('SELECT * FROM rhiza_projects')).rows).toHaveLength(0);
+    await request(httpApp).post('/api/bundle/preview').send({}).expect(415);
     const upload = () => request(httpApp).post('/api/bundle/import').set('Content-Type', 'application/vnd.rhiza.workspace+zip').set('Idempotency-Key', 'import-roundtrip').send(download.body);
     const uploaded = await upload().expect(201);
     expect(uploaded.body.workspaceId).toBe(portable.workspace.projectId);
@@ -279,6 +286,8 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
       await writeBundleArchive(foreignIndex, staged.files, foreignPath);
       const forbidden = await request(httpApp).post('/api/bundle/import').set('Content-Type', 'application/vnd.rhiza.workspace+zip').send(await readFile(foreignPath)).expect(403);
       expect(forbidden.body.error.code).toBe('BUNDLE_IMPORT_FORBIDDEN');
+      const forbiddenPreview = await request(httpApp).post('/api/bundle/preview').set('Content-Type', 'application/vnd.rhiza.workspace+zip').send(await readFile(foreignPath)).expect(403);
+      expect(forbiddenPreview.body.error.code).toBe('BUNDLE_IMPORT_FORBIDDEN');
       for (const [name, content, code] of [
         ['syntax', Buffer.from('{invalid json'), 'BUNDLE_INVALID_DOCUMENT'],
         ['utf8', Buffer.from([0x22, 0xff, 0x22]), 'BUNDLE_INVALID_DOCUMENT'],

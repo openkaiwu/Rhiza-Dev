@@ -94,6 +94,7 @@ export interface CommandMap {
 }
 
 export interface QueryMap {
+  PreviewWorkspaceBundle: { payload: { bytes: AsyncIterable<Uint8Array> }; result: { workspaceId: string; name: string; archiveDigest: string; messages: number; runs: number; resourceVersions: number } };
   ExportWorkspaceBundle: { payload: Empty; result: import('../domain/portable-bundle').BundleExport };
   GetProvenance: { payload: { outputId: string }; result: import('../domain').ProvenanceLink };
   GetContextHistory: { payload: { manifestId: string } | { messageId: string }; result: import('../domain').ContextHistory };

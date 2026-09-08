@@ -188,6 +188,13 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
     finally { await bundle?.dispose(); }
   });
 
+  app.post('/api/bundle/preview', async (request, response, next) => {
+    try {
+      if (!request.is('application/vnd.rhiza.workspace+zip')) rejectInput('需要 workspace.rhiza 归档。', 'BUNDLE_UNSUPPORTED_MEDIA_TYPE', 415);
+      response.json(await query(response, 'PreviewWorkspaceBundle', { bytes: request }));
+    } catch (error) { next(error); }
+  });
+
   app.post('/api/bundle/import', async (request, response, next) => {
     try {
       if (!request.is('application/vnd.rhiza.workspace+zip')) rejectInput('需要 workspace.rhiza 归档。', 'BUNDLE_UNSUPPORTED_MEDIA_TYPE', 415);

@@ -16,6 +16,10 @@ it('uploads raw bundle content globally with a stable retry key', async () => {
   expect(fetch).toHaveBeenCalledWith('/api/bundle/import', {
     method: 'POST', body: file, headers: { 'Content-Type': 'application/vnd.rhiza.workspace+zip', 'Idempotency-Key': 'retry-key' },
   });
+  await api.previewWorkspaceBundle(file);
+  expect(fetch).toHaveBeenLastCalledWith('/api/bundle/preview', {
+    method: 'POST', body: file, headers: { 'Content-Type': 'application/vnd.rhiza.workspace+zip' },
+  });
 });
 
 it('keeps the first workspace read legacy, then scopes subsequent requests to its configured default', async () => {
