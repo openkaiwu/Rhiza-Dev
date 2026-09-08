@@ -6,7 +6,8 @@ import { describe, expect, it } from 'vitest';
 import { openEmbeddedWorkspaceStore } from './embedded-store';
 import { createSeedWorkspace } from './seed';
 import { PostgresWorkspaceStore, relationalizeWorkspace } from './postgres-store';
-import { semanticChecksum } from './infrastructure/workspace-semantic-checksum';
+import { semanticChecksum, semanticStateChecksum } from './infrastructure/workspace-semantic-checksum';
+import type { ExecutionRun, ContextEnvelope } from './execution-runtime/run';
 import { randomUUID } from 'node:crypto';
 
 describe('embedded Workspace backend', () => {
@@ -45,22 +46,30 @@ describe('embedded Workspace backend', () => {
     try {
       const first = await openEmbeddedWorkspaceStore(data);
       const seeded = await first.read();
+      await first.workspaceDirectory.createWorkspace({ workspaceId: seeded.projectId, name: 'Run persistence test', status: 'active', createdBy: '00000000-0000-4000-8000-000000000002', revision: 1 });
       const baseline = await first.backfillJournal();
       const commandId = randomUUID();
       const context = { commandId, commandType: 'TestReceipt', actor: { actorType: 'human' as const, actorId: '00000000-0000-4000-8000-000000000002' }, scope: { scopeType: 'workspace' as const, scopeId: seeded.projectId }, occurredAt: new Date().toISOString() };
-      await first.executeCommand({ context, apply: async current => ({ next: current, value: { text: 'encrypted after reopen' } }), events: () => [{ eventType: 'workspace.renamed', aggregateType: 'workspace', aggregateId: seeded.projectId, payload: {} }] });
+      const input: ContextEnvelope = { schemaVersion: '1.0.0', request: { requestId: commandId, manifestId: 'manifest', projectId: seeded.projectId, nodeId: seeded.activeNodeId, modelId: 'model', prompt: 'private persisted input', history: [], contextItems: [], mode: 'Auto' }, executor: { runtime: 'test', modelSpecRef: 'model', providerEndpointRef: 'endpoint', model: 'model', provider: 'provider' } };
+      const run: ExecutionRun = { id: commandId, commandId, workspaceId: seeded.projectId, nodeId: seeded.activeNodeId, status: 'created', attempt: 1, input, inputHash: semanticStateChecksum(input as unknown as Record<string, unknown>), createdAt: context.occurredAt, telemetry: { traceCount: 0 } };
+      await first.executeCommand({ context, options: { run: { kind: 'create', run } }, apply: async current => ({ next: current, value: { text: 'encrypted after reopen' } }), events: () => [{ eventType: 'workspace.renamed', aggregateType: 'workspace', aggregateId: seeded.projectId, payload: {} }] });
       await first.close();
 
       const reopened = await openEmbeddedWorkspaceStore(data, undefined, 'verify');
       expect(await reopened.read()).toMatchObject({ projectId: seeded.projectId, activeNodeId: seeded.activeNodeId });
       expect(await reopened.backfillJournal()).toEqual({ checksum: baseline.checksum, created: false, eventCount: 2 });
       expect((await reopened.readCommandReceipt(commandId))?.result).toEqual({ text: 'encrypted after reopen' });
+      expect(await reopened.getRun(run.id)).toEqual(run);
       await reopened.close();
       const inspection = new PGlite(data);
       try {
         const row = await inspection.query<{ result: unknown; result_content_ref: unknown }>('SELECT result,result_content_ref FROM command_receipts WHERE command_id=$1', [commandId]);
         expect(row.rows[0].result).toBeNull();
         expect(row.rows[0].result_content_ref).not.toBeNull();
+        const stored = (await inspection.query<{ input_envelope: unknown; record: { input: unknown }; input_content_ref: unknown }>('SELECT input_envelope,record,input_content_ref FROM execution_runs WHERE run_id=$1', [run.id])).rows[0];
+        expect(stored.input_envelope).toEqual({ sealed: true });
+        expect(stored.record.input).toEqual({ sealed: true });
+        expect(stored.input_content_ref).not.toBeNull();
       } finally { await inspection.close(); }
     } finally { await rm(directory, { recursive: true, force: true }); }
   }, 30_000);
