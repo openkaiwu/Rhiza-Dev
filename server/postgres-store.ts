@@ -26,13 +26,14 @@ import { SealedReceiptContent, type SealedReceiptRef } from './infrastructure/se
 import { SealedRunContent, type SealedRunInputRef } from './infrastructure/sealed-run-content';
 import { SealedJournalContent, type SealedJournalRef } from './infrastructure/sealed-journal-content';
 import { SealedMessageContent, type SealedMessageRef } from './infrastructure/sealed-message-content';
-import { SealedManifestContent, type SealedManifestRef } from './infrastructure/sealed-manifest-content';
+import { manifestReferenceProjection, SealedManifestContent, type SealedManifestRef } from './infrastructure/sealed-manifest-content';
 
 interface QueryResult<Row> { rows: Row[] }
 type PendingContent = { workspaceId: string; commandId: string; reference: SealedReceiptRef; kind?: 'result' | 'error' }
   | { workspaceId: string; runId: string; reference: SealedRunInputRef }
   | { workspaceId: string; eventId: string; reference: SealedJournalRef }
-  | { workspaceId: string; messageId: string; reference: SealedMessageRef };
+  | { workspaceId: string; messageId: string; reference: SealedMessageRef }
+  | { workspaceId: string; manifestId: string; reference: SealedManifestRef };
 export interface SqlQueryable {
   query<Row = Record<string, unknown>>(sql: string, values?: unknown[]): Promise<QueryResult<Row>>;
 }
@@ -247,6 +248,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       if ('runId' in item) await this.runContent!.destroy(item.workspaceId, item.runId, item.reference);
       else if ('eventId' in item) await this.journalContent!.destroy(item.workspaceId, item.eventId, item.reference);
       else if ('messageId' in item) await this.messageContent!.destroy(item.workspaceId, item.messageId, item.reference);
+      else if ('manifestId' in item) await this.manifestContent!.destroy(item.workspaceId, item.manifestId, item.reference);
       else await this.receiptContent!.destroy(item.workspaceId, item.commandId, item.reference, item.kind);
       pending.pop();
     }
@@ -1063,7 +1065,18 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     for (const segment of segments) await database.query(`INSERT INTO rhiza_segments (id,node_id,ordinal,title,created_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO UPDATE SET node_id=EXCLUDED.node_id,ordinal=EXCLUDED.ordinal,title=EXCLUDED.title`, [segment.id,segment.nodeId,segment.ordinal,segment.title,segment.createdAt]);
     for (const resource of resources) await database.query(`INSERT INTO rhiza_resources (resource_id,workspace_id,kind,logical_name,created_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (resource_id) DO NOTHING`, [resource.id,resource.workspaceId,resource.kind,resource.logicalName,resource.createdAt]);
     for (const version of resourceVersions) await database.query(`INSERT INTO rhiza_resource_versions (resource_version_id,resource_id,version,digest_algorithm,digest,canonicalization,media_type,size_bytes,blob_ref,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [version.id,version.resourceId,version.version,version.digestAlgorithm,version.digest,version.canonicalization,version.mediaType,version.size,version.blobRef,version.createdAt]);
-    for (const manifest of manifests) await database.query(`INSERT INTO rhiza_context_manifests (id,project_id,node_id,request_id,mode,provider,model,runtime,estimated_tokens,manifest,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11)`, [manifest.id,workspace.projectId,manifest.nodeId,manifest.requestId,manifest.mode,manifest.provider,manifest.model,manifest.runtime,manifest.estimatedTokens,JSON.stringify(manifest),manifest.createdAt]);
+    for (const manifest of manifests) {
+      let reference: SealedManifestRef | undefined;
+      if (this.manifestContent) {
+        if (manifest.projectId !== workspace.projectId) throw new Error('MANIFEST_WORKSPACE_MISMATCH');
+        const pending = this.transactionContent.get(database);
+        if (!pending) throw new Error('MANIFEST_CONTENT_REQUIRES_TRANSACTION');
+        reference = await this.manifestContent.seal(manifest);
+        pending.push({ workspaceId: workspace.projectId, manifestId: manifest.id, reference });
+      }
+      await database.query(`INSERT INTO rhiza_context_manifests (id,project_id,node_id,request_id,mode,provider,model,runtime,estimated_tokens,manifest,created_at,content_ref) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12::jsonb)`,
+      [manifest.id,workspace.projectId,manifest.nodeId,manifest.requestId,manifest.mode,manifest.provider,manifest.model,manifest.runtime,manifest.estimatedTokens,JSON.stringify(reference ? manifestReferenceProjection(manifest) : manifest),manifest.createdAt,reference ? JSON.stringify(reference) : null]);
+    }
     for (const materialization of materializations) await database.query(`INSERT INTO rhiza_resource_materializations (materialization_id,resource_version_id,kind,generator,created_at) VALUES ($1,$2,$3,$4,$5)`, [materialization.id,materialization.resourceVersionId,materialization.kind,materialization.generator,materialization.createdAt]);
     for (const attachment of attachments) await database.query(`INSERT INTO rhiza_attachments (id,project_id,name,mime_type,size_bytes,kind,storage_key,extracted_text,created_at,resource_id,resource_version_id,summary,chunk_count) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name,mime_type=EXCLUDED.mime_type,size_bytes=EXCLUDED.size_bytes,kind=EXCLUDED.kind,extracted_text=EXCLUDED.extracted_text,resource_id=EXCLUDED.resource_id,resource_version_id=EXCLUDED.resource_version_id,summary=EXCLUDED.summary,chunk_count=EXCLUDED.chunk_count`, [attachment.id,workspace.projectId,attachment.name,attachment.mimeType,attachment.size,attachment.kind,attachment.blobRef || attachment.id,attachment.extractedText || null,attachment.createdAt,attachment.resourceId || null,attachment.resourceVersionId || null,attachment.summary || null,attachment.chunkCount ?? null]);
     for (const message of messages) {

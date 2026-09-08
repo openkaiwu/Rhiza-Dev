@@ -375,7 +375,7 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     await expect(reader.readConversationPreparation([])).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
   });
   it('M09 restores encrypted Manifests for workspace and frozen context reads', async () => {
-    const { app, database, store, uploadDirectory } = await setup(success);
+    const { app, database, store, uploadDirectory, provider, runtime } = await setup(success);
     const response = await request(app).post('/api/chat').send({ message: 'private manifest history' }).expect(201);
     const manifest = (await store.read()).manifests.find(item => item.id === response.body.manifest.id)!;
     const content = SealedManifestContent.atDirectory(join(uploadDirectory, 'manifest-reads'));
@@ -385,6 +385,20 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
       await database.query('UPDATE rhiza_context_manifests SET manifest=$2::jsonb,content_ref=$3::jsonb WHERE id=$1', [manifest.id, JSON.stringify(manifestReferenceProjection(manifest)), JSON.stringify(reference)]);
     } finally { await database.exec('ALTER TABLE rhiza_context_manifests ENABLE TRIGGER rhiza_context_manifests_immutable'); }
     const reader = new PostgresWorkspaceStore(database, undefined, undefined, undefined, undefined, undefined, content);
+    const encryptedApp = createApp(reader, provider, false, runtime, undefined, uploadDirectory);
+    const next = await request(encryptedApp).post('/api/chat').send({ message: 'new sealed Manifest' }).expect(201);
+    const stored = (await database.query<{ manifest: unknown; content_ref: unknown }>('SELECT manifest,content_ref FROM rhiza_context_manifests WHERE id=$1', [next.body.manifest.id])).rows[0];
+    expect(stored.content_ref).toBeTruthy();
+    expect(stored.manifest).toEqual(JSON.parse(JSON.stringify(manifestReferenceProjection(next.body.manifest))));
+    const seal = vi.spyOn(content, 'seal');
+    await database.exec(`CREATE FUNCTION reject_manifest_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'manifest write interrupted'; END $$;
+      CREATE TRIGGER reject_manifest_write BEFORE INSERT ON rhiza_context_manifests FOR EACH ROW EXECUTE FUNCTION reject_manifest_write();`);
+    await request(encryptedApp).post('/api/chat').send({ message: 'rollback Manifest' }).expect(500);
+    expect(seal.mock.calls.length).toBeGreaterThan(0);
+    for (const [index, [failed]] of seal.mock.calls.entries()) {
+      await expect(content.read(failed.projectId, failed.id, await seal.mock.results[index].value, manifestReferenceProjection(failed))).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    }
+    await database.exec('DROP TRIGGER reject_manifest_write ON rhiza_context_manifests; DROP FUNCTION reject_manifest_write();');
     expect((await reader.read()).manifests.find(item => item.id === manifest.id)).toEqual(manifest);
     expect((await reader.readContextHistory({ manifestId: manifest.id }))?.manifest).toEqual(manifest);
     expect((await reader.readPortableWorkspace()).workspace.manifests.find(item => item.id === manifest.id)).toEqual(manifest);
