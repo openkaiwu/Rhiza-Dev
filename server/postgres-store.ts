@@ -207,12 +207,18 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     else if (this.database.close) await this.database.close();
   }
 
-  private async inTransaction<T>(callback: (database: SqlQueryable) => Promise<T>): Promise<T> {
+  private async inTransaction<T>(callback: (database: SqlQueryable) => Promise<T>, exclusiveContent = false): Promise<T> {
     const pending: PendingContent[] = [];
     let operationFailed = false;
     const operation = async (database: SqlQueryable) => {
       this.transactionContent.set(database, pending);
-      try { return await callback(database); }
+      try {
+        if (exclusiveContent) await database.query("SET LOCAL lock_timeout = '5s'");
+        await database.query(exclusiveContent
+          ? "SELECT pg_advisory_xact_lock(hashtext('rhiza:content-lifecycle'))"
+          : "SELECT pg_advisory_xact_lock_shared(hashtext('rhiza:content-lifecycle'))");
+        return await callback(database);
+      }
       catch (error) { operationFailed = true; throw error; }
       finally { this.transactionContent.delete(database); }
     };
@@ -281,9 +287,9 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   }
 
   /** Maintenance only: scan all workspaces sharing this key store, never a scoped subset. */
-  async auditReceiptKeys() {
+  async auditReceiptKeys(database: SqlQueryable = this.database) {
     if (!this.receiptContent) throw new Error('RECEIPT_CONTENT_STORE_UNAVAILABLE');
-    const { rows } = await this.database.query<{ workspace_id: string; command_id: string; result_content_ref: unknown; error_content_ref: unknown }>(
+    const { rows } = await database.query<{ workspace_id: string; command_id: string; result_content_ref: unknown; error_content_ref: unknown }>(
       'SELECT workspace_id,command_id,result_content_ref,error_content_ref FROM command_receipts WHERE result_content_ref IS NOT NULL OR error_content_ref IS NOT NULL');
     const references = rows.flatMap(row => (['result', 'error'] as const).flatMap(kind => {
       const reference = row[`${kind}_content_ref`];
@@ -292,22 +298,25 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     return this.receiptContent.auditKeys(references);
   }
 
-  /** Global metadata snapshot, not proof that an unreferenced key can be deleted. */
+  /** Pause transactional content writers while collecting the global reference/key snapshot. */
   async auditHistoricalKeys() {
-    if (!this.runContent || !this.journalContent || !this.messageContent || !this.manifestContent) throw new Error('HISTORY_CONTENT_STORES_UNAVAILABLE');
-    const { rows } = await this.database.query<{ family: string; workspace_id: string; id: string; reference: unknown }>(`
-      SELECT 'runs' AS family,workspace_id,run_id AS id,input_content_ref AS reference FROM execution_runs WHERE input_content_ref IS NOT NULL
-      UNION ALL SELECT 'journal',workspace_id,event_id::text,payload_content_ref FROM workspace_events WHERE payload_content_ref IS NOT NULL
-      UNION ALL SELECT 'messages',n.project_id,m.id::text,m.content_ref FROM rhiza_messages m JOIN rhiza_nodes n ON n.id=m.node_id WHERE m.content_ref IS NOT NULL
-      UNION ALL SELECT 'manifests',project_id,id::text,content_ref FROM rhiza_context_manifests WHERE content_ref IS NOT NULL`);
-    const references = (family: string) => rows.filter(row => row.family === family).map(row => ({ workspaceId: row.workspace_id, id: row.id, contentId: asJson<{ contentId: string }>(row.reference).contentId }));
-    return {
-      receipts: await this.auditReceiptKeys(),
-      runs: await this.runContent.auditKeys(references('runs')),
-      journal: await this.journalContent.auditKeys(references('journal')),
-      messages: await this.messageContent.auditKeys(references('messages')),
-      manifests: await this.manifestContent.auditKeys(references('manifests')),
-    };
+    const { runContent, journalContent, messageContent, manifestContent } = this;
+    if (!runContent || !journalContent || !messageContent || !manifestContent) throw new Error('HISTORY_CONTENT_STORES_UNAVAILABLE');
+    return this.inTransaction(async database => {
+      const { rows } = await database.query<{ family: string; workspace_id: string; id: string; reference: unknown }>(`
+        SELECT 'runs' AS family,workspace_id,run_id AS id,input_content_ref AS reference FROM execution_runs WHERE input_content_ref IS NOT NULL
+        UNION ALL SELECT 'journal',workspace_id,event_id::text,payload_content_ref FROM workspace_events WHERE payload_content_ref IS NOT NULL
+        UNION ALL SELECT 'messages',n.project_id,m.id::text,m.content_ref FROM rhiza_messages m JOIN rhiza_nodes n ON n.id=m.node_id WHERE m.content_ref IS NOT NULL
+        UNION ALL SELECT 'manifests',project_id,id::text,content_ref FROM rhiza_context_manifests WHERE content_ref IS NOT NULL`);
+      const references = (family: string) => rows.filter(row => row.family === family).map(row => ({ workspaceId: row.workspace_id, id: row.id, contentId: asJson<{ contentId: string }>(row.reference).contentId }));
+      return {
+        receipts: await this.auditReceiptKeys(database),
+        runs: await runContent.auditKeys(references('runs')),
+        journal: await journalContent.auditKeys(references('journal')),
+        messages: await messageContent.auditKeys(references('messages')),
+        manifests: await manifestContent.auditKeys(references('manifests')),
+      };
+    }, true);
   }
 
   async sealLegacyReceiptErrors(limit = 100): Promise<number> {

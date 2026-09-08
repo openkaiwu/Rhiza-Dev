@@ -5,13 +5,33 @@ import { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it } from 'vitest';
 import { openEmbeddedWorkspaceStore } from './embedded-store';
 import { createSeedWorkspace } from './seed';
-import { PostgresWorkspaceStore, relationalizeWorkspace } from './postgres-store';
+import { PostgresWorkspaceStore, relationalizeWorkspace, type SqlQueryable } from './postgres-store';
 import { semanticChecksum, semanticStateChecksum } from './infrastructure/workspace-semantic-checksum';
 import type { ExecutionRun, ContextEnvelope } from './execution-runtime/run';
 import { SealedMessageContent } from './infrastructure/sealed-message-content';
+import { SealedReceiptContent } from './infrastructure/sealed-receipt-content';
+import { SealedRunContent } from './infrastructure/sealed-run-content';
+import { SealedJournalContent } from './infrastructure/sealed-journal-content';
+import { SealedManifestContent } from './infrastructure/sealed-manifest-content';
 import { randomUUID } from 'node:crypto';
 
 describe('embedded Workspace backend', () => {
+  it('takes lifecycle locks before transaction work and audits on the locked connection', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-content-lock-'));
+    const statements: string[] = [];
+    const query = async (sql: string) => { statements.push(sql); return { rows: [] }; };
+    const database = { query: async () => { throw new Error('query escaped transaction'); }, transaction: async <T>(callback: (client: SqlQueryable) => Promise<T>) => callback({ query }) };
+    const store = new PostgresWorkspaceStore(database, undefined, SealedReceiptContent.atDirectory(join(directory, 'receipts')), SealedRunContent.atDirectory(join(directory, 'runs')), SealedJournalContent.atDirectory(join(directory, 'journal')), SealedMessageContent.atDirectory(join(directory, 'messages')), SealedManifestContent.atDirectory(join(directory, 'manifests')));
+    try {
+      await store.readExisting();
+      expect(statements[0]).toContain("pg_advisory_xact_lock_shared(hashtext('rhiza:content-lifecycle'))");
+      statements.length = 0;
+      await store.auditHistoricalKeys();
+      expect(statements[0]).toBe("SET LOCAL lock_timeout = '5s'");
+      expect(statements[1]).toContain("pg_advisory_xact_lock(hashtext('rhiza:content-lifecycle'))");
+      expect(statements.slice(2).every(sql => sql.trim().startsWith('SELECT'))).toBe(true);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
   it('treats an empty configured Workspace ID as absent', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'rhiza-empty-workspace-id-'));
     const store = await openEmbeddedWorkspaceStore(join(directory, 'database'), '');

@@ -22,6 +22,8 @@ Bundle 导出通过 `/api/v1/workspaces/:workspaceId/bundle` 读取同一事务�
 
 ## 2. Tech Stack
 
+加密内容的事务写入在工作区锁之前获取 `rhiza:content-lifecycle` 共享事务锁；全历史密钥对账获取同名独占事务锁，并使用锁所属连接读取 SQL 引用，避免跨连接读到不一致状态。独占锁等待上限为 5 秒。此协议覆盖 Repository 事务路径，不授权根据返回的快照直接删除密钥；实际回收仍需在保护范围内重验，并遵守停服维护与外部写入边界。
+
 - React + TypeScript：界面与本地交互状态
 - Vite：开发服务器与生产构建
 - Express：Workspace、Context 与 Chat API
