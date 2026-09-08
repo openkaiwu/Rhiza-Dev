@@ -8,11 +8,12 @@ import { portableWorkspaceFacts } from '../application/portable-workspace';
 import { validatePortableReferences } from '../application/portable-references';
 import type { PortableBundlePort, PortableWorkspaceFacts, BundleExport } from '../application/ports/portable-workspace';
 import type { BlobStorePort } from '../application/ports/host-runtime';
-import { BUNDLE_MEDIA_TYPE, BUNDLE_LIMITS, bundleError, type BundleDescriptor } from '../domain/portable-bundle';
+import { BUNDLE_MEDIA_TYPE, BUNDLE_LIMITS, bundleError, type BundleDescriptor, type BundleIndex } from '../domain/portable-bundle';
 import { canonicalJson } from '../domain/canonical-json';
 import { semanticStateChecksum } from './workspace-semantic-checksum';
 import { describeBundleFile, writeBundleArchive } from './bundle-archive';
 import indexSchema from '../contracts/bundle-index.schema.json';
+import { validatePortableContent } from './portable-content';
 
 export class NodePortableBundle implements PortableBundlePort {
   constructor(private readonly blobs: BlobStorePort) {}
@@ -63,7 +64,9 @@ export class NodePortableBundle implements PortableBundlePort {
         files.set(name, path); entries.push(descriptor);
       }
       const destination = join(directory, 'workspace.rhiza');
-      await writeBundleArchive({ mediaType: BUNDLE_MEDIA_TYPE, formatVersion: '1.0.0', workspaceId: facts.workspace.projectId, root: 'workspace.json', entries }, files, destination);
+      const index: BundleIndex = { mediaType: BUNDLE_MEDIA_TYPE, formatVersion: '1.0.0', workspaceId: facts.workspace.projectId, root: 'workspace.json', entries };
+      validatePortableContent(facts, index);
+      await writeBundleArchive(index, files, destination);
       const size = (await stat(destination)).size;
       if (size > BUNDLE_LIMITS.maxArchiveBytes) throw bundleError('BUNDLE_QUOTA_EXCEEDED');
       return { size, bytes: createReadStream(destination), dispose: () => rm(directory, { recursive: true, force: true }) };

@@ -21,6 +21,7 @@ import { semanticStateChecksum } from '../server/infrastructure/workspace-semant
 import { portableWorkspaceFacts } from '../server/application/portable-workspace';
 import { validatePortableReferences } from '../server/application/portable-references';
 import { stageBundleArchive } from '../server/infrastructure/bundle-archive';
+import { validatePortableContent } from '../server/infrastructure/portable-content';
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -97,6 +98,16 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
       expect(document.facts).toEqual(JSON.parse(JSON.stringify(portable)));
       expect(document.providerEndpoints.every((endpoint: { credential_required: boolean }) => endpoint.credential_required)).toBe(true);
       expect(document.runtimeSnapshots).toHaveLength(1);
+      expect(() => validatePortableContent(portable, staged.index)).not.toThrow();
+      expect(() => validatePortableContent(portable, { ...staged.index, workspaceId: randomUUID() })).toThrow('BUNDLE_WORKSPACE_MISMATCH');
+      const missingContent = { ...staged.index, entries: staged.index.entries.filter(entry => !entry.path.startsWith('blobs/')) };
+      expect(() => validatePortableContent(portable, missingContent)).toThrow('BUNDLE_MISSING_CONTENT');
+      const forgedInput = structuredClone(portable);
+      forgedInput.runs[0].input.request.prompt = 'tampered after export';
+      expect(() => validatePortableContent(forgedInput, staged.index)).toThrow('BUNDLE_RUNTIME_DIGEST_MISMATCH');
+      const wrongSize = structuredClone(portable);
+      wrongSize.workspace.resourceVersions[0].size += 1;
+      expect(() => validatePortableContent(wrongSize, staged.index)).toThrow('BUNDLE_SIZE_MISMATCH');
       expect(staged.files.has('schemas/bundle-index-v1.json')).toBe(true);
     } finally { await staged.dispose(); }
     expect(await store.readPortableWorkspace()).toEqual(facts);
