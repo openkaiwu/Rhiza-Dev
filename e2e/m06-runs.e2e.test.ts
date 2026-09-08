@@ -201,6 +201,26 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     await content.destroy(workspaceId, commandId, reference);
     await expect(store.readCommandReceipt(commandId)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
   });
+  it('M09 constrains sealed Run input replicas and keeps references immutable', async () => {
+    const { database, store } = await setup(success);
+    const reference = { format: 'rhiza.sealed-run-input.v1', contentId: 'run-content', reference: { version: 1, digest: 'a'.repeat(64), size: 2,
+      ciphertext: { digestAlgorithm: 'sha256', digest: 'b'.repeat(64), blobRef: `sha256/bb/${'b'.repeat(64)}`, size: 31 } } };
+    const insert = async (ref: unknown, input: unknown = { sealed: true }) => {
+      const id = randomUUID();
+      const record = { id, workspaceId: store.defaultWorkspaceId, input, inputHash: 'a'.repeat(64), status: 'created' };
+      await database.query(`INSERT INTO execution_runs(run_id,workspace_id,command_id,node_id,status,attempt,input_envelope,input_hash,model_spec_ref,provider_endpoint_ref,record,input_content_ref)
+        VALUES ($1,$2,$1,'node','created',1,$3::jsonb,$4,'model','endpoint',$5::jsonb,$6::jsonb)`,
+      [id, store.defaultWorkspaceId, JSON.stringify(input), record.inputHash, JSON.stringify(record), JSON.stringify(ref)]);
+      return id;
+    };
+    const id = await insert(reference);
+    await expect(insert(reference, { text: 'private' })).rejects.toThrow('execution_run_sealed_input_valid');
+    await expect(insert({ format: reference.format })).rejects.toThrow('execution_run_sealed_input_valid');
+    await expect(insert({ ...reference, plaintext: 'private' })).rejects.toThrow('execution_run_sealed_input_valid');
+    await expect(database.query('UPDATE execution_runs SET input_content_ref=$2::jsonb WHERE run_id=$1', [id, JSON.stringify({ ...reference, contentId: 'replacement' })])).rejects.toThrow('content reference is immutable');
+    await database.query(`UPDATE execution_runs SET status='dispatching',record=record || '{"status":"dispatching"}'::jsonb WHERE run_id=$1`, [id]);
+    await expect(database.exec(await readFile('db/migrations/0017_sealed_run_inputs.down.sql', 'utf8'))).rejects.toThrow('Cannot remove sealed Run references');
+  });
   it('M09 stores sealed receipt references without duplicate plaintext and guards rollback', async () => {
     const { database } = await setup(success);
     const workspaceId = '00000000-0000-4000-8000-000000000001';
