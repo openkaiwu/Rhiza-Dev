@@ -24,6 +24,7 @@ import { SqlBundleImportCheckpoints } from './infrastructure/bundle-import-check
 import { SealedReceiptContent, type SealedReceiptRef } from './infrastructure/sealed-receipt-content';
 
 interface QueryResult<Row> { rows: Row[] }
+type PendingReceiptContent = { workspaceId: string; commandId: string; reference: SealedReceiptRef };
 export interface SqlQueryable {
   query<Row = Record<string, unknown>>(sql: string, values?: unknown[]): Promise<QueryResult<Row>>;
 }
@@ -113,6 +114,7 @@ function relationalSeed(projectId: string): WorkspaceData {
 }
 
 export class PostgresWorkspaceStore implements WorkspaceRepository {
+  private readonly transactionContent = new WeakMap<SqlQueryable, PendingReceiptContent[]>();
   get bundleImportCheckpoints() { return new SqlBundleImportCheckpoints(this.database); }
   private runtimeOwner?: SqlQueryable & { release(): void };
   private queue: Promise<void> = Promise.resolve();
@@ -197,20 +199,59 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   }
 
   private async inTransaction<T>(callback: (database: SqlQueryable) => Promise<T>): Promise<T> {
-    if (this.database.transaction) return this.database.transaction(callback);
+    const pending: PendingReceiptContent[] = [];
+    let operationFailed = false;
+    const operation = async (database: SqlQueryable) => {
+      this.transactionContent.set(database, pending);
+      try { return await callback(database); }
+      catch (error) { operationFailed = true; throw error; }
+      finally { this.transactionContent.delete(database); }
+    };
+    if (this.database.transaction) {
+      try { return await this.database.transaction(operation); }
+      catch (error) {
+        if (operationFailed) await this.discardReceiptContent(pending);
+        throw error;
+      }
+    }
     if (!this.database.connect) throw new Error('PostgreSQL adapter does not support transactions');
     const client = await this.database.connect();
+    let commitStarted = false;
     try {
       await client.query('BEGIN');
-      const result = await callback(client);
+      const result = await operation(client);
+      commitStarted = true;
       await client.query('COMMIT');
       return result;
     } catch (error) {
       await client.query('ROLLBACK');
+      // A lost COMMIT response is ambiguous: never destroy potentially live keys.
+      if (!commitStarted) await this.discardReceiptContent(pending);
       throw error;
     } finally {
       client.release();
     }
+  }
+
+  private async discardReceiptContent(pending: PendingReceiptContent[]) {
+    while (pending.length) {
+      const item = pending[pending.length - 1];
+      await this.receiptContent!.destroy(item.workspaceId, item.commandId, item.reference);
+      pending.pop();
+    }
+  }
+
+  private async insertCommittedReceipt(database: SqlQueryable, workspaceId: string, commandId: string, commandType: string, firstSequence: number, lastSequence: number, value: unknown) {
+    let reference: SealedReceiptRef | undefined;
+    if (this.receiptContent) {
+      const pending = this.transactionContent.get(database);
+      if (!pending) throw new Error('RECEIPT_CONTENT_REQUIRES_TRANSACTION');
+      reference = await this.receiptContent.seal(workspaceId, commandId, value);
+      pending.push({ workspaceId, commandId, reference });
+    }
+    await database.query(`INSERT INTO command_receipts (workspace_id,command_id,command_type,status,first_sequence,last_sequence,result,result_content_ref)
+      VALUES ($1,$2,$3,'committed',$4,$5,$6::jsonb,$7::jsonb)`,
+    [workspaceId, commandId, commandType, firstSequence, lastSequence, reference ? null : JSON.stringify(value ?? null), reference ? JSON.stringify(reference) : null]);
   }
 
   async read(): Promise<WorkspaceData> {
@@ -331,10 +372,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
         journalSource(command.workspaceId), journalSubject('workspace', command.workspaceId), journalDataSchema(eventType), record.revision,
         JSON.stringify(context.actor), JSON.stringify({ scopeType: 'workspace', scopeId: command.workspaceId }), context.commandId,
         context.causationId || null, context.correlationId || null, JSON.stringify(lifecyclePayload), context.occurredAt]);
-      await database.query(`
-        INSERT INTO command_receipts (workspace_id,command_id,command_type,status,first_sequence,last_sequence,result)
-        VALUES ($1,$2,$3,'committed',$4,$4,$5::jsonb)
-      `, [command.workspaceId, context.commandId, context.commandType, sequence, JSON.stringify(record)]);
+      await this.insertCommittedReceipt(database, command.workspaceId, context.commandId, context.commandType, sequence, sequence, record);
       return record;
     });
   }
@@ -418,11 +456,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
           command.context.commandId, offset, command.context.causationId || null, command.context.correlationId || null,
           JSON.stringify({ ...event.payload, reconcileChecksum: semanticChecksum(next), stateSchema: 'rhiza.workspace-semantic.v1', ...(offset === events.length - 1 ? { stateChanges: workspaceSemanticChanges(current, next) } : {}) }), command.context.occurredAt]);
       }
-      await database.query(`
-        INSERT INTO command_receipts
-          (workspace_id,command_id,command_type,status,first_sequence,last_sequence,result)
-        VALUES ($1,$2,$3,'committed',$4,$5,$6::jsonb)
-      `, [this.defaultWorkspaceId, command.context.commandId, command.context.commandType, firstSequence, lastSequence, JSON.stringify(result.value ?? null)]);
+      await this.insertCommittedReceipt(database, this.defaultWorkspaceId, command.context.commandId, command.context.commandType, firstSequence, lastSequence, result.value);
       return { workspace: recovered, value: result.value, duplicate: false };
     });
   }
@@ -443,6 +477,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
         const status = Number(candidate.details?.status ?? candidate.status ?? 500);
         if (candidate.storedReceipt || status < 400 || status >= 500) throw error;
         await database.query('ROLLBACK TO SAVEPOINT command_mutation');
+        await this.discardReceiptContent(this.transactionContent.get(database)!);
         const code = String(candidate.details?.code ?? candidate.code ?? 'COMMAND_REJECTED');
         await database.query(`
           INSERT INTO command_receipts (workspace_id,command_id,command_type,status,error)
@@ -732,10 +767,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
         journalSource(this.defaultWorkspaceId), journalSubject('workspace', this.defaultWorkspaceId), journalDataSchema('workspace.baseline.backfilled'),
         JSON.stringify({ actorType: 'system', actorId: 'journal-backfill-v1' }),
         JSON.stringify({ scopeType: 'workspace', scopeId: this.defaultWorkspaceId }), commandId, JSON.stringify(payload), occurredAt]);
-      await database.query(`
-        INSERT INTO command_receipts (workspace_id,command_id,command_type,status,first_sequence,last_sequence,result)
-        VALUES ($1,$2,'BackfillWorkspaceBaseline','committed',1,1,$3::jsonb)
-      `, [this.defaultWorkspaceId, commandId, JSON.stringify({ checksum })]);
+      await this.insertCommittedReceipt(database, this.defaultWorkspaceId, commandId, 'BackfillWorkspaceBaseline', 1, 1, { checksum });
       return { checksum, created: true, eventCount: 1 };
     });
   }

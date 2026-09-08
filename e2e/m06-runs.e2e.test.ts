@@ -61,7 +61,8 @@ async function fixture(generate: AIRuntime['generate'], backend: 'embedded' | 'p
   const provider = new ProviderService(new ProviderStore(join(directory, 'providers.json')), new SecretVault(join(directory, 'key')), { baseUrl: 'https://example.test/v1', apiKey: 'secret-never-in-run', model: 'same-model', providerName: 'Test', chatPath: '/chat/completions', timeoutMs: 1000, temperature: 0.4, extraHeaders: {}, allowNoKey: false });
   const runtime: AIRuntime = { kind: 'provider-adapter', listModels: async () => [model], generate };
   const app = createApp(store, provider, false, runtime, undefined, join(directory, 'uploads'));
-  await request(app).get('/api/workspace').expect(200);
+  const initial = await request(app).get('/api/workspace');
+  expect(initial.status, JSON.stringify(initial.body)).toBe(200);
   await store.backfillJournal();
   return { database, store, app, runtime, provider, uploadDirectory: join(directory, 'uploads') };
 }
@@ -72,6 +73,46 @@ async function* success(input: RuntimeRequest) {
 for (const backend of ['embedded', 'postgres'] as const) {
 describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durable Chat execution (${backend})`, () => {
   const setup = (generate: AIRuntime['generate']) => fixture(generate, backend);
+  it('M09 encrypts committed results and destroys keys after confirmed SQL rollback', async () => {
+    const { database, uploadDirectory, provider, runtime } = await setup(success);
+    const content = new SealedReceiptContent(new NodeSealedContentStore(new NodeFilesystemBlobStore(uploadDirectory), new NodeContentKeys(join(uploadDirectory, 'receipt-keys'))));
+    const seal = vi.spyOn(content, 'seal');
+    const store = new PostgresWorkspaceStore(database, undefined, content);
+    const app = createApp(store, provider, false, runtime, undefined, uploadDirectory);
+    await request(app).post('/api/chat').send({ message: 'private encrypted receipt' }).expect(201);
+    const rows = await database.query<{ command_id: string; result: unknown; result_content_ref: unknown }>("SELECT command_id,result,result_content_ref FROM command_receipts WHERE command_type='CreateConversationRun' AND status='committed'");
+    expect(rows.rows.length).toBeGreaterThan(0);
+    for (const row of rows.rows) {
+      expect(row.result).toBeNull();
+      expect(row.result_content_ref).not.toBeNull();
+      expect((await store.readCommandReceipt(row.command_id))?.result).toBeDefined();
+    }
+    const workspaceId = randomUUID();
+    const context = { commandId: randomUUID(), commandType: 'CreateWorkspace', actor: { actorType: 'human' as const, actorId: '00000000-0000-4000-8000-000000000002' }, scope: { scopeType: 'workspace' as const, scopeId: workspaceId }, occurredAt: new Date().toISOString() };
+    const command = { kind: 'create' as const, workspaceId, name: 'encrypted workspace receipt', createdBy: context.actor.actorId };
+    const created = await store.executeWorkspaceLifecycle(context, command);
+    expect(await store.executeWorkspaceLifecycle(context, command)).toEqual(created);
+    await database.exec("CREATE FUNCTION fail_receipt_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.command_id='fail-receipt' THEN RAISE EXCEPTION 'receipt write failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER fail_receipt_write BEFORE INSERT ON command_receipts FOR EACH ROW EXECUTE FUNCTION fail_receipt_write();");
+    const failedWorkspace = randomUUID();
+    await expect(store.executeWorkspaceLifecycle({ ...context, commandId: 'fail-receipt', scope: { ...context.scope, scopeId: failedWorkspace } }, { ...command, workspaceId: failedWorkspace })).rejects.toThrow('receipt write failure');
+    const reference = await seal.mock.results.at(-1)!.value;
+    await expect(content.read(failedWorkspace, 'fail-receipt', reference)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    expect((await database.query('SELECT workspace_id FROM workspaces WHERE workspace_id=$1', [failedWorkspace])).rows).toHaveLength(0);
+    const uncertainDatabase = { query: database.query.bind(database), connect: async () => {
+      const client = database.connect ? await database.connect() : { query: database.query.bind(database), release() {} };
+      return { release: () => client.release(), query: async <T,>(sql: string, values?: unknown[]) => {
+        const result = await client.query<T>(sql, values);
+        if (sql === 'COMMIT') throw new Error('lost commit acknowledgement');
+        return result;
+      } };
+    } };
+    const uncertainWorkspace = randomUUID();
+    const uncertainCommand = randomUUID();
+    await expect(new PostgresWorkspaceStore(uncertainDatabase, undefined, content).executeWorkspaceLifecycle(
+      { ...context, commandId: uncertainCommand, scope: { ...context.scope, scopeId: uncertainWorkspace } }, { ...command, workspaceId: uncertainWorkspace },
+    )).rejects.toThrow('lost commit acknowledgement');
+    expect((await store.forWorkspace(uncertainWorkspace).readCommandReceipt!(uncertainCommand))?.result).toMatchObject({ workspaceId: uncertainWorkspace });
+  });
   it('M09 reads encrypted receipts and refuses missing keys or receipt identity substitution', async () => {
     const { database, uploadDirectory } = await setup(success);
     const content = new SealedReceiptContent(new NodeSealedContentStore(new NodeFilesystemBlobStore(uploadDirectory), new NodeContentKeys(join(uploadDirectory, 'keys'))));
