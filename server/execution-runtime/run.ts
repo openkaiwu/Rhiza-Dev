@@ -19,6 +19,8 @@ export interface ExecutionRun {
   parentRunRef?: string;
   input: ContextEnvelope;
   inputHash: string;
+  /** Original input digest retained when a portable snapshot removes endpoint locations. */
+  originInputHash?: string;
   createdAt: string;
   dispatchingAt?: string;
   runningAt?: string;

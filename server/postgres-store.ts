@@ -31,6 +31,16 @@ interface TransactionalSql extends SqlQueryable {
 const DEFAULT_PROJECT_ID = '00000000-0000-4000-8000-000000000001';
 const asIso = (value: unknown) => value instanceof Date ? value.toISOString() : new Date(String(value)).toISOString();
 const asJson = <T>(value: unknown): T => typeof value === 'string' ? JSON.parse(value) as T : value as T;
+function storedJournalEvent(row: Record<string, unknown>): DomainEventEnvelope {
+  return {
+    eventId: String(row.event_id), workspaceId: String(row.workspace_id), sequence: Number(row.sequence),
+    eventType: String(row.event_type) as DomainEventEnvelope['eventType'], ceSpecversion: '1.0', envelopeVersion: DOMAIN_EVENT_SCHEMA_VERSION,
+    eventSource: String(row.event_source), subject: String(row.subject), dataSchema: String(row.data_schema),
+    aggregateType: String(row.aggregate_type), aggregateId: String(row.aggregate_id), aggregateRevision: Number(row.aggregate_revision), actor: asJson(row.actor_ref), scope: asJson(row.scope_ref),
+    commandId: String(row.command_id), eventIndex: Number(row.event_index), causationId: row.causation_id ? String(row.causation_id) : undefined, correlationId: row.correlation_id ? String(row.correlation_id) : undefined,
+    payload: asJson(row.payload), occurredAt: asIso(row.occurred_at), recordedAt: asIso(row.recorded_at),
+  };
+}
 function storedMessage(row: Record<string, unknown>, attachmentIds: string[]): StoredMessage {
   return { id: String(row.id), nodeId: String(row.node_id), segmentId: row.segment_id ? String(row.segment_id) : undefined, kind: row.kind as StoredMessage['kind'], text: String(row.body), manifestId: row.manifest_id ? String(row.manifest_id) : undefined, createdAt: asIso(row.created_at), operation: row.operation as StoredMessage['operation'], sourceMessageId: row.source_message_id ? String(row.source_message_id) : undefined, versionGroupId: row.version_group_id ? String(row.version_group_id) : undefined, version: Number(row.version), replyToMessageId: row.reply_to_message_id ? String(row.reply_to_message_id) : undefined, usage: row.usage ? asJson(row.usage) : undefined, reasoning: row.reasoning ? String(row.reasoning) : undefined, toolCalls: row.tool_calls ? asJson(row.tool_calls) : undefined, attachmentIds };
 }
@@ -467,6 +477,24 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     return result.rows[0] ? asJson<ProvenanceLink>(result.rows[0].record) : undefined;
   }
 
+  async readPortableWorkspace(): Promise<import('./application/ports/portable-workspace').PortableWorkspaceFacts> {
+    return this.inTransaction(async database => {
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
+      const workspace = await this.readFrom(database, true);
+      if (!workspace) throw Object.assign(new Error('Workspace not found'), { code: 'WORKSPACE_NOT_FOUND', status: 404 });
+      const directory = await database.query<{ workspace_id: string; name: string; status: 'active' | 'archived'; created_by: string; revision: number }>("SELECT workspace_id,name,status,created_by,COALESCE((settings->>'revision')::integer,1) revision FROM workspaces WHERE workspace_id=$1", [this.defaultWorkspaceId]);
+      const record = directory.rows[0];
+      if (!record) throw Object.assign(new Error('Workspace directory missing'), { code: 'WORKSPACE_NOT_FOUND', status: 404 });
+      const members = await database.query<{ user_id: string; role: 'owner' | 'member' }>('SELECT user_id,role FROM workspace_members WHERE workspace_id=$1 ORDER BY user_id', [this.defaultWorkspaceId]);
+      const runs = await database.query<{ record: ExecutionRun }>('SELECT record FROM execution_runs WHERE workspace_id=$1 ORDER BY run_id', [this.defaultWorkspaceId]);
+      const provenance = await database.query<{ record: ProvenanceLink }>('SELECT record FROM provenance_links WHERE workspace_id=$1 ORDER BY output_ref', [this.defaultWorkspaceId]);
+      const journal = await database.query<Record<string, unknown>>('SELECT * FROM workspace_events WHERE workspace_id=$1 ORDER BY sequence', [this.defaultWorkspaceId]);
+      return { workspace, directory: { workspaceId: record.workspace_id, name: record.name, status: record.status, createdBy: record.created_by, revision: Number(record.revision) },
+        members: members.rows.map(member => ({ userId: member.user_id, role: member.role })),
+        runs: runs.rows.map(row => asJson<ExecutionRun>(row.record)), provenance: provenance.rows.map(row => asJson<ProvenanceLink>(row.record)), journal: journal.rows.map(storedJournalEvent) };
+    });
+  }
+
   async backfillProvenance(): Promise<number> {
     return this.inTransaction(async database => {
       await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
@@ -508,14 +536,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     const result = await this.database.query<Record<string, unknown>>(`
       SELECT * FROM workspace_events WHERE workspace_id=$1 ORDER BY sequence DESC LIMIT $2
     `, [this.defaultWorkspaceId, Math.min(10_000, Math.max(1, limit))]);
-    return result.rows.map(row => ({
-      eventId: String(row.event_id), workspaceId: String(row.workspace_id), sequence: Number(row.sequence),
-      eventType: String(row.event_type) as DomainEventEnvelope['eventType'], ceSpecversion: '1.0', envelopeVersion: DOMAIN_EVENT_SCHEMA_VERSION,
-      eventSource: String(row.event_source), subject: String(row.subject), dataSchema: String(row.data_schema),
-      aggregateType: String(row.aggregate_type), aggregateId: String(row.aggregate_id), aggregateRevision: Number(row.aggregate_revision), actor: asJson(row.actor_ref), scope: asJson(row.scope_ref),
-      commandId: String(row.command_id), eventIndex: Number(row.event_index), causationId: row.causation_id ? String(row.causation_id) : undefined, correlationId: row.correlation_id ? String(row.correlation_id) : undefined,
-      payload: asJson(row.payload), occurredAt: asIso(row.occurred_at), recordedAt: asIso(row.recorded_at),
-    }));
+    return result.rows.map(storedJournalEvent);
   }
 
   async readContextHistory(input: { manifestId: string } | { messageId: string }): Promise<import('./application/ports/workspace-unit-of-work').ContextHistoryFacts | undefined> {

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import { mkdir, open, readFile, readdir, rename, rm, stat } from 'node:fs/promises';
 import { dirname, join, posix, resolve, sep } from 'node:path';
 import type { BlobGcResult, BlobPutResult, BlobStorePort, HostCapabilityDescriptor, HostCredentialResult, HostRuntimePort } from '../application/ports/host-runtime';
@@ -80,6 +81,19 @@ export class NodeFilesystemBlobStore implements BlobStorePort {
     }
     if (sha256(bytes) !== expectedDigest) throw new BlobIntegrityError('Stored blob digest mismatch');
     return bytes;
+  }
+
+  async *readStream(blobRef: string, expectedDigest: string): AsyncIterable<Uint8Array> {
+    assertDigest(expectedDigest);
+    if (blobRef !== blobRefFor(expectedDigest)) throw new BlobIntegrityError('Blob reference does not match digest');
+    const hash = createHash('sha256');
+    try {
+      for await (const bytes of createReadStream(this.pathFor(blobRef))) { hash.update(bytes); yield bytes; }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new BlobIntegrityError('Referenced blob is missing', 'missing_blob');
+      throw error;
+    }
+    if (hash.digest('hex') !== expectedDigest) throw new BlobIntegrityError('Stored blob digest mismatch');
   }
 
   async collectOrphans(referencedBlobRefs: ReadonlySet<string>, gracePeriodMs: number, now = Date.now()): Promise<BlobGcResult> {

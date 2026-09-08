@@ -11,6 +11,7 @@ import { loadFeatureFlags, type FeatureFlags } from '../feature-flags';
 import { createHttpApp } from '../http/app';
 import { NodeFilesystemLegacyUpload } from '../infrastructure/node-filesystem-legacy-upload';
 import { NodeHostRuntimeAdapter } from '../infrastructure/node-host-runtime';
+import { NodePortableBundle } from '../infrastructure/portable-bundle';
 import { RepositoryWorkspaceUnitOfWork } from '../infrastructure/workspace-repository-unit-of-work';
 import { WorkspaceDirectory } from '../identity/workspace-directory';
 import { DEFAULT_WORKSPACE_ID } from '../identity/workspace-scope';
@@ -36,6 +37,7 @@ export function createApp(
     hashRunInput: input => semanticStateChecksum(input as unknown as Record<string, unknown>),
     providers: provider,
     host,
+    portableBundle: new NodePortableBundle(host.blobs),
     textExtraction: upload,
     planner: new LegacyContextPlanner(randomUUID),
     contextCompiler: store.queryContextCandidates ? new BlobContextCompiler(host.blobs, randomUUID, () => new Date().toISOString()) : undefined,

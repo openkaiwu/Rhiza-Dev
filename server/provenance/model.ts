@@ -18,7 +18,7 @@ export function deriveProvenance(workspaceId: string, output: StoredMessage, nod
     contextManifestRef: output.manifestId, runRef: run?.id,
     parentRevisionRef: output.sourceMessageId, branchSourceRef: node.sourceMessageId,
     modelSpecRef: run?.input.executor.modelSpecRef, providerEndpointRef: run?.input.executor.providerEndpointRef,
-    runtimeSnapshotRef: run ? `run:${run.id}:input:${run.inputHash}` : undefined,
+    runtimeSnapshotRef: run ? `run:${run.id}:input:${run.originInputHash ?? run.inputHash}` : undefined,
     status: missingRefs.length ? 'broken-reference' : run ? 'recorded' : 'pre-run', missingRefs, createdAt: output.createdAt,
   };
 }

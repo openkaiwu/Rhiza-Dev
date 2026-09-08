@@ -93,6 +93,7 @@ export interface CommandMap {
 }
 
 export interface QueryMap {
+  ExportWorkspaceBundle: { payload: Empty; result: import('../domain/portable-bundle').BundleExport };
   GetProvenance: { payload: { outputId: string }; result: import('../domain').ProvenanceLink };
   GetContextHistory: { payload: { manifestId: string } | { messageId: string }; result: import('../domain').ContextHistory };
   ListExecutionRuns: { payload: { limit?: number }; result: ExecutionRunView[] };

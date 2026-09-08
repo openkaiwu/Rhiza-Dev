@@ -404,6 +404,12 @@
       "publisher": null,
       "copyright": null
     },
+    "buffer-crc32@1.0.0": {
+      "licenses": "MIT",
+      "repository": "https://github.com/brianloveswords/buffer-crc32",
+      "publisher": "Brian J. Brennan",
+      "copyright": null
+    },
     "bytes@3.1.2": {
       "licenses": "MIT",
       "repository": "https://github.com/visionmedia/bytes.js",
@@ -1640,6 +1646,12 @@
       "publisher": null,
       "copyright": null
     },
+    "pend@1.2.0": {
+      "licenses": "MIT",
+      "repository": "https://github.com/andrewrk/node-pend",
+      "publisher": "Andrew Kelley",
+      "copyright": null
+    },
     "pg-connection-string@2.14.0": {
       "licenses": "MIT",
       "repository": "https://github.com/brianc/node-postgres",
@@ -2124,6 +2136,18 @@
       "licenses": "MIT",
       "repository": "https://github.com/Raynos/xtend",
       "publisher": "Raynos",
+      "copyright": null
+    },
+    "yauzl@3.4.0": {
+      "licenses": "MIT",
+      "repository": "https://github.com/thejoshwolfe/yauzl",
+      "publisher": "Josh Wolfe",
+      "copyright": null
+    },
+    "yazl@3.3.1": {
+      "licenses": "MIT",
+      "repository": "https://github.com/thejoshwolfe/yazl",
+      "publisher": "Josh Wolfe",
       "copyright": null
     },
     "zod@3.25.76": {

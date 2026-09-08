@@ -25,6 +25,7 @@ export interface BlobGcResult {
 export interface BlobStorePort {
   put(bytes: Uint8Array): Promise<BlobPutResult>;
   read(blobRef: string, expectedDigest: string): Promise<Uint8Array>;
+  readStream?(blobRef: string, expectedDigest: string): AsyncIterable<Uint8Array>;
   collectOrphans(referencedBlobRefs: ReadonlySet<string>, gracePeriodMs: number, now?: number): Promise<BlobGcResult>;
 }
 

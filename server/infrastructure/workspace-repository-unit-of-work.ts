@@ -26,6 +26,11 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
   }
   async listRuns(limit = 50) { return this.runRepository().listRuns?.(limit) ?? []; }
   async readProvenance(outputId: string) { return this.runRepository().readProvenance?.(outputId); }
+  async readPortableWorkspace() {
+    const repository = this.runRepository();
+    if (!repository.readPortableWorkspace) throw new Error('PORTABLE_WORKSPACE_UNAVAILABLE');
+    return repository.readPortableWorkspace();
+  }
   async readContextHistory(input: { manifestId: string } | { messageId: string }) {
     const target = this.runRepository();
     if (target.readContextHistory) return target.readContextHistory(input);

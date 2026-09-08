@@ -171,6 +171,23 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
     catch (error) { next(error); }
   });
 
+  app.get('/api/bundle', async (_request, response, next) => {
+    let bundle: Awaited<ReturnType<typeof query<'ExportWorkspaceBundle'>>> | undefined;
+    try {
+      bundle = await query(response, 'ExportWorkspaceBundle', {});
+      response.attachment('workspace.rhiza').type('application/vnd.rhiza.workspace+zip').set('Content-Length', String(bundle.size));
+      for await (const bytes of bundle.bytes) {
+        if (response.destroyed) break;
+        if (!response.write(bytes)) await new Promise<void>(resolve => {
+          const finish = () => { response.off('drain', finish); response.off('close', finish); resolve(); };
+          response.once('drain', finish); response.once('close', finish);
+        });
+      }
+      response.end();
+    } catch (error) { next(error); }
+    finally { await bundle?.dispose(); }
+  });
+
   app.get('/api/messages/:messageId/context', async (request, response, next) => {
     try { response.json(await query(response, 'GetContextHistory', { messageId: request.params.messageId })); }
     catch (error) { next(error); }

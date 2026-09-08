@@ -20,6 +20,7 @@ const nodeStatuses = new Set(['draft', 'active', 'resolved', 'stale', 'archived'
 const textMimeTypes = new Set(['text/plain', 'text/markdown', 'text/csv', 'application/json', 'application/xml', 'text/xml', 'application/javascript', 'text/javascript']);
 
 export interface RhizaApplicationDependencies {
+  portableBundle?: import('./ports/portable-workspace').PortableBundlePort;
   unitOfWork: WorkspaceUnitOfWork;
   hashRunInput?: (input: ContextEnvelope) => string;
   runtime: RuntimePort;
@@ -357,7 +358,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
           const model = policy === 'current-model' ? models.find(model => model.active) : models.find(model => model.id === original.input.executor.modelSpecRef);
           if (!model) throw legacyError('历史模型不可用，请显式选择当前模型 Replay。', 409, 'REPLAY_MODEL_UNAVAILABLE');
           const snapshot = original.input.request.modelSnapshot;
-          const exact = model.model === original.input.executor.model && model.provider === original.input.executor.provider
+          const exact = !original.originInputHash && model.model === original.input.executor.model && model.provider === original.input.executor.provider
             && (model.providerEndpointRef ?? model.id) === original.input.executor.providerEndpointRef
             && (runtime.kind ?? 'provider-adapter') === original.input.executor.runtime
             && model.endpointVersion === snapshot?.endpointVersion
@@ -431,6 +432,10 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
   const dispatchQueryScoped = async (envelope: AnyQueryEnvelope): Promise<unknown> => {
     try {
       switch (envelope.queryType) {
+        case 'ExportWorkspaceBundle': {
+          if (!dependencies.portableBundle || !unitOfWork.readPortableWorkspace) throw legacyError('Bundle 导出不可用。', 503, 'BUNDLE_UNAVAILABLE');
+          return dependencies.portableBundle.export(await unitOfWork.readPortableWorkspace());
+        }
         case 'GetProvenance': {
           const link = await unitOfWork.readProvenance?.(envelope.payload.outputId);
           if (!link) throw legacyError('来源记录不存在。', 404, 'PROVENANCE_NOT_FOUND');

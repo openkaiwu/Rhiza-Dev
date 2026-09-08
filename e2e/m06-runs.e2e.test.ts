@@ -3,7 +3,7 @@ import { Pool } from 'pg';
 import type { SqlQueryable } from '../server/postgres-store';
 import { PGlite } from '@electric-sql/pglite';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -18,6 +18,9 @@ import { SecretVault } from '../server/secret-vault';
 import type { ExecutionRun } from '../server/execution-runtime/run';
 import { NodeFilesystemBlobStore } from '../server/infrastructure/node-host-runtime';
 import { semanticStateChecksum } from '../server/infrastructure/workspace-semantic-checksum';
+import { portableWorkspaceFacts } from '../server/application/portable-workspace';
+import { validatePortableReferences } from '../server/application/portable-references';
+import { stageBundleArchive } from '../server/infrastructure/bundle-archive';
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -56,6 +59,48 @@ async function* success(input: RuntimeRequest) {
 for (const backend of ['embedded', 'postgres'] as const) {
 describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durable Chat execution (${backend})`, () => {
   const setup = (generate: AIRuntime['generate']) => fixture(generate, backend);
+  it('M09 captures complete portable facts with closed historical references', async () => {
+    const { app, store, uploadDirectory } = await setup(success);
+    await request(app).post('/api/chat').send({ message: 'portable history' }).expect(201);
+    const facts = await store.readPortableWorkspace();
+    expect(facts.runs).toHaveLength(1);
+    expect(facts.journal[0].sequence).toBe(1);
+    expect(facts.provenance.length).toBe(facts.workspace.messages.filter(message => message.kind === 'assistant').length);
+    const portable = portableWorkspaceFacts(facts, input => semanticStateChecksum(input as Record<string, unknown>));
+    expect(() => validatePortableReferences(portable)).not.toThrow();
+    const missing = structuredClone(portable);
+    missing.runs = [];
+    expect(() => validatePortableReferences(missing)).toThrow('BUNDLE_BROKEN_REFERENCES');
+    const duplicate = structuredClone(portable);
+    duplicate.workspace.messages.push(duplicate.workspace.messages[0]);
+    expect(() => validatePortableReferences(duplicate)).toThrow('BUNDLE_DUPLICATE_MESSAGE');
+    const duplicateOutput = structuredClone(portable);
+    duplicateOutput.provenance.push({ ...duplicateOutput.provenance[0], id: 'another-link' });
+    expect(() => validatePortableReferences(duplicateOutput)).toThrow('BUNDLE_DUPLICATE_OUTPUT_PROVENANCE');
+    const wrongOutput = structuredClone(portable);
+    wrongOutput.provenance[0].outputRef = wrongOutput.workspace.messages.find(message => message.kind === 'user')!.id;
+    expect(() => validatePortableReferences(wrongOutput)).toThrow('BUNDLE_BROKEN_REFERENCES');
+    const missingRevision = structuredClone(portable);
+    missingRevision.provenance[0].parentRevisionRef = 'missing-parent';
+    expect(() => validatePortableReferences(missingRevision)).toThrow('BUNDLE_BROKEN_REFERENCES');
+    const download = await request(app).get(`/api/v1/workspaces/${facts.workspace.projectId}/bundle`).buffer(true).parse((response, callback) => {
+      const chunks: Buffer[] = [];
+      response.on('data', (chunk: Buffer) => chunks.push(chunk));
+      response.on('end', () => callback(null, Buffer.concat(chunks)));
+      response.on('error', callback);
+    }).expect(200);
+    expect(download.headers['content-disposition']).toContain('workspace.rhiza');
+    const path = join(uploadDirectory, 'download.rhiza'); await writeFile(path, download.body);
+    const staged = await stageBundleArchive(path);
+    try {
+      const document = JSON.parse(await readFile(staged.files.get(staged.index.root)!, 'utf8'));
+      expect(document.facts).toEqual(JSON.parse(JSON.stringify(portable)));
+      expect(document.providerEndpoints.every((endpoint: { credential_required: boolean }) => endpoint.credential_required)).toBe(true);
+      expect(document.runtimeSnapshots).toHaveLength(1);
+      expect(staged.files.has('schemas/bundle-index-v1.json')).toBe(true);
+    } finally { await staged.dispose(); }
+    expect(await store.readPortableWorkspace()).toEqual(facts);
+  });
   it('M09 replays frozen inputs explicitly, deduplicates dispatch and refuses missing resources', async () => {
     const requests: RuntimeRequest[] = [];
     const { app, store, runtime } = await setup(async function* (input) { requests.push(structuredClone({ ...input, signal: undefined })); yield* success(input); });
