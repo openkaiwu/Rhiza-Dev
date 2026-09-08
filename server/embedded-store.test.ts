@@ -60,6 +60,7 @@ describe('embedded Workspace backend', () => {
       expect(await reopened.backfillJournal()).toEqual({ checksum: baseline.checksum, created: false, eventCount: 2 });
       expect((await reopened.readCommandReceipt(commandId))?.result).toEqual({ text: 'encrypted after reopen' });
       expect(await reopened.getRun(run.id)).toEqual(run);
+      expect((await reopened.readJournal()).find(event => event.sequence === 1)?.payload.snapshot).toBeTruthy();
       await reopened.close();
       const inspection = new PGlite(data);
       try {
@@ -70,6 +71,9 @@ describe('embedded Workspace backend', () => {
         expect(stored.input_envelope).toEqual({ sealed: true });
         expect(stored.record.input).toEqual({ sealed: true });
         expect(stored.input_content_ref).not.toBeNull();
+        const events = (await inspection.query<{ payload: unknown; payload_content_ref: unknown }>('SELECT payload,payload_content_ref FROM workspace_events')).rows;
+        expect(events).toHaveLength(2);
+        expect(events.every(event => JSON.stringify(event.payload) === JSON.stringify({ sealed: true }) && event.payload_content_ref !== null)).toBe(true);
       } finally { await inspection.close(); }
     } finally { await rm(directory, { recursive: true, force: true }); }
   }, 30_000);
