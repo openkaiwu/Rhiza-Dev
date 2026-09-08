@@ -33,7 +33,7 @@ import { completeBundleImport, prepareBundleImport } from '../server/application
 import { RepositoryWorkspaceUnitOfWork } from '../server/infrastructure/workspace-repository-unit-of-work';
 import { NodeContentKeys } from '../server/infrastructure/node-content-keys';
 import { NodeSealedContentStore } from '../server/infrastructure/node-sealed-content-store';
-import { SealedReceiptContent } from '../server/infrastructure/sealed-receipt-content';
+import { SealedReceiptContent, type SealedReceiptRef } from '../server/infrastructure/sealed-receipt-content';
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -73,6 +73,28 @@ async function* success(input: RuntimeRequest) {
 for (const backend of ['embedded', 'postgres'] as const) {
 describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durable Chat execution (${backend})`, () => {
   const setup = (generate: AIRuntime['generate']) => fixture(generate, backend);
+  it('M09 encrypts rejection details and replays the same rejection without mutation', async () => {
+    const { database, uploadDirectory } = await setup(success);
+    const content = SealedReceiptContent.atDirectory(join(uploadDirectory, 'rejections'));
+    const store = new PostgresWorkspaceStore(database, undefined, content);
+    const workspaceId = store.defaultWorkspaceId;
+    const commandId = randomUUID();
+    const context = { commandId, commandType: 'test', actor: { actorType: 'human' as const, actorId: '00000000-0000-4000-8000-000000000002' }, scope: { scopeType: 'workspace' as const, scopeId: workspaceId }, occurredAt: new Date().toISOString() };
+    const failure = { message: 'sensitive rejection details', code: 'TEST_REJECTION', status: 409 };
+    const apply = vi.fn(async () => { throw Object.assign(new Error(failure.message), failure); });
+    const command = { context, apply, events: () => [] };
+    await expect(store.executeCommand(command)).rejects.toMatchObject(failure);
+    const row = (await database.query<{ error: unknown; error_content_ref: SealedReceiptRef }>('SELECT error,error_content_ref FROM command_receipts WHERE workspace_id=$1 AND command_id=$2', [workspaceId, commandId])).rows[0];
+    expect(row.error).toEqual({ sealed: true });
+    expect((await store.readCommandReceipt(commandId))?.error).toEqual(failure);
+    await expect(store.executeCommand(command)).rejects.toMatchObject({ ...failure, storedReceipt: true });
+    await expect(store.executeWorkspaceLifecycle(context, { kind: 'create', workspaceId, name: 'unused', createdBy: context.actor.actorId })).rejects.toMatchObject({ ...failure, storedReceipt: true });
+    expect(apply).toHaveBeenCalledTimes(1);
+    await expect(content.read(workspaceId, commandId, row.error_content_ref)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    await content.destroy(workspaceId, commandId, row.error_content_ref, 'error');
+    await expect(store.executeCommand(command)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    expect(apply).toHaveBeenCalledTimes(1);
+  });
   it('M09 resumes legacy receipt encryption and keeps plaintext when verification fails', async () => {
     const { database, uploadDirectory } = await setup(success);
     const content = SealedReceiptContent.atDirectory(join(uploadDirectory, 'receipt-migration'));

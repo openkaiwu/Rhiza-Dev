@@ -25,7 +25,7 @@ import { SqlBundleImportCheckpoints } from './infrastructure/bundle-import-check
 import { SealedReceiptContent, type SealedReceiptRef } from './infrastructure/sealed-receipt-content';
 
 interface QueryResult<Row> { rows: Row[] }
-type PendingReceiptContent = { workspaceId: string; commandId: string; reference: SealedReceiptRef };
+type PendingReceiptContent = { workspaceId: string; commandId: string; reference: SealedReceiptRef; kind?: 'result' | 'error' };
 export interface SqlQueryable {
   query<Row = Record<string, unknown>>(sql: string, values?: unknown[]): Promise<QueryResult<Row>>;
 }
@@ -237,7 +237,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   private async discardReceiptContent(pending: PendingReceiptContent[]) {
     while (pending.length) {
       const item = pending[pending.length - 1];
-      await this.receiptContent!.destroy(item.workspaceId, item.commandId, item.reference);
+      await this.receiptContent!.destroy(item.workspaceId, item.commandId, item.reference, item.kind);
       pending.pop();
     }
   }
@@ -342,7 +342,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       const receipt = await database.query<Record<string, unknown>>('SELECT * FROM command_receipts WHERE workspace_id=$1 AND command_id=$2', [command.workspaceId, context.commandId]);
       if (receipt.rows[0]) {
         if (receipt.rows[0].status === 'rejected') {
-          const rejection = asJson<{ message: string; code: string; status: number }>(receipt.rows[0].error);
+          const rejection = await this.readReceiptResult<{ message: string; code: string; status: number }>(receipt.rows[0], 'error');
           throw Object.assign(new Error(rejection.message), rejection, { storedReceipt: true });
         }
         return this.readReceiptResult<WorkspaceRecord>(receipt.rows[0]);
@@ -420,7 +420,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       if (existing.rows[0]) {
         const receipt = existing.rows[0];
         if (receipt.status === 'rejected') {
-          const rejection = asJson<{ message: string; code: string; status: number }>(receipt.error);
+          const rejection = await this.readReceiptResult<{ message: string; code: string; status: number }>(receipt, 'error');
           throw Object.assign(new Error(rejection.message), rejection, { storedReceipt: true });
         }
         const workspace = await this.readFrom(database, true);
@@ -504,11 +504,16 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
         await database.query('ROLLBACK TO SAVEPOINT command_mutation');
         await this.discardReceiptContent(this.transactionContent.get(database)!);
         const code = String(candidate.details?.code ?? candidate.code ?? 'COMMAND_REJECTED');
-        await database.query(`
-          INSERT INTO command_receipts (workspace_id,command_id,command_type,status,error)
-          SELECT id,$2,$3,'rejected',$4::jsonb FROM rhiza_projects WHERE id=$1
+        const value = { message: candidate.message || 'Command rejected', code, status };
+        const reference = await this.receiptContent?.seal(this.defaultWorkspaceId, context.commandId, value, 'error');
+        if (reference) this.transactionContent.get(database)!.push({ workspaceId: this.defaultWorkspaceId, commandId: context.commandId, reference, kind: 'error' });
+        const inserted = await database.query(`
+          INSERT INTO command_receipts (workspace_id,command_id,command_type,status,error,error_content_ref)
+          SELECT id,$2,$3,'rejected',$4::jsonb,$5::jsonb FROM rhiza_projects WHERE id=$1
           ON CONFLICT (workspace_id,command_id) DO NOTHING
-        `, [this.defaultWorkspaceId, context.commandId, context.commandType, JSON.stringify({ message: candidate.message || 'Command rejected', code, status })]);
+          RETURNING command_id
+        `, [this.defaultWorkspaceId, context.commandId, context.commandType, JSON.stringify(reference ? { sealed: true } : value), reference ? JSON.stringify(reference) : null]);
+        if (!inserted.rows.length) await this.discardReceiptContent(this.transactionContent.get(database)!);
         rejection = error;
         return undefined;
       }
@@ -736,12 +741,13 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     });
   }
 
-  private async readReceiptResult<T>(row: Record<string, unknown>): Promise<T> {
-    if (row.result_content_ref !== null && row.result_content_ref !== undefined) {
+  private async readReceiptResult<T>(row: Record<string, unknown>, kind: 'result' | 'error' = 'result'): Promise<T> {
+    const reference = row[`${kind}_content_ref`];
+    if (reference !== null && reference !== undefined) {
       if (!this.receiptContent) throw new Error('RECEIPT_CONTENT_STORE_UNAVAILABLE');
-      return this.receiptContent.read<T>(String(row.workspace_id), String(row.command_id), asJson<SealedReceiptRef>(row.result_content_ref));
+      return this.receiptContent.read<T>(String(row.workspace_id), String(row.command_id), asJson<SealedReceiptRef>(reference), kind);
     }
-    return asJson<T>(row.result);
+    return asJson<T>(row[kind]);
   }
 
   async readCommandReceipt(commandId: string): Promise<CommandReceipt | undefined> {
@@ -752,7 +758,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       workspaceId: String(row.workspace_id), commandId: String(row.command_id), commandType: String(row.command_type),
       status: row.status as CommandReceipt['status'], firstSequence: row.first_sequence === null ? undefined : Number(row.first_sequence),
       lastSequence: row.last_sequence === null ? undefined : Number(row.last_sequence), result: (await this.readReceiptResult(row)) ?? undefined,
-      error: row.error === null ? undefined : asJson(row.error), createdAt: asIso(row.created_at),
+      error: (await this.readReceiptResult(row, 'error')) ?? undefined, createdAt: asIso(row.created_at),
     };
   }
 
