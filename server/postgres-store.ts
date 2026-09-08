@@ -185,7 +185,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   };
 
   static fromConnectionString(connectionString: string, projectId?: string, contentDirectory = resolve('var/receipt-content')) {
-    return new PostgresWorkspaceStore(new Pool({ connectionString, max: 10, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 5_000 }), projectId, SealedReceiptContent.atDirectory(contentDirectory), SealedRunContent.atDirectory(resolve(contentDirectory, 'runs')), SealedJournalContent.atDirectory(resolve(contentDirectory, 'journal')));
+    return new PostgresWorkspaceStore(new Pool({ connectionString, max: 10, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 5_000 }), projectId, SealedReceiptContent.atDirectory(contentDirectory), SealedRunContent.atDirectory(resolve(contentDirectory, 'runs')), SealedJournalContent.atDirectory(resolve(contentDirectory, 'journal')), SealedMessageContent.atDirectory(resolve(contentDirectory, 'messages')));
   }
 
   /** PostgreSQL hosts admit one Chat runtime per database; a second host must not reconcile live work. */

@@ -53,6 +53,7 @@ describe('embedded Workspace backend', () => {
       const input: ContextEnvelope = { schemaVersion: '1.0.0', request: { requestId: commandId, manifestId: 'manifest', projectId: seeded.projectId, nodeId: seeded.activeNodeId, modelId: 'model', prompt: 'private persisted input', history: [], contextItems: [], mode: 'Auto' }, executor: { runtime: 'test', modelSpecRef: 'model', providerEndpointRef: 'endpoint', model: 'model', provider: 'provider' } };
       const run: ExecutionRun = { id: commandId, commandId, workspaceId: seeded.projectId, nodeId: seeded.activeNodeId, status: 'created', attempt: 1, input, inputHash: semanticStateChecksum(input as unknown as Record<string, unknown>), createdAt: context.occurredAt, telemetry: { traceCount: 0 } };
       await first.executeCommand({ context, options: { run: { kind: 'create', run } }, apply: async current => ({ next: current, value: { text: 'encrypted after reopen' } }), events: () => [{ eventType: 'workspace.renamed', aggregateType: 'workspace', aggregateId: seeded.projectId, payload: {} }] });
+      const persistedMessages = (await first.read()).messages;
       await first.close();
 
       const reopened = await openEmbeddedWorkspaceStore(data, undefined, 'verify');
@@ -60,6 +61,7 @@ describe('embedded Workspace backend', () => {
       expect(await reopened.backfillJournal()).toEqual({ checksum: baseline.checksum, created: false, eventCount: 2 });
       expect((await reopened.readCommandReceipt(commandId))?.result).toEqual({ text: 'encrypted after reopen' });
       expect(await reopened.getRun(run.id)).toEqual(run);
+      expect((await reopened.read()).messages).toEqual(persistedMessages);
       expect((await reopened.readJournal()).find(event => event.sequence === 1)?.payload.snapshot).toBeTruthy();
       await reopened.close();
       const inspection = new PGlite(data);
@@ -74,6 +76,9 @@ describe('embedded Workspace backend', () => {
         const events = (await inspection.query<{ payload: unknown; payload_content_ref: unknown }>('SELECT payload,payload_content_ref FROM workspace_events')).rows;
         expect(events).toHaveLength(2);
         expect(events.every(event => JSON.stringify(event.payload) === JSON.stringify({ sealed: true }) && event.payload_content_ref !== null)).toBe(true);
+        const messages = (await inspection.query<{ body: string; reasoning: unknown; tool_calls: unknown; content_ref: unknown }>('SELECT body,reasoning,tool_calls,content_ref FROM rhiza_messages')).rows;
+        expect(messages.length).toBeGreaterThan(0);
+        expect(messages.every(message => message.body === '' && message.reasoning === null && message.tool_calls === null && message.content_ref !== null)).toBe(true);
       } finally { await inspection.close(); }
     } finally { await rm(directory, { recursive: true, force: true }); }
   }, 30_000);
