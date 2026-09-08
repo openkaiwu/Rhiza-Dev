@@ -31,6 +31,9 @@ import { validatePortableHistory } from '../server/application/portable-history'
 import { SqlBundleImportCheckpoints } from '../server/infrastructure/bundle-import-checkpoints';
 import { completeBundleImport, prepareBundleImport } from '../server/application/prepare-bundle-import';
 import { RepositoryWorkspaceUnitOfWork } from '../server/infrastructure/workspace-repository-unit-of-work';
+import { NodeContentKeys } from '../server/infrastructure/node-content-keys';
+import { NodeSealedContentStore } from '../server/infrastructure/node-sealed-content-store';
+import { SealedReceiptContent } from '../server/infrastructure/sealed-receipt-content';
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -69,6 +72,27 @@ async function* success(input: RuntimeRequest) {
 for (const backend of ['embedded', 'postgres'] as const) {
 describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durable Chat execution (${backend})`, () => {
   const setup = (generate: AIRuntime['generate']) => fixture(generate, backend);
+  it('M09 reads encrypted receipts and refuses missing keys or receipt identity substitution', async () => {
+    const { database, uploadDirectory } = await setup(success);
+    const content = new SealedReceiptContent(new NodeSealedContentStore(new NodeFilesystemBlobStore(uploadDirectory), new NodeContentKeys(join(uploadDirectory, 'keys'))));
+    const workspaceId = '00000000-0000-4000-8000-000000000001';
+    const commandId = randomUUID();
+    const value = { text: 'private receipt result' };
+    const reference = await content.seal(workspaceId, commandId, value);
+    await database.query("INSERT INTO command_receipts (workspace_id,command_id,command_type,status,result_content_ref) VALUES ($1,$2,'test','committed',$3::jsonb)", [workspaceId, commandId, JSON.stringify(reference)]);
+    const store = new PostgresWorkspaceStore(database, workspaceId, content);
+    expect((await store.readCommandReceipt(commandId))?.result).toEqual(value);
+    const context = { commandId, commandType: 'test', actor: { actorType: 'human' as const, actorId: '00000000-0000-4000-8000-000000000002' }, scope: { scopeType: 'workspace' as const, scopeId: workspaceId }, occurredAt: new Date().toISOString() };
+    const apply = vi.fn(async () => { throw new Error('duplicate command must not mutate'); });
+    expect((await store.executeCommand({ context, apply, events: () => [] })).value).toEqual(value);
+    expect(apply).not.toHaveBeenCalled();
+    expect(await store.executeWorkspaceLifecycle(context, { kind: 'create', workspaceId, name: 'unused', createdBy: context.actor.actorId })).toEqual(value);
+    await expect(new PostgresWorkspaceStore(database).readCommandReceipt(commandId)).rejects.toThrow('RECEIPT_CONTENT_STORE_UNAVAILABLE');
+    await expect(content.read(workspaceId, 'other-command', reference)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    expect(await store.forWorkspace(randomUUID()).readCommandReceipt!(commandId)).toBeUndefined();
+    await content.destroy(workspaceId, commandId, reference);
+    await expect(store.readCommandReceipt(commandId)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+  });
   it('M09 stores sealed receipt references without duplicate plaintext and guards rollback', async () => {
     const { database } = await setup(success);
     const workspaceId = '00000000-0000-4000-8000-000000000001';

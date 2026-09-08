@@ -21,6 +21,7 @@ import type { BundleImportCheckpoint } from './application/ports/bundle-import';
 import { validatePortableReferences } from './application/portable-references';
 import { validatePortableHistory } from './application/portable-history';
 import { SqlBundleImportCheckpoints } from './infrastructure/bundle-import-checkpoints';
+import { SealedReceiptContent, type SealedReceiptRef } from './infrastructure/sealed-receipt-content';
 
 interface QueryResult<Row> { rows: Row[] }
 export interface SqlQueryable {
@@ -118,7 +119,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   private readonly scoped = new Map<string, PostgresWorkspaceStore>();
   readonly defaultWorkspaceId: string;
 
-  constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: string) {
+  constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: string, private readonly receiptContent?: SealedReceiptContent) {
     const configuredWorkspaceId = defaultWorkspaceId?.trim();
     if (configuredWorkspaceId && !uuidPattern.test(configuredWorkspaceId)) throw new Error('RHIZA_PROJECT_ID must be a UUID when set');
     this.defaultWorkspaceId = configuredWorkspaceId || DEFAULT_PROJECT_ID;
@@ -127,7 +128,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   forWorkspace(workspaceId: string): WorkspaceRepository {
     if (workspaceId === this.defaultWorkspaceId) return this;
     let scoped = this.scoped.get(workspaceId);
-    if (!scoped) { scoped = new PostgresWorkspaceStore(this.database, workspaceId); this.scoped.set(workspaceId, scoped); }
+    if (!scoped) { scoped = new PostgresWorkspaceStore(this.database, workspaceId, this.receiptContent); this.scoped.set(workspaceId, scoped); }
     return scoped;
   }
 
@@ -278,7 +279,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
           const rejection = asJson<{ message: string; code: string; status: number }>(receipt.rows[0].error);
           throw Object.assign(new Error(rejection.message), rejection, { storedReceipt: true });
         }
-        return asJson<WorkspaceRecord>(receipt.rows[0].result);
+        return this.readReceiptResult<WorkspaceRecord>(receipt.rows[0]);
       }
 
       let record: WorkspaceRecord;
@@ -361,7 +362,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
         }
         const workspace = await this.readFrom(database, true);
         if (!workspace) throw new Error(`Committed receipt exists without Workspace state for ${this.defaultWorkspaceId}`);
-        return { workspace, value: asJson<T>(receipt.result), duplicate: true };
+        return { workspace, value: await this.readReceiptResult<T>(receipt), duplicate: true };
       }
 
       let current = await this.readFrom(database, true);
@@ -675,6 +676,14 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     });
   }
 
+  private async readReceiptResult<T>(row: Record<string, unknown>): Promise<T> {
+    if (row.result_content_ref !== null && row.result_content_ref !== undefined) {
+      if (!this.receiptContent) throw new Error('RECEIPT_CONTENT_STORE_UNAVAILABLE');
+      return this.receiptContent.read<T>(String(row.workspace_id), String(row.command_id), asJson<SealedReceiptRef>(row.result_content_ref));
+    }
+    return asJson<T>(row.result);
+  }
+
   async readCommandReceipt(commandId: string): Promise<CommandReceipt | undefined> {
     const result = await this.database.query<Record<string, unknown>>('SELECT * FROM command_receipts WHERE workspace_id=$1 AND command_id=$2', [this.defaultWorkspaceId, commandId]);
     const row = result.rows[0];
@@ -682,7 +691,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     return {
       workspaceId: String(row.workspace_id), commandId: String(row.command_id), commandType: String(row.command_type),
       status: row.status as CommandReceipt['status'], firstSequence: row.first_sequence === null ? undefined : Number(row.first_sequence),
-      lastSequence: row.last_sequence === null ? undefined : Number(row.last_sequence), result: row.result === null ? undefined : asJson(row.result),
+      lastSequence: row.last_sequence === null ? undefined : Number(row.last_sequence), result: (await this.readReceiptResult(row)) ?? undefined,
       error: row.error === null ? undefined : asJson(row.error), createdAt: asIso(row.created_at),
     };
   }
