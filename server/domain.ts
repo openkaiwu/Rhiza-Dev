@@ -270,3 +270,21 @@ export interface ProviderStatus {
   model: string;
   baseUrl: string;
 }
+
+export interface ProvenanceLink {
+  schemaVersion: '1.0.0';
+  id: string;
+  workspaceId: string;
+  outputRef: string;
+  inputRefs: string[];
+  contextManifestRef?: string;
+  runRef?: string;
+  parentRevisionRef?: string;
+  branchSourceRef?: string;
+  modelSpecRef?: string;
+  providerEndpointRef?: string;
+  runtimeSnapshotRef?: string;
+  status: 'recorded' | 'pre-run' | 'broken-reference';
+  missingRefs: string[];
+  createdAt: string;
+}

@@ -166,6 +166,11 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
     next();
   });
 
+  app.get(['/api/objects/:outputId/provenance', '/api/v1/objects/:outputId/provenance'], async (request, response, next) => {
+    try { response.json(await query(response, 'GetProvenance', { outputId: String(request.params.outputId) })); }
+    catch (error) { next(error); }
+  });
+
   app.get('/api/messages/:messageId/context', async (request, response, next) => {
     try { response.json(await query(response, 'GetContextHistory', { messageId: request.params.messageId })); }
     catch (error) { next(error); }
@@ -483,6 +488,14 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
   });
   app.get('/api/runs/:runId', async (request, response, next) => {
     try { response.json({ run: await query(response, 'GetExecutionRun', { runId: request.params.runId }) }); } catch (error) { next(error); }
+  });
+  app.post(['/api/runs/:runId/replay', '/api/v1/runs/:runId/replay'], async (request, response, next) => {
+    try {
+      const policy: unknown = request.body?.policy;
+      if (policy !== 'exact' && policy !== 'partial' && policy !== 'current-model') return rejectInput('Replay 策略无效。', 'INVALID_REPLAY_POLICY');
+      const workspaceId = typeof request.body?.workspaceId === 'string' && request.path.startsWith('/api/v1/') ? request.body.workspaceId : response.locals.workspaceIdentity.workspaceId;
+      response.status(201).json(await executeScoped(response, workspaceId, 'ReplayExecutionRun', { runId: String(request.params.runId), policy }));
+    } catch (error) { next(error); }
   });
   app.post('/api/runs/:runId/cancel', async (request, response, next) => {
     try { response.json({ run: await execute(response, 'CancelExecutionRun', { runId: request.params.runId }) }); } catch (error) { next(error); }

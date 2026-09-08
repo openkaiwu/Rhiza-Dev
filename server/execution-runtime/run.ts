@@ -5,6 +5,7 @@ export type RunStatus = 'created' | 'dispatching' | 'running' | 'completed' | 'f
 export const activeRunStatuses: RunStatus[] = ['created', 'dispatching', 'running'];
 export interface ContextEnvelope {
   schemaVersion: '1.0.0';
+  replay?: { classification: 'exact' | 'partial' | 'current-model'; sourceRunRef: string; sourceManifestRef: string };
   request: Omit<RuntimeRequest, 'signal'>;
   executor: { runtime: string; modelSpecRef: string; providerEndpointRef: string; model: string; provider: string };
 }

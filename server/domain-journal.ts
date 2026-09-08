@@ -93,6 +93,7 @@ export interface WorkspaceActivityItem {
 
 const eventByCommand: Record<string, DomainEventType> = {
   CreateConversationRun: 'conversation.run.committed',
+  ReplayExecutionRun: 'conversation.run.committed',
   ChangeContextMode: 'context.mode.changed',
   ChangeContextSelection: 'context.selection.changed',
   AddContextSource: 'context.source.added',

@@ -43,10 +43,11 @@ async function fixture(generate: AIRuntime['generate'], backend: 'embedded' | 'p
   const directory = await mkdtemp(join(tmpdir(), 'rhiza-m06-'));
   cleanups.push(() => rm(directory, { recursive: true, force: true }));
   const provider = new ProviderService(new ProviderStore(join(directory, 'providers.json')), new SecretVault(join(directory, 'key')), { baseUrl: 'https://example.test/v1', apiKey: 'secret-never-in-run', model: 'same-model', providerName: 'Test', chatPath: '/chat/completions', timeoutMs: 1000, temperature: 0.4, extraHeaders: {}, allowNoKey: false });
-  const app = createApp(store, provider, false, { kind: 'provider-adapter', listModels: async () => [model], generate }, undefined, join(directory, 'uploads'));
+  const runtime: AIRuntime = { kind: 'provider-adapter', listModels: async () => [model], generate };
+  const app = createApp(store, provider, false, runtime, undefined, join(directory, 'uploads'));
   await request(app).get('/api/workspace').expect(200);
   await store.backfillJournal();
-  return { database, store, app, uploadDirectory: join(directory, 'uploads') };
+  return { database, store, app, runtime, uploadDirectory: join(directory, 'uploads') };
 }
 async function* success(input: RuntimeRequest) {
   yield { type: 'RUN_END' as const, requestId: input.requestId, text: 'answer', model: 'same-model', provider: 'Provider' };
@@ -55,6 +56,42 @@ async function* success(input: RuntimeRequest) {
 for (const backend of ['embedded', 'postgres'] as const) {
 describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durable Chat execution (${backend})`, () => {
   const setup = (generate: AIRuntime['generate']) => fixture(generate, backend);
+  it('M09 replays frozen inputs explicitly, deduplicates dispatch and refuses missing resources', async () => {
+    const requests: RuntimeRequest[] = [];
+    const { app, store, runtime } = await setup(async function* (input) { requests.push(structuredClone({ ...input, signal: undefined })); yield* success(input); });
+    const originalResponse = await request(app).post('/api/chat').send({ message: 'original frozen question' }).expect(201);
+    const [original] = await store.listRuns();
+    const planner = vi.spyOn(PostgresWorkspaceStore.prototype, 'queryContextCandidates');
+    try {
+      const url = `/api/v1/workspaces/${original.workspaceId}/runs/${original.id}/replay`;
+      const replayed = await request(app).post(url).set('Idempotency-Key', 'replay-once').send({ policy: 'exact' }).expect(201);
+      const repeated = await request(app).post(url).set('Idempotency-Key', 'replay-once').send({ policy: 'exact' }).expect(201);
+      expect(repeated.body).toEqual(replayed.body);
+      expect(requests).toHaveLength(2);
+      expect(requests[1]).toMatchObject({ prompt: original.input.request.prompt, history: original.input.request.history, contextItems: original.input.request.contextItems });
+      expect(replayed.body.manifest.contextItems).toEqual(originalResponse.body.manifest.contextItems);
+      expect(replayed.body.replay).toMatchObject({ classification: 'exact', sourceRunRef: original.id });
+      const models = vi.spyOn(runtime, 'listModels').mockResolvedValue([{ ...model, endpointVersion: 'changed' }]);
+      const refused = await request(app).post(url).send({ policy: 'exact' }).expect(409);
+      expect(refused.body.error.code).toBe('REPLAY_CONTRACT_CHANGED');
+      expect(requests).toHaveLength(2);
+      const partial = await request(app).post(url).send({ policy: 'partial' }).expect(201);
+      expect(partial.body.replay.classification).toBe('partial');
+      models.mockResolvedValue([{ ...model, id: 'new-model', model: 'new-model' }]);
+      const current = await request(app).post(url).send({ policy: 'current-model' }).expect(201);
+      expect(current.body.replay.classification).toBe('current-model');
+      expect(requests.at(-1)?.modelId).toBe('new-model');
+      expect(requests.at(-1)?.prompt).toBe(original.input.request.prompt);
+      const blobRead = vi.spyOn(NodeFilesystemBlobStore.prototype, 'read').mockRejectedValue(Object.assign(new Error('missing'), { reason: 'missing_blob' }));
+      try {
+        const missing = await request(app).post(url).send({ policy: 'current-model' }).expect(409);
+        expect(missing.body.error.code).toBe('REPLAY_MISSING_RESOURCE');
+        expect(requests).toHaveLength(4);
+      } finally { blobRead.mockRestore(); }
+      expect(planner).not.toHaveBeenCalled();
+      expect(await store.getRun(original.id)).toEqual(original);
+    } finally { planner.mockRestore(); }
+  });
   it('commits terminal, messages and immutable input together; regenerate creates a child; retries deduplicate external calls', async () => {
     let calls = 0;
     const { app, store, database } = await setup(async function* (input) { calls++; yield* success(input); });
@@ -67,6 +104,13 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     expect(run.inputHash).toBe(semanticStateChecksum(run.input as unknown as Record<string, unknown>));
     expect(JSON.stringify(run)).not.toContain('secret-never-in-run');
     expect((await store.read()).messages.length).toBe(initial.messages.length + 2);
+    const provenance = await request(app).get(`/api/v1/workspaces/${initial.projectId}/objects/${response.body.assistantMessage.id}/provenance`).expect(200);
+    expect(provenance.body).toMatchObject({ status: 'recorded', runRef: run.id, outputRef: response.body.assistantMessage.id,
+      contextManifestRef: response.body.manifest.id, modelSpecRef: run.input.executor.modelSpecRef, providerEndpointRef: run.input.executor.providerEndpointRef });
+    expect(provenance.body.inputRefs).toContain(response.body.userMessage.id);
+    expect(await store.readProvenance(response.body.assistantMessage.id)).toEqual(provenance.body);
+    const other = await request(app).post('/api/v1/workspaces').send({ name: 'Provenance isolation' }).expect(201);
+    await request(app).get(`/api/v1/workspaces/${other.body.workspace.workspaceId}/objects/${response.body.assistantMessage.id}/provenance`).expect(404);
     await expect(database.query("UPDATE execution_runs SET input_envelope='{}' WHERE run_id=$1", [run.id])).rejects.toThrow(/immutable/);
     await expect(database.query("UPDATE execution_runs SET status='running' WHERE run_id=$1", [run.id])).rejects.toThrow(/immutable/);
     await request(app).post('/api/chat').send({ message: 'regenerate', operation: 'regenerate', sourceMessageId: response.body.assistantMessage.id }).expect(201);

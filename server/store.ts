@@ -23,6 +23,7 @@ export interface TransactionalWorkspaceCommandResult<T> {
 }
 
 export interface WorkspaceRepository {
+  readProvenance?(outputId: string): Promise<import('./domain').ProvenanceLink | undefined>;
   readContextHistory?(input: { manifestId: string } | { messageId: string }): Promise<import('./application/ports/workspace-unit-of-work').ContextHistoryFacts | undefined>;
   readConversationPreparation?(attachmentIds: string[], sourceMessageId?: string): Promise<import('./application/ports/workspace-unit-of-work').ConversationPreparation>;
   queryContextCandidates?(input: import('./context-runtime/contracts').ContextPlanningInput): Promise<import('./context-runtime/contracts').CandidateIndexSnapshot>;

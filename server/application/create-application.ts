@@ -6,6 +6,7 @@ import { ApplicationError, applicationError } from '../contracts/application-err
 import type { Application, CommandEnvelope, CommandExecutionOptions, CommandMap, CommandResult, CommandType, QueryEnvelope, QueryMap, QueryResult, QueryType } from '../contracts/application';
 import type { AuditEvent, ChatOperation, ContextManifest, ContextMode, ContextStatus, GenerationOptions, Resource, ResourceMaterialization, ResourceVersion, StoredAttachment, StoredMessage, WorkspaceData } from '../domain';
 import { deriveVersionIdentity } from '../domain/message-version';
+import { canonicalJson } from '../domain/canonical-json';
 import type { ContextPlannerPort } from '../context-runtime/port';
 import type { LegacyTextExtractionPort } from './ports/legacy-upload';
 import type { ProviderManagementPort } from './ports/provider-management';
@@ -38,7 +39,7 @@ export interface RhizaApplicationDependencies {
 }
 
 type Completion = { text: string; model: string; provider: string; reasoning?: string; toolCalls?: StoredMessage['toolCalls']; usage?: StoredMessage['usage'] };
-type PreparedRun = { frozen: FrozenContextItem[]; sourceRunId?: string; manifest: ContextManifest; request: RuntimeRequest; createdAt: string; userMessageId: string; versionGroupId: string; version: number };
+type PreparedRun = { replay?: ContextEnvelope['replay']; frozen: FrozenContextItem[]; sourceRunId?: string; manifest: ContextManifest; request: RuntimeRequest; createdAt: string; userMessageId: string; versionGroupId: string; version: number };
 type AnyCommandEnvelope = { [K in CommandType]: Omit<CommandEnvelope<K>, 'commandType' | 'payload'> & { commandType: K; payload: CommandMap[K]['payload'] } }[CommandType];
 type AnyQueryEnvelope = { [K in QueryType]: Omit<QueryEnvelope<K>, 'queryType' | 'payload'> & { queryType: K; payload: QueryMap[K]['payload'] } }[QueryType];
 type DispatchPayload = {
@@ -191,12 +192,13 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
     const operation = run.request.operation || 'send';
     const userMessage: StoredMessage = { id: run.userMessageId, nodeId: run.request.nodeId, kind: 'user', text: run.request.prompt, createdAt: run.createdAt, attachmentIds: run.manifest.attachmentIds, operation, sourceMessageId: run.request.sourceMessageId, versionGroupId: run.versionGroupId, version: run.version };
     const assistantMessage: StoredMessage = { id: id(), nodeId: run.request.nodeId, kind: 'assistant', text: completion.text, createdAt: run.createdAt, manifestId: run.manifest.id, operation, sourceMessageId: operation === 'regenerate' ? run.request.sourceMessageId : undefined, versionGroupId: run.versionGroupId, version: run.version, replyToMessageId: userMessage.id, usage: completion.usage, reasoning: completion.reasoning, toolCalls: completion.toolCalls };
+    const value = { userMessage, assistantMessage, manifest: run.manifest, ...(run.replay ? { replay: run.replay } : {}) };
     const committed = await mutate(current => {
-      if (current.manifests.some(manifest => manifest.requestId === run.request.requestId)) return { next: current, value: { userMessage, assistantMessage, manifest: run.manifest } };
+      if (current.manifests.some(manifest => manifest.requestId === run.request.requestId)) return { next: current, value };
       const target = current.discussionNodes.find(node => node.id === run.request.nodeId);
       if (!target) throw legacyError('生成期间讨论节点已被删除，结果未写入。', 409, 'NODE_REMOVED_DURING_RUN');
       if (target.status === 'archived') throw legacyError('生成期间讨论节点已归档，结果未写入。', 409, 'NODE_ARCHIVED_DURING_RUN');
-      return { next: { ...current, resources: [...current.resources, ...run.frozen.map(item => item.resource).filter(resource => !current.resources.some(item => item.id === resource.id))], resourceVersions: [...current.resourceVersions, ...run.frozen.map(item => item.resourceVersion).filter(version => !current.resourceVersions.some(item => item.id === version.id))], messages: [...current.messages, userMessage, assistantMessage], manifests: [...current.manifests, run.manifest] }, value: { userMessage, assistantMessage, manifest: run.manifest } };
+      return { next: { ...current, resources: [...current.resources, ...run.frozen.map(item => item.resource).filter(resource => !current.resources.some(item => item.id === resource.id))], resourceVersions: [...current.resourceVersions, ...run.frozen.map(item => item.resourceVersion).filter(version => !current.resourceVersions.some(item => item.id === version.id))], messages: [...current.messages, userMessage, assistantMessage], manifests: [...current.manifests, run.manifest] }, value };
     }, undefined, mutation);
     return committed.value;
   };
@@ -332,6 +334,45 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
           if (!projection) throw legacyError('Graph Projection 不可用。', 503, 'GRAPH_PROJECTION_UNAVAILABLE');
           return { version: projection.version, checkpoint: projection.checkpoint, checksum: projection.checksum };
         }
+        case 'ReplayExecutionRun': {
+          const previous = await unitOfWork.readCommittedResult?.<CommandMap['ReplayExecutionRun']['result']>();
+          if (previous?.found) return previous.value;
+          const { runId, policy } = envelope.payload;
+          if (!['exact', 'partial', 'current-model'].includes(policy)) throw legacyError('Replay 策略无效。', 400, 'INVALID_REPLAY_POLICY');
+          const original = await unitOfWork.getRun?.(runId);
+          if (!original) throw legacyError('执行记录不存在。', 404, 'RUN_NOT_FOUND');
+          const facts = await unitOfWork.readContextHistory?.({ manifestId: original.input.request.manifestId });
+          if (!facts || facts.manifest.schemaVersion !== '1.0.0') throw legacyError('历史上下文不可解析。', 409, 'REPLAY_MISSING_RESOURCE');
+          const history = await resolveContextHistory(facts, host.blobs);
+          if (history.sources.some(source => source.status !== 'resolved')) throw legacyError('历史资源缺失或完整性校验失败。', 409, 'REPLAY_MISSING_RESOURCE');
+          const current = await unitOfWork.read(workspace => workspace);
+          for (const attachment of original.input.request.attachments ?? []) {
+            if (!attachment.blobRef || !attachment.digest || !attachment.resourceVersionId) throw legacyError('历史附件没有版本证据。', 409, 'REPLAY_MISSING_RESOURCE');
+            const version = current.resourceVersions.find(version => version.id === attachment.resourceVersionId && version.resourceId === attachment.resourceId);
+            if (!version || version.digest !== attachment.digest || version.blobRef !== attachment.blobRef) throw legacyError('历史附件版本缺失。', 409, 'REPLAY_MISSING_RESOURCE');
+            try { await host.blobs.read(attachment.blobRef, attachment.digest); }
+            catch { throw legacyError('历史附件缺失或完整性校验失败。', 409, 'REPLAY_MISSING_RESOURCE'); }
+          }
+          const models = await runtime.listModels();
+          const model = policy === 'current-model' ? models.find(model => model.active) : models.find(model => model.id === original.input.executor.modelSpecRef);
+          if (!model) throw legacyError('历史模型不可用，请显式选择当前模型 Replay。', 409, 'REPLAY_MODEL_UNAVAILABLE');
+          const snapshot = original.input.request.modelSnapshot;
+          const exact = model.model === original.input.executor.model && model.provider === original.input.executor.provider
+            && (model.providerEndpointRef ?? model.id) === original.input.executor.providerEndpointRef
+            && (runtime.kind ?? 'provider-adapter') === original.input.executor.runtime
+            && model.endpointVersion === snapshot?.endpointVersion
+            && canonicalJson(model.endpoint ?? null) === canonicalJson(snapshot?.endpoint ?? null);
+          if (policy === 'exact' && !exact) throw legacyError('执行配置已变化，请显式选择 Partial 或 Current-model Replay。', 409, 'REPLAY_CONTRACT_CHANGED');
+          const node = current.discussionNodes.find(node => node.id === original.nodeId);
+          if (!node || node.status === 'archived') throw legacyError('讨论已归档或不存在。', 409, 'NODE_ARCHIVED');
+          const createdAt = now(); const requestId = id(); const manifestId = id();
+          const request: RuntimeRequest = { ...structuredClone(original.input.request), requestId, manifestId, modelId: model.id, modelSnapshot: model };
+          const prepared: PreparedRun = { frozen: [], request, createdAt, userMessageId: id(), versionGroupId: id(), version: 1,
+            manifest: { ...structuredClone(facts.manifest), id: manifestId, requestId, createdAt, model: model.model, provider: model.provider, runtime: runtime.kind ?? 'provider-adapter' } };
+          const replay = { classification: policy, sourceRunRef: original.id, sourceManifestRef: facts.manifest.id };
+          prepared.replay = replay;
+          return runs.execute(envelope, request, { ...inputFor(request), replay }, (completion, mutation) => commitRun(prepared, completion, mutation), options, original.id);
+        }
         case 'CreateConversationRun': {
           const previous = await unitOfWork.readCommittedResult?.<CommandMap['CreateConversationRun']['result']>();
           if (previous?.found) { await options?.onReady?.(); return previous.value; }
@@ -390,6 +431,21 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
   const dispatchQueryScoped = async (envelope: AnyQueryEnvelope): Promise<unknown> => {
     try {
       switch (envelope.queryType) {
+        case 'GetProvenance': {
+          const link = await unitOfWork.readProvenance?.(envelope.payload.outputId);
+          if (!link) throw legacyError('来源记录不存在。', 404, 'PROVENANCE_NOT_FOUND');
+          const missingRefs = [...link.missingRefs];
+          if (link.runRef && !await unitOfWork.getRun?.(link.runRef)) missingRefs.push(`run:${link.runRef}`);
+          if (link.contextManifestRef) {
+            const facts = await unitOfWork.readContextHistory?.({ manifestId: link.contextManifestRef });
+            if (!facts) missingRefs.push(`manifest:${link.contextManifestRef}`);
+            else {
+              const history = await resolveContextHistory(facts, host.blobs);
+              for (const source of history.sources) if (source.status !== 'resolved' && source.status !== 'legacy_unversioned') missingRefs.push(`${source.status}:${source.sourceId}`);
+            }
+          }
+          return { ...link, missingRefs: [...new Set(missingRefs)], status: missingRefs.length ? 'broken-reference' : link.status };
+        }
         case 'GetContextHistory': {
           const facts = await unitOfWork.readContextHistory?.(envelope.payload as QueryMap['GetContextHistory']['payload']);
           if (!facts) throw legacyError('上下文记录不存在。', 404, 'CONTEXT_MANIFEST_NOT_FOUND');

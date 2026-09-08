@@ -15,6 +15,7 @@ import type { WorkspaceLifecycleCommand } from './application/ports/workspace-un
 import type { WorkspaceRecord } from './contracts/application';
 import { buildWorkspaceGraphProjection } from './graph-projection/model';
 import { PostgresGraphProjectionAdapter } from './graph-projection/postgres-adapter';
+import { deriveProvenance, type ProvenanceLink } from './provenance/model';
 
 interface QueryResult<Row> { rows: Row[] }
 export interface SqlQueryable {
@@ -461,6 +462,20 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     return result.rows.map(row => asJson<ExecutionRun>(row.record));
   }
 
+  async readProvenance(outputId: string): Promise<ProvenanceLink | undefined> {
+    const result = await this.database.query<{ record: ProvenanceLink }>('SELECT record FROM provenance_links WHERE workspace_id=$1 AND output_ref=$2', [this.defaultWorkspaceId, outputId]);
+    return result.rows[0] ? asJson<ProvenanceLink>(result.rows[0].record) : undefined;
+  }
+
+  async backfillProvenance(): Promise<number> {
+    return this.inTransaction(async database => {
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
+      const workspace = await this.readFrom(database, true);
+      if (!workspace) return 0;
+      return this.persistProvenance(database, workspace, workspace.messages);
+    });
+  }
+
   async getRun(runId: string): Promise<ExecutionRun | undefined> {
     const result = await this.database.query<{ record: ExecutionRun }>('SELECT record FROM execution_runs WHERE workspace_id=$1 AND run_id=$2', [this.defaultWorkspaceId, runId]);
     return result.rows[0] ? asJson<ExecutionRun>(result.rows[0].record) : undefined;
@@ -723,6 +738,20 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     await database.query('UPDATE rhiza_projects SET active_node_id=$2 WHERE id=$1', [workspace.projectId, workspace.activeNodeId]);
     await this.deleteMissing(database, workspace, options);
     await materializeContextCandidates(database, workspace, previous);
+    await this.persistProvenance(database, workspace, messages);
+  }
+
+  private async persistProvenance(database: SqlQueryable, workspace: WorkspaceData, messages: StoredMessage[]): Promise<number> {
+    let inserted = 0;
+    for (const output of messages.filter(message => message.kind === 'assistant')) {
+      const node = workspace.discussionNodes.find(node => node.id === output.nodeId)!;
+      const manifest = workspace.manifests.find(manifest => manifest.id === output.manifestId);
+      const runs = manifest ? await database.query<{ record: ExecutionRun }>('SELECT record FROM execution_runs WHERE workspace_id=$1 AND run_id=$2', [workspace.projectId, manifest.requestId]) : { rows: [] };
+      const link = deriveProvenance(workspace.projectId, output, node, manifest, runs.rows[0] ? asJson<ExecutionRun>(runs.rows[0].record) : undefined);
+      const result = await database.query('INSERT INTO provenance_links (workspace_id,output_ref,provenance_id,record) VALUES ($1,$2,$3,$4::jsonb) ON CONFLICT (workspace_id,output_ref) DO NOTHING RETURNING output_ref', [workspace.projectId, output.id, link.id, JSON.stringify(link)]);
+      inserted += result.rows.length;
+    }
+    return inserted;
   }
 
   private async deleteMissing(database: SqlQueryable, workspace: WorkspaceData, options?: WorkspaceUpdateOptions) {

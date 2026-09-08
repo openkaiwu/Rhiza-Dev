@@ -1,10 +1,14 @@
 # Project Architecture
 
+> M09 开发中：Provenance 与 Replay 服务端初步实现已加入；M09/M10 尚未接受。下述 M01–M08 门禁结论仍仅覆盖原提交。
+
 > **文档地位（2026-09-06 刷新）**：本文是 **Current Implementation Snapshot**，只描述当前已落地行为；目标架构与开发顺序以 `docs/Rhiza_技术架构设计书_V4.2_20260829.md` 和 `docs/Rhiza_开发路线图_V4.2_20260829.md` 为准。M01–M08 的接受结论以 `docs/architecture-gates/` 中的 commit-bound evidence 为准；未配置 `DATABASE_URL` 时，真实 PostgreSQL 用例为 skipped，不视为通过。
 
 ## 1. Overview
 
 根系（Rhiza）是基于产品设计书构建的全栈网页端 MVP。它验证“对话网络 + 显式上下文 + 当前知识状态”的核心产品命题，并通过动态 Provider Registry 连接多个 OpenAI-compatible 模型供应商。当前实现具备确定性 local user、Workspace membership、多个 Workspace 的创建/切换/归档与路径级 scope 隔离；领域数据默认由 embedded PGlite 持久化，也可连接 PostgreSQL。成功 Application Command 通过 WorkspaceUnitOfWork 在同一事务写 Current State、append-only Domain Journal 与 CommandReceipt；模型目录仍使用原子 JSON，API Key 使用本机 AES-256-GCM 密钥加密。
+
+M09 当前实现：新 Assistant output 在原事务内写入 `provenance_links`。`GetProvenance` 通过 Workspace membership 与 scoped UnitOfWork 读取来源关系，检查 Run、Manifest 与冻结内容缺失；旧输出按实际证据标记 pre-run。迁移后可执行 `pnpm run provenance:backfill` 幂等回填现有输出，脚本不初始化缺失的 embedded 数据库。Replay Command 直接消费历史 Run request 与冻结 Manifest，经现有 RunLifecycle 创建有 parentRunRef 的新执行，记录显式 replay policy；历史版本或内容缺失时不派发。Exact 校验 runtime/model/endpoint 配置，Partial 与 Current-model 由调用方明确选择。API 为 `/api/v1/workspaces/:workspaceId/objects/:outputId/provenance` 与 `/api/v1/workspaces/:workspaceId/runs/:runId/replay`。Bundle、Purge 内容迁移、产品 UI 与里程碑全量验收仍在开发范围内。
 
 当前仓库不是 LibreChat fork。按 V4.2 基线，现有 `server/provider-*` 承担当前 API 配置的 Runtime Adapter 职责；`librechat-data-provider` 提供共享 Model Spec 与文件策略，Rhiza 的 Project、Node、Edge、Context 与 State 语义保持独立。后续迁移仍应扩展 Runtime 能力，而不是让 LibreChat Conversation/Mongo schema 进入 Rhiza Domain。旧映射仅见 `docs/archive/librechat-migration.md`，不定义当前架构。
 

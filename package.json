@@ -20,6 +20,7 @@
     "db:status": "tsx scripts/migrate.ts status",
     "resources:backfill": "tsx scripts/backfill-resources.ts",
     "journal:backfill": "tsx scripts/backfill-journal.ts",
+    "provenance:backfill": "tsx scripts/backfill-provenance.ts",
     "journal:reconcile": "tsx scripts/reconcile-workspace.ts",
     "context:rebuild": "tsx scripts/rebuild-context-index.ts",
     "graph:rebuild": "tsx scripts/rebuild-graph-projection.ts",
