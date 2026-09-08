@@ -16,6 +16,32 @@ import { SealedManifestContent } from './infrastructure/sealed-manifest-content'
 import { randomUUID } from 'node:crypto';
 
 describe('embedded Workspace backend', () => {
+  it('checks all content families before revoking any key and locks references before reading them', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-reclaim-preflight-'));
+    const receipts = SealedReceiptContent.atDirectory(join(directory, 'receipts'));
+    const candidate = await receipts.seal('workspace', 'unpublished', { keep: true });
+    const statements: string[] = [];
+    const query = async (sql: string) => {
+      statements.push(sql);
+      return { rows: sql.includes("SELECT 'runs'")
+        ? [{ family: 'messages', workspace_id: 'workspace', id: 'message', reference: { contentId: 'missing' } }]
+        : [] };
+    };
+    const database = {
+      query: async () => { throw new Error('query escaped transaction'); },
+      transaction: async <T>(callback: (client: SqlQueryable) => Promise<T>) => callback({ query } as SqlQueryable),
+    };
+    const store = new PostgresWorkspaceStore(database, undefined, receipts, SealedRunContent.atDirectory(join(directory, 'runs')), SealedJournalContent.atDirectory(join(directory, 'journal')), SealedMessageContent.atDirectory(join(directory, 'messages')), SealedManifestContent.atDirectory(join(directory, 'manifests')));
+    try {
+      await expect(store.reclaimHistoricalKeys()).rejects.toThrow('CONTENT_KEY_REFERENCES_UNHEALTHY');
+      expect(await receipts.read('workspace', 'unpublished', candidate)).toEqual({ keep: true });
+      expect(statements[0]).toBe("SET LOCAL lock_timeout = '5s'");
+      expect(statements[1]).toContain('pg_advisory_xact_lock(');
+      expect(statements[2]).toBe('LOCK TABLE command_receipts,execution_runs,workspace_events,rhiza_messages,rhiza_nodes,rhiza_context_manifests IN SHARE MODE');
+      expect(statements.slice(3).every(sql => sql.trim().startsWith('SELECT'))).toBe(true);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
   it('takes lifecycle locks before transaction work and audits on the locked connection', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'rhiza-content-lock-'));
     const statements: string[] = [];
