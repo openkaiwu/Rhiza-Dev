@@ -1,4 +1,5 @@
 import { api } from '../api';
+import { MessageProvenance } from './MessageProvenance';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUp, AtSign, BookmarkPlus, Brain, Check, ChevronRight, Copy, Edit3, EyeOff, FilePlus2, FileText, GitBranch, GitMerge, Image, Link2, Paperclip, RefreshCw, RotateCcw, Send, SlidersHorizontal, Sparkles, Square, TextSelect, Trash2, Wrench, X } from 'lucide-react';
 import type { ChatRequestOptions } from '../api';
@@ -225,6 +226,7 @@ export function ChatView({ activeNode, nodes, edges, mode, activeCount, messages
           <div className="assistant-head"><ParticleMark compact/><span>RHIZA</span>{message.version && message.version > 1 && <b>v{message.version}</b>}<small>基于 {manifestById.get(message.manifestId || '')?.contextItems?.length ?? activeCount} 项 Active Context</small></div>
           {message.reasoning && <details className="reasoning-panel"><summary><Brain size={13}/>Reasoning / Progress</summary><p>{message.reasoning}</p></details>}
           {message.toolCalls?.map(tool => <details className="tool-call" key={tool.id}><summary><Wrench size={13}/>Tool · {tool.name || '调用中'}</summary><pre>{tool.arguments || '{}'}</pre></details>)}
+          {!message.pending && <MessageProvenance outputId={message.id}/>}
           <div className="answer-paragraph"><MarkdownContent content={message.text || (message.toolCalls?.length ? '正在等待工具结果…' : '')}/>{message.text && <button className="paragraph-branch" aria-label="讨论整个段落" title="将整段放入临时支线" onClick={() => openTemporary(message, message.text)}><TextSelect size={14}/></button>}</div>
           {!message.pending && <div className="message-actions">{onInspectContext && <button onClick={() => onInspectContext(message.id)}><FileText size={13}/>查看本轮上下文</button>}<button onClick={() => navigator.clipboard?.writeText(message.text)}><Copy size={14}/>复制</button><button onClick={() => regenerate(message)}><RefreshCw size={14}/>重新生成</button><button onClick={() => void createFormalBranch(message)}><GitBranch size={14}/>创建正式支线</button><button onClick={() => openTemporary(message, message.text)}><GitBranch size={14}/>在临时支线中讨论</button><button><Link2 size={14}/>保存为引用</button><button><Check size={14}/>提取为状态</button></div>}
           {message.usage && <div className="usage-line">{message.usage.estimated && '≈ '}Prompt {message.usage.promptTokens.toLocaleString()} · Completion {message.usage.completionTokens.toLocaleString()} · Total {message.usage.totalTokens.toLocaleString()} tokens</div>}

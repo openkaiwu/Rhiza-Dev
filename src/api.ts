@@ -125,6 +125,7 @@ async function uploadAttachment(file: File): Promise<Attachment> {
 }
 
 export const api = {
+  getProvenance: (outputId: string) => request<import('./types').ProvenanceLink>(`/api/objects/${encodeURIComponent(outputId)}/provenance`),
   importWorkspaceBundle: (file: File, idempotencyKey: string) => request<{ workspaceId: string; importId: string }>('/api/bundle/import', {
     method: 'POST', headers: { 'Content-Type': 'application/vnd.rhiza.workspace+zip', 'Idempotency-Key': idempotencyKey }, body: file,
   }),
