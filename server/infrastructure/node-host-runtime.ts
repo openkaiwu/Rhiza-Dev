@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdir, open, readFile, readdir, rename, rm, stat } from 'node:fs/promises';
+import { link, mkdir, open, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { dirname, join, posix, resolve, sep } from 'node:path';
 import type { BlobGcResult, BlobPutResult, BlobStorePort, HostCapabilityDescriptor, HostCredentialResult, HostRuntimePort } from '../application/ports/host-runtime';
 
@@ -41,33 +41,47 @@ export class NodeFilesystemBlobStore implements BlobStorePort {
 
   async put(bytes: Uint8Array): Promise<BlobPutResult> {
     if (!bytes.length) throw new BlobIntegrityError('Blob content is empty');
-    const digest = sha256(bytes);
+    return this.putStream((async function* () { yield bytes; })(), sha256(bytes), bytes.length);
+  }
+
+  async putStream(bytes: AsyncIterable<Uint8Array>, digest: string, expectedSize: number): Promise<BlobPutResult> {
+    assertDigest(digest);
+    if (!Number.isSafeInteger(expectedSize) || expectedSize < 0) throw new BlobIntegrityError('Invalid blob size');
     const blobRef = blobRefFor(digest);
     const target = this.pathFor(blobRef);
     const temporary = resolve(this.root, 'tmp', `${randomUUID()}.tmp`);
     await mkdir(dirname(temporary), { recursive: true });
-    const handle = await open(temporary, 'wx');
     try {
-      await handle.writeFile(bytes);
-      await handle.sync();
+      const handle = await open(temporary, 'wx', 0o600);
+      let size = 0;
+      try {
+        for await (const chunk of bytes) {
+          size += chunk.length;
+          if (size > expectedSize) throw new BlobIntegrityError('Blob size exceeds declaration');
+          await handle.writeFile(chunk);
+        }
+        if (size !== expectedSize) throw new BlobIntegrityError('Blob size does not match declaration');
+        await handle.sync();
+      } finally { await handle.close(); }
+      await this.checkpoint?.('temp-written');
+      const hash = createHash('sha256');
+      for await (const chunk of createReadStream(temporary)) hash.update(chunk);
+      if (hash.digest('hex') !== digest) throw new BlobIntegrityError('Temporary blob digest mismatch');
+      await this.checkpoint?.('temp-verified');
+      await mkdir(dirname(target), { recursive: true });
+      try { await link(temporary, target); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        // Consume the entire verified stream; an existing corrupt object is never overwritten.
+        for await (const chunk of this.readStream(blobRef, digest)) void chunk;
+      }
+      const parent = await open(dirname(target), 'r');
+      try { await parent.sync(); } finally { await parent.close(); }
+      await this.checkpoint?.('blob-promoted');
+      return { digestAlgorithm: 'sha256', digest, blobRef, size };
     } finally {
-      await handle.close();
-    }
-    await this.checkpoint?.('temp-written');
-    const staged = await readFile(temporary);
-    if (sha256(staged) !== digest) throw new BlobIntegrityError('Temporary blob digest mismatch');
-    await this.checkpoint?.('temp-verified');
-    await mkdir(dirname(target), { recursive: true });
-    try {
-      const existing = await readFile(target);
-      if (sha256(existing) !== digest) throw new BlobIntegrityError('Existing content-addressed blob is corrupt');
       await rm(temporary, { force: true });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      await rename(temporary, target);
     }
-    await this.checkpoint?.('blob-promoted');
-    return { digestAlgorithm: 'sha256', digest, blobRef, size: bytes.length };
   }
 
   async read(blobRef: string, expectedDigest: string): Promise<Uint8Array> {

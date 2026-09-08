@@ -10,6 +10,7 @@ import { portableWorkspaceSchema } from '../domain/portable-workspace-schema';
 import journalSchema from '../contracts/domain-event-envelope.schema.json';
 import { validatePortableReferences } from '../application/portable-references';
 import { validatePortableHistory } from '../application/portable-history';
+import type { BlobStorePort } from '../application/ports/host-runtime';
 
 interface PortableDocument {
   facts: PortableWorkspaceFacts;
@@ -23,6 +24,20 @@ addFormats(ajv); ajv.addSchema(journalSchema);
 const validateDocument = ajv.compile<PortableDocument>(portableWorkspaceSchema);
 
 export interface StagedPortableWorkspace extends StagedBundleArchive { facts: PortableWorkspaceFacts }
+
+/** Re-running after interruption re-verifies existing content; it never replaces corrupt blobs. */
+export async function ingestPortableBlobs(staged: StagedPortableWorkspace, blobs: BlobStorePort): Promise<string[]> {
+  if (!blobs.putStream) throw bundleError('BUNDLE_STREAMING_STORAGE_REQUIRED');
+  const refs: string[] = [];
+  for (const entry of staged.index.entries) {
+    if (!entry.path.startsWith('blobs/sha256/')) continue;
+    const source = staged.files.get(entry.path);
+    if (!source) throw bundleError('BUNDLE_MISSING_CONTENT');
+    const result = await blobs.putStream(createReadStream(source), entry.digest.slice(7), entry.size);
+    refs.push(result.blobRef);
+  }
+  return refs;
+}
 
 /** Owns temporary files until the caller activates or abandons the import. No live store writes. */
 export async function stagePortableWorkspace(path: string, limits: BundleLimits = BUNDLE_LIMITS): Promise<StagedPortableWorkspace> {

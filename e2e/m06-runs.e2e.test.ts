@@ -21,7 +21,7 @@ import { semanticStateChecksum } from '../server/infrastructure/workspace-semant
 import { portableWorkspaceFacts } from '../server/application/portable-workspace';
 import { validatePortableReferences } from '../server/application/portable-references';
 import { stageBundleArchive, describeBundleFile, writeBundleArchive } from '../server/infrastructure/bundle-archive';
-import { decodePortableDocument, stagePortableWorkspace, validatePortableContent } from '../server/infrastructure/portable-content';
+import { decodePortableDocument, ingestPortableBlobs, stagePortableWorkspace, validatePortableContent } from '../server/infrastructure/portable-content';
 import { BUNDLE_LIMITS } from '../server/domain/portable-bundle';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
@@ -129,6 +129,11 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     const path = join(uploadDirectory, 'download.rhiza'); await writeFile(path, download.body);
     const ready = await stagePortableWorkspace(path);
     expect(ready.facts).toEqual(JSON.parse(JSON.stringify(portable)));
+    const destinationBlobs = new NodeFilesystemBlobStore(join(uploadDirectory, 'imported-blobs'));
+    const importedRefs = await ingestPortableBlobs(ready, destinationBlobs);
+    expect(importedRefs.length).toBeGreaterThan(0);
+    expect(await ingestPortableBlobs(ready, destinationBlobs)).toEqual(importedRefs);
+    for (const version of portable.workspace.resourceVersions) await expect(destinationBlobs.read(version.blobRef, version.digest)).resolves.toHaveLength(version.size);
     await ready.dispose();
     await expect(readFile(join(ready.directory, 'index.json'))).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(stagePortableWorkspace(path, { ...BUNDLE_LIMITS, maxDocumentBytes: 16 })).rejects.toThrow('BUNDLE_QUOTA_EXCEEDED');
