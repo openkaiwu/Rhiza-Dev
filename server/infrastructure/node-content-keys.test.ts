@@ -1,9 +1,43 @@
-import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { mkdtemp, rm, stat, truncate, unlink, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { NodeContentKeys } from './node-content-keys';
 import { openContent, sealContent } from './sealed-content';
+
+it('audits missing, revoked, incomplete and malformed keys without reading or changing keys', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rhiza-content-key-audit-'));
+  try {
+    const keys = new NodeContentKeys(root);
+    const identities = ['live', 'candidate', 'revoked', 'incomplete', 'invalid', 'link', 'missing']
+      .map(contentId => ({ workspaceId: 'workspace', contentId }));
+    const [live, candidate, revoked, incomplete, invalid, link, missing] = identities;
+    const original = await keys.create(live);
+    for (const identity of [candidate, revoked, incomplete, invalid, link]) await keys.create(identity);
+    const keyPath = async (identity: typeof live) => join(root, (await keys.audit([identity])).find(record => record.referenced)!.keyId, 'key');
+    await keys.destroy(revoked);
+    await unlink(await keyPath(incomplete));
+    await truncate(await keyPath(invalid), 7);
+    const linkPath = await keyPath(link);
+    await unlink(linkPath);
+    await symlink(await keyPath(live), linkPath);
+    const records = await keys.audit([live, live, revoked, incomplete, invalid, link, missing]);
+    expect(records).toHaveLength(7);
+    expect(records.filter(record => !record.referenced)).toEqual([
+      expect.objectContaining({ state: 'active', referenced: false }),
+    ]);
+    expect(records.filter(record => record.referenced).map(record => record.state).sort())
+      .toEqual(['active', 'incomplete', 'invalid', 'invalid', 'missing', 'revoked']);
+    expect(await keys.read(live)).toEqual(original);
+    expect(await keys.read(candidate)).toHaveLength(32);
+    expect(await keys.audit([live, revoked, incomplete, invalid, link, missing])).toEqual(records);
+    const absentRoot = join(root, 'absent');
+    expect(await new NodeContentKeys(absentRoot).audit([missing])).toEqual([
+      expect.objectContaining({ referenced: true, state: 'missing' }),
+    ]);
+    await expect(stat(absentRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 it('persists scoped keys, destroys them idempotently and permanently reserves identities', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rhiza-content-keys-'));
