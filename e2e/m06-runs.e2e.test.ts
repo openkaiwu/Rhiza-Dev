@@ -60,7 +60,7 @@ async function fixture(generate: AIRuntime['generate'], backend: 'embedded' | 'p
   const app = createApp(store, provider, false, runtime, undefined, join(directory, 'uploads'));
   await request(app).get('/api/workspace').expect(200);
   await store.backfillJournal();
-  return { database, store, app, runtime, uploadDirectory: join(directory, 'uploads') };
+  return { database, store, app, runtime, provider, uploadDirectory: join(directory, 'uploads') };
 }
 async function* success(input: RuntimeRequest) {
   yield { type: 'RUN_END' as const, requestId: input.requestId, text: 'answer', model: 'same-model', provider: 'Provider' };
@@ -99,7 +99,7 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     expect(prepared[0]).toMatchObject({ phase: 'blobs-ready', revision: 2 });
   });
   it('M09 captures complete portable facts with closed historical references', async () => {
-    const { app, store, uploadDirectory, database } = await setup(success);
+    const { app, store, uploadDirectory, database, provider, runtime } = await setup(success);
     await request(app).post('/api/chat').send({ message: 'portable history' }).expect(201);
     const facts = await store.readPortableWorkspace();
     expect(facts.runs).toHaveLength(1);
@@ -183,6 +183,21 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     expect(await targetCheckpoints.read(identity.importId, identity.ownerId)).toMatchObject({ phase: 'activated', revision: 3 });
     const restored = portableWorkspaceFacts(await target.readPortableWorkspace(), input => semanticStateChecksum(input as Record<string, unknown>));
     expect(restored).toEqual(portable);
+    expect((await target.readGraphProjection()).checksum).toBe((await store.readGraphProjection()).checksum);
+    const importedApp = createApp(target, provider, false, runtime, undefined, join(uploadDirectory, 'imported-blobs'));
+    const manifestId = portable.workspace.manifests.at(-1)!.id;
+    const context = await request(importedApp).get(`/api/v1/workspaces/${portable.workspace.projectId}/context/manifests/${manifestId}`).expect(200);
+    expect(context.body.sources.length).toBeGreaterThan(0);
+    expect(context.body.sources.every((source: { status: string }) => source.status === 'resolved')).toBe(true);
+    await request(importedApp).post(`/api/v1/workspaces/${portable.workspace.projectId}/chat`).send({ message: 'Continue imported conversation' }).expect(201);
+    const originalRunId = portable.runs[0].id;
+    await request(importedApp).post(`/api/v1/workspaces/${portable.workspace.projectId}/runs/${originalRunId}/replay`).send({ policy: 'exact' }).expect(409);
+    const replay = await request(importedApp).post(`/api/v1/workspaces/${portable.workspace.projectId}/runs/${originalRunId}/replay`).send({ policy: 'partial' }).expect(201);
+    expect(replay.body.replay.classification).toBe('partial');
+    expect(await target.getRun(originalRunId)).toEqual(portable.runs[0]);
+    const continued = await target.readPortableWorkspace();
+    expect(continued.journal.length).toBeGreaterThan(portable.journal.length);
+    expect(continued.journal.every((event, index) => event.sequence === index + 1)).toBe(true);
     await ready.dispose();
     await expect(readFile(join(ready.directory, 'index.json'))).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(stagePortableWorkspace(path, { ...BUNDLE_LIMITS, maxDocumentBytes: 16 })).rejects.toThrow('BUNDLE_QUOTA_EXCEEDED');
