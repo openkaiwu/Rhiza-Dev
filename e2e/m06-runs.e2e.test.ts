@@ -258,6 +258,28 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     await expect(reader.getRun(run.id)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     await expect(reader.readPortableWorkspace()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
   });
+  it('M09 encrypts command and lifecycle Journal writes and revokes keys on rollback', async () => {
+    const { database, uploadDirectory, provider, runtime } = await setup(success);
+    const content = SealedJournalContent.atDirectory(join(uploadDirectory, 'journal-writes'));
+    const store = new PostgresWorkspaceStore(database, undefined, undefined, undefined, content);
+    const app = createApp(store, provider, false, runtime, undefined, uploadDirectory);
+    await request(app).post('/api/chat').send({ message: 'private journal input' }).expect(201);
+    const created = await request(app).post('/api/v1/workspaces').send({ name: 'encrypted lifecycle' }).expect(201);
+    const rows = (await database.query<{ payload: unknown; payload_content_ref: unknown }>('SELECT payload,payload_content_ref FROM workspace_events WHERE payload_content_ref IS NOT NULL')).rows;
+    expect(rows.length).toBeGreaterThan(1);
+    expect(rows.every(row => JSON.stringify(row.payload) === JSON.stringify({ sealed: true }))).toBe(true);
+    expect((await store.readJournal()).some(event => event.payload.stateChanges)).toBe(true);
+    const scoped = store.forWorkspace(created.body.workspace.workspaceId) as PostgresWorkspaceStore;
+    expect(await scoped.backfillJournal()).toMatchObject({ created: false });
+    const seal = vi.spyOn(content, 'seal');
+    await database.exec(`CREATE FUNCTION reject_journal_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'journal write interrupted'; END $$;
+      CREATE TRIGGER reject_journal_write BEFORE INSERT ON workspace_events FOR EACH ROW EXECUTE FUNCTION reject_journal_write();`);
+    await request(app).post('/api/chat').send({ message: 'rollback journal' }).expect(500);
+    expect(seal.mock.calls.length).toBeGreaterThan(0);
+    for (const [index, [workspaceId, eventId]] of seal.mock.calls.entries()) {
+      await expect(content.read(workspaceId, eventId, await seal.mock.results[index].value)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    }
+  });
   it('M09 reads an encrypted Journal baseline without duplicating it and fails closed after revocation', async () => {
     const { database, store, uploadDirectory } = await setup(success);
     const [event] = await store.readJournal();

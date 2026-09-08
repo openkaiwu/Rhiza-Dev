@@ -28,7 +28,8 @@ import { SealedJournalContent, type SealedJournalRef } from './infrastructure/se
 
 interface QueryResult<Row> { rows: Row[] }
 type PendingReceiptContent = { workspaceId: string; commandId: string; reference: SealedReceiptRef; kind?: 'result' | 'error' }
-  | { workspaceId: string; runId: string; reference: SealedRunInputRef };
+  | { workspaceId: string; runId: string; reference: SealedRunInputRef }
+  | { workspaceId: string; eventId: string; reference: SealedJournalRef };
 export interface SqlQueryable {
   query<Row = Record<string, unknown>>(sql: string, values?: unknown[]): Promise<QueryResult<Row>>;
 }
@@ -241,9 +242,19 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     while (pending.length) {
       const item = pending[pending.length - 1];
       if ('runId' in item) await this.runContent!.destroy(item.workspaceId, item.runId, item.reference);
+      else if ('eventId' in item) await this.journalContent!.destroy(item.workspaceId, item.eventId, item.reference);
       else await this.receiptContent!.destroy(item.workspaceId, item.commandId, item.reference, item.kind);
       pending.pop();
     }
+  }
+
+  private async prepareJournalPayload(database: SqlQueryable, workspaceId: string, eventId: string, payload: Record<string, unknown>) {
+    if (!this.journalContent) return { payload: JSON.stringify(payload), reference: null };
+    const pending = this.transactionContent.get(database);
+    if (!pending) throw new Error('JOURNAL_CONTENT_REQUIRES_TRANSACTION');
+    const reference = await this.journalContent.seal(workspaceId, eventId, payload);
+    pending.push({ workspaceId, eventId, reference });
+    return { payload: JSON.stringify({ sealed: true }), reference: JSON.stringify(reference) };
   }
 
   private async insertCommittedReceipt(database: SqlQueryable, workspaceId: string, commandId: string, commandType: string, firstSequence: number, lastSequence: number, value: unknown) {
@@ -451,14 +462,16 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
           ? { snapshot: { stateSchema: 'rhiza.workspace-semantic.v1', sourceSequence: sequence, state: workspaceSemanticSnapshot(currentState) } }
           : { stateChanges: command.kind === 'rename' ? { projectTitle: record.name } : {} }),
       };
+      const eventId = randomUUID();
+      const sealed = await this.prepareJournalPayload(database, command.workspaceId, eventId, lifecyclePayload);
       await database.query(`
         INSERT INTO workspace_events
-          (event_id,workspace_id,sequence,ce_specversion,rhiza_envelope_version,event_type,event_source,subject,data_schema,aggregate_type,aggregate_id,aggregate_revision,actor_ref,scope_ref,command_id,event_index,causation_id,correlation_id,payload,occurred_at)
-        VALUES ($1,$2::uuid,$3,'1.0',$4,$5,$6,$7,$8,'workspace',$2::text,$9,$10::jsonb,$11::jsonb,$12,0,$13,$14,$15::jsonb,$16)
-      `, [randomUUID(), command.workspaceId, sequence, DOMAIN_EVENT_SCHEMA_VERSION, eventType,
+          (event_id,workspace_id,sequence,ce_specversion,rhiza_envelope_version,event_type,event_source,subject,data_schema,aggregate_type,aggregate_id,aggregate_revision,actor_ref,scope_ref,command_id,event_index,causation_id,correlation_id,payload,occurred_at,payload_content_ref)
+        VALUES ($1,$2::uuid,$3,'1.0',$4,$5,$6,$7,$8,'workspace',$2::text,$9,$10::jsonb,$11::jsonb,$12,0,$13,$14,$15::jsonb,$16,$17::jsonb)
+      `, [eventId, command.workspaceId, sequence, DOMAIN_EVENT_SCHEMA_VERSION, eventType,
         journalSource(command.workspaceId), journalSubject('workspace', command.workspaceId), journalDataSchema(eventType), record.revision,
         JSON.stringify(context.actor), JSON.stringify({ scopeType: 'workspace', scopeId: command.workspaceId }), context.commandId,
-        context.causationId || null, context.correlationId || null, JSON.stringify(lifecyclePayload), context.occurredAt]);
+        context.causationId || null, context.correlationId || null, sealed.payload, context.occurredAt, sealed.reference]);
       await this.insertCommittedReceipt(database, command.workspaceId, context.commandId, context.commandType, sequence, sequence, record);
       return record;
     });
@@ -533,15 +546,17 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       const lastSequence = Number(head.rows[0]!.last_sequence);
       const firstSequence = lastSequence - events.length + 1;
       for (const [offset, event] of events.entries()) {
+        const eventId = randomUUID();
+        const sealed = await this.prepareJournalPayload(database, this.defaultWorkspaceId, eventId, { ...event.payload, reconcileChecksum: semanticChecksum(next), stateSchema: 'rhiza.workspace-semantic.v1', ...(offset === events.length - 1 ? { stateChanges: workspaceSemanticChanges(current, next) } : {}) });
         await database.query(`
           INSERT INTO workspace_events
-            (event_id,workspace_id,sequence,ce_specversion,rhiza_envelope_version,event_type,event_source,subject,data_schema,aggregate_type,aggregate_id,aggregate_revision,actor_ref,scope_ref,command_id,event_index,causation_id,correlation_id,payload,occurred_at)
-          VALUES ($1,$2,$3,'1.0',$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb,$14,$15,$16,$17,$18::jsonb,$19)
-        `, [randomUUID(), this.defaultWorkspaceId, firstSequence + offset, DOMAIN_EVENT_SCHEMA_VERSION, event.eventType,
+            (event_id,workspace_id,sequence,ce_specversion,rhiza_envelope_version,event_type,event_source,subject,data_schema,aggregate_type,aggregate_id,aggregate_revision,actor_ref,scope_ref,command_id,event_index,causation_id,correlation_id,payload,occurred_at,payload_content_ref)
+          VALUES ($1,$2,$3,'1.0',$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb,$14,$15,$16,$17,$18::jsonb,$19,$20::jsonb)
+        `, [eventId, this.defaultWorkspaceId, firstSequence + offset, DOMAIN_EVENT_SCHEMA_VERSION, event.eventType,
           journalSource(this.defaultWorkspaceId), journalSubject(event.aggregateType, event.aggregateId), journalDataSchema(event.eventType),
           event.aggregateType, event.aggregateId, aggregateRevision, JSON.stringify(command.context.actor), JSON.stringify(command.context.scope),
           command.context.commandId, offset, command.context.causationId || null, command.context.correlationId || null,
-          JSON.stringify({ ...event.payload, reconcileChecksum: semanticChecksum(next), stateSchema: 'rhiza.workspace-semantic.v1', ...(offset === events.length - 1 ? { stateChanges: workspaceSemanticChanges(current, next) } : {}) }), command.context.occurredAt]);
+          sealed.payload, command.context.occurredAt, sealed.reference]);
       }
       await this.insertCommittedReceipt(database, this.defaultWorkspaceId, command.context.commandId, command.context.commandType, firstSequence, lastSequence, result.value);
       return { workspace: recovered, value: result.value, duplicate: false };
@@ -679,10 +694,13 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       for (const run of ordered) await this.insertRun(database, run);
       for (const link of facts.provenance) await database.query('INSERT INTO provenance_links(workspace_id,output_ref,provenance_id,record) VALUES ($1,$2,$3,$4::jsonb)', [link.workspaceId, link.outputRef, link.id, JSON.stringify(link)]);
       await this.persist(database, facts.workspace);
-      for (const event of facts.journal) await database.query(`INSERT INTO workspace_events
-        (event_id,workspace_id,sequence,ce_specversion,rhiza_envelope_version,event_type,event_source,subject,data_schema,aggregate_type,aggregate_id,aggregate_revision,actor_ref,scope_ref,command_id,event_index,causation_id,correlation_id,payload,occurred_at,recorded_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb,$15,$16,$17,$18,$19::jsonb,$20,$21)`,
-      [event.eventId,event.workspaceId,event.sequence,event.ceSpecversion,event.envelopeVersion,event.eventType,event.eventSource,event.subject,event.dataSchema,event.aggregateType,event.aggregateId,event.aggregateRevision,JSON.stringify(event.actor),JSON.stringify(event.scope),event.commandId,event.eventIndex,event.causationId ?? null,event.correlationId ?? null,JSON.stringify(event.payload),event.occurredAt,event.recordedAt]);
+      for (const event of facts.journal) {
+        const sealed = await this.prepareJournalPayload(database, event.workspaceId, event.eventId, event.payload);
+        await database.query(`INSERT INTO workspace_events
+        (event_id,workspace_id,sequence,ce_specversion,rhiza_envelope_version,event_type,event_source,subject,data_schema,aggregate_type,aggregate_id,aggregate_revision,actor_ref,scope_ref,command_id,event_index,causation_id,correlation_id,payload,occurred_at,recorded_at,payload_content_ref)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb,$15,$16,$17,$18,$19::jsonb,$20,$21,$22::jsonb)`,
+      [event.eventId,event.workspaceId,event.sequence,event.ceSpecversion,event.envelopeVersion,event.eventType,event.eventSource,event.subject,event.dataSchema,event.aggregateType,event.aggregateId,event.aggregateRevision,JSON.stringify(event.actor),JSON.stringify(event.scope),event.commandId,event.eventIndex,event.causationId ?? null,event.correlationId ?? null,sealed.payload,event.occurredAt,event.recordedAt,sealed.reference]);
+      }
       await database.query('INSERT INTO workspace_event_heads(workspace_id,last_sequence) VALUES ($1,$2)', [record.workspaceId, facts.journal.length]);
       await database.query("UPDATE bundle_imports SET phase='activated',revision=revision+1,updated_at=now() WHERE import_id=$1", [importId]);
     });
@@ -878,14 +896,16 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
           resources: workspace.resources.length, resourceVersions: workspace.resourceVersions.length,
         },
       };
+      const eventId = randomUUID();
+      const sealed = await this.prepareJournalPayload(database, this.defaultWorkspaceId, eventId, payload);
       await database.query(`
         INSERT INTO workspace_events
-          (event_id,workspace_id,sequence,ce_specversion,rhiza_envelope_version,event_type,event_source,subject,data_schema,aggregate_type,aggregate_id,aggregate_revision,actor_ref,scope_ref,command_id,event_index,payload,occurred_at)
-        VALUES ($1,$2::uuid,1,'1.0',$3,'workspace.baseline.backfilled',$4,$5,$6,'workspace',$2::text,0,$7::jsonb,$8::jsonb,$9,0,$10::jsonb,$11)
-      `, [randomUUID(), this.defaultWorkspaceId, DOMAIN_EVENT_SCHEMA_VERSION,
+          (event_id,workspace_id,sequence,ce_specversion,rhiza_envelope_version,event_type,event_source,subject,data_schema,aggregate_type,aggregate_id,aggregate_revision,actor_ref,scope_ref,command_id,event_index,payload,occurred_at,payload_content_ref)
+        VALUES ($1,$2::uuid,1,'1.0',$3,'workspace.baseline.backfilled',$4,$5,$6,'workspace',$2::text,0,$7::jsonb,$8::jsonb,$9,0,$10::jsonb,$11,$12::jsonb)
+      `, [eventId, this.defaultWorkspaceId, DOMAIN_EVENT_SCHEMA_VERSION,
         journalSource(this.defaultWorkspaceId), journalSubject('workspace', this.defaultWorkspaceId), journalDataSchema('workspace.baseline.backfilled'),
         JSON.stringify({ actorType: 'system', actorId: 'journal-backfill-v1' }),
-        JSON.stringify({ scopeType: 'workspace', scopeId: this.defaultWorkspaceId }), commandId, JSON.stringify(payload), occurredAt]);
+        JSON.stringify({ scopeType: 'workspace', scopeId: this.defaultWorkspaceId }), commandId, sealed.payload, occurredAt, sealed.reference]);
       await this.insertCommittedReceipt(database, this.defaultWorkspaceId, commandId, 'BackfillWorkspaceBaseline', 1, 1, { checksum });
       return { checksum, created: true, eventCount: 1 };
     });
