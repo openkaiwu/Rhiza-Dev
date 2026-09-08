@@ -4,6 +4,7 @@ export const BUNDLE_LIMITS = Object.freeze({
   maxArchiveBytes: 2 * 1024 ** 3, maxExpandedBytes: 10 * 1024 ** 3,
   maxCompressionRatio: 100, maxEntries: 100_000, maxSingleEntryBytes: 2 * 1024 ** 3,
   maxIndexBytes: 16 * 1024 ** 2,
+  maxDocumentBytes: 64 * 1024 ** 2,
 });
 export type BundleLimits = { [K in keyof typeof BUNDLE_LIMITS]: number };
 export interface BundleDescriptor { path: string; mediaType: string; digest: string; size: number }

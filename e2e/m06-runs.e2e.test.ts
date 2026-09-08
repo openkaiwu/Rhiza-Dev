@@ -20,8 +20,9 @@ import { NodeFilesystemBlobStore } from '../server/infrastructure/node-host-runt
 import { semanticStateChecksum } from '../server/infrastructure/workspace-semantic-checksum';
 import { portableWorkspaceFacts } from '../server/application/portable-workspace';
 import { validatePortableReferences } from '../server/application/portable-references';
-import { stageBundleArchive } from '../server/infrastructure/bundle-archive';
-import { decodePortableDocument, validatePortableContent } from '../server/infrastructure/portable-content';
+import { stageBundleArchive, describeBundleFile, writeBundleArchive } from '../server/infrastructure/bundle-archive';
+import { decodePortableDocument, stagePortableWorkspace, validatePortableContent } from '../server/infrastructure/portable-content';
+import { BUNDLE_LIMITS } from '../server/domain/portable-bundle';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import { portableWorkspaceSchema } from '../server/domain/portable-workspace-schema';
@@ -104,6 +105,11 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     }).expect(200);
     expect(download.headers['content-disposition']).toContain('workspace.rhiza');
     const path = join(uploadDirectory, 'download.rhiza'); await writeFile(path, download.body);
+    const ready = await stagePortableWorkspace(path);
+    expect(ready.facts).toEqual(JSON.parse(JSON.stringify(portable)));
+    await ready.dispose();
+    await expect(readFile(join(ready.directory, 'index.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(stagePortableWorkspace(path, { ...BUNDLE_LIMITS, maxDocumentBytes: 16 })).rejects.toThrow('BUNDLE_QUOTA_EXCEEDED');
     const staged = await stageBundleArchive(path);
     try {
       const document = JSON.parse(await readFile(staged.files.get(staged.index.root)!, 'utf8'));
@@ -140,6 +146,20 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
       wrongSize.workspace.resourceVersions[0].size += 1;
       expect(() => validatePortableContent(wrongSize, staged.index)).toThrow('BUNDLE_SIZE_MISMATCH');
       expect(staged.files.has('schemas/bundle-index-v1.json')).toBe(true);
+      const rootPath = staged.files.get(staged.index.root)!;
+      for (const [name, content, code] of [
+        ['syntax', Buffer.from('{invalid json'), 'BUNDLE_INVALID_DOCUMENT'],
+        ['utf8', Buffer.from([0x22, 0xff, 0x22]), 'BUNDLE_INVALID_DOCUMENT'],
+        ['prototype', Buffer.from('{"__proto__":{}}'), 'BUNDLE_INVALID_DOCUMENT'],
+        ['depth', Buffer.from('['.repeat(130) + '0' + ']'.repeat(130)), 'BUNDLE_DOCUMENT_TOO_DEEP'],
+      ] as const) {
+        await writeFile(rootPath, content);
+        const badIndex = { ...staged.index, entries: await Promise.all(staged.index.entries.map(entry => entry.path === staged.index.root
+          ? describeBundleFile(rootPath, entry.path, entry.mediaType) : entry)) };
+        const badArchive = join(uploadDirectory, `invalid-document-${name}.rhiza`);
+        await writeBundleArchive(badIndex, staged.files, badArchive);
+        await expect(stagePortableWorkspace(badArchive)).rejects.toThrow(code);
+      }
     } finally { await staged.dispose(); }
     expect(await store.readPortableWorkspace()).toEqual(facts);
   });

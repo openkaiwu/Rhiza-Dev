@@ -2,6 +2,8 @@
 
 > M09 开发中：Provenance 与 Replay 服务端初步实现已加入；M09/M10 尚未接受。下述 M01–M08 门禁结论仍仅覆盖原提交。
 
+Bundle staging 已接通归档文件、固定 schema 解码、引用/内容/历史最终状态对账，并在失败时清理临时目录；未写入正式存储。当前操作配额：Workspace JSON 为 64 MiB，JSON 嵌套深度最多 128，index/layout 为 16 MiB；Blob 仍按独立的流式归档配额处理。导出同样执行文档大小限制。持久化 checkpoint、恢复与原子激活尚未实现。
+
 > **文档地位（2026-09-06 刷新）**：本文是 **Current Implementation Snapshot**，只描述当前已落地行为；目标架构与开发顺序以 `docs/Rhiza_技术架构设计书_V4.2_20260829.md` 和 `docs/Rhiza_开发路线图_V4.2_20260829.md` 为准。M01–M08 的接受结论以 `docs/architecture-gates/` 中的 commit-bound evidence 为准；未配置 `DATABASE_URL` 时，真实 PostgreSQL 用例为 skipped，不视为通过。
 
 ## 1. Overview

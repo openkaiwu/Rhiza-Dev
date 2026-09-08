@@ -35,6 +35,7 @@ export class NodePortableBundle implements PortableBundlePort {
       };
       const add = async (name: string, value: unknown, mediaType = 'application/json') => {
         const content = canonicalJson(value); reserve(Buffer.byteLength(content));
+        if (name === 'workspace.json' && Buffer.byteLength(content) > BUNDLE_LIMITS.maxDocumentBytes) throw bundleError('BUNDLE_QUOTA_EXCEEDED');
         const path = join(directory, name); await mkdir(dirname(path), { recursive: true });
         await writeFile(path, content, { flag: 'wx', mode: 0o600 });
         files.set(name, path); entries.push(await describeBundleFile(path, name, mediaType));

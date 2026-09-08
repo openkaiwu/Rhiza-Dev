@@ -78,6 +78,8 @@ export async function stageBundleArchive(path: string, limits: BundleLimits = BU
     } }), createWriteStream(indexPath, { flags: 'wx', mode: 0o600 }));
     const index = validateBundleIndex(JSON.parse(await readFile(indexPath, 'utf8')), limits);
     const declared = new Map(index.entries.map(entry => [entry.path, entry]));
+    if (declared.get(index.root)!.size > limits.maxDocumentBytes
+      || declared.get('rhiza-layout.json')!.size > limits.maxIndexBytes) throw bundleError('BUNDLE_QUOTA_EXCEEDED');
     if (entries.length !== declared.size + 1 || entries.some(entry => entry.fileName !== 'index.json' && !declared.has(entry.fileName))) throw bundleError('BUNDLE_UNDECLARED_ENTRY');
     const files = new Map<string, string>([['index.json', indexPath]]);
     let expanded = indexBytes;
