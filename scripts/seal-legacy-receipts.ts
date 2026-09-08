@@ -10,6 +10,8 @@ try {
     let migrated = 0;
     let batch: number;
     do { batch = await scoped.sealLegacyReceiptResults(); migrated += batch; } while (batch === 100);
-    console.info(JSON.stringify({ workspaceId, migrated }));
+    let migratedErrors = 0;
+    do { batch = await scoped.sealLegacyReceiptErrors(); migratedErrors += batch; } while (batch === 100);
+    console.info(JSON.stringify({ workspaceId, migrated, migratedErrors }));
   }
 } finally { await store.close(); }

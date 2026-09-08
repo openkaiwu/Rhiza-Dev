@@ -116,6 +116,17 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     expect(await resumed.sealLegacyReceiptResults()).toBe(0);
     expect((await resumed.readCommandReceipt('legacy-b'))?.result).toEqual({ text: 'legacy-b' });
     expect((await database.query("SELECT command_id FROM command_receipts WHERE status='committed' AND result_content_ref IS NULL")).rows).toHaveLength(0);
+    const failure = { message: 'legacy sensitive error', code: 'LEGACY_ERROR', status: 409 };
+    await database.query("INSERT INTO command_receipts (workspace_id,command_id,command_type,status,error) VALUES ($1,'legacy-error','test','rejected',$2::jsonb)", [workspaceId, JSON.stringify(failure)]);
+    const brokenRead = vi.spyOn(content, 'read').mockResolvedValueOnce({ corrupted: true });
+    await expect(store.sealLegacyReceiptErrors(1)).rejects.toThrow('RECEIPT_MIGRATION_CHECKSUM_MISMATCH');
+    brokenRead.mockRestore();
+    await expect(content.read(workspaceId, 'legacy-error', await seal.mock.results.at(-1)!.value, 'error')).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    expect((await store.readCommandReceipt('legacy-error'))?.error).toEqual(failure);
+    expect(await resumed.sealLegacyReceiptErrors(1)).toBe(1);
+    expect(await resumed.sealLegacyReceiptErrors()).toBe(0);
+    expect((await resumed.readCommandReceipt('legacy-error'))?.error).toEqual(failure);
+    expect((await database.query("SELECT error FROM command_receipts WHERE command_id='legacy-error'")).rows[0].error).toEqual({ sealed: true });
   });
   it('M09 encrypts committed results and destroys keys after confirmed SQL rollback', async () => {
     const { database, uploadDirectory, provider, runtime } = await setup(success);
