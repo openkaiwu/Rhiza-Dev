@@ -26,6 +26,7 @@ import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import { portableWorkspaceSchema } from '../server/domain/portable-workspace-schema';
 import journalSchema from '../server/contracts/domain-event-envelope.schema.json';
+import { validatePortableHistory } from '../server/application/portable-history';
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -73,6 +74,13 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     expect(facts.provenance.length).toBe(facts.workspace.messages.filter(message => message.kind === 'assistant').length);
     const portable = portableWorkspaceFacts(facts, input => semanticStateChecksum(input as Record<string, unknown>));
     expect(() => validatePortableReferences(portable)).not.toThrow();
+    expect(() => validatePortableHistory(portable, semanticStateChecksum)).not.toThrow();
+    const forgedHistory = structuredClone(portable);
+    forgedHistory.journal.at(-1)!.payload.stateChanges = { projectTitle: 'forged history' };
+    expect(() => validatePortableHistory(forgedHistory, semanticStateChecksum)).toThrow('BUNDLE_HISTORY_MISMATCH');
+    const invalidDelta = structuredClone(portable);
+    invalidDelta.journal.at(-1)!.payload.stateChanges = { constructor: {} };
+    expect(() => validatePortableHistory(invalidDelta, semanticStateChecksum)).toThrow('BUNDLE_INVALID_HISTORY_DELTA');
     const missing = structuredClone(portable);
     missing.runs = [];
     expect(() => validatePortableReferences(missing)).toThrow('BUNDLE_BROKEN_REFERENCES');

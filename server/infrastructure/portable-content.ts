@@ -7,6 +7,7 @@ import addFormats from 'ajv-formats';
 import { portableWorkspaceSchema } from '../domain/portable-workspace-schema';
 import journalSchema from '../contracts/domain-event-envelope.schema.json';
 import { validatePortableReferences } from '../application/portable-references';
+import { validatePortableHistory } from '../application/portable-history';
 
 interface PortableDocument {
   facts: PortableWorkspaceFacts;
@@ -24,6 +25,7 @@ export function decodePortableDocument(value: unknown, index: BundleIndex): Port
   const { facts, runtimeSnapshots, providerEndpoints, modelSpecs } = value;
   validatePortableReferences(facts);
   validatePortableContent(facts, index);
+  validatePortableHistory(facts, semanticStateChecksum);
   const byRun = <T extends { runRef: string }>(items: T[]) => {
     const result = new Map(items.map(item => [item.runRef, item]));
     if (result.size !== items.length || result.size !== facts.runs.length) throw bundleError('BUNDLE_DESCRIPTOR_MISMATCH');
