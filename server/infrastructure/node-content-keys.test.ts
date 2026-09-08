@@ -5,6 +5,27 @@ import { expect, it } from 'vitest';
 import { NodeContentKeys } from './node-content-keys';
 import { openContent, sealContent } from './sealed-content';
 
+it('revokes only unreferenced active keys and refuses unhealthy live references before any revocation', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rhiza-key-reclaim-'));
+  try {
+    const keys = new NodeContentKeys(root);
+    const live = { workspaceId: 'a', contentId: 'live' };
+    const orphan = { workspaceId: 'a', contentId: 'orphan' };
+    const missing = { workspaceId: 'a', contentId: 'missing' };
+    const liveKey = await keys.create(live);
+    await keys.create(orphan);
+    await expect(keys.revokeUnreferenced([live, missing])).rejects.toThrow('CONTENT_KEY_REFERENCES_UNHEALTHY');
+    expect(await keys.read(orphan)).toHaveLength(32);
+    expect(await keys.revokeUnreferenced([live])).toBe(1);
+    expect(await keys.read(live)).toEqual(liveKey);
+    await expect(new NodeContentKeys(root).read(orphan)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    await expect(keys.create(orphan)).rejects.toMatchObject({ code: 'EEXIST' });
+    expect(await keys.revokeUnreferenced([live])).toBe(0);
+    await keys.destroy(live);
+    await expect(keys.revokeUnreferenced([live])).rejects.toThrow('CONTENT_KEY_REFERENCES_UNHEALTHY');
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 it('audits missing, revoked, incomplete and malformed keys without reading or changing keys', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rhiza-content-key-audit-'));
   try {

@@ -72,7 +72,26 @@ export class NodeContentKeys {
   }
 
   async destroy(identity: ContentIdentity): Promise<void> {
-    const directory = this.directory(identity);
+    await this.revoke(this.keyId(identity));
+  }
+
+  /** Caller must exclude all publishers for the entire call and supply every live identity. */
+  async revokeUnreferenced(liveIdentities: Iterable<ContentIdentity>): Promise<number> {
+    const records = await this.audit(liveIdentities);
+    if (records.some(record => record.referenced && record.state !== 'active')) {
+      throw new Error('CONTENT_KEY_REFERENCES_UNHEALTHY');
+    }
+    let revoked = 0;
+    for (const record of records) {
+      if (record.referenced || record.state !== 'active') continue;
+      await this.revoke(record.keyId);
+      revoked++;
+    }
+    return revoked;
+  }
+
+  private async revoke(keyId: string): Promise<void> {
+    const directory = join(this.root, keyId);
     await mkdir(directory, { recursive: true, mode: 0o700 });
     await syncDirectory(this.root);
     const temporary = join(directory, `revoked-${randomUUID()}`);
