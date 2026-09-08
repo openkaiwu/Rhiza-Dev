@@ -36,6 +36,7 @@ import { NodeSealedContentStore } from '../server/infrastructure/node-sealed-con
 import { SealedReceiptContent, type SealedReceiptRef } from '../server/infrastructure/sealed-receipt-content';
 import { SealedRunContent } from '../server/infrastructure/sealed-run-content';
 import { SealedJournalContent } from '../server/infrastructure/sealed-journal-content';
+import { SealedMessageContent } from '../server/infrastructure/sealed-message-content';
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -322,6 +323,23 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     await expect(reader.readJournal()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     await expect(reader.backfillJournal()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     expect((await database.query('SELECT event_id FROM workspace_events')).rows).toHaveLength(1);
+  });
+  it('M09 restores encrypted message content for workspace export and conversation preparation', async () => {
+    const { app, database, store, uploadDirectory } = await setup(success);
+    const response = await request(app).post('/api/chat').send({ message: 'encrypted history message' }).expect(201);
+    const workspace = await store.read();
+    const message = workspace.messages.find(item => item.id === response.body.assistantMessage.id)!;
+    const content = SealedMessageContent.atDirectory(join(uploadDirectory, 'message-reads'));
+    const reference = await content.seal(workspace.projectId, message.id, message);
+    await database.query("UPDATE rhiza_messages SET body='',reasoning=NULL,tool_calls=NULL,content_ref=$2::jsonb WHERE id=$1", [message.id, JSON.stringify(reference)]);
+    const reader = new PostgresWorkspaceStore(database, undefined, undefined, undefined, undefined, content);
+    expect((await reader.read()).messages.find(item => item.id === message.id)).toEqual(message);
+    expect((await reader.readPortableWorkspace()).workspace.messages.find(item => item.id === message.id)).toEqual(message);
+    expect((await reader.readConversationPreparation([])).messages.find(item => item.id === message.id)).toEqual(message);
+    await expect(store.read()).rejects.toThrow('MESSAGE_CONTENT_STORE_UNAVAILABLE');
+    await content.destroy(workspace.projectId, message.id, reference);
+    await expect(reader.read()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    await expect(reader.readConversationPreparation([])).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
   });
   it('M09 forbids plaintext message replicas beside sealed content references', async () => {
     const { database, store } = await setup(success);

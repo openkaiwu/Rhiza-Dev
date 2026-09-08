@@ -25,6 +25,7 @@ import { SqlBundleImportCheckpoints } from './infrastructure/bundle-import-check
 import { SealedReceiptContent, type SealedReceiptRef } from './infrastructure/sealed-receipt-content';
 import { SealedRunContent, type SealedRunInputRef } from './infrastructure/sealed-run-content';
 import { SealedJournalContent, type SealedJournalRef } from './infrastructure/sealed-journal-content';
+import { SealedMessageContent, type SealedMessageRef } from './infrastructure/sealed-message-content';
 
 interface QueryResult<Row> { rows: Row[] }
 type PendingReceiptContent = { workspaceId: string; commandId: string; reference: SealedReceiptRef; kind?: 'result' | 'error' }
@@ -126,7 +127,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   private readonly scoped = new Map<string, PostgresWorkspaceStore>();
   readonly defaultWorkspaceId: string;
 
-  constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: string, private readonly receiptContent?: SealedReceiptContent, private readonly runContent?: SealedRunContent, private readonly journalContent?: SealedJournalContent) {
+  constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: string, private readonly receiptContent?: SealedReceiptContent, private readonly runContent?: SealedRunContent, private readonly journalContent?: SealedJournalContent, private readonly messageContent?: SealedMessageContent) {
     const configuredWorkspaceId = defaultWorkspaceId?.trim();
     if (configuredWorkspaceId && !uuidPattern.test(configuredWorkspaceId)) throw new Error('RHIZA_PROJECT_ID must be a UUID when set');
     this.defaultWorkspaceId = configuredWorkspaceId || DEFAULT_PROJECT_ID;
@@ -135,7 +136,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   forWorkspace(workspaceId: string): WorkspaceRepository {
     if (workspaceId === this.defaultWorkspaceId) return this;
     let scoped = this.scoped.get(workspaceId);
-    if (!scoped) { scoped = new PostgresWorkspaceStore(this.database, workspaceId, this.receiptContent, this.runContent, this.journalContent); this.scoped.set(workspaceId, scoped); }
+    if (!scoped) { scoped = new PostgresWorkspaceStore(this.database, workspaceId, this.receiptContent, this.runContent, this.journalContent, this.messageContent); this.scoped.set(workspaceId, scoped); }
     return scoped;
   }
 
@@ -829,7 +830,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       return {
         sourceRunId: (messages.find(row => row.id === sourceMessageId)?.source_request_id ?? undefined) as string | undefined,
         projectId: project.id, activeNodeId: nodeId, node, mode: project.mode || 'Assisted', contextItems: asJson(project.context_items || []),
-        messages: messages.map(row => storedMessage(row, row.attachment_ids as string[])),
+        messages: await Promise.all(messages.map(row => this.decodeMessage(row, row.attachment_ids as string[]))),
         attachments: attachments.map(storedAttachment),
       };
     });
@@ -940,6 +941,13 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     });
   }
 
+  private async decodeMessage(row: Record<string, unknown>, attachmentIds: string[]): Promise<StoredMessage> {
+    const message = storedMessage(row, attachmentIds);
+    if (row.content_ref == null) return message;
+    if (!this.messageContent) throw new Error('MESSAGE_CONTENT_STORE_UNAVAILABLE');
+    return { ...message, ...await this.messageContent.read(this.defaultWorkspaceId, message.id, asJson<SealedMessageRef>(row.content_ref)) };
+  }
+
   private async readFrom(database: SqlQueryable, lock = false): Promise<WorkspaceData | undefined> {
     const projects = await database.query<{ id: string; title: string; active_node_id: string | null; state: unknown; updated_at: unknown }>(`SELECT id, title, active_node_id, state, updated_at FROM rhiza_projects WHERE id = $1${lock ? ' FOR UPDATE' : ''}`, [this.defaultWorkspaceId]);
     const project = projects.rows[0];
@@ -963,7 +971,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     for (const row of messageAttachmentsResult.rows) attachmentIds.set(row.message_id, [...(attachmentIds.get(row.message_id) || []), row.attachment_id]);
     const layouts = new Map(layoutResult.rows.map(row => [String(row.object_id), { x: Number(row.x), y: Number(row.y) }]));
     const nodes: DiscussionNode[] = nodesResult.rows.map(row => ({ id: String(row.id), title: String(row.title), summary: String(row.summary), status: row.status as DiscussionNode['status'], kind: row.kind as DiscussionNode['kind'], sourceNodeId: row.source_node_id ? String(row.source_node_id) : undefined, sourceMessageId: row.source_message_id ? String(row.source_message_id) : undefined, anchorText: row.anchor_text ? String(row.anchor_text) : undefined, x: layouts.get(String(row.id))?.x ?? Number(row.position_x), y: layouts.get(String(row.id))?.y ?? Number(row.position_y), createdAt: asIso(row.created_at), updatedAt: asIso(row.updated_at) }));
-    const messages = messagesResult.rows.map(row => storedMessage(row, attachmentIds.get(String(row.id)) || []));
+    const messages = await Promise.all(messagesResult.rows.map(row => this.decodeMessage(row, attachmentIds.get(String(row.id)) || [])));
     const state = asJson<{ mode?: WorkspaceData['mode']; contextItems?: WorkspaceData['contextItems']; fileChunks?: FileChunk[] }>(project.state || {});
     return {
       projectId: project.id, projectTitle: project.title, nodeId: project.active_node_id || nodes[0]?.id || '', activeNodeId: project.active_node_id || nodes[0]?.id || '',
