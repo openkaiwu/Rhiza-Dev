@@ -570,6 +570,32 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     });
   }
 
+  async sealLegacyContextItems(limit = 100): Promise<number> {
+    if (!this.contextItemContent) throw new Error('CONTEXT_ITEM_CONTENT_STORE_UNAVAILABLE');
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error('INVALID_CONTEXT_ITEM_MIGRATION_LIMIT');
+    return this.inTransaction(async database => {
+      await database.query("SET LOCAL lock_timeout = '5s'");
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
+      const row = (await database.query<{ items: unknown }>("SELECT state->'contextItems' AS items FROM rhiza_projects WHERE id=$1 FOR UPDATE", [this.defaultWorkspaceId])).rows[0];
+      if (!row) return 0;
+      const items = asJson<Array<WorkspaceData['contextItems'][number] & { contentRef?: SealedContextItemRef }>>(row.items || []);
+      let migrated = 0;
+      for (let index = 0; index < items.length && migrated < limit; index++) {
+        const item = items[index];
+        if (Object.hasOwn(item, 'contentRef')) continue;
+        const reference = await this.contextItemContent!.seal(this.defaultWorkspaceId, item.id, item);
+        this.transactionContent.get(database)!.push({ workspaceId: this.defaultWorkspaceId, contextItemId: item.id, reference });
+        const decoded = await this.contextItemContent!.read(this.defaultWorkspaceId, item.id, reference);
+        const original = { title: item.title, detail: item.detail, reason: item.reason, content: item.content };
+        if (semanticStateChecksum(decoded) !== semanticStateChecksum(original)) throw new Error('CONTEXT_ITEM_MIGRATION_CHECKSUM_MISMATCH');
+        items[index] = contextItemStorageProjection(item, reference);
+        migrated++;
+      }
+      if (migrated) await database.query("UPDATE rhiza_projects SET state=jsonb_set(state,'{contextItems}',$2::jsonb) WHERE id=$1", [this.defaultWorkspaceId, JSON.stringify(items)]);
+      return migrated;
+    });
+  }
+
   /** Offline owner-level maintenance; ordinary Manifest writes remain immutable. */
   async sealLegacyManifestContent(limit = 100): Promise<number> {
     if (!this.manifestContent) throw new Error('MANIFEST_CONTENT_STORE_UNAVAILABLE');

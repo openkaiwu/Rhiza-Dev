@@ -33,6 +33,17 @@ it('rejects plaintext and malformed metadata in encrypted context item projectio
     await write({ ...item, contentRef: reference });
     const store = new PostgresWorkspaceStore(database, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, content);
     const scoped = store.forWorkspace(workspace) as PostgresWorkspaceStore;
+    const legacy = { id: item.id, role: item.role, status: item.status, tokens: item.tokens, ...authored };
+    await write(legacy);
+    const migrationSeal = vi.spyOn(content, 'seal');
+    const decode = vi.spyOn(content, 'read').mockResolvedValueOnce({ title: 'wrong', detail: '' });
+    await expect(scoped.sealLegacyContextItems(1)).rejects.toThrow('CONTEXT_ITEM_MIGRATION_CHECKSUM_MISMATCH');
+    decode.mockRestore();
+    await expect(content.read(workspace, item.id, await migrationSeal.mock.results[0].value)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    expect((await scoped.read()).contextItems).toEqual([legacy]);
+    expect(await scoped.sealLegacyContextItems(1)).toBe(1);
+    expect(await scoped.sealLegacyContextItems(1)).toBe(0);
+    migrationSeal.mockRestore();
     const expected = [{ id: item.id, role: item.role, status: item.status, tokens: item.tokens, ...authored }];
     expect((await scoped.read()).contextItems).toEqual(expected);
     expect((await scoped.readConversationPreparation([])).contextItems).toEqual(expected);
