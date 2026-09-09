@@ -181,13 +181,15 @@ Rhiza 默认把工作空间数据保存在本机。Provider API Key 使用本机
 
 节点的标题、摘要与引用文本也默认加密，新内容存储在配套内容目录的 `nodes` 子目录；备份必须一并包含该目录。旧节点尚未迁移，其他当前状态和资源副本仍需覆盖。
 
+关系标签默认加密，密文与密钥位于 `edges` 子目录，须一起备份。旧标签可在停服并完整备份后运行 `pnpm exec tsx scripts/seal-legacy-edge-content.ts` 分批校验迁移；关系身份、端点和类型不变。旧备份、WAL 和快照中的明文不受此迁移影响。
+
 段落标题默认加密，密文与密钥位于 `segments` 子目录，须一起备份。旧段落可在停服并完整备份后运行 `pnpm exec tsx scripts/seal-legacy-segment-content.ts` 分批校验迁移；段落身份、节点关联和排序不变。旧备份、WAL 和快照中的明文不受此迁移影响。
 
 锚点引用文本默认加密，密文与密钥位于 `anchors` 子目录，也需纳入备份。旧锚点可在停服并完整备份后运行 `pnpm exec tsx scripts/seal-legacy-anchor-content.ts`，按工作区分批校验迁移；无正文记录不创建密钥，消息/段落关联与偏移量保持不变。旧备份、WAL 和快照中的明文不受此迁移影响。
 
 旧节点可在停服并完整备份后运行 `pnpm exec tsx scripts/seal-legacy-node-content.ts` 分批迁移。工具获取运行时独占权，逐批锁定记录并核对解密内容后替换三个正文属性；失败回滚并撤销新密钥，重复执行跳过已迁移节点。该操作不会擦除旧备份、WAL 或快照中的明文，也不处理其他内容副本。
 
-`pnpm exec tsx scripts/audit-history-keys.ts` 将同类只读检查扩展到回执、Run、Journal、消息、Manifest、节点、锚点和段落的全部工作区引用。结果按内容类别分组；它不是停写后的回收证明，不会删除未引用密钥。
+`pnpm exec tsx scripts/audit-history-keys.ts` 将同类只读检查扩展到回执、Run、Journal、消息、Manifest、节点、锚点、段落和关系的全部工作区引用。结果按内容类别分组；它不是停写后的回收证明，不会删除未引用密钥。
 
 旧消息可在停服、完整备份后执行 `pnpm exec tsx scripts/seal-legacy-message-content.ts` 迁移。工具分批锁定消息，校验解密内容后替换正文、reasoning 与 tool calls；失败回滚，可重跑续迁，消息身份和关联字段不变。它不清除旧备份、WAL 或其他表中的消息副本。
 

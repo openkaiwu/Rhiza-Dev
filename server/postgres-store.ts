@@ -195,7 +195,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   };
 
   static fromConnectionString(connectionString: string, projectId?: string, contentDirectory = resolve('var/receipt-content')) {
-    return new PostgresWorkspaceStore(new Pool({ connectionString, max: 10, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 5_000 }), projectId, SealedReceiptContent.atDirectory(contentDirectory), SealedRunContent.atDirectory(resolve(contentDirectory, 'runs')), SealedJournalContent.atDirectory(resolve(contentDirectory, 'journal')), SealedMessageContent.atDirectory(resolve(contentDirectory, 'messages')), SealedManifestContent.atDirectory(resolve(contentDirectory, 'manifests')), SealedNodeContent.atDirectory(resolve(contentDirectory, 'nodes')), SealedAnchorContent.atDirectory(resolve(contentDirectory, 'anchors')), SealedSegmentContent.atDirectory(resolve(contentDirectory, 'segments')));
+    return new PostgresWorkspaceStore(new Pool({ connectionString, max: 10, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 5_000 }), projectId, SealedReceiptContent.atDirectory(contentDirectory), SealedRunContent.atDirectory(resolve(contentDirectory, 'runs')), SealedJournalContent.atDirectory(resolve(contentDirectory, 'journal')), SealedMessageContent.atDirectory(resolve(contentDirectory, 'messages')), SealedManifestContent.atDirectory(resolve(contentDirectory, 'manifests')), SealedNodeContent.atDirectory(resolve(contentDirectory, 'nodes')), SealedAnchorContent.atDirectory(resolve(contentDirectory, 'anchors')), SealedSegmentContent.atDirectory(resolve(contentDirectory, 'segments')), SealedEdgeContent.atDirectory(resolve(contentDirectory, 'edges')));
   }
 
   /** PostgreSQL hosts admit one Chat runtime per database; a second host must not reconcile live work. */
@@ -325,10 +325,10 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   }
 
   private async inspectHistoricalKeys(reclaim: boolean) {
-    const { receiptContent, runContent, journalContent, messageContent, manifestContent, nodeContent, anchorContent, segmentContent } = this;
-    if (!receiptContent || !runContent || !journalContent || !messageContent || !manifestContent || !nodeContent || !anchorContent || !segmentContent) throw new Error('HISTORY_CONTENT_STORES_UNAVAILABLE');
+    const { receiptContent, runContent, journalContent, messageContent, manifestContent, nodeContent, anchorContent, segmentContent, edgeContent } = this;
+    if (!receiptContent || !runContent || !journalContent || !messageContent || !manifestContent || !nodeContent || !anchorContent || !segmentContent || !edgeContent) throw new Error('HISTORY_CONTENT_STORES_UNAVAILABLE');
     return this.inTransaction(async database => {
-      if (reclaim) await database.query('LOCK TABLE command_receipts,execution_runs,workspace_events,rhiza_messages,rhiza_nodes,rhiza_context_manifests,rhiza_anchors,rhiza_segments IN SHARE MODE');
+      if (reclaim) await database.query('LOCK TABLE command_receipts,execution_runs,workspace_events,rhiza_messages,rhiza_nodes,rhiza_context_manifests,rhiza_anchors,rhiza_segments,rhiza_edges IN SHARE MODE');
       const { rows } = await database.query<{ family: string; workspace_id: string; id: string; reference: unknown }>(`
         SELECT 'runs' AS family,workspace_id,run_id AS id,input_content_ref AS reference FROM execution_runs WHERE input_content_ref IS NOT NULL
         UNION ALL SELECT 'journal',workspace_id,event_id::text,payload_content_ref FROM workspace_events WHERE payload_content_ref IS NOT NULL
@@ -336,7 +336,8 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
         UNION ALL SELECT 'manifests',project_id,id::text,content_ref FROM rhiza_context_manifests WHERE content_ref IS NOT NULL
         UNION ALL SELECT 'nodes',project_id,id::text,content_ref FROM rhiza_nodes WHERE content_ref IS NOT NULL
         UNION ALL SELECT 'anchors',project_id,id::text,content_ref FROM rhiza_anchors WHERE content_ref IS NOT NULL
-        UNION ALL SELECT 'segments',n.project_id,s.id::text,s.content_ref FROM rhiza_segments s JOIN rhiza_nodes n ON n.id=s.node_id WHERE s.content_ref IS NOT NULL`);
+        UNION ALL SELECT 'segments',n.project_id,s.id::text,s.content_ref FROM rhiza_segments s JOIN rhiza_nodes n ON n.id=s.node_id WHERE s.content_ref IS NOT NULL
+        UNION ALL SELECT 'edges',project_id,id::text,content_ref FROM rhiza_edges WHERE content_ref IS NOT NULL`);
       const references = (family: string) => rows.filter(row => row.family === family).map(row => ({ workspaceId: row.workspace_id, id: row.id, contentId: asJson<{ contentId: string }>(row.reference).contentId }));
       const receiptReferences = await this.receiptKeyReferences(database);
       const audit = {
@@ -348,6 +349,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
         nodes: await nodeContent.auditKeys(references('nodes')),
         anchors: await anchorContent.auditKeys(references('anchors')),
         segments: await segmentContent.auditKeys(references('segments')),
+        edges: await edgeContent.auditKeys(references('edges')),
       };
       let revoked = 0;
       if (reclaim) {
@@ -363,6 +365,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
         revoked += await nodeContent.revokeUnreferencedKeys(references('nodes'));
         revoked += await anchorContent.revokeUnreferencedKeys(references('anchors'));
         revoked += await segmentContent.revokeUnreferencedKeys(references('segments'));
+        revoked += await edgeContent.revokeUnreferencedKeys(references('edges'));
       }
       return { audit, revoked };
     }, true);
