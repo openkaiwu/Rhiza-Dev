@@ -39,6 +39,18 @@ it('rejects plaintext beside attachment ciphertext and prevents unsafe downgrade
     const store = new PostgresWorkspaceStore(database, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, content).forWorkspace(workspace) as PostgresWorkspaceStore;
     expect((await store.read()).attachments[0]).toMatchObject(authored);
     expect((await store.readConversationPreparation([id])).attachments[0]).toMatchObject(authored);
+    await database.query('UPDATE rhiza_attachments SET content_ref=NULL,name=$1,extracted_text=$2,summary=$3', [authored.name, authored.extractedText, authored.summary]);
+    const migrationSeal = vi.spyOn(content, 'seal');
+    const decode = vi.spyOn(content, 'read').mockResolvedValueOnce({ name: 'wrong' });
+    await expect(store.sealLegacyAttachmentContent(1)).rejects.toThrow('ATTACHMENT_MIGRATION_CHECKSUM_MISMATCH');
+    decode.mockRestore();
+    await expect(content.read(workspace, id, await migrationSeal.mock.results[0].value)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    expect((await store.read()).attachments[0]).toMatchObject(authored);
+    await expect(store.sealLegacyAttachmentContent(0)).rejects.toThrow('INVALID_ATTACHMENT_MIGRATION_LIMIT');
+    expect(await store.sealLegacyAttachmentContent(1)).toBe(1);
+    expect(await store.sealLegacyAttachmentContent(1)).toBe(0);
+    expect((await store.readConversationPreparation([id])).attachments[0]).toMatchObject(authored);
+    migrationSeal.mockRestore();
     await expect(new PostgresWorkspaceStore(database, workspace).read()).rejects.toThrow('ATTACHMENT_CONTENT_STORE_UNAVAILABLE');
     const seal = vi.spyOn(content, 'seal');
     await store.update(current => ({ ...current, attachments: current.attachments.map(item => ({ ...item, name: 'updated.txt' })) }));

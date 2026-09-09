@@ -524,6 +524,26 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     });
   }
 
+  async sealLegacyAttachmentContent(limit = 100): Promise<number> {
+    if (!this.attachmentContent) throw new Error('ATTACHMENT_CONTENT_STORE_UNAVAILABLE');
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error('INVALID_ATTACHMENT_MIGRATION_LIMIT');
+    return this.inTransaction(async database => {
+      await database.query("SET LOCAL lock_timeout = '5s'");
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
+      const { rows } = await database.query<{ id: string; name: string; extracted_text: string | null; summary: string | null }>(
+        'SELECT id,name,extracted_text,summary FROM rhiza_attachments WHERE project_id=$1 AND content_ref IS NULL ORDER BY id LIMIT $2 FOR UPDATE', [this.defaultWorkspaceId, limit]);
+      for (const row of rows) {
+        const original = { name: row.name, extractedText: row.extracted_text ?? undefined, summary: row.summary ?? undefined };
+        const reference = await this.attachmentContent!.seal(this.defaultWorkspaceId, row.id, original);
+        this.transactionContent.get(database)!.push({ workspaceId: this.defaultWorkspaceId, attachmentId: row.id, reference });
+        const decoded = await this.attachmentContent!.read(this.defaultWorkspaceId, row.id, reference);
+        if (semanticStateChecksum(decoded) !== semanticStateChecksum(original)) throw new Error('ATTACHMENT_MIGRATION_CHECKSUM_MISMATCH');
+        await database.query("UPDATE rhiza_attachments SET name='[sealed]',extracted_text=NULL,summary=NULL,content_ref=$2::jsonb WHERE id=$1", [row.id, JSON.stringify(reference)]);
+      }
+      return rows.length;
+    });
+  }
+
   async sealLegacyAnchorContent(limit = 100): Promise<number> {
     if (!this.anchorContent) throw new Error('ANCHOR_CONTENT_STORE_UNAVAILABLE');
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error('INVALID_ANCHOR_MIGRATION_LIMIT');
