@@ -33,6 +33,17 @@ it('requires an association for sealed anchor text and refuses plaintext coexist
     const reference = await content.seal(workspace, anchor, { selectedText: 'private quotation' });
     await database.query('UPDATE rhiza_anchors SET content_ref=$2,start_offset=0,end_offset=17 WHERE id=$1', [anchor, JSON.stringify(reference)]);
     const store = new PostgresWorkspaceStore(database, undefined, undefined, undefined, undefined, undefined, undefined, undefined, content);
+    await database.query("UPDATE rhiza_anchors SET content_ref=NULL,selected_text='private quotation' WHERE id=$1", [anchor]);
+    const migrate = store.forWorkspace(workspace) as PostgresWorkspaceStore;
+    const migrationSeal = vi.spyOn(content, 'seal');
+    const decode = vi.spyOn(content, 'read').mockResolvedValueOnce({ selectedText: 'wrong' });
+    await expect(migrate.sealLegacyAnchorContent(1)).rejects.toThrow('ANCHOR_MIGRATION_CHECKSUM_MISMATCH');
+    decode.mockRestore();
+    await expect(content.read(workspace, anchor, await migrationSeal.mock.results[0].value)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    expect((await database.query('SELECT selected_text,content_ref FROM rhiza_anchors WHERE id=$1', [anchor])).rows[0]).toEqual({ selected_text: 'private quotation', content_ref: null });
+    expect(await migrate.sealLegacyAnchorContent(1)).toBe(1);
+    expect(await migrate.sealLegacyAnchorContent(1)).toBe(0);
+    migrationSeal.mockRestore();
     expect((await store.forWorkspace(workspace).read()).anchors).toEqual([expect.objectContaining({ id: anchor, nodeId: node, segmentId: segment, selectedText: 'private quotation', startOffset: 0, endOffset: 17 })]);
     await expect(new PostgresWorkspaceStore(database, workspace).read()).rejects.toThrow('ANCHOR_CONTENT_STORE_UNAVAILABLE');
     const scoped = store.forWorkspace(workspace);
