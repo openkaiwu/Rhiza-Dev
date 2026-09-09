@@ -585,6 +585,7 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     const forgedChecksum = structuredClone(portable);
     forgedChecksum.journal[0].payload.portableStateChecksum = '0'.repeat(64);
     expect(() => validatePortableHistory(forgedChecksum, semanticStateChecksum)).toThrow('BUNDLE_EVENT_STATE_MISMATCH');
+    expect(() => portableWorkspaceFacts(forgedChecksum, input => semanticStateChecksum(input as Record<string, unknown>))).toThrow('BUNDLE_EVENT_STATE_MISMATCH');
     for (const index of [0, portable.journal.length - 1]) {
       const incomplete = structuredClone(portable);
       delete incomplete.journal[index].payload.portableStateChecksum;

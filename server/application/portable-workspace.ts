@@ -1,5 +1,6 @@
 import type { PortableWorkspaceFacts } from './ports/portable-workspace';
 import type { StoredAttachment, StoredMessage, ContextManifest, WorkspaceData } from '../domain';
+import { bundleError } from '../domain/portable-bundle';
 
 function select<T extends object>(value: T, keys: readonly (keyof T)[]): T {
   return Object.fromEntries(keys.filter(key => value[key] !== undefined).map(key => [key, value[key]])) as T;
@@ -72,7 +73,9 @@ export function portableWorkspaceFacts(source: PortableWorkspaceFacts, hash: (in
     if (snapshot?.state) state = structuredClone(snapshot.state);
     if (state) {
       if (event.payload.stateChanges) Object.assign(state, event.payload.stateChanges);
-      event.payload.portableStateChecksum = hash(state);
+      const checksum = hash(state);
+      if (event.payload.portableStateChecksum !== undefined && event.payload.portableStateChecksum !== checksum) throw bundleError('BUNDLE_EVENT_STATE_MISMATCH');
+      event.payload.portableStateChecksum = checksum;
     }
   }
   return result;
