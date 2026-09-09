@@ -710,6 +710,11 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
       const validate = ajv.compile(portableWorkspaceSchema);
       expect(validate(document), JSON.stringify(validate.errors)).toBe(true);
       expect(decodePortableDocument(document, staged.index)).toEqual(document.facts);
+      for (const payload of [{ removedObject: null }, { removedRelation: { source: {} } }, { removedRelations: [null] }]) {
+        const invalidHistory = structuredClone(document);
+        Object.assign(invalidHistory.facts.journal[0].payload, payload);
+        expect(() => decodePortableDocument(invalidHistory, staged.index)).toThrow('BUNDLE_INVALID_DOCUMENT');
+      }
       const malformed = structuredClone(document);
       malformed.facts.runs[0].input.request.history = {};
       expect(validate(malformed)).toBe(false);
