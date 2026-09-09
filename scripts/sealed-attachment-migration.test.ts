@@ -3,7 +3,7 @@ import { readFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { loadMigrations } from './migrate';
 import { SealedAttachmentContent } from '../server/infrastructure/sealed-attachment-content';
 import { PostgresWorkspaceStore } from '../server/postgres-store';
@@ -15,6 +15,7 @@ it('rejects plaintext beside attachment ciphertext and prevents unsafe downgrade
     for (const migration of await loadMigrations()) await database.exec(migration.sql);
     const workspace = '00000000-0000-4000-8000-000000000001';
     await database.query("INSERT INTO rhiza_projects(id,title,state) VALUES ($1,'Test','{}')", [workspace]);
+    await database.query("INSERT INTO rhiza_nodes(id,project_id,title,status,kind) VALUES ('00000000-0000-4000-8000-000000000003',$1,'Test','active','main')", [workspace]);
     await database.query("INSERT INTO rhiza_attachments(id,project_id,name,mime_type,size_bytes,kind,storage_key) VALUES ('00000000-0000-4000-8000-000000000002',$1,'legacy','text/plain',10,'file','blob')", [workspace]);
     const digest = 'a'.repeat(64);
     const reference = { format: 'rhiza.sealed-attachment.v1', contentId: 'content', reference: {
@@ -39,7 +40,19 @@ it('rejects plaintext beside attachment ciphertext and prevents unsafe downgrade
     expect((await store.read()).attachments[0]).toMatchObject(authored);
     expect((await store.readConversationPreparation([id])).attachments[0]).toMatchObject(authored);
     await expect(new PostgresWorkspaceStore(database, workspace).read()).rejects.toThrow('ATTACHMENT_CONTENT_STORE_UNAVAILABLE');
-    await content.destroy(workspace, id, ref);
+    const seal = vi.spyOn(content, 'seal');
+    await store.update(current => ({ ...current, attachments: current.attachments.map(item => ({ ...item, name: 'updated.txt' })) }));
+    expect(seal).toHaveBeenCalledOnce();
+    const updated = await seal.mock.results[0].value;
+    expect((await store.read()).attachments[0].name).toBe('updated.txt');
+    expect((await database.query('SELECT name,extracted_text,summary,content_ref FROM rhiza_attachments')).rows[0]).toEqual({ name: '[sealed]', extracted_text: null, summary: null, content_ref: updated });
+    seal.mockClear();
+    await database.exec("CREATE FUNCTION reject_attachment_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected attachment failure'; END $$; CREATE TRIGGER reject_attachment_write BEFORE INSERT ON rhiza_attachments FOR EACH ROW EXECUTE FUNCTION reject_attachment_write();");
+    await expect(store.update(current => ({ ...current, attachments: current.attachments.map(item => ({ ...item, name: 'failed.txt' })) }))).rejects.toThrow('injected attachment failure');
+    await expect(content.read(workspace, id, await seal.mock.results[0].value)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    expect((await store.readConversationPreparation([id])).attachments[0].name).toBe('updated.txt');
+    seal.mockRestore();
+    await content.destroy(workspace, id, updated);
     await expect(store.read()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     await expect(store.readConversationPreparation([id])).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     await database.exec("UPDATE rhiza_attachments SET content_ref=NULL,name='legacy',extracted_text='restored'");

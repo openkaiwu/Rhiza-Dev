@@ -46,7 +46,8 @@ type PendingContent = { workspaceId: string; commandId: string; reference: Seale
   | { workspaceId: string; segmentId: string; reference: SealedSegmentRef }
   | { workspaceId: string; edgeId: string; reference: SealedEdgeRef }
   | { workspaceId: string; contextItemId: string; reference: SealedContextItemRef }
-  | { workspaceId: string; fileChunkId: string; reference: SealedFileChunkRef };
+  | { workspaceId: string; fileChunkId: string; reference: SealedFileChunkRef }
+  | { workspaceId: string; attachmentId: string; reference: SealedAttachmentRef };
 export interface SqlQueryable {
   query<Row = Record<string, unknown>>(sql: string, values?: unknown[]): Promise<QueryResult<Row>>;
 }
@@ -274,6 +275,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       else if ('edgeId' in item) await this.edgeContent!.destroy(item.workspaceId, item.edgeId, item.reference);
       else if ('contextItemId' in item) await this.contextItemContent!.destroy(item.workspaceId, item.contextItemId, item.reference);
       else if ('fileChunkId' in item) await this.fileChunkContent!.destroy(item.workspaceId, item.fileChunkId, item.reference);
+      else if ('attachmentId' in item) await this.attachmentContent!.destroy(item.workspaceId, item.attachmentId, item.reference);
       else await this.receiptContent!.destroy(item.workspaceId, item.commandId, item.reference, item.kind);
       pending.pop();
     }
@@ -1449,7 +1451,16 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       [manifest.id,workspace.projectId,manifest.nodeId,manifest.requestId,manifest.mode,manifest.provider,manifest.model,manifest.runtime,manifest.estimatedTokens,JSON.stringify(reference ? manifestReferenceProjection(manifest) : manifest),manifest.createdAt,reference ? JSON.stringify(reference) : null]);
     }
     for (const materialization of materializations) await database.query(`INSERT INTO rhiza_resource_materializations (materialization_id,resource_version_id,kind,generator,created_at) VALUES ($1,$2,$3,$4,$5)`, [materialization.id,materialization.resourceVersionId,materialization.kind,materialization.generator,materialization.createdAt]);
-    for (const attachment of attachments) await database.query(`INSERT INTO rhiza_attachments (id,project_id,name,mime_type,size_bytes,kind,storage_key,extracted_text,created_at,resource_id,resource_version_id,summary,chunk_count) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name,mime_type=EXCLUDED.mime_type,size_bytes=EXCLUDED.size_bytes,kind=EXCLUDED.kind,extracted_text=EXCLUDED.extracted_text,resource_id=EXCLUDED.resource_id,resource_version_id=EXCLUDED.resource_version_id,summary=EXCLUDED.summary,chunk_count=EXCLUDED.chunk_count`, [attachment.id,workspace.projectId,attachment.name,attachment.mimeType,attachment.size,attachment.kind,attachment.blobRef || attachment.id,attachment.extractedText || null,attachment.createdAt,attachment.resourceId || null,attachment.resourceVersionId || null,attachment.summary || null,attachment.chunkCount ?? null]);
+    for (const attachment of attachments) {
+      let reference: SealedAttachmentRef | undefined;
+      if (this.attachmentContent) {
+        const pending = this.transactionContent.get(database);
+        if (!pending) throw new Error('ATTACHMENT_CONTENT_REQUIRES_TRANSACTION');
+        reference = await this.attachmentContent.seal(workspace.projectId, attachment.id, attachment);
+        pending.push({ workspaceId: workspace.projectId, attachmentId: attachment.id, reference });
+      }
+      await database.query(`INSERT INTO rhiza_attachments (id,project_id,name,mime_type,size_bytes,kind,storage_key,extracted_text,created_at,resource_id,resource_version_id,summary,chunk_count,content_ref) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name,mime_type=EXCLUDED.mime_type,size_bytes=EXCLUDED.size_bytes,kind=EXCLUDED.kind,extracted_text=EXCLUDED.extracted_text,resource_id=EXCLUDED.resource_id,resource_version_id=EXCLUDED.resource_version_id,summary=EXCLUDED.summary,chunk_count=EXCLUDED.chunk_count,content_ref=EXCLUDED.content_ref`, [attachment.id,workspace.projectId,reference ? '[sealed]' : attachment.name,attachment.mimeType,attachment.size,attachment.kind,attachment.blobRef || attachment.id,reference ? null : attachment.extractedText || null,attachment.createdAt,attachment.resourceId || null,attachment.resourceVersionId || null,reference ? null : attachment.summary || null,attachment.chunkCount ?? null,reference ? JSON.stringify(reference) : null]);
+    }
     for (const message of messages) {
       let reference: SealedMessageRef | undefined;
       if (this.messageContent) {
