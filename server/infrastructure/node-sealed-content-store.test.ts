@@ -1,10 +1,30 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { NodeContentKeys } from './node-content-keys';
 import { NodeFilesystemBlobStore } from './node-host-runtime';
 import { NodeSealedContentStore } from './node-sealed-content-store';
+
+it('clears its plaintext copy when key creation fails without revoking an existing key', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rhiza-sealed-failure-'));
+  const keys = new NodeContentKeys(join(root, 'keys'));
+  const store = new NodeSealedContentStore(new NodeFilesystemBlobStore(join(root, 'data')), keys);
+  const identity = { workspaceId: 'workspace', contentId: 'existing' };
+  const plaintext = Buffer.from('private snapshot');
+  try {
+    const reference = await store.put(identity, plaintext);
+    const fill = vi.spyOn(Buffer.prototype, 'fill');
+    const destroy = vi.spyOn(keys, 'destroy');
+    try {
+      await expect(store.put(identity, plaintext)).rejects.toMatchObject({ code: 'EEXIST' });
+      expect(fill.mock.contexts.some(buffer => Buffer.isBuffer(buffer) && buffer !== plaintext && buffer.length === plaintext.length && buffer.every(byte => byte === 0))).toBe(true);
+      expect(destroy).not.toHaveBeenCalled();
+    } finally { fill.mockRestore(); destroy.mockRestore(); }
+    expect(plaintext.toString()).toBe('private snapshot');
+    expect(await store.read(identity, reference)).toEqual(plaintext);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 it('stores only ciphertext and makes revoked historical documents unreadable after reopening', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rhiza-sealed-store-'));

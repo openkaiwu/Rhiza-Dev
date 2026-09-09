@@ -21,17 +21,18 @@ export class NodeSealedContentStore {
   async put(identity: ContentIdentity, plaintext: Uint8Array): Promise<SealedContentRef> {
     if (plaintext.byteLength > maxDocumentBytes) throw new Error('CONTENT_DOCUMENT_TOO_LARGE');
     const content = Buffer.from(plaintext);
-    const key = await this.keys.create(identity);
+    let key: Buffer | undefined;
     try {
+      key = await this.keys.create(identity);
       const sealed = sealContent(identity, content, key);
       const ciphertext = await this.blobs.put(Buffer.concat([Buffer.from([sealed.version]), sealed.iv, sealed.tag, sealed.ciphertext]));
       return { version: 1, digest: digest(content), size: content.byteLength, ciphertext };
     } catch (error) {
       // Failed publication must not leave an accessible data key behind.
-      try { await this.keys.destroy(identity); }
+      try { if (key) await this.keys.destroy(identity); }
       catch (cleanup) { throw new AggregateError([error, cleanup], 'CONTENT_PUBLICATION_CLEANUP_FAILED', { cause: cleanup }); }
       throw error;
-    } finally { key.fill(0); content.fill(0); }
+    } finally { key?.fill(0); content.fill(0); }
   }
 
   async read(identity: ContentIdentity, reference: SealedContentRef): Promise<Uint8Array> {
