@@ -718,6 +718,11 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     const continued = await target.readPortableWorkspace();
     expect(continued.journal.length).toBeGreaterThan(portable.journal.length);
     expect(continued.journal.every((event, index) => event.sequence === index + 1)).toBe(true);
+    const reexported = portableWorkspaceFacts(continued, input => semanticStateChecksum(input as Record<string, unknown>));
+    expect(reexported.journal.slice(0, portable.journal.length).map(event => event.payload.portableStateChecksum))
+      .toEqual(portable.journal.map(event => event.payload.portableStateChecksum));
+    expect(reexported.journal.every(event => typeof event.payload.portableStateChecksum === 'string')).toBe(true);
+    expect(() => validatePortableHistory(reexported, semanticStateChecksum)).not.toThrow();
     await ready.dispose();
     await expect(readFile(join(ready.directory, 'index.json'))).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(stagePortableWorkspace(path, { ...BUNDLE_LIMITS, maxDocumentBytes: 16 })).rejects.toThrow('BUNDLE_QUOTA_EXCEEDED');
