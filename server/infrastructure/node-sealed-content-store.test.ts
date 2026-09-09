@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, open, readdir, rm } from 'node:fs/promises';
 import { createDecipheriv, createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,6 +7,43 @@ import { NodeContentKeys } from './node-content-keys';
 import { NodeFilesystemBlobStore } from './node-host-runtime';
 import { NodeSealedContentStore } from './node-sealed-content-store';
 import { associatedData } from './sealed-content';
+
+it('cleans cancelled streams and rejects tampered temporary frames before yielding them', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rhiza-stream-lifecycle-'));
+  const temporaryRoot = join(root, 'temporary');
+  await mkdir(temporaryRoot);
+  const store = new NodeSealedContentStore(new NodeFilesystemBlobStore(join(root, 'data')), new NodeContentKeys(join(root, 'keys')), temporaryRoot);
+  const identity = { workspaceId: 'workspace', contentId: 'lifecycle' };
+  const bytes = Buffer.alloc(200_000, 42);
+  try {
+    const reference = await store.put(identity, bytes);
+    const cancelled = store.readStream(identity, reference)[Symbol.asyncIterator]();
+    expect((await cancelled.next()).done).toBe(false);
+    expect(await readdir(temporaryRoot)).toHaveLength(1);
+    await cancelled.return!();
+    expect(await readdir(temporaryRoot)).toEqual([]);
+    const corrupted = store.readStream(identity, reference)[Symbol.asyncIterator]();
+    const first = await corrupted.next();
+    expect(first.done).toBe(false);
+    const directories = await readdir(temporaryRoot);
+    expect(directories).toHaveLength(1);
+    const handle = await open(join(temporaryRoot, directories[0], 'encrypted'), 'r+');
+    try {
+      // Each spool frame has a 12-byte nonce and 16-byte tag followed by ciphertext.
+      const position = first.value!.length + 28 + 28;
+      const byte = Buffer.alloc(1);
+      await handle.read(byte, 0, 1, position);
+      byte[0] ^= 1;
+      await handle.write(byte, 0, 1, position);
+    } finally { await handle.close(); }
+    await expect(corrupted.next()).rejects.toThrow();
+    expect(await readdir(temporaryRoot)).toEqual([]);
+    const invalid = store.readStream(identity, { ...reference, digest: '0'.repeat(64) })[Symbol.asyncIterator]();
+    await expect(invalid.next()).rejects.toThrow('CONTENT_DIGEST_MISMATCH');
+    expect(await readdir(temporaryRoot)).toEqual([]);
+    expect(await store.read(identity, reference)).toEqual(bytes);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 it('publishes and authenticates a 65 MiB stream without the document reader', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rhiza-sealed-large-'));

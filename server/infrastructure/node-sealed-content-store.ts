@@ -14,7 +14,7 @@ const digest = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest(
 
 /** Scoped encrypted documents and resource streams. */
 export class NodeSealedContentStore {
-  constructor(private readonly blobs: NodeFilesystemBlobStore, private readonly keys: NodeContentKeys) {}
+  constructor(private readonly blobs: NodeFilesystemBlobStore, private readonly keys: NodeContentKeys, private readonly temporaryRoot = tmpdir()) {}
 
   auditKeys(identities: Iterable<ContentIdentity>) { return this.keys.audit(identities); }
 
@@ -87,7 +87,7 @@ export class NodeSealedContentStore {
     let directory: string | undefined;
     let file: Awaited<ReturnType<typeof open>> | undefined;
     try {
-      directory = await mkdtemp(join(tmpdir(), 'rhiza-verified-content-'));
+      directory = await mkdtemp(join(this.temporaryRoot, 'rhiza-verified-content-'));
       file = await open(join(directory, 'encrypted'), 'wx+', 0o600);
       const frames: number[] = [];
       const hash = createHash('sha256');
