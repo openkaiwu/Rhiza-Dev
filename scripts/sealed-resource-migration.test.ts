@@ -46,6 +46,13 @@ it('protects sealed resource names and refuses unsafe downgrade', async () => {
     migrationSeal.mockRestore();
     await write(ref);
     const seal = vi.spyOn(content, 'seal');
+    const manifestId = '00000000-0000-4000-8000-000000000010';
+    await database.query("INSERT INTO rhiza_resource_versions(resource_version_id,resource_id,version,digest_algorithm,digest,canonicalization,media_type,size_bytes,blob_ref) VALUES ('version','resource',1,'sha256',$1,'raw-v1','text/plain',10,$2)", [digest, `sha256/aa/${digest}`]);
+    const manifest = { schemaVersion: '1.0.0', versions: { planner: '1', compiler: '1', tokenizer: '1', selectionPolicy: '1', contributors: { node: '1' } }, contextItems: [{ resourceId: 'resource', resourceVersionId: 'version', digest, contributorVersion: '1', reason: 'selected', selectionMode: 'AUTO_RETRIEVED', priority: 1 }] };
+    await database.query("INSERT INTO rhiza_context_manifests(id,project_id,node_id,request_id,mode,provider,model,runtime,manifest) VALUES ($1,$2,'00000000-0000-4000-8000-000000000002',$1,'Auto','test','test','test',$3)", [manifestId, workspace, JSON.stringify(manifest)]);
+    const history = await store.readContextHistory({ manifestId });
+    expect(history?.resources[0]).toMatchObject({ id: 'resource', logicalName: 'private name' });
+    expect(history?.versions[0]).toMatchObject({ id: 'version', resourceId: 'resource', digest });
     const added = { id: 'new-resource', workspaceId: workspace, kind: 'attachment' as const, logicalName: 'new private name', createdAt: new Date().toISOString() };
     await store.update(current => ({ ...current, resources: [...current.resources, added] }));
     expect(seal).toHaveBeenCalledOnce();
@@ -70,6 +77,7 @@ it('protects sealed resource names and refuses unsafe downgrade', async () => {
     await expect(new PostgresWorkspaceStore(database, workspace).read()).rejects.toThrow('RESOURCE_CONTENT_STORE_UNAVAILABLE');
     await content.destroy(workspace, 'resource', ref);
     await expect(store.read()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    await expect(store.readContextHistory({ manifestId })).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     await database.exec("UPDATE rhiza_resources SET content_ref=NULL,logical_name='restored'");
     await database.exec(down);
   } finally { await database.close(); await rm(root, { recursive: true, force: true }); }
