@@ -55,6 +55,14 @@ it('protects sealed resource names and refuses unsafe downgrade', async () => {
     await store.update(current => ({ ...current, resources: current.resources.map(item => ({ ...item, logicalName: 'ignored' })) }));
     expect(seal).not.toHaveBeenCalled();
     expect((await store.read()).resources).toEqual(expect.arrayContaining([added]));
+    await database.exec("CREATE FUNCTION compete_resource_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN INSERT INTO rhiza_resources(resource_id,workspace_id,kind,logical_name) VALUES (NEW.resource_id,NEW.workspace_id,NEW.kind,'winning name'); RETURN NEW; END $$; CREATE TRIGGER compete_resource_write BEFORE INSERT ON rhiza_resources FOR EACH ROW WHEN (pg_trigger_depth() = 0) EXECUTE FUNCTION compete_resource_write();");
+    seal.mockClear();
+    await store.update(current => ({ ...current, resources: [...current.resources, { ...added, id: 'competing-resource' }] }));
+    expect(seal).toHaveBeenCalledOnce();
+    await expect(content.read(workspace, 'competing-resource', await seal.mock.results[0].value)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    expect((await store.read()).resources.find(item => item.id === 'competing-resource')?.logicalName).toBe('winning name');
+    await database.exec('DROP TRIGGER compete_resource_write ON rhiza_resources; DROP FUNCTION compete_resource_write();');
+    seal.mockClear();
     await database.exec("CREATE FUNCTION reject_resource_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected resource failure'; END $$; CREATE TRIGGER reject_resource_write BEFORE INSERT ON rhiza_resources FOR EACH ROW EXECUTE FUNCTION reject_resource_write();");
     await expect(store.update(current => ({ ...current, resources: [...current.resources, { ...added, id: 'failed-resource' }] }))).rejects.toThrow('injected resource failure');
     await expect(content.read(workspace, 'failed-resource', await seal.mock.results[0].value)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
