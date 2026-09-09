@@ -17,6 +17,8 @@ import { ProviderStore } from '../server/provider-store';
 import { SecretVault } from '../server/secret-vault';
 import type { ExecutionRun } from '../server/execution-runtime/run';
 import { NodeFilesystemBlobStore } from '../server/infrastructure/node-host-runtime';
+import { NodeEncryptedBlobStore } from '../server/infrastructure/node-encrypted-blob-store';
+import { NodePortableBundle } from '../server/infrastructure/portable-bundle';
 import { semanticStateChecksum } from '../server/infrastructure/workspace-semantic-checksum';
 import { portableWorkspaceFacts } from '../server/application/portable-workspace';
 import { validatePortableReferences } from '../server/application/portable-references';
@@ -570,6 +572,34 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     const portable = portableWorkspaceFacts(facts, input => semanticStateChecksum(input as Record<string, unknown>));
     expect(() => validatePortableReferences(portable)).not.toThrow();
     expect(() => validatePortableHistory(portable, semanticStateChecksum)).not.toThrow();
+    const encryptedBlobs = new NodeEncryptedBlobStore(new NodeSealedContentStore(
+      new NodeFilesystemBlobStore(join(uploadDirectory, 'encrypted-export')),
+      new NodeContentKeys(join(uploadDirectory, 'encrypted-export-keys')),
+    ));
+    const originalBlobs = new NodeFilesystemBlobStore(uploadDirectory);
+    const locations = new Map<string, string>();
+    expect(facts.workspace.resourceVersions.length).toBeGreaterThan(0);
+    for (const version of facts.workspace.resourceVersions) {
+      const stored = await encryptedBlobs.put(await originalBlobs.read(version.blobRef, version.digest), {
+        workspaceId: facts.workspace.projectId, contentId: version.id,
+      });
+      locations.set(version.blobRef, stored.blobRef);
+    }
+    const encryptedFacts = JSON.parse(JSON.stringify(facts, (key, value) => key === 'blobRef' && locations.has(value) ? locations.get(value) : value));
+    const encryptedExport = await new NodePortableBundle(encryptedBlobs).export(encryptedFacts);
+    try {
+      const encryptedPath = join(uploadDirectory, 'encrypted-source.rhiza');
+      await writeFile(encryptedPath, encryptedExport.bytes);
+      const stagedEncrypted = await stagePortableWorkspace(encryptedPath);
+      try {
+        expect(stagedEncrypted.facts).toEqual(portable);
+        expect(JSON.stringify(stagedEncrypted.facts)).not.toContain('sealed-v1/');
+        for (const version of facts.workspace.resourceVersions) {
+          expect(await readFile(stagedEncrypted.files.get(`blobs/sha256/${version.digest}`)!))
+            .toEqual(Buffer.from(await originalBlobs.read(version.blobRef, version.digest)));
+        }
+      } finally { await stagedEncrypted.dispose(); }
+    } finally { await encryptedExport.dispose(); }
     const invalidIntermediate = structuredClone(portable);
     invalidIntermediate.journal.splice(1, 0, { ...structuredClone(portable.journal[0]), payload: { stateChanges: { messages: {} } } });
     expect(() => validatePortableHistory(invalidIntermediate, semanticStateChecksum)).toThrow('BUNDLE_INVALID_HISTORY_DELTA');
