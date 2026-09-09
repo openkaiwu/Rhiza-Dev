@@ -38,7 +38,8 @@ type PendingContent = { workspaceId: string; commandId: string; reference: Seale
   | { workspaceId: string; messageId: string; reference: SealedMessageRef }
   | { workspaceId: string; manifestId: string; reference: SealedManifestRef }
   | { workspaceId: string; nodeId: string; reference: SealedNodeRef }
-  | { workspaceId: string; anchorId: string; reference: SealedAnchorRef };
+  | { workspaceId: string; anchorId: string; reference: SealedAnchorRef }
+  | { workspaceId: string; segmentId: string; reference: SealedSegmentRef };
 export interface SqlQueryable {
   query<Row = Record<string, unknown>>(sql: string, values?: unknown[]): Promise<QueryResult<Row>>;
 }
@@ -262,6 +263,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       else if ('manifestId' in item) await this.manifestContent!.destroy(item.workspaceId, item.manifestId, item.reference);
       else if ('nodeId' in item) await this.nodeContent!.destroy(item.workspaceId, item.nodeId, item.reference);
       else if ('anchorId' in item) await this.anchorContent!.destroy(item.workspaceId, item.anchorId, item.reference);
+      else if ('segmentId' in item) await this.segmentContent!.destroy(item.workspaceId, item.segmentId, item.reference);
       else await this.receiptContent!.destroy(item.workspaceId, item.commandId, item.reference, item.kind);
       pending.pop();
     }
@@ -1226,7 +1228,16 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       await database.query(`INSERT INTO rhiza_nodes (id,project_id,title,summary,status,kind,position_x,position_y,created_at,updated_at,anchor_text,content_ref) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb) ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title,summary=EXCLUDED.summary,status=EXCLUDED.status,kind=EXCLUDED.kind,updated_at=EXCLUDED.updated_at,anchor_text=EXCLUDED.anchor_text,content_ref=EXCLUDED.content_ref`, [node.id,workspace.projectId,reference ? '[sealed]' : node.title,reference ? '' : node.summary,node.status,node.kind,node.x,node.y,node.createdAt,node.updatedAt,reference ? null : node.anchorText || null,reference ? JSON.stringify(reference) : null]);
       await database.query(`INSERT INTO graph_layout_nodes (workspace_id,layout_id,object_type,object_id,x,y) VALUES ($1,'default','conversation',$2,$3,$4) ON CONFLICT (workspace_id,layout_id,object_type,object_id) DO UPDATE SET x=EXCLUDED.x,y=EXCLUDED.y`, [workspace.projectId,node.id,node.x,node.y]);
     }
-    for (const segment of segments) await database.query(`INSERT INTO rhiza_segments (id,node_id,ordinal,title,created_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO UPDATE SET node_id=EXCLUDED.node_id,ordinal=EXCLUDED.ordinal,title=EXCLUDED.title`, [segment.id,segment.nodeId,segment.ordinal,segment.title,segment.createdAt]);
+    for (const segment of segments) {
+      let reference: SealedSegmentRef | undefined;
+      if (this.segmentContent) {
+        const pending = this.transactionContent.get(database);
+        if (!pending) throw new Error('SEGMENT_CONTENT_REQUIRES_TRANSACTION');
+        reference = await this.segmentContent.seal(workspace.projectId, segment.id, segment);
+        pending.push({ workspaceId: workspace.projectId, segmentId: segment.id, reference });
+      }
+      await database.query(`INSERT INTO rhiza_segments (id,node_id,ordinal,title,created_at,content_ref) VALUES ($1,$2,$3,$4,$5,$6::jsonb) ON CONFLICT (id) DO UPDATE SET node_id=EXCLUDED.node_id,ordinal=EXCLUDED.ordinal,title=EXCLUDED.title,content_ref=EXCLUDED.content_ref`, [segment.id,segment.nodeId,segment.ordinal,reference ? '' : segment.title,segment.createdAt,reference ? JSON.stringify(reference) : null]);
+    }
     for (const resource of resources) await database.query(`INSERT INTO rhiza_resources (resource_id,workspace_id,kind,logical_name,created_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (resource_id) DO NOTHING`, [resource.id,resource.workspaceId,resource.kind,resource.logicalName,resource.createdAt]);
     for (const version of resourceVersions) await database.query(`INSERT INTO rhiza_resource_versions (resource_version_id,resource_id,version,digest_algorithm,digest,canonicalization,media_type,size_bytes,blob_ref,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [version.id,version.resourceId,version.version,version.digestAlgorithm,version.digest,version.canonicalization,version.mediaType,version.size,version.blobRef,version.createdAt]);
     for (const manifest of manifests) {

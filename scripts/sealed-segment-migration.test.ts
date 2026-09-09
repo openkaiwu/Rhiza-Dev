@@ -3,7 +3,7 @@ import { readFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { loadMigrations } from './migrate';
 import { SealedSegmentContent } from '../server/infrastructure/sealed-segment-content';
 import { PostgresWorkspaceStore } from '../server/postgres-store';
@@ -32,7 +32,18 @@ it('rejects plaintext alongside segment ciphertext and preserves relational cons
     const store = new PostgresWorkspaceStore(database, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, content);
     expect((await store.forWorkspace(workspace).read()).segments).toEqual([expect.objectContaining({ id: segment, nodeId: node, ordinal: 0, title: 'private title' })]);
     await expect(new PostgresWorkspaceStore(database, workspace).read()).rejects.toThrow('SEGMENT_CONTENT_STORE_UNAVAILABLE');
-    await content.destroy(workspace, segment, reference);
+    const scoped = store.forWorkspace(workspace);
+    await scoped.update(current => ({ ...current, segments: current.segments.map(item => ({ ...item, title: 'updated title' })) }));
+    const stored = (await database.query<{ title: string; content_ref: typeof reference }>('SELECT title,content_ref FROM rhiza_segments WHERE id=$1', [segment])).rows[0];
+    expect(stored.title).toBe('');
+    expect((await scoped.read()).segments[0].title).toBe('updated title');
+    const seal = vi.spyOn(content, 'seal');
+    await database.exec("CREATE FUNCTION reject_segment_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected segment failure'; END $$; CREATE TRIGGER reject_segment_write BEFORE INSERT ON rhiza_segments FOR EACH ROW EXECUTE FUNCTION reject_segment_write();");
+    await expect(scoped.update(current => ({ ...current, segments: current.segments.map(item => ({ ...item, title: 'failed title' })) }))).rejects.toThrow('injected segment failure');
+    await expect(content.read(workspace, segment, await seal.mock.results[0].value)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    expect((await scoped.read()).segments[0].title).toBe('updated title');
+    seal.mockRestore();
+    await content.destroy(workspace, segment, stored.content_ref);
     await expect(store.forWorkspace(workspace).read()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
   } finally { await database.close(); await rm(root, { recursive: true, force: true }); }
 }, 30_000);
