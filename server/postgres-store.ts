@@ -530,6 +530,26 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     });
   }
 
+  async sealLegacyResourceContent(limit = 100): Promise<number> {
+    if (!this.resourceContent) throw new Error('RESOURCE_CONTENT_STORE_UNAVAILABLE');
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error('INVALID_RESOURCE_MIGRATION_LIMIT');
+    return this.inTransaction(async database => {
+      await database.query("SET LOCAL lock_timeout = '5s'");
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
+      const { rows } = await database.query<{ resource_id: string; logical_name: string }>(
+        'SELECT resource_id,logical_name FROM rhiza_resources WHERE workspace_id=$1 AND content_ref IS NULL ORDER BY resource_id LIMIT $2 FOR UPDATE', [this.defaultWorkspaceId, limit]);
+      for (const row of rows) {
+        const original = { logicalName: row.logical_name };
+        const reference = await this.resourceContent!.seal(this.defaultWorkspaceId, row.resource_id, original);
+        this.transactionContent.get(database)!.push({ workspaceId: this.defaultWorkspaceId, resourceId: row.resource_id, reference });
+        const decoded = await this.resourceContent!.read(this.defaultWorkspaceId, row.resource_id, reference);
+        if (semanticStateChecksum(decoded) !== semanticStateChecksum(original)) throw new Error('RESOURCE_MIGRATION_CHECKSUM_MISMATCH');
+        await database.query("UPDATE rhiza_resources SET logical_name='[sealed]',content_ref=$2::jsonb WHERE resource_id=$1", [row.resource_id, JSON.stringify(reference)]);
+      }
+      return rows.length;
+    });
+  }
+
   async sealLegacyAttachmentContent(limit = 100): Promise<number> {
     if (!this.attachmentContent) throw new Error('ATTACHMENT_CONTENT_STORE_UNAVAILABLE');
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error('INVALID_ATTACHMENT_MIGRATION_LIMIT');
