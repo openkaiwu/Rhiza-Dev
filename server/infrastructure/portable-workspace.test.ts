@@ -7,6 +7,13 @@ import type { PortableWorkspaceFacts } from '../application/ports/portable-works
 
 const hash = (value: unknown) => createHash('sha256').update(canonicalJson(value)).digest('hex');
 describe('portable export DTO', () => {
+  it('normalizes encrypted locations in nested historical content without changing digests', () => {
+    const digest = 'a'.repeat(64);
+    const version = { id: 'version', digest, blobRef: `sealed-v1/workspace/version/${'b'.repeat(64)}/${digest}/12` };
+    expect(stripOperationalMetadata({ snapshot: { resourceVersions: [version], attachments: [version] } }))
+      .toEqual({ snapshot: { resourceVersions: [{ ...version, blobRef: `sha256/aa/${digest}` }], attachments: [{ ...version, blobRef: `sha256/aa/${digest}` }] } });
+    expect(version.blobRef).toContain('sealed-v1/');
+  });
   it('removes operational locations and credentials at nested metadata boundaries', () => {
     const source = { text: 'User-authored /Users/example/file discussion', origin_metadata: { username: 'private-name', path: '/private/file' },
       annotations: { internalUrl: 'https://private.test' }, nested: { api_key: 'secret', credential_ref: 'vault-key', safe: 'yes' } };

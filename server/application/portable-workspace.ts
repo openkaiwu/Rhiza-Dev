@@ -3,7 +3,13 @@ import type { StoredAttachment, StoredMessage, ContextManifest, WorkspaceData } 
 import { bundleError } from '../domain/portable-bundle';
 
 function select<T extends object>(value: T, keys: readonly (keyof T)[]): T {
-  return Object.fromEntries(keys.filter(key => value[key] !== undefined).map(key => [key, value[key]])) as T;
+  return portableBlobReference(Object.fromEntries(keys.filter(key => value[key] !== undefined).map(key => [key, value[key]]))) as T;
+}
+function portableBlobReference<T extends Record<string, unknown>>(value: T): T {
+  if (typeof value.blobRef === 'string' && value.blobRef.startsWith('sealed-v1/') && typeof value.digest === 'string' && /^[a-f0-9]{64}$/.test(value.digest)) {
+    return { ...value, blobRef: `sha256/${value.digest.slice(0, 2)}/${value.digest}` };
+  }
+  return value;
 }
 const portableName = (name: string) => /^(?:\/|[a-z]:[\\/]|\\\\)/i.test(name) ? name.split(/[\\/]/).filter(Boolean).at(-1) ?? 'resource' : name;
 const attachment = (value: StoredAttachment) => ({ ...select(value, ['id', 'name', 'mimeType', 'size', 'kind', 'extractedText', 'summary', 'chunkCount', 'resourceId', 'resourceVersionId', 'digest', 'blobRef', 'createdAt']), name: portableName(value.name) });
@@ -26,8 +32,8 @@ function manifest(value: ContextManifest): ContextManifest {
 export function stripOperationalMetadata(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripOperationalMetadata);
   if (!value || typeof value !== 'object') return value;
-  return Object.fromEntries(Object.entries(value).filter(([key]) => !/^(?:.*(?:secret|credential|password|oauth|apikey|authorization).*|originmetadata|annotations|metadata|endpoint|baseurl|headers|extraheaders|hostdescriptor|absolutepath|filepath|gitremote|username|__proto__|constructor|prototype)$/i.test(key.replaceAll('_', '').replaceAll('-', '')))
-    .map(([key, item]) => [key, ['logicalName', 'name'].includes(key) && typeof item === 'string' ? portableName(item) : stripOperationalMetadata(item)]));
+  return portableBlobReference(Object.fromEntries(Object.entries(value).filter(([key]) => !/^(?:.*(?:secret|credential|password|oauth|apikey|authorization).*|originmetadata|annotations|metadata|endpoint|baseurl|headers|extraheaders|hostdescriptor|absolutepath|filepath|gitremote|username|__proto__|constructor|prototype)$/i.test(key.replaceAll('_', '').replaceAll('-', '')))
+    .map(([key, item]) => [key, ['logicalName', 'name'].includes(key) && typeof item === 'string' ? portableName(item) : stripOperationalMetadata(item)])));
 }
 
 /** Export DTO construction is independent of DB serialization and never exports endpoint locations. */
