@@ -22,6 +22,11 @@ it('clears its plaintext copy when key creation fails without revoking an existi
       expect(destroy).not.toHaveBeenCalled();
     } finally { fill.mockRestore(); destroy.mockRestore(); }
     expect(plaintext.toString()).toBe('private snapshot');
+    const clear = vi.spyOn(Buffer.prototype, 'fill');
+    try {
+      await expect(store.read(identity, { ...reference, digest: '0'.repeat(64) })).rejects.toThrow('CONTENT_DIGEST_MISMATCH');
+      expect(clear.mock.contexts.some(buffer => Buffer.isBuffer(buffer) && buffer.length === plaintext.length && buffer.every(byte => byte === 0))).toBe(true);
+    } finally { clear.mockRestore(); }
     expect(await store.read(identity, reference)).toEqual(plaintext);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

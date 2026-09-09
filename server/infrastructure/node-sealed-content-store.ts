@@ -51,7 +51,10 @@ export class NodeSealedContentStore {
       const encoded = Buffer.concat(chunks);
       if (encoded[0] !== 1) throw new Error('CONTENT_ENVELOPE_INVALID');
       const plaintext = openContent(identity, { version: 1, iv: encoded.subarray(1, 13), tag: encoded.subarray(13, 29), ciphertext: encoded.subarray(29) }, key);
-      if (digest(plaintext) !== reference.digest) throw new Error('CONTENT_DIGEST_MISMATCH');
+      if (digest(plaintext) !== reference.digest) {
+        plaintext.fill(0);
+        throw new Error('CONTENT_DIGEST_MISMATCH');
+      }
       return plaintext;
     } finally { key.fill(0); }
   }
