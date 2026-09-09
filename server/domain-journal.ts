@@ -140,7 +140,7 @@ export function eventForCommand(context: CommandFactContext, previous: Workspace
       addedNodes: next.discussionNodes.length - previous.discussionNodes.length,
       addedResources: next.resources.length - previous.resources.length,
       valueId: value && typeof value === 'object' && 'id' in value ? String((value as { id: unknown }).id) : undefined,
-      ...(eventType === 'object.purged' && removedNode ? { removedObject: removedNode } : {}),
+      ...(eventType === 'object.purged' && removedNode ? { removedObject: { id: removedNode.id, kind: removedNode.kind, createdAt: removedNode.createdAt, x: removedNode.x, y: removedNode.y } } : {}),
       ...(eventType === 'graph.relation.removed' && removedRelation ? { removedRelation } : {}),
     },
   }];

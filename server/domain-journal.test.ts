@@ -17,6 +17,6 @@ describe('projection lifecycle event payloads', () => {
     expect(eventForCommand(context('RemoveRelation'), beforeRelation, afterRelation, undefined)[0]?.payload.removedRelation).toEqual(relation);
 
     const afterPurge = { ...afterRelation, discussionNodes: afterRelation.discussionNodes.filter(node => node.id !== target.id) };
-    expect(eventForCommand(context('PurgeObject'), afterRelation, afterPurge, undefined)[0]?.payload.removedObject).toEqual(target);
+    expect(eventForCommand(context('PurgeObject'), afterRelation, afterPurge, undefined)[0]?.payload.removedObject).toEqual({ id: target.id, kind: target.kind, createdAt: target.createdAt, x: target.x, y: target.y });
   });
 });

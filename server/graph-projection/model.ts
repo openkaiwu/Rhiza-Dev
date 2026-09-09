@@ -17,10 +17,11 @@ const byRef = (left: ProjectedObject, right: ProjectedObject) => refKey(left.ref
 const byRelation = (left: ProjectedRelation, right: ProjectedRelation) => left.id.localeCompare(right.id);
 
 export function buildWorkspaceGraphProjection(workspace: WorkspaceData, runs: readonly ExecutionRun[] = [], checkpoint = 0, events: readonly Pick<DomainEventEnvelope, 'eventType' | 'sequence' | 'aggregateRevision' | 'occurredAt' | 'payload'>[] = []): WorkspaceGraphProjection {
-  const removedObjects = new Map<string, { object: WorkspaceData['discussionNodes'][number]; event: Pick<DomainEventEnvelope, 'aggregateRevision' | 'occurredAt'> }>();
+  type RemovedObject = Pick<WorkspaceData['discussionNodes'][number], 'id' | 'kind' | 'createdAt' | 'x' | 'y'>;
+  const removedObjects = new Map<string, { object: RemovedObject; event: Pick<DomainEventEnvelope, 'aggregateRevision' | 'occurredAt'> }>();
   const removedRelations = new Map<string, WorkspaceData['discussionEdges'][number]>();
   for (const event of [...events].sort((left, right) => right.sequence - left.sequence)) {
-    const removedObject = event.eventType === 'object.purged' ? event.payload.removedObject as WorkspaceData['discussionNodes'][number] | undefined : undefined;
+    const removedObject = event.eventType === 'object.purged' ? event.payload.removedObject as RemovedObject | undefined : undefined;
     if (removedObject && !removedObjects.has(removedObject.id)) removedObjects.set(removedObject.id, { object: removedObject, event });
     const removedRelation = event.eventType === 'graph.relation.removed' ? event.payload.removedRelation as WorkspaceData['discussionEdges'][number] | undefined : undefined;
     if (removedRelation && !removedRelations.has(removedRelation.id)) removedRelations.set(removedRelation.id, removedRelation);
