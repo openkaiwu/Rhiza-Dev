@@ -1,0 +1,33 @@
+import { randomUUID } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { expect, it } from 'vitest';
+import { BlobContextCompiler } from '../application/context-compiler';
+import { NodeContentKeys } from './node-content-keys';
+import { NodeFilesystemBlobStore } from './node-host-runtime';
+import { NodeSealedContentStore } from './node-sealed-content-store';
+import { NodeEncryptedBlobStore } from './node-encrypted-blob-store';
+
+it('freezes context through encrypted blobs and independently revokes each version', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rhiza-encrypted-blob-'));
+  const content = new NodeSealedContentStore(new NodeFilesystemBlobStore(root), new NodeContentKeys(join(root, 'keys')));
+  const blobs = new NodeEncryptedBlobStore(content);
+  const compiler = new BlobContextCompiler(blobs, randomUUID, () => '2026-09-09T00:00:00.000Z');
+  try {
+    const item = { id: 'source', title: 'Source', detail: '', role: 'Reference' as const, status: 'active' as const, tokens: 1, content: 'private context' };
+    const [first] = await compiler.compile('workspace-a', [item]);
+    const [second] = await compiler.compile('workspace-b', [item]);
+    expect(first.resourceVersion.digest).toBe(second.resourceVersion.digest);
+    expect(first.resourceVersion.blobRef).not.toBe(second.resourceVersion.blobRef);
+    const version = first.resourceVersion;
+    expect(JSON.parse(new TextDecoder().decode(await blobs.read(version.blobRef, version.digest))).content).toBe(item.content);
+    await expect(blobs.read(version.blobRef, '0'.repeat(64))).rejects.toThrow('CONTENT_REFERENCE_INVALID');
+    await expect(blobs.put(new Uint8Array([1]))).rejects.toThrow('CONTENT_IDENTITY_REQUIRED');
+    await expect(blobs.collectOrphans()).rejects.toThrow('ENCRYPTED_BLOB_GC_REQUIRES_KEY_RECONCILIATION');
+    await content.destroy({ workspaceId: 'workspace-a', contentId: version.id });
+    await expect(blobs.read(version.blobRef, version.digest)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    const restored = new NodeEncryptedBlobStore(content);
+    expect(JSON.parse(new TextDecoder().decode(await restored.read(second.resourceVersion.blobRef, second.resourceVersion.digest))).content).toBe(item.content);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
