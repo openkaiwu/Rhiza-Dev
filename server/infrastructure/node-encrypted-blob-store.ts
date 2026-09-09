@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { BlobContentIdentity, BlobPutResult, BlobStorePort } from '../application/ports/host-runtime';
 import { NodeSealedContentStore, type SealedContentRef } from './node-sealed-content-store';
 
@@ -6,10 +7,27 @@ export class NodeEncryptedBlobStore implements BlobStorePort {
   constructor(private readonly content: NodeSealedContentStore) {}
 
   async put(bytes: Uint8Array, identity?: BlobContentIdentity): Promise<BlobPutResult> {
+    const snapshot = Buffer.from(bytes);
+    try {
+      return await this.putStream((async function* () { yield snapshot; })(), createHash('sha256').update(snapshot).digest('hex'), snapshot.length, identity);
+    } finally { snapshot.fill(0); }
+  }
+
+  async putStream(bytes: AsyncIterable<Uint8Array>, expectedDigest: string, expectedSize: number, identity?: BlobContentIdentity): Promise<BlobPutResult> {
     if (!identity?.workspaceId || !identity.contentId) throw new Error('CONTENT_IDENTITY_REQUIRED');
+    if (!/^[a-f0-9]{64}$/.test(expectedDigest)) throw new Error('CONTENT_DIGEST_INVALID');
     const prefix = `sealed-v1/${encodeURIComponent(identity.workspaceId)}/${encodeURIComponent(identity.contentId)}`;
     if (prefix.length > 1024) throw new Error('CONTENT_IDENTITY_INVALID');
-    const reference = await this.content.putStream(identity, (async function* () { yield bytes; })(), bytes.length);
+    async function* verified() {
+      const hash = createHash('sha256');
+      for await (const chunk of bytes) {
+        const snapshot = Buffer.from(chunk);
+        try { hash.update(snapshot); yield snapshot; }
+        finally { snapshot.fill(0); }
+      }
+      if (hash.digest('hex') !== expectedDigest) throw new Error('CONTENT_DIGEST_MISMATCH');
+    }
+    const reference = await this.content.putStream(identity, verified(), expectedSize);
     return { digestAlgorithm: 'sha256', digest: reference.digest, size: reference.size,
       blobRef: `${prefix}/${reference.ciphertext.digest}/${reference.digest}/${reference.size}` };
   }

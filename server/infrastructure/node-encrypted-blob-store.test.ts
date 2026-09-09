@@ -25,6 +25,13 @@ it('freezes context through encrypted blobs and independently revokes each versi
     await expect(blobs.read(version.blobRef, '0'.repeat(64))).rejects.toThrow('CONTENT_REFERENCE_INVALID');
     await expect(blobs.put(new Uint8Array([1]))).rejects.toThrow('CONTENT_IDENTITY_REQUIRED');
     await expect(blobs.collectOrphans()).rejects.toThrow('ENCRYPTED_BLOB_GC_REQUIRES_KEY_RECONCILIATION');
+    const sourceBytes = await blobs.read(version.blobRef, version.digest);
+    const importedIdentity = { workspaceId: 'workspace-import', contentId: 'import-version' };
+    const imported = await blobs.putStream((async function* () { yield sourceBytes; })(), version.digest, sourceBytes.length, importedIdentity);
+    expect(await blobs.read(imported.blobRef, imported.digest)).toEqual(sourceBytes);
+    const failedIdentity = { ...importedIdentity, contentId: 'bad-digest' };
+    await expect(blobs.putStream((async function* () { yield sourceBytes; })(), '0'.repeat(64), sourceBytes.length, failedIdentity)).rejects.toThrow('CONTENT_DIGEST_MISMATCH');
+    await expect(new NodeContentKeys(join(root, 'keys')).read(failedIdentity)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     await content.destroy({ workspaceId: 'workspace-a', contentId: version.id });
     await expect(blobs.read(version.blobRef, version.digest)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     const restored = new NodeEncryptedBlobStore(content);
