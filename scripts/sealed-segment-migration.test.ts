@@ -1,11 +1,16 @@
 // @vitest-environment node
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { expect, it } from 'vitest';
 import { loadMigrations } from './migrate';
+import { SealedSegmentContent } from '../server/infrastructure/sealed-segment-content';
+import { PostgresWorkspaceStore } from '../server/postgres-store';
 
 it('rejects plaintext alongside segment ciphertext and preserves relational constraints', async () => {
   const database = new PGlite();
+  const root = await mkdtemp(join(tmpdir(), 'rhiza-segment-sql-'));
   try {
     for (const migration of await loadMigrations()) await database.exec(migration.sql);
     const [workspace, node, segment] = [1, 2, 3].map(id => `00000000-0000-4000-8000-${String(id).padStart(12, '0')}`);
@@ -21,5 +26,13 @@ it('rejects plaintext alongside segment ciphertext and preserves relational cons
     }
     await expect(database.exec(await readFile('db/migrations/0023_sealed_segment_content.down.sql', 'utf8'))).rejects.toThrow('Cannot remove sealed segment references');
     expect((await database.query('SELECT title,ordinal,node_id FROM rhiza_segments WHERE id=$1', [segment])).rows[0]).toEqual({ title: '', ordinal: 0, node_id: node });
-  } finally { await database.close(); }
+    const content = SealedSegmentContent.atDirectory(root);
+    const reference = await content.seal(workspace, segment, { title: 'private title' });
+    await database.query('UPDATE rhiza_segments SET content_ref=$2 WHERE id=$1', [segment, JSON.stringify(reference)]);
+    const store = new PostgresWorkspaceStore(database, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, content);
+    expect((await store.forWorkspace(workspace).read()).segments).toEqual([expect.objectContaining({ id: segment, nodeId: node, ordinal: 0, title: 'private title' })]);
+    await expect(new PostgresWorkspaceStore(database, workspace).read()).rejects.toThrow('SEGMENT_CONTENT_STORE_UNAVAILABLE');
+    await content.destroy(workspace, segment, reference);
+    await expect(store.forWorkspace(workspace).read()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+  } finally { await database.close(); await rm(root, { recursive: true, force: true }); }
 }, 30_000);

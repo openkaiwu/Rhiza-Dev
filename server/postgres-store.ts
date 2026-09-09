@@ -28,6 +28,7 @@ import { SealedJournalContent, type SealedJournalRef } from './infrastructure/se
 import { SealedMessageContent, type SealedMessageRef } from './infrastructure/sealed-message-content';
 import { SealedNodeContent, type SealedNodeRef } from './infrastructure/sealed-node-content';
 import { SealedAnchorContent, type SealedAnchorRef } from './infrastructure/sealed-anchor-content';
+import { SealedSegmentContent, type SealedSegmentRef } from './infrastructure/sealed-segment-content';
 import { manifestReferenceProjection, SealedManifestContent, type SealedManifestRef } from './infrastructure/sealed-manifest-content';
 
 interface QueryResult<Row> { rows: Row[] }
@@ -134,7 +135,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   private readonly scoped = new Map<string, PostgresWorkspaceStore>();
   readonly defaultWorkspaceId: string;
 
-  constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: string, private readonly receiptContent?: SealedReceiptContent, private readonly runContent?: SealedRunContent, private readonly journalContent?: SealedJournalContent, private readonly messageContent?: SealedMessageContent, private readonly manifestContent?: SealedManifestContent, private readonly nodeContent?: SealedNodeContent, private readonly anchorContent?: SealedAnchorContent) {
+  constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: string, private readonly receiptContent?: SealedReceiptContent, private readonly runContent?: SealedRunContent, private readonly journalContent?: SealedJournalContent, private readonly messageContent?: SealedMessageContent, private readonly manifestContent?: SealedManifestContent, private readonly nodeContent?: SealedNodeContent, private readonly anchorContent?: SealedAnchorContent, private readonly segmentContent?: SealedSegmentContent) {
     const configuredWorkspaceId = defaultWorkspaceId?.trim();
     if (configuredWorkspaceId && !uuidPattern.test(configuredWorkspaceId)) throw new Error('RHIZA_PROJECT_ID must be a UUID when set');
     this.defaultWorkspaceId = configuredWorkspaceId || DEFAULT_PROJECT_ID;
@@ -143,7 +144,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   forWorkspace(workspaceId: string): WorkspaceRepository {
     if (workspaceId === this.defaultWorkspaceId) return this;
     let scoped = this.scoped.get(workspaceId);
-    if (!scoped) { scoped = new PostgresWorkspaceStore(this.database, workspaceId, this.receiptContent, this.runContent, this.journalContent, this.messageContent, this.manifestContent, this.nodeContent, this.anchorContent); this.scoped.set(workspaceId, scoped); }
+    if (!scoped) { scoped = new PostgresWorkspaceStore(this.database, workspaceId, this.receiptContent, this.runContent, this.journalContent, this.messageContent, this.manifestContent, this.nodeContent, this.anchorContent, this.segmentContent); this.scoped.set(workspaceId, scoped); }
     return scoped;
   }
 
@@ -1124,6 +1125,13 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     return { ...anchor, ...await this.anchorContent.read(this.defaultWorkspaceId, anchor.id, asJson<SealedAnchorRef>(row.content_ref)) };
   }
 
+  private async decodeSegment(row: Record<string, unknown>): Promise<Segment> {
+    const segment = { id: String(row.id), nodeId: String(row.node_id), ordinal: Number(row.ordinal), title: String(row.title), createdAt: asIso(row.created_at) };
+    if (row.content_ref == null) return segment;
+    if (!this.segmentContent) throw new Error('SEGMENT_CONTENT_STORE_UNAVAILABLE');
+    return { ...segment, ...await this.segmentContent.read(this.defaultWorkspaceId, segment.id, asJson<SealedSegmentRef>(row.content_ref)) };
+  }
+
   private async readFrom(database: SqlQueryable, lock = false): Promise<WorkspaceData | undefined> {
     const projects = await database.query<{ id: string; title: string; active_node_id: string | null; state: unknown; updated_at: unknown }>(`SELECT id, title, active_node_id, state, updated_at FROM rhiza_projects WHERE id = $1${lock ? ' FOR UPDATE' : ''}`, [this.defaultWorkspaceId]);
     const project = projects.rows[0];
@@ -1157,7 +1165,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     return {
       projectId: project.id, projectTitle: project.title, nodeId: project.active_node_id || nodes[0]?.id || '', activeNodeId: project.active_node_id || nodes[0]?.id || '',
       mode: state.mode || 'Assisted', contextItems: state.contextItems || [], discussionNodes: nodes, messages,
-      segments: segmentsResult.rows.map(row => ({ id: String(row.id), nodeId: String(row.node_id), ordinal: Number(row.ordinal), title: String(row.title), createdAt: asIso(row.created_at) } satisfies Segment)),
+      segments: await Promise.all(segmentsResult.rows.map(row => this.decodeSegment(row))),
       anchors: await Promise.all(anchorsResult.rows.map(row => this.decodeAnchor(row))),
       discussionEdges: edgesResult.rows.map(row => ({ id: String(row.id), source: String(row.source_node_id), target: String(row.target_node_id), relation: relationFromDb(String(row.relation)), anchorId: row.anchor_id ? String(row.anchor_id) : undefined, label: String(row.label), createdAt: asIso(row.created_at) })),
       manifests: await Promise.all(manifestsResult.rows.map(row => this.decodeManifest(row))),
