@@ -3,7 +3,7 @@ import { readFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { loadMigrations } from './migrate';
 import { SealedAnchorContent } from '../server/infrastructure/sealed-anchor-content';
 import { PostgresWorkspaceStore } from '../server/postgres-store';
@@ -35,7 +35,18 @@ it('requires an association for sealed anchor text and refuses plaintext coexist
     const store = new PostgresWorkspaceStore(database, undefined, undefined, undefined, undefined, undefined, undefined, undefined, content);
     expect((await store.forWorkspace(workspace).read()).anchors).toEqual([expect.objectContaining({ id: anchor, nodeId: node, segmentId: segment, selectedText: 'private quotation', startOffset: 0, endOffset: 17 })]);
     await expect(new PostgresWorkspaceStore(database, workspace).read()).rejects.toThrow('ANCHOR_CONTENT_STORE_UNAVAILABLE');
-    await content.destroy(workspace, anchor, reference);
+    const scoped = store.forWorkspace(workspace);
+    await scoped.update(current => ({ ...current, anchors: current.anchors.map(item => ({ ...item, selectedText: 'updated quote' })) }));
+    const stored = (await database.query<{ selected_text: unknown; content_ref: typeof reference }>('SELECT selected_text,content_ref FROM rhiza_anchors WHERE id=$1', [anchor])).rows[0];
+    expect(stored.selected_text).toBeNull();
+    expect((await scoped.read()).anchors[0].selectedText).toBe('updated quote');
+    const seal = vi.spyOn(content, 'seal');
+    await database.exec("CREATE FUNCTION reject_anchor_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected anchor failure'; END $$; CREATE TRIGGER reject_anchor_write BEFORE INSERT ON rhiza_anchors FOR EACH ROW EXECUTE FUNCTION reject_anchor_write();");
+    await expect(scoped.update(current => ({ ...current, anchors: current.anchors.map(item => ({ ...item, selectedText: 'failed quote' })) }))).rejects.toThrow('injected anchor failure');
+    await expect(content.read(workspace, anchor, await seal.mock.results[0].value)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    expect((await scoped.read()).anchors[0].selectedText).toBe('updated quote');
+    seal.mockRestore();
+    await content.destroy(workspace, anchor, stored.content_ref);
     await expect(store.forWorkspace(workspace).read()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
   } finally { await database.close(); await rm(root, { recursive: true, force: true }); }
 }, 30_000);
