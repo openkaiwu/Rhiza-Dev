@@ -25,6 +25,22 @@
     "payload": {
       "type": "object",
       "properties": {
+        "removedRelations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "source", "target", "relation", "createdAt", "label"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "source": { "type": "string", "minLength": 1 },
+              "target": { "type": "string", "minLength": 1 },
+              "relation": { "type": "string", "minLength": 1 },
+              "createdAt": { "type": "string", "format": "date-time" },
+              "label": { "const": "" }
+            },
+            "additionalProperties": false
+          }
+        },
         "stateSchema": { "const": "rhiza.workspace-semantic.v1" },
         "reconcileChecksum": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
         "stateChanges": { "type": "object" },
