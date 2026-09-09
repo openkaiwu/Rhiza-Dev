@@ -51,6 +51,15 @@ it('publishes and authenticates a 65 MiB stream without the document reader', as
       expect(size).toBe(reference.size);
       expect(hash.digest('hex')).toBe(reference.digest);
     } finally { key.fill(0); }
+    const streamedHash = createHash('sha256');
+    let streamedSize = 0;
+    for await (const plain of store.readStream(identity, reference)) {
+      streamedHash.update(plain);
+      streamedSize += plain.length;
+      plain.fill(0);
+    }
+    expect(streamedSize).toBe(reference.size);
+    expect(streamedHash.digest('hex')).toBe(reference.digest);
     const failed = { ...identity, contentId: 'interrupted' };
     async function* interrupted() { yield chunk; throw new Error('source interrupted'); }
     await expect(store.putStream(failed, interrupted(), 2 * chunk.length)).rejects.toThrow('source interrupted');
@@ -69,6 +78,12 @@ it('streams scoped ciphertext compatible with v1 and revokes failed publications
   try {
     const reference = await store.putStream(identity, chunks(), bytes.length);
     expect(await store.read(identity, reference)).toEqual(bytes);
+    const invalidDigest = store.readStream(identity, { ...reference, digest: '0'.repeat(64) })[Symbol.asyncIterator]();
+    await expect(invalidDigest.next()).rejects.toThrow('CONTENT_DIGEST_MISMATCH');
+    const corrupt = Buffer.from(await blobs.read(reference.ciphertext.blobRef, reference.ciphertext.digest));
+    corrupt[13] ^= 1;
+    const invalidTag = store.readStream(identity, { ...reference, ciphertext: await blobs.put(corrupt) })[Symbol.asyncIterator]();
+    await expect(invalidTag.next()).rejects.toThrow();
     expect(Buffer.from(await blobs.read(reference.ciphertext.blobRef, reference.ciphertext.digest)).includes(bytes)).toBe(false);
     await expect(store.putStream(identity, chunks(), bytes.length)).rejects.toMatchObject({ code: 'EEXIST' });
     expect(await store.read(identity, reference)).toEqual(bytes);

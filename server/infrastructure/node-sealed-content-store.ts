@@ -1,4 +1,7 @@
-import { createCipheriv, createHash, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
+import { mkdtemp, open, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { BlobPutResult } from '../application/ports/host-runtime';
 import { NodeContentKeys } from './node-content-keys';
 import { NodeFilesystemBlobStore } from './node-host-runtime';
@@ -9,7 +12,7 @@ const maxDocumentBytes = 64 * 1024 ** 2;
 const headerBytes = 29; // version + 12-byte nonce + 16-byte authentication tag
 const digest = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 
-/** Bounded historical documents. Large resource streams need their own streaming codec. */
+/** Scoped encrypted documents and resource streams. */
 export class NodeSealedContentStore {
   constructor(private readonly blobs: NodeFilesystemBlobStore, private readonly keys: NodeContentKeys) {}
 
@@ -73,6 +76,73 @@ export class NodeSealedContentStore {
       catch (cleanup) { throw new AggregateError([error, cleanup], 'CONTENT_PUBLICATION_CLEANUP_FAILED', { cause: cleanup }); }
       throw error;
     } finally { key?.fill(0); content.fill(0); }
+  }
+
+  /** Authenticate the whole source before releasing any plaintext, using an encrypted temporary spool. */
+  async *readStream(identity: ContentIdentity, reference: SealedContentRef): AsyncIterable<Uint8Array> {
+    if (reference.version !== 1 || !Number.isSafeInteger(reference.size) || reference.size < 0 || reference.size > 2 * 1024 ** 3
+      || reference.ciphertext.size !== reference.size + headerBytes || !/^[a-f0-9]{64}$/.test(reference.digest)) throw new Error('CONTENT_REFERENCE_INVALID');
+    const key = await this.keys.read(identity);
+    const temporaryKey = randomBytes(32);
+    let directory: string | undefined;
+    let file: Awaited<ReturnType<typeof open>> | undefined;
+    try {
+      directory = await mkdtemp(join(tmpdir(), 'rhiza-verified-content-'));
+      file = await open(join(directory, 'encrypted'), 'wx+', 0o600);
+      const frames: number[] = [];
+      const hash = createHash('sha256');
+      const spool = async (plain: Buffer) => {
+        try {
+          hash.update(plain);
+          const sealed = sealContent({ ...identity, contentId: `${identity.contentId}:${frames.length}` }, plain, temporaryKey);
+          const frame = Buffer.concat([sealed.iv, sealed.tag, sealed.ciphertext]);
+          await file!.writeFile(frame);
+          frames.push(frame.length);
+        } finally { plain.fill(0); }
+      };
+      let header = Buffer.alloc(0);
+      let size = 0;
+      let decipher: ReturnType<typeof createDecipheriv> | undefined;
+      for await (const chunk of this.blobs.readStream(reference.ciphertext.blobRef, reference.ciphertext.digest)) {
+        size += chunk.byteLength;
+        if (size > reference.ciphertext.size) throw new Error('CONTENT_SIZE_MISMATCH');
+        let body = Buffer.from(chunk);
+        if (!decipher) {
+          const needed = headerBytes - header.length;
+          header = Buffer.concat([header, body.subarray(0, needed)]);
+          body = body.subarray(needed);
+          if (header.length < headerBytes) continue;
+          if (header[0] !== 1) throw new Error('CONTENT_ENVELOPE_INVALID');
+          const gcm = createDecipheriv('aes-256-gcm', key, header.subarray(1, 13), { authTagLength: 16 });
+          gcm.setAAD(associatedData(identity));
+          gcm.setAuthTag(header.subarray(13, 29));
+          decipher = gcm;
+        }
+        await spool(decipher.update(body));
+      }
+      if (size !== reference.ciphertext.size || !decipher) throw new Error('CONTENT_SIZE_MISMATCH');
+      await spool(decipher.final());
+      if (hash.digest('hex') !== reference.digest) throw new Error('CONTENT_DIGEST_MISMATCH');
+      key.fill(0);
+      let position = 0;
+      for (let index = 0; index < frames.length; index++) {
+        const frame = Buffer.alloc(frames[index]);
+        let offset = 0;
+        while (offset < frame.length) {
+          const { bytesRead } = await file.read(frame, offset, frame.length - offset, position + offset);
+          if (!bytesRead) throw new Error('CONTENT_SPOOL_TRUNCATED');
+          offset += bytesRead;
+        }
+        position += frame.length;
+        yield openContent({ ...identity, contentId: `${identity.contentId}:${index}` }, {
+          version: 1, iv: frame.subarray(0, 12), tag: frame.subarray(12, 28), ciphertext: frame.subarray(28),
+        }, temporaryKey);
+      }
+    } finally {
+      key.fill(0); temporaryKey.fill(0);
+      try { await file?.close(); }
+      finally { if (directory) await rm(directory, { recursive: true, force: true }); }
+    }
   }
 
   async read(identity: ContentIdentity, reference: SealedContentRef): Promise<Uint8Array> {
