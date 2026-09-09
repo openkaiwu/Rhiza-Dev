@@ -25,6 +25,11 @@ export function buildWorkspaceGraphProjection(workspace: WorkspaceData, runs: re
     if (removedObject && !removedObjects.has(removedObject.id)) removedObjects.set(removedObject.id, { object: removedObject, event });
     const removedRelation = event.eventType === 'graph.relation.removed' ? event.payload.removedRelation as WorkspaceData['discussionEdges'][number] | undefined : undefined;
     if (removedRelation && !removedRelations.has(removedRelation.id)) removedRelations.set(removedRelation.id, removedRelation);
+    if (event.eventType === 'object.purged' && Array.isArray(event.payload.removedRelations)) {
+      for (const relation of event.payload.removedRelations as WorkspaceData['discussionEdges']) {
+        if (!removedRelations.has(relation.id)) removedRelations.set(relation.id, { ...relation, label: '' });
+      }
+    }
   }
   const objects: ProjectedObject[] = [
     ...workspace.discussionNodes.map(node => ({

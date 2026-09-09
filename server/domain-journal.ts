@@ -141,6 +141,7 @@ export function eventForCommand(context: CommandFactContext, previous: Workspace
       addedResources: next.resources.length - previous.resources.length,
       valueId: value && typeof value === 'object' && 'id' in value ? String((value as { id: unknown }).id) : undefined,
       ...(eventType === 'object.purged' && removedNode ? { removedObject: { id: removedNode.id, kind: removedNode.kind, createdAt: removedNode.createdAt, x: removedNode.x, y: removedNode.y } } : {}),
+      ...(eventType === 'object.purged' ? { removedRelations: previous.discussionEdges.filter(edge => !next.discussionEdges.some(item => item.id === edge.id)).map(edge => ({ id: edge.id, source: edge.source, target: edge.target, relation: edge.relation, createdAt: edge.createdAt, label: '' })) } : {}),
       ...(eventType === 'graph.relation.removed' && removedRelation ? { removedRelation } : {}),
     },
   }];
