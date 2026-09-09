@@ -31,6 +31,7 @@ import { SealedAnchorContent, type SealedAnchorRef } from './infrastructure/seal
 import { SealedSegmentContent, type SealedSegmentRef } from './infrastructure/sealed-segment-content';
 import { SealedEdgeContent, type SealedEdgeRef } from './infrastructure/sealed-edge-content';
 import { SealedContextItemContent, contextItemStorageProjection, type SealedContextItemRef } from './infrastructure/sealed-context-item-content';
+import { SealedFileChunkContent, type SealedFileChunkRef } from './infrastructure/sealed-file-chunk-content';
 import { manifestReferenceProjection, SealedManifestContent, type SealedManifestRef } from './infrastructure/sealed-manifest-content';
 
 interface QueryResult<Row> { rows: Row[] }
@@ -140,7 +141,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   private readonly scoped = new Map<string, PostgresWorkspaceStore>();
   readonly defaultWorkspaceId: string;
 
-  constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: string, private readonly receiptContent?: SealedReceiptContent, private readonly runContent?: SealedRunContent, private readonly journalContent?: SealedJournalContent, private readonly messageContent?: SealedMessageContent, private readonly manifestContent?: SealedManifestContent, private readonly nodeContent?: SealedNodeContent, private readonly anchorContent?: SealedAnchorContent, private readonly segmentContent?: SealedSegmentContent, private readonly edgeContent?: SealedEdgeContent, private readonly contextItemContent?: SealedContextItemContent) {
+constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: string, private readonly receiptContent?: SealedReceiptContent, private readonly runContent?: SealedRunContent, private readonly journalContent?: SealedJournalContent, private readonly messageContent?: SealedMessageContent, private readonly manifestContent?: SealedManifestContent, private readonly nodeContent?: SealedNodeContent, private readonly anchorContent?: SealedAnchorContent, private readonly segmentContent?: SealedSegmentContent, private readonly edgeContent?: SealedEdgeContent, private readonly contextItemContent?: SealedContextItemContent, private readonly fileChunkContent?: SealedFileChunkContent) {
     const configuredWorkspaceId = defaultWorkspaceId?.trim();
     if (configuredWorkspaceId && !uuidPattern.test(configuredWorkspaceId)) throw new Error('RHIZA_PROJECT_ID must be a UUID when set');
     this.defaultWorkspaceId = configuredWorkspaceId || DEFAULT_PROJECT_ID;
@@ -149,7 +150,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   forWorkspace(workspaceId: string): WorkspaceRepository {
     if (workspaceId === this.defaultWorkspaceId) return this;
     let scoped = this.scoped.get(workspaceId);
-    if (!scoped) { scoped = new PostgresWorkspaceStore(this.database, workspaceId, this.receiptContent, this.runContent, this.journalContent, this.messageContent, this.manifestContent, this.nodeContent, this.anchorContent, this.segmentContent, this.edgeContent, this.contextItemContent); this.scoped.set(workspaceId, scoped); }
+    if (!scoped) { scoped = new PostgresWorkspaceStore(this.database, workspaceId, this.receiptContent, this.runContent, this.journalContent, this.messageContent, this.manifestContent, this.nodeContent, this.anchorContent, this.segmentContent, this.edgeContent, this.contextItemContent, this.fileChunkContent); this.scoped.set(workspaceId, scoped); }
     return scoped;
   }
 
@@ -1223,6 +1224,17 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     return { ...edge, ...await this.edgeContent.read(this.defaultWorkspaceId, edge.id, asJson<SealedEdgeRef>(row.content_ref)) };
   }
 
+  private async decodeFileChunks(value: unknown): Promise<WorkspaceData['fileChunks']> {
+    const items = asJson<Array<WorkspaceData['fileChunks'][number] & { contentRef?: SealedFileChunkRef }>>(value);
+    return Promise.all(items.map(async item => {
+      if (!Object.hasOwn(item, 'contentRef')) return item;
+      if (!this.fileChunkContent) throw new Error('FILE_CHUNK_CONTENT_STORE_UNAVAILABLE');
+      const { contentRef, ...metadata } = item;
+      if (!contentRef) throw new Error('FILE_CHUNK_CONTENT_REFERENCE_INVALID');
+      return { ...metadata, ...await this.fileChunkContent.read(this.defaultWorkspaceId, item.id, contentRef) };
+    }));
+  }
+
   private async decodeContextItems(value: unknown): Promise<WorkspaceData['contextItems']> {
     const items = asJson<Array<WorkspaceData['contextItems'][number] & { contentRef?: SealedContextItemRef }>>(value);
     return Promise.all(items.map(async item => {
@@ -1278,7 +1290,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       resources: resourcesResult.rows.map(row => ({ id: String(row.resource_id), workspaceId: String(row.workspace_id), kind: row.kind as Resource['kind'], logicalName: String(row.logical_name), createdAt: asIso(row.created_at) })),
       resourceVersions: resourceVersionsResult.rows.map(storedResourceVersion),
       materializations: materializationsResult.rows.map(row => ({ id: String(row.materialization_id), resourceVersionId: String(row.resource_version_id), kind: row.kind as ResourceMaterialization['kind'], generator: row.generator as ResourceMaterialization['generator'], createdAt: asIso(row.created_at) })),
-      fileChunks: state.fileChunks || [],
+      fileChunks: await this.decodeFileChunks(state.fileChunks || []),
       auditEvents: auditResult.rows.map(row => ({ id: String(row.id), projectId: String(row.project_id), nodeId: row.node_id ? String(row.node_id) : undefined, action: String(row.action), entityType: row.entity_type as AuditEvent['entityType'], entityId: String(row.entity_id), metadata: asJson(row.metadata), createdAt: asIso(row.created_at) })),
       updatedAt: asIso(project.updated_at),
     };

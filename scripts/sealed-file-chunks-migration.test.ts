@@ -1,11 +1,16 @@
 // @vitest-environment node
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { expect, it } from 'vitest';
 import { loadMigrations } from './migrate';
+import { SealedFileChunkContent, fileChunkStorageProjection } from '../server/infrastructure/sealed-file-chunk-content';
+import { PostgresWorkspaceStore } from '../server/postgres-store';
 
 it('enforces sealed file chunk projections and protects rollback', async () => {
   const database = new PGlite();
+  const root = await mkdtemp(join(tmpdir(), 'rhiza-chunk-sql-'));
   try {
     for (const migration of await loadMigrations()) await database.exec(migration.sql);
     const workspace = '00000000-0000-4000-8000-000000000001';
@@ -27,7 +32,16 @@ it('enforces sealed file chunk projections and protects rollback', async () => {
     await expect(write(null)).rejects.toThrow();
     const down = await readFile('db/migrations/0026_sealed_file_chunks.down.sql', 'utf8');
     await expect(database.exec(down)).rejects.toThrow('Cannot remove sealed file chunk protection');
+    const content = SealedFileChunkContent.atDirectory(root);
+    const chunk = { id: item.id, attachmentId: item.attachmentId, ordinal: 0, startOffset: 0, endOffset: 10, tokens: 3, text: 'private text', terms: ['private'], embedding: [0.25] };
+    const reference = await content.seal(workspace, chunk.id, chunk);
+    await write([fileChunkStorageProjection(chunk, reference)]);
+    const store = new PostgresWorkspaceStore(database, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, content).forWorkspace(workspace);
+    expect((await store.read()).fileChunks).toEqual([chunk]);
+    await expect(new PostgresWorkspaceStore(database, workspace).read()).rejects.toThrow('FILE_CHUNK_CONTENT_STORE_UNAVAILABLE');
+    await content.destroy(workspace, chunk.id, reference);
+    await expect(store.read()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     await write([{ ...item, contentRef: undefined, text: 'legacy', terms: ['legacy'], embedding: [1] }]);
     await database.exec(down);
-  } finally { await database.close(); }
+  } finally { await database.close(); await rm(root, { recursive: true, force: true }); }
 }, 30_000);
