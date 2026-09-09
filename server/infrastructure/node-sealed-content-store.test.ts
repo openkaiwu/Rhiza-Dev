@@ -1,10 +1,62 @@
 import { mkdtemp, rm } from 'node:fs/promises';
+import { createDecipheriv, createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
 import { NodeContentKeys } from './node-content-keys';
 import { NodeFilesystemBlobStore } from './node-host-runtime';
 import { NodeSealedContentStore } from './node-sealed-content-store';
+import { associatedData } from './sealed-content';
+
+it('publishes and authenticates a 65 MiB stream without the document reader', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rhiza-sealed-large-'));
+  const keys = new NodeContentKeys(join(root, 'keys'));
+  const blobs = new NodeFilesystemBlobStore(join(root, 'data'));
+  const store = new NodeSealedContentStore(blobs, keys);
+  const identity = { workspaceId: 'workspace', contentId: 'large-stream' };
+  const chunk = Buffer.alloc(1024 ** 2, 37);
+  const expectedHash = createHash('sha256');
+  async function* source() { for (let index = 0; index < 65; index++) { expectedHash.update(chunk); yield chunk; } }
+  try {
+    const reference = await store.putStream(identity, source(), 65 * chunk.length);
+    expect(reference.size).toBe(65 * chunk.length);
+    expect(reference.digest).toBe(expectedHash.digest('hex'));
+    expect(reference.ciphertext.size).toBe(reference.size + 29);
+    const key = await keys.read(identity);
+    const hash = createHash('sha256');
+    let size = 0;
+    let header = Buffer.alloc(0);
+    let decipher: ReturnType<typeof createDecipheriv> | undefined;
+    try {
+      for await (const encoded of blobs.readStream(reference.ciphertext.blobRef, reference.ciphertext.digest)) {
+        let body = Buffer.from(encoded);
+        if (!decipher) {
+          const needed = 29 - header.length;
+          header = Buffer.concat([header, body.subarray(0, needed)]);
+          body = body.subarray(needed);
+          if (header.length < 29) continue;
+          expect(header[0]).toBe(1);
+          const gcm = createDecipheriv('aes-256-gcm', key, header.subarray(1, 13), { authTagLength: 16 });
+          gcm.setAAD(associatedData(identity));
+          gcm.setAuthTag(header.subarray(13, 29));
+          decipher = gcm;
+        }
+        const plain = decipher.update(body);
+        size += plain.length;
+        hash.update(plain);
+        plain.fill(0);
+      }
+      const final = decipher!.final();
+      hash.update(final); size += final.length; final.fill(0);
+      expect(size).toBe(reference.size);
+      expect(hash.digest('hex')).toBe(reference.digest);
+    } finally { key.fill(0); }
+    const failed = { ...identity, contentId: 'interrupted' };
+    async function* interrupted() { yield chunk; throw new Error('source interrupted'); }
+    await expect(store.putStream(failed, interrupted(), 2 * chunk.length)).rejects.toThrow('source interrupted');
+    await expect(keys.read(failed)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+  } finally { await rm(root, { recursive: true, force: true }); }
+}, 30000);
 
 it('streams scoped ciphertext compatible with v1 and revokes failed publications', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rhiza-sealed-stream-'));
