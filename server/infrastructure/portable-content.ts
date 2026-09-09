@@ -9,7 +9,7 @@ import { stageBundleArchive, type StagedBundleArchive } from './bundle-archive';
 import { semanticStateChecksum } from './workspace-semantic-checksum';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
-import { portableWorkspaceSchema } from '../domain/portable-workspace-schema';
+import { portableWorkspaceSchema, portableSemanticDeltaSchema } from '../domain/portable-workspace-schema';
 import journalSchema from '../contracts/domain-event-envelope.schema.json';
 import { validatePortableReferences } from '../application/portable-references';
 import { validatePortableHistory } from '../application/portable-history';
@@ -25,6 +25,7 @@ const ajv = new Ajv2020({ strict: true });
 addFormats(ajv); ajv.addSchema(journalSchema);
 // Only the locally shipped schema is executable; schemas included in archives are documentation.
 const validateDocument = ajv.compile<PortableDocument>(portableWorkspaceSchema);
+const validateSemanticFields = ajv.compile(portableSemanticDeltaSchema);
 
 export interface StagedPortableWorkspace extends StagedBundleArchive { facts: PortableWorkspaceFacts }
 
@@ -94,6 +95,11 @@ export async function stagePortableWorkspace(path: string, limits: BundleLimits 
 export function decodePortableDocument(value: unknown, index: BundleIndex): PortableWorkspaceFacts {
   if (!validateDocument(value)) throw bundleError('BUNDLE_INVALID_DOCUMENT');
   const { facts, runtimeSnapshots, providerEndpoints, modelSpecs } = value;
+  for (const event of facts.journal) {
+    const snapshot = event.payload.snapshot as { state?: unknown } | undefined;
+    if ((snapshot && !validateSemanticFields(snapshot.state))
+      || (event.payload.stateChanges !== undefined && !validateSemanticFields(event.payload.stateChanges))) throw bundleError('BUNDLE_INVALID_HISTORY_DELTA');
+  }
   validatePortableReferences(facts);
   validatePortableContent(facts, index);
   validatePortableHistory(facts, semanticStateChecksum);

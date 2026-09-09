@@ -75,6 +75,23 @@ const provenance = object({ schemaVersion: { const: '1.0.0' }, id, workspaceId: 
   status: enumeration('recorded', 'pre-run'), missingRefs: { type: 'array', maxItems: 0 }, createdAt: date },
 ['contextManifestRef', 'runRef', 'parentRevisionRef', 'branchSourceRef', 'modelSpecRef', 'providerEndpointRef', 'runtimeSnapshotRef']);
 
+// Match workspaceSemanticSnapshot: omit aggregate timestamps and rename graph collections.
+const semanticProperties = Object.fromEntries(Object.entries(workspace.properties)
+  .filter(([key]) => !['nodeId', 'updatedAt', 'auditEvents'].includes(key))
+  .map(([key, schema]) => {
+    const copy = JSON.parse(JSON.stringify(schema)) as { items?: { properties: Record<string, object>; required: string[] } };
+    if (copy.items && !['contextItems', 'fileChunks'].includes(key)) {
+      delete copy.items.properties.createdAt;
+      copy.items.required = copy.items.required.filter(field => field !== 'createdAt');
+      if (key === 'discussionNodes') {
+        delete copy.items.properties.updatedAt;
+        copy.items.required = copy.items.required.filter(field => field !== 'updatedAt');
+      }
+    }
+    return [key === 'discussionNodes' ? 'nodes' : key === 'discussionEdges' ? 'edges' : key, copy];
+  }));
+export const portableSemanticDeltaSchema = object(semanticProperties, Object.keys(semanticProperties));
+
 export const portableWorkspaceSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema', $id: 'https://rhiza.dev/schemas/portable-workspace/v1',
   ...object({ schemaVersion: { const: '1.0.0' }, facts: object({ workspace,
