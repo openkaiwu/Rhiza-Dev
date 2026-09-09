@@ -33,6 +33,7 @@ import { SealedEdgeContent, type SealedEdgeRef } from './infrastructure/sealed-e
 import { SealedContextItemContent, contextItemStorageProjection, type SealedContextItemRef } from './infrastructure/sealed-context-item-content';
 import { SealedFileChunkContent, fileChunkStorageProjection, type SealedFileChunkRef } from './infrastructure/sealed-file-chunk-content';
 import { SealedAttachmentContent, type SealedAttachmentRef } from './infrastructure/sealed-attachment-content';
+import { SealedResourceContent, type SealedResourceRef } from './infrastructure/sealed-resource-content';
 import { manifestReferenceProjection, SealedManifestContent, type SealedManifestRef } from './infrastructure/sealed-manifest-content';
 
 interface QueryResult<Row> { rows: Row[] }
@@ -144,7 +145,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   private readonly scoped = new Map<string, PostgresWorkspaceStore>();
   readonly defaultWorkspaceId: string;
 
-constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: string, private readonly receiptContent?: SealedReceiptContent, private readonly runContent?: SealedRunContent, private readonly journalContent?: SealedJournalContent, private readonly messageContent?: SealedMessageContent, private readonly manifestContent?: SealedManifestContent, private readonly nodeContent?: SealedNodeContent, private readonly anchorContent?: SealedAnchorContent, private readonly segmentContent?: SealedSegmentContent, private readonly edgeContent?: SealedEdgeContent, private readonly contextItemContent?: SealedContextItemContent, private readonly fileChunkContent?: SealedFileChunkContent, private readonly attachmentContent?: SealedAttachmentContent) {
+constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: string, private readonly receiptContent?: SealedReceiptContent, private readonly runContent?: SealedRunContent, private readonly journalContent?: SealedJournalContent, private readonly messageContent?: SealedMessageContent, private readonly manifestContent?: SealedManifestContent, private readonly nodeContent?: SealedNodeContent, private readonly anchorContent?: SealedAnchorContent, private readonly segmentContent?: SealedSegmentContent, private readonly edgeContent?: SealedEdgeContent, private readonly contextItemContent?: SealedContextItemContent, private readonly fileChunkContent?: SealedFileChunkContent, private readonly attachmentContent?: SealedAttachmentContent, private readonly resourceContent?: SealedResourceContent) {
     const configuredWorkspaceId = defaultWorkspaceId?.trim();
     if (configuredWorkspaceId && !uuidPattern.test(configuredWorkspaceId)) throw new Error('RHIZA_PROJECT_ID must be a UUID when set');
     this.defaultWorkspaceId = configuredWorkspaceId || DEFAULT_PROJECT_ID;
@@ -153,7 +154,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
   forWorkspace(workspaceId: string): WorkspaceRepository {
     if (workspaceId === this.defaultWorkspaceId) return this;
     let scoped = this.scoped.get(workspaceId);
-    if (!scoped) { scoped = new PostgresWorkspaceStore(this.database, workspaceId, this.receiptContent, this.runContent, this.journalContent, this.messageContent, this.manifestContent, this.nodeContent, this.anchorContent, this.segmentContent, this.edgeContent, this.contextItemContent, this.fileChunkContent, this.attachmentContent); this.scoped.set(workspaceId, scoped); }
+    if (!scoped) { scoped = new PostgresWorkspaceStore(this.database, workspaceId, this.receiptContent, this.runContent, this.journalContent, this.messageContent, this.manifestContent, this.nodeContent, this.anchorContent, this.segmentContent, this.edgeContent, this.contextItemContent, this.fileChunkContent, this.attachmentContent, this.resourceContent); this.scoped.set(workspaceId, scoped); }
     return scoped;
   }
 
@@ -1118,7 +1119,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       this.database.query<Record<string, unknown>>('SELECT * FROM rhiza_resources WHERE workspace_id=$1 AND resource_id=ANY($2::text[])', [this.defaultWorkspaceId, manifest.contextItems.flatMap(item => item.resourceId ? [item.resourceId] : [])]),
       this.database.query<Record<string, unknown>>('SELECT rv.* FROM rhiza_resource_versions rv JOIN rhiza_resources r ON r.resource_id=rv.resource_id WHERE r.workspace_id=$1 AND rv.resource_version_id=ANY($2::text[])', [this.defaultWorkspaceId, manifest.contextItems.flatMap(item => item.resourceVersionId ? [item.resourceVersionId] : [])]),
     ]);
-    return { manifest, resources: resources.rows.map(row => ({ id: String(row.resource_id), workspaceId: String(row.workspace_id), kind: row.kind as Resource['kind'], logicalName: String(row.logical_name), createdAt: asIso(row.created_at) })), versions: versions.rows.map(storedResourceVersion) };
+    return { manifest, resources: await Promise.all(resources.rows.map(row => this.decodeResource(row))), versions: versions.rows.map(storedResourceVersion) };
   }
 
   async readConversationPreparation(attachmentIds: string[], sourceMessageId?: string): Promise<import('./application/ports/workspace-unit-of-work').ConversationPreparation> {
@@ -1282,6 +1283,13 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     return { ...edge, ...await this.edgeContent.read(this.defaultWorkspaceId, edge.id, asJson<SealedEdgeRef>(row.content_ref)) };
   }
 
+  private async decodeResource(row: Record<string, unknown>): Promise<Resource> {
+    const resource = { id: String(row.resource_id), workspaceId: String(row.workspace_id), kind: row.kind as Resource['kind'], logicalName: String(row.logical_name), createdAt: asIso(row.created_at) };
+    if (row.content_ref == null) return resource;
+    if (!this.resourceContent) throw new Error('RESOURCE_CONTENT_STORE_UNAVAILABLE');
+    return { ...resource, ...await this.resourceContent.read(this.defaultWorkspaceId, resource.id, asJson<SealedResourceRef>(row.content_ref)) };
+  }
+
   private async decodeAttachment(row: Record<string, unknown>): Promise<StoredAttachment> {
     const attachment = storedAttachment(row);
     if (row.content_ref == null) return attachment;
@@ -1352,7 +1360,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         const version = resourceVersionsResult.rows.find(item => String(item.resource_version_id) === String(row.resource_version_id));
         return this.decodeAttachment({ ...row, digest: version?.digest, blob_ref: version?.blob_ref });
       })),
-      resources: resourcesResult.rows.map(row => ({ id: String(row.resource_id), workspaceId: String(row.workspace_id), kind: row.kind as Resource['kind'], logicalName: String(row.logical_name), createdAt: asIso(row.created_at) })),
+      resources: await Promise.all(resourcesResult.rows.map(row => this.decodeResource(row))),
       resourceVersions: resourceVersionsResult.rows.map(storedResourceVersion),
       materializations: materializationsResult.rows.map(row => ({ id: String(row.materialization_id), resourceVersionId: String(row.resource_version_id), kind: row.kind as ResourceMaterialization['kind'], generator: row.generator as ResourceMaterialization['generator'], createdAt: asIso(row.created_at) })),
       fileChunks: await this.decodeFileChunks(state.fileChunks || []),
