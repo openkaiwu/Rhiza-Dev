@@ -544,6 +544,26 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     });
   }
 
+  async sealLegacyEdgeContent(limit = 100): Promise<number> {
+    if (!this.edgeContent) throw new Error('EDGE_CONTENT_STORE_UNAVAILABLE');
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error('INVALID_EDGE_MIGRATION_LIMIT');
+    return this.inTransaction(async database => {
+      await database.query("SET LOCAL lock_timeout = '5s'");
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
+      const { rows } = await database.query<{ id: string; label: string }>(
+        'SELECT id,label FROM rhiza_edges WHERE project_id=$1 AND content_ref IS NULL ORDER BY id LIMIT $2 FOR UPDATE', [this.defaultWorkspaceId, limit]);
+      for (const row of rows) {
+        const original = { label: row.label };
+        const reference = await this.edgeContent!.seal(this.defaultWorkspaceId, row.id, original);
+        this.transactionContent.get(database)!.push({ workspaceId: this.defaultWorkspaceId, edgeId: row.id, reference });
+        const decoded = await this.edgeContent!.read(this.defaultWorkspaceId, row.id, reference);
+        if (semanticStateChecksum(decoded) !== semanticStateChecksum(original)) throw new Error('EDGE_MIGRATION_CHECKSUM_MISMATCH');
+        await database.query("UPDATE rhiza_edges SET label='',content_ref=$2::jsonb WHERE id=$1", [row.id, JSON.stringify(reference)]);
+      }
+      return rows.length;
+    });
+  }
+
   /** Offline owner-level maintenance; ordinary Manifest writes remain immutable. */
   async sealLegacyManifestContent(limit = 100): Promise<number> {
     if (!this.manifestContent) throw new Error('MANIFEST_CONTENT_STORE_UNAVAILABLE');

@@ -31,6 +31,17 @@ it('rejects plaintext alongside edge ciphertext and preserves endpoint constrain
     const reference = await content.seal(workspace, edge, { label: 'private label' });
     await database.query('UPDATE rhiza_edges SET content_ref=$2 WHERE id=$1', [edge, JSON.stringify(reference)]);
     const store = new PostgresWorkspaceStore(database, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, content);
+    await database.query("UPDATE rhiza_edges SET content_ref=NULL,label='private label' WHERE id=$1", [edge]);
+    const migrate = store.forWorkspace(workspace) as PostgresWorkspaceStore;
+    const migrationSeal = vi.spyOn(content, 'seal');
+    const decode = vi.spyOn(content, 'read').mockResolvedValueOnce({ label: 'wrong' });
+    await expect(migrate.sealLegacyEdgeContent(1)).rejects.toThrow('EDGE_MIGRATION_CHECKSUM_MISMATCH');
+    decode.mockRestore();
+    await expect(content.read(workspace, edge, await migrationSeal.mock.results[0].value)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    expect((await database.query('SELECT label,content_ref FROM rhiza_edges WHERE id=$1', [edge])).rows[0]).toEqual({ label: 'private label', content_ref: null });
+    expect(await migrate.sealLegacyEdgeContent(1)).toBe(1);
+    expect(await migrate.sealLegacyEdgeContent(1)).toBe(0);
+    migrationSeal.mockRestore();
     expect((await store.forWorkspace(workspace).read()).discussionEdges).toEqual([expect.objectContaining({ id: edge, source, target, label: 'private label' })]);
     await expect(new PostgresWorkspaceStore(database, workspace).read()).rejects.toThrow('EDGE_CONTENT_STORE_UNAVAILABLE');
     const scoped = store.forWorkspace(workspace);
