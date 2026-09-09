@@ -3,7 +3,7 @@ import { readFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { loadMigrations } from './migrate';
 import { SealedEdgeContent } from '../server/infrastructure/sealed-edge-content';
 import { PostgresWorkspaceStore } from '../server/postgres-store';
@@ -33,7 +33,18 @@ it('rejects plaintext alongside edge ciphertext and preserves endpoint constrain
     const store = new PostgresWorkspaceStore(database, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, content);
     expect((await store.forWorkspace(workspace).read()).discussionEdges).toEqual([expect.objectContaining({ id: edge, source, target, label: 'private label' })]);
     await expect(new PostgresWorkspaceStore(database, workspace).read()).rejects.toThrow('EDGE_CONTENT_STORE_UNAVAILABLE');
-    await content.destroy(workspace, edge, reference);
+    const scoped = store.forWorkspace(workspace);
+    await scoped.update(current => ({ ...current, discussionEdges: current.discussionEdges.map(item => ({ ...item, label: 'updated label' })) }));
+    const stored = (await database.query<{ label: string; content_ref: typeof reference }>('SELECT label,content_ref FROM rhiza_edges WHERE id=$1', [edge])).rows[0];
+    expect(stored.label).toBe('');
+    expect((await scoped.read()).discussionEdges[0].label).toBe('updated label');
+    const seal = vi.spyOn(content, 'seal');
+    await database.exec("CREATE FUNCTION reject_edge_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected edge failure'; END $$; CREATE TRIGGER reject_edge_write BEFORE INSERT ON rhiza_edges FOR EACH ROW EXECUTE FUNCTION reject_edge_write();");
+    await expect(scoped.update(current => ({ ...current, discussionEdges: current.discussionEdges.map(item => ({ ...item, label: 'failed label' })) }))).rejects.toThrow('injected edge failure');
+    await expect(content.read(workspace, edge, await seal.mock.results[0].value)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    expect((await scoped.read()).discussionEdges[0].label).toBe('updated label');
+    seal.mockRestore();
+    await content.destroy(workspace, edge, stored.content_ref);
     await expect(store.forWorkspace(workspace).read()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
   } finally { await database.close(); await rm(root, { recursive: true, force: true }); }
 }, 30_000);

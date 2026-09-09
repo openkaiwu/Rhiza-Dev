@@ -40,7 +40,8 @@ type PendingContent = { workspaceId: string; commandId: string; reference: Seale
   | { workspaceId: string; manifestId: string; reference: SealedManifestRef }
   | { workspaceId: string; nodeId: string; reference: SealedNodeRef }
   | { workspaceId: string; anchorId: string; reference: SealedAnchorRef }
-  | { workspaceId: string; segmentId: string; reference: SealedSegmentRef };
+  | { workspaceId: string; segmentId: string; reference: SealedSegmentRef }
+  | { workspaceId: string; edgeId: string; reference: SealedEdgeRef };
 export interface SqlQueryable {
   query<Row = Record<string, unknown>>(sql: string, values?: unknown[]): Promise<QueryResult<Row>>;
 }
@@ -265,6 +266,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       else if ('nodeId' in item) await this.nodeContent!.destroy(item.workspaceId, item.nodeId, item.reference);
       else if ('anchorId' in item) await this.anchorContent!.destroy(item.workspaceId, item.anchorId, item.reference);
       else if ('segmentId' in item) await this.segmentContent!.destroy(item.workspaceId, item.segmentId, item.reference);
+      else if ('edgeId' in item) await this.edgeContent!.destroy(item.workspaceId, item.edgeId, item.reference);
       else await this.receiptContent!.destroy(item.workspaceId, item.commandId, item.reference, item.kind);
       pending.pop();
     }
@@ -1307,7 +1309,16 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       }
       await database.query(`INSERT INTO rhiza_anchors (id,project_id,node_id,message_id,segment_id,selected_text,start_offset,end_offset,created_at,content_ref) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb) ON CONFLICT (id) DO UPDATE SET node_id=EXCLUDED.node_id,message_id=EXCLUDED.message_id,segment_id=EXCLUDED.segment_id,selected_text=EXCLUDED.selected_text,start_offset=EXCLUDED.start_offset,end_offset=EXCLUDED.end_offset,content_ref=EXCLUDED.content_ref`, [anchor.id,workspace.projectId,anchor.nodeId,anchor.messageId || null,anchor.segmentId || null,reference ? null : anchor.selectedText || null,anchor.startOffset ?? null,anchor.endOffset ?? null,anchor.createdAt,reference ? JSON.stringify(reference) : null]);
     }
-    for (const edge of edges) await database.query(`INSERT INTO rhiza_edges (id,project_id,source_node_id,target_node_id,anchor_id,relation,label,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO UPDATE SET source_node_id=EXCLUDED.source_node_id,target_node_id=EXCLUDED.target_node_id,anchor_id=EXCLUDED.anchor_id,relation=EXCLUDED.relation,label=EXCLUDED.label`, [edge.id,workspace.projectId,edge.source,edge.target,edge.anchorId || null,relationToDb(edge.relation),edge.label,edge.createdAt]);
+    for (const edge of edges) {
+      let reference: SealedEdgeRef | undefined;
+      if (this.edgeContent) {
+        const pending = this.transactionContent.get(database);
+        if (!pending) throw new Error('EDGE_CONTENT_REQUIRES_TRANSACTION');
+        reference = await this.edgeContent.seal(workspace.projectId, edge.id, edge);
+        pending.push({ workspaceId: workspace.projectId, edgeId: edge.id, reference });
+      }
+      await database.query(`INSERT INTO rhiza_edges (id,project_id,source_node_id,target_node_id,anchor_id,relation,label,created_at,content_ref) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb) ON CONFLICT (id) DO UPDATE SET source_node_id=EXCLUDED.source_node_id,target_node_id=EXCLUDED.target_node_id,anchor_id=EXCLUDED.anchor_id,relation=EXCLUDED.relation,label=EXCLUDED.label,content_ref=EXCLUDED.content_ref`, [edge.id,workspace.projectId,edge.source,edge.target,edge.anchorId || null,relationToDb(edge.relation),reference ? '' : edge.label,edge.createdAt,reference ? JSON.stringify(reference) : null]);
+    }
     if (messages.length) await database.query('DELETE FROM rhiza_message_attachments WHERE message_id = ANY($1::uuid[])', [messages.map(message => message.id)]);
     for (const message of messages) for (const [ordinal, attachmentId] of (message.attachmentIds || []).entries()) await database.query('INSERT INTO rhiza_message_attachments (message_id,attachment_id,ordinal) VALUES ($1,$2,$3)', [message.id,attachmentId,ordinal]);
     for (const audit of audits) await database.query(`INSERT INTO rhiza_audit_events (id,project_id,node_id,action,entity_type,entity_id,metadata,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8) ON CONFLICT (id) DO NOTHING`, [audit.id,audit.projectId,audit.nodeId || null,audit.action,audit.entityType,audit.entityId,JSON.stringify(audit.metadata),audit.createdAt]);
