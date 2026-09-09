@@ -24,5 +24,13 @@ export function openContent(identity: ContentIdentity, content: SealedContent, k
   decipher.setAAD(associatedData(identity));
   decipher.setAuthTag(content.tag);
   // Do not release unauthenticated plaintext before final() verifies the tag.
-  return Buffer.concat([decipher.update(content.ciphertext), decipher.final()]);
+  const plaintext = decipher.update(content.ciphertext);
+  let final: Buffer | undefined;
+  try {
+    final = decipher.final();
+    return Buffer.concat([plaintext, final]);
+  } finally {
+    plaintext.fill(0);
+    final?.fill(0);
+  }
 }

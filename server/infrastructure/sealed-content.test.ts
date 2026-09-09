@@ -1,6 +1,30 @@
 import { randomBytes } from 'node:crypto';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { openContent, sealContent } from './sealed-content';
+
+it('clears temporary plaintext on authentication failure and after a successful copy', () => {
+  const identity = { workspaceId: 'workspace-a', contentId: 'resource-a' };
+  const key = randomBytes(32);
+  const original = Buffer.from('private authenticated content');
+  const sealed = sealContent(identity, original, key);
+  const invalid = { ...sealed, tag: Buffer.from(sealed.tag) };
+  invalid.tag[0] ^= 1;
+  const fill = vi.spyOn(Buffer.prototype, 'fill');
+  try {
+    expect(() => openContent(identity, invalid, key)).toThrow();
+    const rejected = fill.mock.contexts.filter(buffer => buffer.length === original.length);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0].every((byte: number) => byte === 0)).toBe(true);
+    fill.mockClear();
+    const opened = openContent(identity, sealed, key);
+    expect(opened).toEqual(original);
+    const cleared = fill.mock.contexts.filter(buffer => buffer.length === original.length);
+    expect(cleared).toHaveLength(1);
+    expect(cleared[0]).not.toBe(opened);
+    expect(cleared[0].every((byte: number) => byte === 0)).toBe(true);
+    expect(original.toString()).toBe('private authenticated content');
+  } finally { fill.mockRestore(); }
+});
 
 it('authenticates content identity, bytes and key before returning plaintext', () => {
   const identity = { workspaceId: 'workspace-a', contentId: 'resource-a' };
