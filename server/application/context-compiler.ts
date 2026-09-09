@@ -12,12 +12,14 @@ export class BlobContextCompiler implements ContextCompiler {
       const item = structuredClone(source);
       if (item.content === undefined) throw Object.assign(new Error('Context source has no resolved content'), { code: 'CONTEXT_SOURCE_UNRESOLVED', status: 409 });
       const bytes = new TextEncoder().encode(JSON.stringify({ schemaVersion: '1.0.0', content: item.content }));
-      const blob = await this.blobs.put(bytes);
+      const resourceId = this.id();
+      const resourceVersionId = this.id();
+      const blob = await this.blobs.put(bytes, { workspaceId, contentId: resourceVersionId });
       const verified = await this.blobs.read(blob.blobRef, blob.digest);
       if (verified.length !== bytes.length || verified.some((byte, index) => byte !== bytes[index])) throw Object.assign(new Error('Frozen context verification failed'), { code: 'BLOB_INTEGRITY_ERROR', status: 409 });
       const createdAt = this.now();
-      const resource = { id: this.id(), workspaceId, kind: 'context-source' as const, logicalName: (item.title || item.sourceId || item.id).slice(0, 240), createdAt };
-      return { item: structuredClone(item), resource, resourceVersion: { id: this.id(), resourceId: resource.id, version: 1, ...blob, canonicalization: 'raw-v1' as const, mediaType: 'application/vnd.rhiza.context+json', createdAt }, priority, contributorVersion: 'lexical-v1' };
+      const resource = { id: resourceId, workspaceId, kind: 'context-source' as const, logicalName: (item.title || item.sourceId || item.id).slice(0, 240), createdAt };
+      return { item: structuredClone(item), resource, resourceVersion: { id: resourceVersionId, resourceId: resource.id, version: 1, ...blob, canonicalization: 'raw-v1' as const, mediaType: 'application/vnd.rhiza.context+json', createdAt }, priority, contributorVersion: 'lexical-v1' };
     }));
   }
 }

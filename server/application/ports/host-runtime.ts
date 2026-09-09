@@ -22,8 +22,10 @@ export interface BlobGcResult {
   retained: string[];
 }
 
+export interface BlobContentIdentity { workspaceId: string; contentId: string }
+
 export interface BlobStorePort {
-  put(bytes: Uint8Array): Promise<BlobPutResult>;
+  put(bytes: Uint8Array, identity?: BlobContentIdentity): Promise<BlobPutResult>;
   putStream?(bytes: AsyncIterable<Uint8Array>, expectedDigest: string, expectedSize: number): Promise<BlobPutResult>;
   read(blobRef: string, expectedDigest: string): Promise<Uint8Array>;
   readStream?(blobRef: string, expectedDigest: string): AsyncIterable<Uint8Array>;

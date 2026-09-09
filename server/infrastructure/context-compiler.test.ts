@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { BlobContextCompiler } from '../application/context-compiler';
 import { NodeFilesystemBlobStore } from './node-host-runtime';
 import type { ContextItem } from '../domain';
@@ -12,12 +12,14 @@ it('freezes exact Unicode and empty text in verified content-addressed blobs', a
   const directory = await mkdtemp(join(tmpdir(), 'rhiza-context-compiler-'));
   try {
     const blobs = new NodeFilesystemBlobStore(directory);
+    const put = vi.spyOn(blobs, 'put');
     const compiler = new BlobContextCompiler(blobs, randomUUID, () => '2026-09-06T00:00:00.000Z');
     const items: ContextItem[] = ['退款\n🧪 é', ''].map((content, index) => ({ id: String(index), title: 'source', detail: 'detail', role: 'Reference', status: 'active', tokens: 1, content }));
     const frozen = await compiler.compile('workspace', items);
     for (const [index, selected] of frozen.entries()) {
       expect(selected.resource).toMatchObject({ workspaceId: 'workspace', kind: 'context-source' });
       expect(selected.resourceVersion.resourceId).toBe(selected.resource.id);
+      expect(put.mock.calls[index]).toEqual([expect.any(Uint8Array), { workspaceId: 'workspace', contentId: selected.resourceVersion.id }]);
       expect(selected.priority).toBe(index);
       expect(JSON.parse(new TextDecoder().decode(await blobs.read(selected.resourceVersion.blobRef, selected.resourceVersion.digest))).content).toBe(items[index].content);
     }
