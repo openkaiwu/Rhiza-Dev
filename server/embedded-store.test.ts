@@ -18,6 +18,7 @@ import { SealedAnchorContent } from './infrastructure/sealed-anchor-content';
 import { SealedSegmentContent } from './infrastructure/sealed-segment-content';
 import { SealedEdgeContent } from './infrastructure/sealed-edge-content';
 import { SealedContextItemContent } from './infrastructure/sealed-context-item-content';
+import { SealedFileChunkContent } from './infrastructure/sealed-file-chunk-content';
 import { randomUUID } from 'node:crypto';
 
 describe('embedded Workspace backend', () => {
@@ -36,7 +37,7 @@ describe('embedded Workspace backend', () => {
       query: async () => { throw new Error('query escaped transaction'); },
       transaction: async <T>(callback: (client: SqlQueryable) => Promise<T>) => callback({ query } as SqlQueryable),
     };
-    const store = new PostgresWorkspaceStore(database, undefined, receipts, SealedRunContent.atDirectory(join(directory, 'runs')), SealedJournalContent.atDirectory(join(directory, 'journal')), SealedMessageContent.atDirectory(join(directory, 'messages')), SealedManifestContent.atDirectory(join(directory, 'manifests')), SealedNodeContent.atDirectory(join(directory, 'nodes')), SealedAnchorContent.atDirectory(join(directory, 'anchors')), SealedSegmentContent.atDirectory(join(directory, 'segments')), SealedEdgeContent.atDirectory(join(directory, 'edges')), SealedContextItemContent.atDirectory(join(directory, 'context-items')));
+    const store = new PostgresWorkspaceStore(database, undefined, receipts, SealedRunContent.atDirectory(join(directory, 'runs')), SealedJournalContent.atDirectory(join(directory, 'journal')), SealedMessageContent.atDirectory(join(directory, 'messages')), SealedManifestContent.atDirectory(join(directory, 'manifests')), SealedNodeContent.atDirectory(join(directory, 'nodes')), SealedAnchorContent.atDirectory(join(directory, 'anchors')), SealedSegmentContent.atDirectory(join(directory, 'segments')), SealedEdgeContent.atDirectory(join(directory, 'edges')), SealedContextItemContent.atDirectory(join(directory, 'context-items')), SealedFileChunkContent.atDirectory(join(directory, 'file-chunks')));
     try {
       await expect(store.reclaimHistoricalKeys()).rejects.toThrow('CONTENT_KEY_REFERENCES_UNHEALTHY');
       expect(await receipts.read('workspace', 'unpublished', candidate)).toEqual({ keep: true });
@@ -52,7 +53,7 @@ describe('embedded Workspace backend', () => {
     const statements: string[] = [];
     const query = async (sql: string) => { statements.push(sql); return { rows: [] }; };
     const database = { query: async () => { throw new Error('query escaped transaction'); }, transaction: async <T>(callback: (client: SqlQueryable) => Promise<T>) => callback({ query }) };
-    const store = new PostgresWorkspaceStore(database, undefined, SealedReceiptContent.atDirectory(join(directory, 'receipts')), SealedRunContent.atDirectory(join(directory, 'runs')), SealedJournalContent.atDirectory(join(directory, 'journal')), SealedMessageContent.atDirectory(join(directory, 'messages')), SealedManifestContent.atDirectory(join(directory, 'manifests')), SealedNodeContent.atDirectory(join(directory, 'nodes')), SealedAnchorContent.atDirectory(join(directory, 'anchors')), SealedSegmentContent.atDirectory(join(directory, 'segments')), SealedEdgeContent.atDirectory(join(directory, 'edges')), SealedContextItemContent.atDirectory(join(directory, 'context-items')));
+    const store = new PostgresWorkspaceStore(database, undefined, SealedReceiptContent.atDirectory(join(directory, 'receipts')), SealedRunContent.atDirectory(join(directory, 'runs')), SealedJournalContent.atDirectory(join(directory, 'journal')), SealedMessageContent.atDirectory(join(directory, 'messages')), SealedManifestContent.atDirectory(join(directory, 'manifests')), SealedNodeContent.atDirectory(join(directory, 'nodes')), SealedAnchorContent.atDirectory(join(directory, 'anchors')), SealedSegmentContent.atDirectory(join(directory, 'segments')), SealedEdgeContent.atDirectory(join(directory, 'edges')), SealedContextItemContent.atDirectory(join(directory, 'context-items')), SealedFileChunkContent.atDirectory(join(directory, 'file-chunks')));
     try {
       await store.readExisting();
       expect(statements[0]).toContain("pg_advisory_xact_lock_shared(hashtext('rhiza:content-lifecycle'))");
@@ -98,6 +99,8 @@ describe('embedded Workspace backend', () => {
     try {
       const first = await openEmbeddedWorkspaceStore(data);
       let seeded = await first.read();
+      const chunk = { id: 'sealed-test-chunk', attachmentId: 'test-attachment', ordinal: 0, startOffset: 0, endOffset: 7, tokens: 2, text: 'private', terms: ['private'], embedding: [0.5] };
+      seeded = await first.update(current => ({ ...current, fileChunks: [chunk] }));
       const targetNode = { ...seeded.discussionNodes[0], id: randomUUID(), title: 'relation target' };
       const edge = { id: randomUUID(), source: seeded.discussionNodes[0].id, target: targetNode.id, relation: 'related-to' as const, label: 'private relationship', createdAt: new Date().toISOString() };
       seeded = await first.update(current => ({ ...current, discussionNodes: [...current.discussionNodes, targetNode], discussionEdges: [...current.discussionEdges, edge] }));
@@ -129,6 +132,9 @@ describe('embedded Workspace backend', () => {
       expect(audit.segments).toHaveLength(seeded.segments.length);
       expect(audit.edges).toHaveLength(seeded.discussionEdges.length);
       expect(audit.contextItems).toHaveLength(seeded.contextItems.length);
+      expect(audit.fileChunks).toHaveLength(1);
+      expect(audit.fileChunks[0]).toMatchObject({ referenced: true, state: 'active' });
+      expect((await reopened.read()).fileChunks).toEqual([chunk]);
       expect((await reopened.read()).contextItems).toEqual(seeded.contextItems);
       expect((await reopened.readConversationPreparation([])).contextItems).toEqual(seeded.contextItems);
       expect((await reopened.read()).discussionEdges).toEqual(seeded.discussionEdges);
@@ -152,6 +158,9 @@ describe('embedded Workspace backend', () => {
       try {
         const items = (await inspection.query<{ items: Array<Record<string, unknown>> }>("SELECT state->'contextItems' AS items FROM rhiza_projects WHERE id=$1", [seeded.projectId])).rows[0].items;
         expect(items).toHaveLength(seeded.contextItems.length);
+        const chunks = (await inspection.query<{ items: unknown[] }>("SELECT state->'fileChunks' AS items FROM rhiza_projects WHERE id=$1", [seeded.projectId])).rows[0].items;
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0]).toMatchObject({ text: '', terms: [], embedding: [], contentRef: { format: 'rhiza.sealed-file-chunk.v1' } });
         for (const item of items) {
           expect(item).toMatchObject({ title: '', detail: '', contentRef: expect.objectContaining({ format: 'rhiza.sealed-context-item.v1' }) });
           expect(item).not.toHaveProperty('reason');

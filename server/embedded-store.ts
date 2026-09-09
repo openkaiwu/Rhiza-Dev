@@ -13,6 +13,7 @@ import { SealedAnchorContent } from './infrastructure/sealed-anchor-content';
 import { SealedSegmentContent } from './infrastructure/sealed-segment-content';
 import { SealedEdgeContent } from './infrastructure/sealed-edge-content';
 import { SealedContextItemContent } from './infrastructure/sealed-context-item-content';
+import { SealedFileChunkContent } from './infrastructure/sealed-file-chunk-content';
 
 /** Opens the durable local PostgreSQL-compatible adapter used when DATABASE_URL is absent. */
 export async function openEmbeddedWorkspaceStore(dataDirectory = resolve('var/rhiza.pglite'), workspaceId?: string, migrationMode: 'apply' | 'verify' = 'apply'): Promise<PostgresWorkspaceStore> {
@@ -42,7 +43,7 @@ export async function openEmbeddedWorkspaceStore(dataDirectory = resolve('var/rh
       });
     }
     const contentDirectory = `${resolve(dataDirectory)}.content`;
-    return new PostgresWorkspaceStore(database, workspaceId, SealedReceiptContent.atDirectory(contentDirectory), SealedRunContent.atDirectory(join(contentDirectory, 'runs')), SealedJournalContent.atDirectory(join(contentDirectory, 'journal')), SealedMessageContent.atDirectory(join(contentDirectory, 'messages')), SealedManifestContent.atDirectory(join(contentDirectory, 'manifests')), SealedNodeContent.atDirectory(join(contentDirectory, 'nodes')), SealedAnchorContent.atDirectory(join(contentDirectory, 'anchors')), SealedSegmentContent.atDirectory(join(contentDirectory, 'segments')), SealedEdgeContent.atDirectory(join(contentDirectory, 'edges')), SealedContextItemContent.atDirectory(join(contentDirectory, 'context-items')));
+    return new PostgresWorkspaceStore(database, workspaceId, SealedReceiptContent.atDirectory(contentDirectory), SealedRunContent.atDirectory(join(contentDirectory, 'runs')), SealedJournalContent.atDirectory(join(contentDirectory, 'journal')), SealedMessageContent.atDirectory(join(contentDirectory, 'messages')), SealedManifestContent.atDirectory(join(contentDirectory, 'manifests')), SealedNodeContent.atDirectory(join(contentDirectory, 'nodes')), SealedAnchorContent.atDirectory(join(contentDirectory, 'anchors')), SealedSegmentContent.atDirectory(join(contentDirectory, 'segments')), SealedEdgeContent.atDirectory(join(contentDirectory, 'edges')), SealedContextItemContent.atDirectory(join(contentDirectory, 'context-items')), SealedFileChunkContent.atDirectory(join(contentDirectory, 'file-chunks')));
   } catch (error) {
     await database.close();
     throw error;
