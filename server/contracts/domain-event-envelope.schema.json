@@ -44,6 +44,20 @@
           },
           "additionalProperties": false
         },
+        "removedRelation": {
+          "type": "object",
+          "required": ["id", "source", "target", "relation", "createdAt", "label"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "source": { "type": "string", "minLength": 1 },
+            "target": { "type": "string", "minLength": 1 },
+            "relation": { "type": "string", "minLength": 1 },
+            "createdAt": { "type": "string", "format": "date-time" },
+            "label": { "type": "string" },
+            "anchorId": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
         "removedRelations": {
           "type": "array",
           "items": {
