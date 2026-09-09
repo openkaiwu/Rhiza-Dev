@@ -14,6 +14,7 @@ import { SealedRunContent } from './infrastructure/sealed-run-content';
 import { SealedJournalContent } from './infrastructure/sealed-journal-content';
 import { SealedManifestContent } from './infrastructure/sealed-manifest-content';
 import { SealedNodeContent } from './infrastructure/sealed-node-content';
+import { SealedAnchorContent } from './infrastructure/sealed-anchor-content';
 import { randomUUID } from 'node:crypto';
 
 describe('embedded Workspace backend', () => {
@@ -32,7 +33,7 @@ describe('embedded Workspace backend', () => {
       query: async () => { throw new Error('query escaped transaction'); },
       transaction: async <T>(callback: (client: SqlQueryable) => Promise<T>) => callback({ query } as SqlQueryable),
     };
-    const store = new PostgresWorkspaceStore(database, undefined, receipts, SealedRunContent.atDirectory(join(directory, 'runs')), SealedJournalContent.atDirectory(join(directory, 'journal')), SealedMessageContent.atDirectory(join(directory, 'messages')), SealedManifestContent.atDirectory(join(directory, 'manifests')), SealedNodeContent.atDirectory(join(directory, 'nodes')));
+    const store = new PostgresWorkspaceStore(database, undefined, receipts, SealedRunContent.atDirectory(join(directory, 'runs')), SealedJournalContent.atDirectory(join(directory, 'journal')), SealedMessageContent.atDirectory(join(directory, 'messages')), SealedManifestContent.atDirectory(join(directory, 'manifests')), SealedNodeContent.atDirectory(join(directory, 'nodes')), SealedAnchorContent.atDirectory(join(directory, 'anchors')));
     try {
       await expect(store.reclaimHistoricalKeys()).rejects.toThrow('CONTENT_KEY_REFERENCES_UNHEALTHY');
       expect(await receipts.read('workspace', 'unpublished', candidate)).toEqual({ keep: true });
@@ -48,7 +49,7 @@ describe('embedded Workspace backend', () => {
     const statements: string[] = [];
     const query = async (sql: string) => { statements.push(sql); return { rows: [] }; };
     const database = { query: async () => { throw new Error('query escaped transaction'); }, transaction: async <T>(callback: (client: SqlQueryable) => Promise<T>) => callback({ query }) };
-    const store = new PostgresWorkspaceStore(database, undefined, SealedReceiptContent.atDirectory(join(directory, 'receipts')), SealedRunContent.atDirectory(join(directory, 'runs')), SealedJournalContent.atDirectory(join(directory, 'journal')), SealedMessageContent.atDirectory(join(directory, 'messages')), SealedManifestContent.atDirectory(join(directory, 'manifests')), SealedNodeContent.atDirectory(join(directory, 'nodes')));
+    const store = new PostgresWorkspaceStore(database, undefined, SealedReceiptContent.atDirectory(join(directory, 'receipts')), SealedRunContent.atDirectory(join(directory, 'runs')), SealedJournalContent.atDirectory(join(directory, 'journal')), SealedMessageContent.atDirectory(join(directory, 'messages')), SealedManifestContent.atDirectory(join(directory, 'manifests')), SealedNodeContent.atDirectory(join(directory, 'nodes')), SealedAnchorContent.atDirectory(join(directory, 'anchors')));
     try {
       await store.readExisting();
       expect(statements[0]).toContain("pg_advisory_xact_lock_shared(hashtext('rhiza:content-lifecycle'))");
@@ -94,6 +95,8 @@ describe('embedded Workspace backend', () => {
     try {
       const first = await openEmbeddedWorkspaceStore(data);
       const seeded = await first.read();
+      const anchor = { id: randomUUID(), nodeId: seeded.messages[0].nodeId, messageId: seeded.messages[0].id, selectedText: 'persisted private quote', startOffset: 0, endOffset: 4, createdAt: new Date().toISOString() };
+      await first.update(current => ({ ...current, anchors: [...current.anchors, anchor] }));
       await first.workspaceDirectory.createWorkspace({ workspaceId: seeded.projectId, name: 'Run persistence test', status: 'active', createdBy: '00000000-0000-4000-8000-000000000002', revision: 1 });
       const baseline = await first.backfillJournal();
       const commandId = randomUUID();
@@ -116,6 +119,8 @@ describe('embedded Workspace backend', () => {
       expect(audit.messages).toHaveLength(persistedMessages.length);
       expect(audit.runs).toHaveLength(1);
       expect(audit.nodes).toHaveLength(seeded.discussionNodes.length);
+      expect(audit.anchors).toHaveLength(1);
+      expect((await reopened.read()).anchors).toContainEqual(anchor);
       expect((await reopened.read()).discussionNodes).toEqual(seeded.discussionNodes);
       expect(audit.journal).toHaveLength(2);
       const content = SealedMessageContent.atDirectory(join(`${data}.content`, 'messages'));
@@ -132,6 +137,8 @@ describe('embedded Workspace backend', () => {
       await reopened.close();
       const inspection = new PGlite(data);
       try {
+        expect((await inspection.query('SELECT selected_text,content_ref FROM rhiza_anchors WHERE id=$1', [anchor.id])).rows[0])
+          .toEqual({ selected_text: null, content_ref: expect.objectContaining({ format: 'rhiza.sealed-anchor.v1' }) });
         const nodes = (await inspection.query<{ title: string; summary: string; anchor_text: unknown; content_ref: unknown }>('SELECT title,summary,anchor_text,content_ref FROM rhiza_nodes')).rows;
         expect(nodes).toHaveLength(seeded.discussionNodes.length);
         for (const node of nodes) expect(node).toMatchObject({ title: '[sealed]', summary: '', anchor_text: null, content_ref: expect.objectContaining({ format: 'rhiza.sealed-node.v1' }) });
