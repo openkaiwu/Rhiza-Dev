@@ -42,6 +42,11 @@ it('cleans cancelled streams and rejects tampered temporary frames before yieldi
     await expect(invalid.next()).rejects.toThrow('CONTENT_DIGEST_MISMATCH');
     expect(await readdir(temporaryRoot)).toEqual([]);
     expect(await store.read(identity, reference)).toEqual(bytes);
+    const revoked = store.readStream(identity, reference)[Symbol.asyncIterator]();
+    expect((await revoked.next()).done).toBe(false);
+    await store.destroy(identity);
+    await expect(revoked.next()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    expect(await readdir(temporaryRoot)).toEqual([]);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

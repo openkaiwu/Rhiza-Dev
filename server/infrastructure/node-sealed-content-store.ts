@@ -134,6 +134,10 @@ export class NodeSealedContentStore {
           offset += bytesRead;
         }
         position += frame.length;
+        // A paused consumer must not keep reading the spool after the source key is revoked.
+        // Cross-process Purge still requires publication/read ownership coordination.
+        const currentKey = await this.keys.read(identity);
+        currentKey.fill(0);
         yield openContent({ ...identity, contentId: `${identity.contentId}:${index}` }, {
           version: 1, iv: frame.subarray(0, 12), tag: frame.subarray(12, 28), ciphertext: frame.subarray(28),
         }, temporaryKey);
