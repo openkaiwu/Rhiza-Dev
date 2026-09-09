@@ -76,7 +76,9 @@ describe('Workspace Graph Projection', () => {
     const tombstone = projection.objects.find(item => item.ref.objectId === 'removed');
     expect(tombstone).toMatchObject({ title: '[purged]', summary: '', kind: removed.kind, createdAt: removed.createdAt });
     expect(JSON.stringify(tombstone)).not.toContain(removed.title);
-    expect(projection.relations).toContainEqual(expect.objectContaining({ id: 'removed-edge', lifecycle: 'retracted' }));
+    expect(projection.relations).toContainEqual(expect.objectContaining({ id: 'removed-edge', lifecycle: 'retracted', label: '' }));
+    const ordinary = buildWorkspaceGraphProjection(workspace, [], 9, [events[1]!]);
+    expect(ordinary.relations).toContainEqual(expect.objectContaining({ id: 'removed-edge', label: 'historical' }));
     expect(graphNeighborhood(projection, { root: projection.objects[0]!.ref, depth: 3 }).relations).not.toContainEqual(expect.objectContaining({ id: 'removed-edge' }));
   });
 

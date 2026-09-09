@@ -61,6 +61,7 @@ export function buildWorkspaceGraphProjection(workspace: WorkspaceData, runs: re
       }];
     }),
   ].sort(byRef);
+  const purgedIds = new Set(objects.filter(object => object.lifecycle === 'tombstoned').map(object => object.ref.objectId));
   const relations: ProjectedRelation[] = [...workspace.discussionEdges.map(edge => ({
     id: edge.id,
     source: ref(workspace.projectId, 'conversation', edge.source),
@@ -71,7 +72,7 @@ export function buildWorkspaceGraphProjection(workspace: WorkspaceData, runs: re
     if (workspace.discussionEdges.some(edge => edge.id === removed.id)) return [];
     return [{
       id: removed.id, source: ref(workspace.projectId, 'conversation', removed.source), target: ref(workspace.projectId, 'conversation', removed.target),
-      relationType: legacyRelationCatalog[removed.relation] ?? removed.relation, lifecycle: 'retracted' as const, label: removed.label, createdAt: removed.createdAt,
+      relationType: legacyRelationCatalog[removed.relation] ?? removed.relation, lifecycle: 'retracted' as const, label: purgedIds.has(removed.source) || purgedIds.has(removed.target) ? '' : removed.label, createdAt: removed.createdAt,
     }];
   })].sort(byRelation);
   const semantic = { objects, relations };
