@@ -573,6 +573,10 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     const invalidIntermediate = structuredClone(portable);
     invalidIntermediate.journal.splice(1, 0, { ...structuredClone(portable.journal[0]), payload: { stateChanges: { messages: {} } } });
     expect(() => validatePortableHistory(invalidIntermediate, semanticStateChecksum)).toThrow('BUNDLE_INVALID_HISTORY_DELTA');
+    for (const messages of [[null], [{}], [{ id: {} }], [{ id: '' }], [{ id: 'duplicate' }, { id: 'duplicate' }]]) {
+      invalidIntermediate.journal[1].payload.stateChanges = { messages };
+      expect(() => validatePortableHistory(invalidIntermediate, semanticStateChecksum)).toThrow('BUNDLE_INVALID_HISTORY_DELTA');
+    }
     const forgedHistory = structuredClone(portable);
     forgedHistory.journal.at(-1)!.payload.stateChanges = { projectTitle: 'forged history' };
     expect(() => validatePortableHistory(forgedHistory, semanticStateChecksum)).toThrow('BUNDLE_HISTORY_MISMATCH');

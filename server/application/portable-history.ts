@@ -9,7 +9,16 @@ export function validatePortableHistory(facts: PortableWorkspaceFacts, hash: (st
   const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
   const validTypes = (value: Record<string, unknown>) => Object.entries(value).every(([key, item]) => {
     const target = expected[key];
-    return Array.isArray(target) ? Array.isArray(item) : record(target) ? record(item) : typeof item === typeof target && item !== null;
+    if (Array.isArray(target)) {
+      if (!Array.isArray(item)) return false;
+      const ids = new Set<string>();
+      return item.every(entry => {
+        if (!record(entry) || typeof entry.id !== 'string' || !entry.id || ids.has(entry.id)) return false;
+        ids.add(entry.id);
+        return true;
+      });
+    }
+    return record(target) ? record(item) : typeof item === typeof target && item !== null;
   });
   const first = facts.journal[0];
   const snapshot = first?.payload.snapshot;
