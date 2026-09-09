@@ -15,6 +15,7 @@ it('rejects plaintext and malformed metadata in encrypted context item projectio
     for (const migration of await loadMigrations()) await database.exec(migration.sql);
     const workspace = '00000000-0000-4000-8000-000000000001';
     await database.query("INSERT INTO rhiza_projects(id,title,state) VALUES ($1,'Test','{}')", [workspace]);
+    await database.query("INSERT INTO rhiza_nodes(id,project_id,title,status,kind) VALUES ('00000000-0000-4000-8000-000000000002',$1,'Test','active','main')", [workspace]);
     const digest = 'a'.repeat(64);
     const contentRef = { format: 'rhiza.sealed-context-item.v1', contentId: 'content', reference: {
       version: 1, digest, size: 10, ciphertext: { digestAlgorithm: 'sha256', digest, blobRef: `sha256/aa/${digest}`, size: 39 },
