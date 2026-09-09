@@ -17,6 +17,7 @@ import { SealedNodeContent } from './infrastructure/sealed-node-content';
 import { SealedAnchorContent } from './infrastructure/sealed-anchor-content';
 import { SealedSegmentContent } from './infrastructure/sealed-segment-content';
 import { SealedEdgeContent } from './infrastructure/sealed-edge-content';
+import { SealedContextItemContent } from './infrastructure/sealed-context-item-content';
 import { randomUUID } from 'node:crypto';
 
 describe('embedded Workspace backend', () => {
@@ -35,13 +36,13 @@ describe('embedded Workspace backend', () => {
       query: async () => { throw new Error('query escaped transaction'); },
       transaction: async <T>(callback: (client: SqlQueryable) => Promise<T>) => callback({ query } as SqlQueryable),
     };
-    const store = new PostgresWorkspaceStore(database, undefined, receipts, SealedRunContent.atDirectory(join(directory, 'runs')), SealedJournalContent.atDirectory(join(directory, 'journal')), SealedMessageContent.atDirectory(join(directory, 'messages')), SealedManifestContent.atDirectory(join(directory, 'manifests')), SealedNodeContent.atDirectory(join(directory, 'nodes')), SealedAnchorContent.atDirectory(join(directory, 'anchors')), SealedSegmentContent.atDirectory(join(directory, 'segments')), SealedEdgeContent.atDirectory(join(directory, 'edges')));
+    const store = new PostgresWorkspaceStore(database, undefined, receipts, SealedRunContent.atDirectory(join(directory, 'runs')), SealedJournalContent.atDirectory(join(directory, 'journal')), SealedMessageContent.atDirectory(join(directory, 'messages')), SealedManifestContent.atDirectory(join(directory, 'manifests')), SealedNodeContent.atDirectory(join(directory, 'nodes')), SealedAnchorContent.atDirectory(join(directory, 'anchors')), SealedSegmentContent.atDirectory(join(directory, 'segments')), SealedEdgeContent.atDirectory(join(directory, 'edges')), SealedContextItemContent.atDirectory(join(directory, 'context-items')));
     try {
       await expect(store.reclaimHistoricalKeys()).rejects.toThrow('CONTENT_KEY_REFERENCES_UNHEALTHY');
       expect(await receipts.read('workspace', 'unpublished', candidate)).toEqual({ keep: true });
       expect(statements[0]).toBe("SET LOCAL lock_timeout = '5s'");
       expect(statements[1]).toContain('pg_advisory_xact_lock(');
-      expect(statements[2]).toBe('LOCK TABLE command_receipts,execution_runs,workspace_events,rhiza_messages,rhiza_nodes,rhiza_context_manifests,rhiza_anchors,rhiza_segments,rhiza_edges IN SHARE MODE');
+      expect(statements[2]).toBe('LOCK TABLE command_receipts,execution_runs,workspace_events,rhiza_messages,rhiza_nodes,rhiza_context_manifests,rhiza_anchors,rhiza_segments,rhiza_edges,rhiza_projects IN SHARE MODE');
       expect(statements.slice(3).every(sql => sql.trim().startsWith('SELECT'))).toBe(true);
     } finally { await rm(directory, { recursive: true, force: true }); }
   });
@@ -51,7 +52,7 @@ describe('embedded Workspace backend', () => {
     const statements: string[] = [];
     const query = async (sql: string) => { statements.push(sql); return { rows: [] }; };
     const database = { query: async () => { throw new Error('query escaped transaction'); }, transaction: async <T>(callback: (client: SqlQueryable) => Promise<T>) => callback({ query }) };
-    const store = new PostgresWorkspaceStore(database, undefined, SealedReceiptContent.atDirectory(join(directory, 'receipts')), SealedRunContent.atDirectory(join(directory, 'runs')), SealedJournalContent.atDirectory(join(directory, 'journal')), SealedMessageContent.atDirectory(join(directory, 'messages')), SealedManifestContent.atDirectory(join(directory, 'manifests')), SealedNodeContent.atDirectory(join(directory, 'nodes')), SealedAnchorContent.atDirectory(join(directory, 'anchors')), SealedSegmentContent.atDirectory(join(directory, 'segments')), SealedEdgeContent.atDirectory(join(directory, 'edges')));
+    const store = new PostgresWorkspaceStore(database, undefined, SealedReceiptContent.atDirectory(join(directory, 'receipts')), SealedRunContent.atDirectory(join(directory, 'runs')), SealedJournalContent.atDirectory(join(directory, 'journal')), SealedMessageContent.atDirectory(join(directory, 'messages')), SealedManifestContent.atDirectory(join(directory, 'manifests')), SealedNodeContent.atDirectory(join(directory, 'nodes')), SealedAnchorContent.atDirectory(join(directory, 'anchors')), SealedSegmentContent.atDirectory(join(directory, 'segments')), SealedEdgeContent.atDirectory(join(directory, 'edges')), SealedContextItemContent.atDirectory(join(directory, 'context-items')));
     try {
       await store.readExisting();
       expect(statements[0]).toContain("pg_advisory_xact_lock_shared(hashtext('rhiza:content-lifecycle'))");
@@ -127,6 +128,9 @@ describe('embedded Workspace backend', () => {
       expect(audit.anchors).toHaveLength(1);
       expect(audit.segments).toHaveLength(seeded.segments.length);
       expect(audit.edges).toHaveLength(seeded.discussionEdges.length);
+      expect(audit.contextItems).toHaveLength(seeded.contextItems.length);
+      expect((await reopened.read()).contextItems).toEqual(seeded.contextItems);
+      expect((await reopened.readConversationPreparation([])).contextItems).toEqual(seeded.contextItems);
       expect((await reopened.read()).discussionEdges).toEqual(seeded.discussionEdges);
       expect((await reopened.read()).segments).toEqual(seeded.segments);
       expect((await reopened.read()).anchors).toContainEqual(anchor);
@@ -146,6 +150,13 @@ describe('embedded Workspace backend', () => {
       await reopened.close();
       const inspection = new PGlite(data);
       try {
+        const items = (await inspection.query<{ items: Array<Record<string, unknown>> }>("SELECT state->'contextItems' AS items FROM rhiza_projects WHERE id=$1", [seeded.projectId])).rows[0].items;
+        expect(items).toHaveLength(seeded.contextItems.length);
+        for (const item of items) {
+          expect(item).toMatchObject({ title: '', detail: '', contentRef: expect.objectContaining({ format: 'rhiza.sealed-context-item.v1' }) });
+          expect(item).not.toHaveProperty('reason');
+          expect(item).not.toHaveProperty('content');
+        }
         const edges = (await inspection.query('SELECT label,content_ref FROM rhiza_edges')).rows;
         expect(edges).toHaveLength(seeded.discussionEdges.length);
         for (const edge of edges) expect(edge).toEqual({ label: '', content_ref: expect.objectContaining({ format: 'rhiza.sealed-edge.v1' }) });

@@ -181,6 +181,8 @@ Rhiza 默认把工作空间数据保存在本机。Provider API Key 使用本机
 
 节点的标题、摘要与引用文本也默认加密，新内容存储在配套内容目录的 `nodes` 子目录；备份必须一并包含该目录。旧节点尚未迁移，其他当前状态和资源副本仍需覆盖。
 
+当前上下文项的标题、详情、理由和正文默认按项加密，存储于 `context-items` 子目录，须一起备份；来源、选择状态与版本仍保留。旧项可在停服并完整备份后运行 `pnpm exec tsx scripts/seal-legacy-context-items.ts` 分批校验迁移。此迁移不擦除旧备份/WAL/快照，也不覆盖文件块及其他资源副本。
+
 关系标签默认加密，密文与密钥位于 `edges` 子目录，须一起备份。旧标签可在停服并完整备份后运行 `pnpm exec tsx scripts/seal-legacy-edge-content.ts` 分批校验迁移；关系身份、端点和类型不变。旧备份、WAL 和快照中的明文不受此迁移影响。
 
 段落标题默认加密，密文与密钥位于 `segments` 子目录，须一起备份。旧段落可在停服并完整备份后运行 `pnpm exec tsx scripts/seal-legacy-segment-content.ts` 分批校验迁移；段落身份、节点关联和排序不变。旧备份、WAL 和快照中的明文不受此迁移影响。
