@@ -585,6 +585,12 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     const forgedChecksum = structuredClone(portable);
     forgedChecksum.journal[0].payload.portableStateChecksum = '0'.repeat(64);
     expect(() => validatePortableHistory(forgedChecksum, semanticStateChecksum)).toThrow('BUNDLE_EVENT_STATE_MISMATCH');
+    for (const index of [0, portable.journal.length - 1]) {
+      const incomplete = structuredClone(portable);
+      delete incomplete.journal[index].payload.portableStateChecksum;
+      expect(() => validatePortableHistory(incomplete, semanticStateChecksum)).toThrow('BUNDLE_EVENT_CHECKSUM_MISSING');
+    }
+    expect(portableWorkspaceFacts(portable, input => semanticStateChecksum(input as Record<string, unknown>))).toEqual(portable);
     const invalidDelta = structuredClone(portable);
     invalidDelta.journal.at(-1)!.payload.stateChanges = { constructor: {} };
     expect(() => validatePortableHistory(invalidDelta, semanticStateChecksum)).toThrow('BUNDLE_INVALID_HISTORY_DELTA');
