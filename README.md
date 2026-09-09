@@ -171,6 +171,8 @@ AI_PROVIDER_NAME=Your Provider
 
 ### 数据与隐私
 
+M09 开发版的 Bundle 导入会验证历史记录结构、集合身份和基线重放结果。新导出还包含脱敏后每条事件的状态校验和；一旦使用该字段，整份历史必须完整提供。旧 Bundle 未包含该字段时仍使用最终重放校验。校验和用于检查内容一致性，不是来源签名；请只导入可信来源的 Bundle。此能力仍在开发验收中。
+
 M09 开发版默认加密新写入的成功回执、拒绝回执错误正文、消息正文（含 reasoning 与 tool calls）、Manifest 完整内容、Journal 正文及 ExecutionRun 输入快照（包括 Bundle 导入的 Run）。Embedded 数据库的配套内容目录为 `<数据库目录>.content`（默认 `var/rhiza.pglite.content`）；PostgreSQL 模式默认为 `var/receipt-content`，其中 `runs`、`journal`、`messages` 与 `manifests` 子目录分别保存 Run 输入、Journal 正文、消息正文和 Manifest的密文及独立密钥。备份与迁移需同时保存数据库和完整内容目录，包括其中的密钥；丢失密钥将无法读取对应历史内容。旧 Journal 和其他历史字段尚未完成加密迁移，不能视为全量数据已加密或已支持完整 Purge。保留旧密钥的备份仍可能恢复相应内容。
 
 Rhiza 默认把工作空间数据保存在本机。Provider API Key 使用本机生成的 AES-256-GCM 密钥加密后保存，不通过 API 回显，也不会提交到 Git。发送消息时，被选中的 Context 会交给你配置的模型服务处理，因此仍需遵守对应 Provider 的数据政策。
