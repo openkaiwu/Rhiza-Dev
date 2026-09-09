@@ -30,7 +30,7 @@ import { SealedNodeContent, type SealedNodeRef } from './infrastructure/sealed-n
 import { SealedAnchorContent, type SealedAnchorRef } from './infrastructure/sealed-anchor-content';
 import { SealedSegmentContent, type SealedSegmentRef } from './infrastructure/sealed-segment-content';
 import { SealedEdgeContent, type SealedEdgeRef } from './infrastructure/sealed-edge-content';
-import { SealedContextItemContent, type SealedContextItemRef } from './infrastructure/sealed-context-item-content';
+import { SealedContextItemContent, contextItemStorageProjection, type SealedContextItemRef } from './infrastructure/sealed-context-item-content';
 import { manifestReferenceProjection, SealedManifestContent, type SealedManifestRef } from './infrastructure/sealed-manifest-content';
 
 interface QueryResult<Row> { rows: Row[] }
@@ -42,7 +42,8 @@ type PendingContent = { workspaceId: string; commandId: string; reference: Seale
   | { workspaceId: string; nodeId: string; reference: SealedNodeRef }
   | { workspaceId: string; anchorId: string; reference: SealedAnchorRef }
   | { workspaceId: string; segmentId: string; reference: SealedSegmentRef }
-  | { workspaceId: string; edgeId: string; reference: SealedEdgeRef };
+  | { workspaceId: string; edgeId: string; reference: SealedEdgeRef }
+  | { workspaceId: string; contextItemId: string; reference: SealedContextItemRef };
 export interface SqlQueryable {
   query<Row = Record<string, unknown>>(sql: string, values?: unknown[]): Promise<QueryResult<Row>>;
 }
@@ -268,6 +269,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       else if ('anchorId' in item) await this.anchorContent!.destroy(item.workspaceId, item.anchorId, item.reference);
       else if ('segmentId' in item) await this.segmentContent!.destroy(item.workspaceId, item.segmentId, item.reference);
       else if ('edgeId' in item) await this.edgeContent!.destroy(item.workspaceId, item.edgeId, item.reference);
+      else if ('contextItemId' in item) await this.contextItemContent!.destroy(item.workspaceId, item.contextItemId, item.reference);
       else await this.receiptContent!.destroy(item.workspaceId, item.commandId, item.reference, item.kind);
       pending.pop();
     }
@@ -1252,6 +1254,27 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     };
   }
 
+  private async prepareContextItems(database: SqlQueryable, workspace: WorkspaceData, previous?: WorkspaceData) {
+    if (!this.contextItemContent) return workspace.contextItems;
+    const pending = this.transactionContent.get(database);
+    if (!pending) throw new Error('CONTEXT_ITEM_CONTENT_REQUIRES_TRANSACTION');
+    const stored = (await database.query<{ items: unknown }>("SELECT state->'contextItems' AS items FROM rhiza_projects WHERE id=$1", [workspace.projectId])).rows[0];
+    const references = new Map(asJson<Array<{ id: string; contentRef?: SealedContextItemRef }>>(stored?.items || []).map(item => [item.id, item.contentRef]));
+    const oldItems = new Map(previous?.contextItems.map(item => [item.id, item]));
+    const authored = (item: WorkspaceData['contextItems'][number]) => ({ title: item.title, detail: item.detail, reason: item.reason, content: item.content });
+    const items = [];
+    for (const item of workspace.contextItems) {
+      const old = oldItems.get(item.id);
+      let reference = references.get(item.id);
+      if (!reference || !old || semanticStateChecksum(authored(old)) !== semanticStateChecksum(authored(item))) {
+        reference = await this.contextItemContent.seal(workspace.projectId, item.id, item);
+        pending.push({ workspaceId: workspace.projectId, contextItemId: item.id, reference });
+      }
+      items.push(contextItemStorageProjection(item, reference));
+    }
+    return items;
+  }
+
   private async persist(database: SqlQueryable, workspace: WorkspaceData, previous?: WorkspaceData, options?: WorkspaceUpdateOptions): Promise<void> {
     if (options?.purge) {
       const nodeId = options.purge.nodeId;
@@ -1283,7 +1306,8 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     const anchors = changedItems(workspace.anchors, previous?.anchors);
     const edges = changedItems(workspace.discussionEdges, previous?.discussionEdges);
     const audits = changedItems(workspace.auditEvents, previous?.auditEvents);
-    await database.query(`INSERT INTO rhiza_projects (id, title, state, created_at, updated_at) VALUES ($1,$2,$3::jsonb,$4,$4) ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, state=EXCLUDED.state, updated_at=EXCLUDED.updated_at`, [workspace.projectId, workspace.projectTitle, JSON.stringify({ mode: workspace.mode, contextItems: workspace.contextItems, fileChunks: workspace.fileChunks }), workspace.updatedAt]);
+    const contextItems = await this.prepareContextItems(database, workspace, previous);
+    await database.query(`INSERT INTO rhiza_projects (id, title, state, created_at, updated_at) VALUES ($1,$2,$3::jsonb,$4,$4) ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, state=EXCLUDED.state, updated_at=EXCLUDED.updated_at`, [workspace.projectId, workspace.projectTitle, JSON.stringify({ mode: workspace.mode, contextItems, fileChunks: workspace.fileChunks }), workspace.updatedAt]);
     await database.query(`INSERT INTO graph_layouts (workspace_id,layout_id,owner_scope) VALUES ($1,'default',$2::jsonb) ON CONFLICT DO NOTHING`, [workspace.projectId, JSON.stringify({ scopeType: 'workspace', scopeId: workspace.projectId })]);
     for (const node of nodes) {
       let reference: SealedNodeRef | undefined;
