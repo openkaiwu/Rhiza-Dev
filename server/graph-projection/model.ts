@@ -55,7 +55,7 @@ export function buildWorkspaceGraphProjection(workspace: WorkspaceData, runs: re
       if (workspace.discussionNodes.some(node => node.id === removed.id)) return [];
       return [{
         ref: ref(workspace.projectId, 'conversation', removed.id), revision: event.aggregateRevision,
-        lifecycle: 'tombstoned' as const, title: removed.title, summary: removed.summary, kind: removed.kind, status: 'tombstoned',
+        lifecycle: 'tombstoned' as const, title: '[purged]', summary: '', kind: removed.kind, status: 'tombstoned',
         createdAt: removed.createdAt, updatedAt: event.occurredAt, layout: { x: removed.x, y: removed.y },
       }];
     }),
