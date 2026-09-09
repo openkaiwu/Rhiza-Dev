@@ -30,6 +30,17 @@ it('rejects plaintext alongside segment ciphertext and preserves relational cons
     const reference = await content.seal(workspace, segment, { title: 'private title' });
     await database.query('UPDATE rhiza_segments SET content_ref=$2 WHERE id=$1', [segment, JSON.stringify(reference)]);
     const store = new PostgresWorkspaceStore(database, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, content);
+    await database.query("UPDATE rhiza_segments SET content_ref=NULL,title='private title' WHERE id=$1", [segment]);
+    const migrate = store.forWorkspace(workspace) as PostgresWorkspaceStore;
+    const migrationSeal = vi.spyOn(content, 'seal');
+    const decode = vi.spyOn(content, 'read').mockResolvedValueOnce({ title: 'wrong' });
+    await expect(migrate.sealLegacySegmentContent(1)).rejects.toThrow('SEGMENT_MIGRATION_CHECKSUM_MISMATCH');
+    decode.mockRestore();
+    await expect(content.read(workspace, segment, await migrationSeal.mock.results[0].value)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    expect((await database.query('SELECT title,content_ref FROM rhiza_segments WHERE id=$1', [segment])).rows[0]).toEqual({ title: 'private title', content_ref: null });
+    expect(await migrate.sealLegacySegmentContent(1)).toBe(1);
+    expect(await migrate.sealLegacySegmentContent(1)).toBe(0);
+    migrationSeal.mockRestore();
     expect((await store.forWorkspace(workspace).read()).segments).toEqual([expect.objectContaining({ id: segment, nodeId: node, ordinal: 0, title: 'private title' })]);
     await expect(new PostgresWorkspaceStore(database, workspace).read()).rejects.toThrow('SEGMENT_CONTENT_STORE_UNAVAILABLE');
     const scoped = store.forWorkspace(workspace);
