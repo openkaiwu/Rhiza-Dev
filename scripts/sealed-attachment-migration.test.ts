@@ -1,11 +1,16 @@
 // @vitest-environment node
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { expect, it } from 'vitest';
 import { loadMigrations } from './migrate';
+import { SealedAttachmentContent } from '../server/infrastructure/sealed-attachment-content';
+import { PostgresWorkspaceStore } from '../server/postgres-store';
 
 it('rejects plaintext beside attachment ciphertext and prevents unsafe downgrade', async () => {
   const database = new PGlite();
+  const root = await mkdtemp(join(tmpdir(), 'rhiza-attachment-sql-'));
   try {
     for (const migration of await loadMigrations()) await database.exec(migration.sql);
     const workspace = '00000000-0000-4000-8000-000000000001';
@@ -25,7 +30,19 @@ it('rejects plaintext beside attachment ciphertext and prevents unsafe downgrade
     }
     const down = await readFile('db/migrations/0027_sealed_attachment_content.down.sql', 'utf8');
     await expect(database.exec(down)).rejects.toThrow('Cannot remove sealed attachment references');
+    const content = SealedAttachmentContent.atDirectory(root);
+    const id = '00000000-0000-4000-8000-000000000002';
+    const authored = { name: 'private.txt', extractedText: 'private text', summary: 'private summary' };
+    const ref = await content.seal(workspace, id, authored);
+    await write(ref);
+    const store = new PostgresWorkspaceStore(database, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, content).forWorkspace(workspace) as PostgresWorkspaceStore;
+    expect((await store.read()).attachments[0]).toMatchObject(authored);
+    expect((await store.readConversationPreparation([id])).attachments[0]).toMatchObject(authored);
+    await expect(new PostgresWorkspaceStore(database, workspace).read()).rejects.toThrow('ATTACHMENT_CONTENT_STORE_UNAVAILABLE');
+    await content.destroy(workspace, id, ref);
+    await expect(store.read()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    await expect(store.readConversationPreparation([id])).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     await database.exec("UPDATE rhiza_attachments SET content_ref=NULL,name='legacy',extracted_text='restored'");
     await database.exec(down);
-  } finally { await database.close(); }
+  } finally { await database.close(); await rm(root, { recursive: true, force: true }); }
 }, 30_000);
