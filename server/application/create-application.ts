@@ -209,16 +209,16 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
     return committed.value;
   };
 
-  const registerResourceVersion = async (payload: Pick<DispatchPayload, 'name' | 'mimeType' | 'bytes' | 'attachmentId'>, existingAttachmentId?: string) => {
+  const registerResourceVersion = async (payload: Pick<DispatchPayload, 'name' | 'mimeType' | 'bytes' | 'attachmentId'>, workspaceId: string, existingAttachmentId?: string) => {
     const snapshot = await providers.snapshot();
     if (!payload.name || !payload.bytes.length) throw legacyError('附件名称或内容无效。', 400, 'INVALID_ATTACHMENT');
     if (payload.bytes.length > snapshot.filePolicy.maxFileSizeBytes) throw legacyError(`附件大小必须在 1 字节到 ${snapshot.filePolicy.maxFileSizeBytes} 字节之间。`, 413, 'ATTACHMENT_TOO_LARGE');
     if (snapshot.filePolicy.supportedMimeTypes.length && !snapshot.filePolicy.supportedMimeTypes.includes(payload.mimeType)) throw legacyError(`当前模型不支持 ${payload.mimeType}。`, 415, 'UNSUPPORTED_ATTACHMENT');
-    const stored = await host.blobs.put(payload.bytes);
-    const indexable = textMimeTypes.has(payload.mimeType) || payload.mimeType.startsWith('text/') || payload.mimeType === 'application/pdf';
-    const extracted = indexable ? await textExtraction.extractText(payload.mimeType, payload.bytes) : '';
     const attachmentId = existingAttachmentId || id();
     const resourceVersionId = id();
+    const stored = await host.blobs.put(payload.bytes, { workspaceId, contentId: resourceVersionId });
+    const indexable = textMimeTypes.has(payload.mimeType) || payload.mimeType.startsWith('text/') || payload.mimeType === 'application/pdf';
+    const extracted = indexable ? await textExtraction.extractText(payload.mimeType, payload.bytes) : '';
     const processed = planner.processAttachment(attachmentId, payload.name, payload.mimeType, extracted);
     const createdAt = now();
     const committed = await mutate(current => {
@@ -353,12 +353,12 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
         case 'UpdateModelPreference': return providers.updateModel(payload.modelId, { favorite: payload.favorite, pinned: payload.pinned });
         case 'SelectModel': return providers.selectModel(payload.modelId);
         case 'RegisterLegacyAttachment':
-        case 'RegisterResource': return await registerResourceVersion(payload);
+        case 'RegisterResource': return await registerResourceVersion(payload, envelope.workspaceId);
         case 'CreateResourceVersion': {
           const current = await unitOfWork.read(workspace => workspace);
           const existing = current.attachments.find(item => item.id === payload.attachmentId);
           if (!existing) throw legacyError('Resource 不存在。', 404, 'RESOURCE_NOT_FOUND');
-          return await registerResourceVersion({ ...payload, name: existing.name, mimeType: existing.mimeType }, existing.id);
+          return await registerResourceVersion({ ...payload, name: existing.name, mimeType: existing.mimeType }, envelope.workspaceId, existing.id);
         }
         case 'RebuildGraphProjection': {
           const projection = await unitOfWork.rebuildGraphProjection?.();

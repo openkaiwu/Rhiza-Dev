@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createLegacyCommandEnvelope, createLegacyQueryEnvelope } from '../contracts/application';
 import { createSeedWorkspace } from '../seed';
 import { createRhizaApplication } from './create-application';
 import { WorkspaceDirectory } from '../identity/workspace-directory';
-import { LOCAL_USER_ID } from '../identity/workspace-scope';
+import { DEFAULT_WORKSPACE_ID, LOCAL_USER_ID } from '../identity/workspace-scope';
 
 function fixture(options: { indexedPlanning?: boolean; failMutation?: boolean; committedRun?: import('../contracts/application').CreateConversationRunResult; ensureWorkspaceInitialized?: (workspaceId: string, name: string) => Promise<import('../domain').WorkspaceData>; blobPut?: (bytes: Uint8Array) => Promise<{ digestAlgorithm: 'sha256'; digest: string; blobRef: string; size: number }>; blobRead?: (blobRef: string, digest: string) => Promise<Uint8Array>; workspaceDirectory?: WorkspaceDirectory; defaultWorkspaceId?: string } = {}) {
   let workspace = createSeedWorkspace();
@@ -172,12 +172,16 @@ describe('Rhiza Application', () => {
 
   it('creates immutable ResourceVersions and validates the current digest before a run', async () => {
     const reads: string[] = [];
-    const { application, workspace } = fixture({ blobRead: async (blobRef, digest) => { reads.push(`${blobRef}:${digest}`); return new Uint8Array(); } });
+    const put = vi.fn(async (bytes: Uint8Array) => ({ digestAlgorithm: 'sha256' as const, digest: 'a'.repeat(64), blobRef: `sha256/aa/${'a'.repeat(64)}`, size: bytes.length }));
+    const { application, workspace } = fixture({ blobPut: put, blobRead: async (blobRef, digest) => { reads.push(`${blobRef}:${digest}`); return new Uint8Array(); } });
     const first = await application.execute(createLegacyCommandEnvelope('resource-1', 'RegisterResource', { name: 'brief.txt', mimeType: 'text/plain', bytes: new TextEncoder().encode('v1') }));
     const second = await application.execute(createLegacyCommandEnvelope('resource-2', 'CreateResourceVersion', { attachmentId: first.attachment.id, bytes: new TextEncoder().encode('v2') }));
     expect(second.attachment.id).toBe(first.attachment.id);
     expect(workspace().resources).toHaveLength(1);
     expect(workspace().resourceVersions.map(item => item.version)).toEqual([1, 2]);
+    expect(put.mock.calls).toEqual(workspace().resourceVersions.map((version, index) => [new TextEncoder().encode(`v${index + 1}`), {
+      workspaceId: DEFAULT_WORKSPACE_ID, contentId: version.id,
+    }]));
     expect(workspace().materializations).toHaveLength(2);
     await application.execute(createLegacyCommandEnvelope('resource-run', 'CreateConversationRun', { prompt: 'use it', operation: 'send', attachmentIds: [first.attachment.id], generation: { temperature: 0.4, topP: 1, maxTokens: 50 } }));
     expect(reads).toEqual([`${second.attachment.blobRef}:${second.attachment.digest}`]);
