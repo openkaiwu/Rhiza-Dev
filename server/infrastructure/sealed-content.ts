@@ -5,7 +5,7 @@ export interface SealedContent { version: 1; iv: Uint8Array; tag: Uint8Array; ci
 
 // Keys belong to the deletable key store, never to the immutable content envelope.
 // Bind ciphertext to logical identity so copying a row across scopes cannot decrypt it.
-function associatedData(identity: ContentIdentity): Buffer {
+export function associatedData(identity: ContentIdentity): Buffer {
   if (!identity.workspaceId || !identity.contentId) throw new Error('CONTENT_IDENTITY_REQUIRED');
   return Buffer.from(JSON.stringify(['rhiza.content.v1', identity.workspaceId, identity.contentId]));
 }

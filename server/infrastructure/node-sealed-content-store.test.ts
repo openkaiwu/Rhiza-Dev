@@ -6,6 +6,32 @@ import { NodeContentKeys } from './node-content-keys';
 import { NodeFilesystemBlobStore } from './node-host-runtime';
 import { NodeSealedContentStore } from './node-sealed-content-store';
 
+it('streams scoped ciphertext compatible with v1 and revokes failed publications', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rhiza-sealed-stream-'));
+  const keys = new NodeContentKeys(join(root, 'keys'));
+  const blobs = new NodeFilesystemBlobStore(join(root, 'data'));
+  const store = new NodeSealedContentStore(blobs, keys);
+  const bytes = Buffer.from('private streamed original attachment');
+  async function* chunks() { yield bytes.subarray(0, 5); yield bytes.subarray(5); }
+  const identity = { workspaceId: 'workspace', contentId: 'stream' };
+  try {
+    const reference = await store.putStream(identity, chunks(), bytes.length);
+    expect(await store.read(identity, reference)).toEqual(bytes);
+    expect(Buffer.from(await blobs.read(reference.ciphertext.blobRef, reference.ciphertext.digest)).includes(bytes)).toBe(false);
+    await expect(store.putStream(identity, chunks(), bytes.length)).rejects.toMatchObject({ code: 'EEXIST' });
+    expect(await store.read(identity, reference)).toEqual(bytes);
+    for (const size of [bytes.length - 1, bytes.length + 1]) {
+      const failed = { ...identity, contentId: `failed-${size}` };
+      await expect(store.putStream(failed, chunks(), size)).rejects.toThrow('CONTENT_SIZE_MISMATCH');
+      await expect(keys.read(failed)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    }
+    const empty = { ...identity, contentId: 'empty-stream' };
+    expect(await store.read(empty, await store.putStream(empty, (async function* () {})(), 0))).toHaveLength(0);
+    await store.destroy(identity);
+    await expect(store.read(identity, reference)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 it('clears its plaintext copy when key creation fails without revoking an existing key', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rhiza-sealed-failure-'));
   const keys = new NodeContentKeys(join(root, 'keys'));

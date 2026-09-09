@@ -1,8 +1,8 @@
-import { createHash } from 'node:crypto';
+import { createCipheriv, createHash, randomBytes } from 'node:crypto';
 import type { BlobPutResult } from '../application/ports/host-runtime';
 import { NodeContentKeys } from './node-content-keys';
 import { NodeFilesystemBlobStore } from './node-host-runtime';
-import { openContent, sealContent, type ContentIdentity } from './sealed-content';
+import { associatedData, openContent, sealContent, type ContentIdentity } from './sealed-content';
 
 export interface SealedContentRef { version: 1; digest: string; size: number; ciphertext: BlobPutResult }
 const maxDocumentBytes = 64 * 1024 ** 2;
@@ -17,6 +17,46 @@ export class NodeSealedContentStore {
 
   /** Maintenance only; caller holds exclusive publication ownership throughout. */
   revokeUnreferencedKeys(identities: Iterable<ContentIdentity>) { return this.keys.revokeUnreferenced(identities); }
+
+  /** Streaming publication; the bounded document reader remains limited to 64 MiB. */
+  async putStream(identity: ContentIdentity, plaintext: AsyncIterable<Uint8Array>, expectedSize: number): Promise<SealedContentRef> {
+    if (!Number.isSafeInteger(expectedSize) || expectedSize < 0 || expectedSize > 2 * 1024 ** 3) throw new Error('CONTENT_SIZE_INVALID');
+    let key: Buffer | undefined;
+    try {
+      key = await this.keys.create(identity);
+      const iv = randomBytes(12);
+      const cipher = createCipheriv('aes-256-gcm', key, iv, { authTagLength: 16 });
+      cipher.setAAD(associatedData(identity));
+      const hash = createHash('sha256');
+      async function* encrypt() {
+        let size = 0;
+        for await (const chunk of plaintext) {
+          size += chunk.byteLength;
+          if (size > expectedSize) throw new Error('CONTENT_SIZE_MISMATCH');
+          hash.update(chunk);
+          yield cipher.update(chunk);
+        }
+        if (size !== expectedSize) throw new Error('CONTENT_SIZE_MISMATCH');
+        yield cipher.final();
+      }
+      // The existing v1 header precedes ciphertext, but its tag is available only after final().
+      // Stage ciphertext alone, then stream the header and ciphertext into the final object.
+      // Both objects are encrypted; the unreferenced intermediate follows ordinary grace-period GC.
+      const staged = await this.blobs.putStream(encrypt(), undefined, expectedSize);
+      const blobs = this.blobs;
+      const header = Buffer.concat([Buffer.from([1]), iv, cipher.getAuthTag()]);
+      async function* envelope() {
+        yield header;
+        yield* blobs.readStream(staged.blobRef, staged.digest);
+      }
+      const ciphertext = await blobs.putStream(envelope(), undefined, expectedSize + headerBytes);
+      return { version: 1, digest: hash.digest('hex'), size: expectedSize, ciphertext };
+    } catch (error) {
+      try { if (key) await this.keys.destroy(identity); }
+      catch (cleanup) { throw new AggregateError([error, cleanup], 'CONTENT_PUBLICATION_CLEANUP_FAILED', { cause: cleanup }); }
+      throw error;
+    } finally { key?.fill(0); }
+  }
 
   async put(identity: ContentIdentity, plaintext: Uint8Array): Promise<SealedContentRef> {
     if (plaintext.byteLength > maxDocumentBytes) throw new Error('CONTENT_DOCUMENT_TOO_LARGE');
