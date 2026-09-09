@@ -8,6 +8,16 @@ import { NodeSealedContentStore, type SealedContentRef } from './node-sealed-con
 type ContextItemContent = Pick<ContextItem, 'title' | 'detail' | 'reason' | 'content'>;
 export interface SealedContextItemRef { format: 'rhiza.sealed-context-item.v1'; contentId: string; reference: SealedContentRef }
 
+/** Explicit storage projection: never spread caller-owned fields into plaintext JSON. */
+export function contextItemStorageProjection(item: ContextItem, contentRef: SealedContextItemRef) {
+  return {
+    id: item.id, title: '', detail: '', role: item.role, status: item.status, tokens: item.tokens,
+    selectionMode: item.selectionMode, sourceType: item.sourceType, sourceId: item.sourceId,
+    sourceNodeId: item.sourceNodeId, pinned: item.pinned, contentVersion: item.contentVersion,
+    score: item.score, contentRef,
+  };
+}
+
 export class SealedContextItemContent {
   static atDirectory(root: string) {
     return new SealedContextItemContent(new NodeSealedContentStore(new NodeFilesystemBlobStore(root), new NodeContentKeys(join(root, 'keys'))));
