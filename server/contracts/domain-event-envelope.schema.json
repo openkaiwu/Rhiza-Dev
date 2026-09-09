@@ -25,6 +25,25 @@
     "payload": {
       "type": "object",
       "properties": {
+        "removedObject": {
+          "type": "object",
+          "required": ["id", "kind", "createdAt", "x", "y"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "kind": { "enum": ["main", "branch"] },
+            "createdAt": { "type": "string", "format": "date-time" },
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "title": { "type": "string" },
+            "summary": { "type": "string" },
+            "status": { "type": "string" },
+            "updatedAt": { "type": "string", "format": "date-time" },
+            "sourceNodeId": { "type": "string" },
+            "sourceMessageId": { "type": "string" },
+            "anchorText": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
         "removedRelations": {
           "type": "array",
           "items": {
