@@ -26,12 +26,17 @@ export function validatePortableHistory(facts: PortableWorkspaceFacts, hash: (st
   if (Object.keys(snapshot.state).length !== keys.size || Object.keys(snapshot.state).some(key => !keys.has(key))) throw bundleError('BUNDLE_INVALID_BASELINE');
   if (!validTypes(snapshot.state)) throw bundleError('BUNDLE_INVALID_BASELINE');
   const state = structuredClone(snapshot.state);
+  const verifyChecksum = (payload: Record<string, unknown>) => {
+    if (payload.portableStateChecksum !== undefined && payload.portableStateChecksum !== hash(state)) throw bundleError('BUNDLE_EVENT_STATE_MISMATCH');
+  };
+  verifyChecksum(first.payload);
   for (const event of facts.journal.slice(1)) {
     if (event.payload.snapshot !== undefined) throw bundleError('BUNDLE_UNEXPECTED_BASELINE');
     const changes = event.payload.stateChanges;
-    if (changes === undefined) continue;
+    if (changes === undefined) { verifyChecksum(event.payload); continue; }
     if (!record(changes) || Object.keys(changes).some(key => !keys.has(key)) || !validTypes(changes)) throw bundleError('BUNDLE_INVALID_HISTORY_DELTA');
     Object.assign(state, changes);
+    verifyChecksum(event.payload);
   }
   const checksum = hash(state);
   if (checksum !== hash(expected)) throw bundleError('BUNDLE_HISTORY_MISMATCH');

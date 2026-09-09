@@ -59,11 +59,21 @@ export function portableWorkspaceFacts(source: PortableWorkspaceFacts, hash: (in
       telemetry: { traceCount: 0, ...(run.telemetry.usage ? { usage: select(run.telemetry.usage, ['promptTokens', 'completionTokens', 'totalTokens', 'estimated']) } : {}) },
       ...(run.error ? { error: { ...select(run.error, ['code', 'class']), message: 'Historical execution failure' } } : {}) };
   });
-  return structuredClone({ workspace, runs,
+  const result = structuredClone({ workspace, runs,
     directory: select(source.directory, ['workspaceId', 'name', 'status', 'createdBy', 'revision']),
     members: source.members.map(member => select(member, ['userId', 'role'])),
     provenance: source.provenance.map(link => select(link, ['schemaVersion', 'id', 'workspaceId', 'outputRef', 'inputRefs', 'contextManifestRef', 'runRef', 'parentRevisionRef', 'branchSourceRef', 'modelSpecRef', 'providerEndpointRef', 'runtimeSnapshotRef', 'status', 'missingRefs', 'createdAt'])),
     journal: source.journal.map(event => ({ ...select(event, ['eventId', 'workspaceId', 'sequence', 'eventType', 'ceSpecversion', 'envelopeVersion', 'eventSource', 'subject', 'dataSchema', 'aggregateType', 'aggregateId', 'aggregateRevision', 'commandId', 'eventIndex', 'causationId', 'correlationId', 'occurredAt', 'recordedAt']),
       actor: select(event.actor, ['actorType', 'actorId']), scope: select(event.scope, ['scopeType', 'scopeId']), payload: stripOperationalMetadata(event.payload) as typeof event.payload })),
   });
+  let state: Record<string, unknown> | undefined;
+  for (const event of result.journal) {
+    const snapshot = event.payload.snapshot as { state?: Record<string, unknown> } | undefined;
+    if (snapshot?.state) state = structuredClone(snapshot.state);
+    if (state) {
+      if (event.payload.stateChanges) Object.assign(state, event.payload.stateChanges);
+      event.payload.portableStateChecksum = hash(state);
+    }
+  }
+  return result;
 }

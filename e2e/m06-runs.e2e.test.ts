@@ -579,7 +579,12 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     }
     const forgedHistory = structuredClone(portable);
     forgedHistory.journal.at(-1)!.payload.stateChanges = { projectTitle: 'forged history' };
+    expect(() => validatePortableHistory(forgedHistory, semanticStateChecksum)).toThrow('BUNDLE_EVENT_STATE_MISMATCH');
+    forgedHistory.journal.forEach(event => { delete event.payload.portableStateChecksum; });
     expect(() => validatePortableHistory(forgedHistory, semanticStateChecksum)).toThrow('BUNDLE_HISTORY_MISMATCH');
+    const forgedChecksum = structuredClone(portable);
+    forgedChecksum.journal[0].payload.portableStateChecksum = '0'.repeat(64);
+    expect(() => validatePortableHistory(forgedChecksum, semanticStateChecksum)).toThrow('BUNDLE_EVENT_STATE_MISMATCH');
     const invalidDelta = structuredClone(portable);
     invalidDelta.journal.at(-1)!.payload.stateChanges = { constructor: {} };
     expect(() => validatePortableHistory(invalidDelta, semanticStateChecksum)).toThrow('BUNDLE_INVALID_HISTORY_DELTA');

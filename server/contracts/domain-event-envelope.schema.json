@@ -76,6 +76,7 @@
         },
         "stateSchema": { "const": "rhiza.workspace-semantic.v1" },
         "reconcileChecksum": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "portableStateChecksum": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
         "stateChanges": { "type": "object" },
         "snapshot": { "type": "object", "required": ["stateSchema", "sourceSequence", "state"], "properties": { "stateSchema": { "const": "rhiza.workspace-semantic.v1" }, "sourceSequence": { "type": "integer", "minimum": 0 }, "state": { "type": "object" } }, "additionalProperties": false }
       }
