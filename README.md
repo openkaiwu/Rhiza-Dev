@@ -185,6 +185,8 @@ Rhiza 默认把工作空间数据保存在本机。Provider API Key 使用本机
 
 文件块正文、分词和向量默认共同加密，密文与密钥位于 `file-chunks` 子目录，须一起备份；文件关联、偏移、排序和版本仍保留。旧文件块可在停服并完整备份后运行 `pnpm exec tsx scripts/seal-legacy-file-chunks.ts`，工具获取运行时独占权并分批校验迁移，可中断重跑。此操作不擦除旧备份/WAL/快照，也不处理原始附件及其他资源副本，不等于完整 Purge。
 
+附件文件名、提取正文和摘要默认加密，密文与密钥位于 `attachments` 子目录，须一起备份。旧附件字段可在停服并完整备份后运行 `pnpm exec tsx scripts/seal-legacy-attachment-content.ts` 分批校验迁移；失败回滚，可重跑续迁，附件身份和资源关联不变。此工具不加密或擦除原始附件 Blob，也不清除资源名称、旧备份、WAL 或快照中的副本。
+
 关系标签默认加密，密文与密钥位于 `edges` 子目录，须一起备份。旧标签可在停服并完整备份后运行 `pnpm exec tsx scripts/seal-legacy-edge-content.ts` 分批校验迁移；关系身份、端点和类型不变。旧备份、WAL 和快照中的明文不受此迁移影响。
 
 段落标题默认加密，密文与密钥位于 `segments` 子目录，须一起备份。旧段落可在停服并完整备份后运行 `pnpm exec tsx scripts/seal-legacy-segment-content.ts` 分批校验迁移；段落身份、节点关联和排序不变。旧备份、WAL 和快照中的明文不受此迁移影响。
