@@ -1,11 +1,16 @@
 // @vitest-environment node
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { expect, it } from 'vitest';
 import { loadMigrations } from './migrate';
+import { SealedContextItemContent } from '../server/infrastructure/sealed-context-item-content';
+import { PostgresWorkspaceStore } from '../server/postgres-store';
 
 it('rejects plaintext and malformed metadata in encrypted context item projections', async () => {
   const database = new PGlite();
+  const root = await mkdtemp(join(tmpdir(), 'rhiza-context-sql-'));
   try {
     for (const migration of await loadMigrations()) await database.exec(migration.sql);
     const workspace = '00000000-0000-4000-8000-000000000001';
@@ -21,7 +26,20 @@ it('rejects plaintext and malformed metadata in encrypted context item projectio
       await expect(write({ ...item, ...patch })).rejects.toThrow();
     }
     await expect(database.exec(await readFile('db/migrations/0025_sealed_context_items.down.sql', 'utf8'))).rejects.toThrow('Cannot remove sealed context item protection');
+    const content = SealedContextItemContent.atDirectory(root);
+    const authored = { title: 'private title', detail: 'private detail', reason: 'private reason', content: 'private content' };
+    const reference = await content.seal(workspace, item.id, authored);
+    await write({ ...item, contentRef: reference });
+    const store = new PostgresWorkspaceStore(database, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, content);
+    const scoped = store.forWorkspace(workspace) as PostgresWorkspaceStore;
+    const expected = [{ id: item.id, role: item.role, status: item.status, tokens: item.tokens, ...authored }];
+    expect((await scoped.read()).contextItems).toEqual(expected);
+    expect((await scoped.readConversationPreparation([])).contextItems).toEqual(expected);
+    await expect(new PostgresWorkspaceStore(database, workspace).read()).rejects.toThrow('CONTEXT_ITEM_CONTENT_STORE_UNAVAILABLE');
+    await content.destroy(workspace, item.id, reference);
+    await expect(scoped.read()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    await expect(scoped.readConversationPreparation([])).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     await write({ id: 'legacy', title: 'legacy plaintext' });
     await database.exec(await readFile('db/migrations/0025_sealed_context_items.down.sql', 'utf8'));
-  } finally { await database.close(); }
+  } finally { await database.close(); await rm(root, { recursive: true, force: true }); }
 }, 30_000);

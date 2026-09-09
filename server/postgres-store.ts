@@ -30,6 +30,7 @@ import { SealedNodeContent, type SealedNodeRef } from './infrastructure/sealed-n
 import { SealedAnchorContent, type SealedAnchorRef } from './infrastructure/sealed-anchor-content';
 import { SealedSegmentContent, type SealedSegmentRef } from './infrastructure/sealed-segment-content';
 import { SealedEdgeContent, type SealedEdgeRef } from './infrastructure/sealed-edge-content';
+import { SealedContextItemContent, type SealedContextItemRef } from './infrastructure/sealed-context-item-content';
 import { manifestReferenceProjection, SealedManifestContent, type SealedManifestRef } from './infrastructure/sealed-manifest-content';
 
 interface QueryResult<Row> { rows: Row[] }
@@ -138,7 +139,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   private readonly scoped = new Map<string, PostgresWorkspaceStore>();
   readonly defaultWorkspaceId: string;
 
-  constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: string, private readonly receiptContent?: SealedReceiptContent, private readonly runContent?: SealedRunContent, private readonly journalContent?: SealedJournalContent, private readonly messageContent?: SealedMessageContent, private readonly manifestContent?: SealedManifestContent, private readonly nodeContent?: SealedNodeContent, private readonly anchorContent?: SealedAnchorContent, private readonly segmentContent?: SealedSegmentContent, private readonly edgeContent?: SealedEdgeContent) {
+  constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: string, private readonly receiptContent?: SealedReceiptContent, private readonly runContent?: SealedRunContent, private readonly journalContent?: SealedJournalContent, private readonly messageContent?: SealedMessageContent, private readonly manifestContent?: SealedManifestContent, private readonly nodeContent?: SealedNodeContent, private readonly anchorContent?: SealedAnchorContent, private readonly segmentContent?: SealedSegmentContent, private readonly edgeContent?: SealedEdgeContent, private readonly contextItemContent?: SealedContextItemContent) {
     const configuredWorkspaceId = defaultWorkspaceId?.trim();
     if (configuredWorkspaceId && !uuidPattern.test(configuredWorkspaceId)) throw new Error('RHIZA_PROJECT_ID must be a UUID when set');
     this.defaultWorkspaceId = configuredWorkspaceId || DEFAULT_PROJECT_ID;
@@ -147,7 +148,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   forWorkspace(workspaceId: string): WorkspaceRepository {
     if (workspaceId === this.defaultWorkspaceId) return this;
     let scoped = this.scoped.get(workspaceId);
-    if (!scoped) { scoped = new PostgresWorkspaceStore(this.database, workspaceId, this.receiptContent, this.runContent, this.journalContent, this.messageContent, this.manifestContent, this.nodeContent, this.anchorContent, this.segmentContent, this.edgeContent); this.scoped.set(workspaceId, scoped); }
+    if (!scoped) { scoped = new PostgresWorkspaceStore(this.database, workspaceId, this.receiptContent, this.runContent, this.journalContent, this.messageContent, this.manifestContent, this.nodeContent, this.anchorContent, this.segmentContent, this.edgeContent, this.contextItemContent); this.scoped.set(workspaceId, scoped); }
     return scoped;
   }
 
@@ -1044,7 +1045,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
         'SELECT a.*,rv.digest,rv.blob_ref FROM rhiza_attachments a LEFT JOIN rhiza_resource_versions rv ON rv.resource_version_id=a.resource_version_id WHERE a.project_id=$1 AND a.id::text=ANY($2::text[]) ORDER BY a.created_at,a.id', [project.id, attachmentIds])).rows : [];
       return {
         sourceRunId: (messages.find(row => row.id === sourceMessageId)?.source_request_id ?? undefined) as string | undefined,
-        projectId: project.id, activeNodeId: nodeId, node, mode: project.mode || 'Assisted', contextItems: asJson(project.context_items || []),
+        projectId: project.id, activeNodeId: nodeId, node, mode: project.mode || 'Assisted', contextItems: await this.decodeContextItems(project.context_items || []),
         messages: await Promise.all(messages.map(row => this.decodeMessage(row, row.attachment_ids as string[]))),
         attachments: attachments.map(storedAttachment),
       };
@@ -1190,6 +1191,17 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     return { ...edge, ...await this.edgeContent.read(this.defaultWorkspaceId, edge.id, asJson<SealedEdgeRef>(row.content_ref)) };
   }
 
+  private async decodeContextItems(value: unknown): Promise<WorkspaceData['contextItems']> {
+    const items = asJson<Array<WorkspaceData['contextItems'][number] & { contentRef?: SealedContextItemRef }>>(value);
+    return Promise.all(items.map(async item => {
+      if (!Object.hasOwn(item, 'contentRef')) return item;
+      if (!this.contextItemContent) throw new Error('CONTEXT_ITEM_CONTENT_STORE_UNAVAILABLE');
+      const { contentRef, ...metadata } = item;
+      if (!contentRef) throw new Error('CONTEXT_ITEM_CONTENT_REFERENCE_INVALID');
+      return { ...metadata, ...await this.contextItemContent.read(this.defaultWorkspaceId, item.id, contentRef) };
+    }));
+  }
+
   private async readFrom(database: SqlQueryable, lock = false): Promise<WorkspaceData | undefined> {
     const projects = await database.query<{ id: string; title: string; active_node_id: string | null; state: unknown; updated_at: unknown }>(`SELECT id, title, active_node_id, state, updated_at FROM rhiza_projects WHERE id = $1${lock ? ' FOR UPDATE' : ''}`, [this.defaultWorkspaceId]);
     const project = projects.rows[0];
@@ -1222,7 +1234,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     const state = asJson<{ mode?: WorkspaceData['mode']; contextItems?: WorkspaceData['contextItems']; fileChunks?: FileChunk[] }>(project.state || {});
     return {
       projectId: project.id, projectTitle: project.title, nodeId: project.active_node_id || nodes[0]?.id || '', activeNodeId: project.active_node_id || nodes[0]?.id || '',
-      mode: state.mode || 'Assisted', contextItems: state.contextItems || [], discussionNodes: nodes, messages,
+      mode: state.mode || 'Assisted', contextItems: await this.decodeContextItems(state.contextItems || []), discussionNodes: nodes, messages,
       segments: await Promise.all(segmentsResult.rows.map(row => this.decodeSegment(row))),
       anchors: await Promise.all(anchorsResult.rows.map(row => this.decodeAnchor(row))),
       discussionEdges: await Promise.all(edgesResult.rows.map(row => this.decodeEdge(row))),
