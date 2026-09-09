@@ -31,7 +31,7 @@ import { SealedAnchorContent, type SealedAnchorRef } from './infrastructure/seal
 import { SealedSegmentContent, type SealedSegmentRef } from './infrastructure/sealed-segment-content';
 import { SealedEdgeContent, type SealedEdgeRef } from './infrastructure/sealed-edge-content';
 import { SealedContextItemContent, contextItemStorageProjection, type SealedContextItemRef } from './infrastructure/sealed-context-item-content';
-import { SealedFileChunkContent, type SealedFileChunkRef } from './infrastructure/sealed-file-chunk-content';
+import { SealedFileChunkContent, fileChunkStorageProjection, type SealedFileChunkRef } from './infrastructure/sealed-file-chunk-content';
 import { manifestReferenceProjection, SealedManifestContent, type SealedManifestRef } from './infrastructure/sealed-manifest-content';
 
 interface QueryResult<Row> { rows: Row[] }
@@ -44,7 +44,8 @@ type PendingContent = { workspaceId: string; commandId: string; reference: Seale
   | { workspaceId: string; anchorId: string; reference: SealedAnchorRef }
   | { workspaceId: string; segmentId: string; reference: SealedSegmentRef }
   | { workspaceId: string; edgeId: string; reference: SealedEdgeRef }
-  | { workspaceId: string; contextItemId: string; reference: SealedContextItemRef };
+  | { workspaceId: string; contextItemId: string; reference: SealedContextItemRef }
+  | { workspaceId: string; fileChunkId: string; reference: SealedFileChunkRef };
 export interface SqlQueryable {
   query<Row = Record<string, unknown>>(sql: string, values?: unknown[]): Promise<QueryResult<Row>>;
 }
@@ -271,6 +272,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       else if ('segmentId' in item) await this.segmentContent!.destroy(item.workspaceId, item.segmentId, item.reference);
       else if ('edgeId' in item) await this.edgeContent!.destroy(item.workspaceId, item.edgeId, item.reference);
       else if ('contextItemId' in item) await this.contextItemContent!.destroy(item.workspaceId, item.contextItemId, item.reference);
+      else if ('fileChunkId' in item) await this.fileChunkContent!.destroy(item.workspaceId, item.fileChunkId, item.reference);
       else await this.receiptContent!.destroy(item.workspaceId, item.commandId, item.reference, item.kind);
       pending.pop();
     }
@@ -1317,6 +1319,27 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     return items;
   }
 
+  private async prepareFileChunks(database: SqlQueryable, workspace: WorkspaceData, previous?: WorkspaceData) {
+    if (!this.fileChunkContent) return workspace.fileChunks;
+    const pending = this.transactionContent.get(database);
+    if (!pending) throw new Error('FILE_CHUNK_CONTENT_REQUIRES_TRANSACTION');
+    const stored = (await database.query<{ items: unknown }>("SELECT state->'fileChunks' AS items FROM rhiza_projects WHERE id=$1", [workspace.projectId])).rows[0];
+    const references = new Map(asJson<Array<{ id: string; contentRef?: SealedFileChunkRef }>>(stored?.items || []).map(item => [item.id, item.contentRef]));
+    const oldItems = new Map(previous?.fileChunks.map(item => [item.id, item]));
+    const authored = (item: WorkspaceData['fileChunks'][number]) => ({ text: item.text, terms: item.terms, embedding: item.embedding });
+    const items = [];
+    for (const item of workspace.fileChunks) {
+      const old = oldItems.get(item.id);
+      let reference = references.get(item.id);
+      if (!reference || !old || semanticStateChecksum(authored(old)) !== semanticStateChecksum(authored(item))) {
+        reference = await this.fileChunkContent.seal(workspace.projectId, item.id, item);
+        pending.push({ workspaceId: workspace.projectId, fileChunkId: item.id, reference });
+      }
+      items.push(fileChunkStorageProjection(item, reference));
+    }
+    return items;
+  }
+
   private async persist(database: SqlQueryable, workspace: WorkspaceData, previous?: WorkspaceData, options?: WorkspaceUpdateOptions): Promise<void> {
     if (options?.purge) {
       const nodeId = options.purge.nodeId;
@@ -1349,7 +1372,8 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     const edges = changedItems(workspace.discussionEdges, previous?.discussionEdges);
     const audits = changedItems(workspace.auditEvents, previous?.auditEvents);
     const contextItems = await this.prepareContextItems(database, workspace, previous);
-    await database.query(`INSERT INTO rhiza_projects (id, title, state, created_at, updated_at) VALUES ($1,$2,$3::jsonb,$4,$4) ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, state=EXCLUDED.state, updated_at=EXCLUDED.updated_at`, [workspace.projectId, workspace.projectTitle, JSON.stringify({ mode: workspace.mode, contextItems, fileChunks: workspace.fileChunks }), workspace.updatedAt]);
+    const fileChunks = await this.prepareFileChunks(database, workspace, previous);
+    await database.query(`INSERT INTO rhiza_projects (id, title, state, created_at, updated_at) VALUES ($1,$2,$3::jsonb,$4,$4) ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, state=EXCLUDED.state, updated_at=EXCLUDED.updated_at`, [workspace.projectId, workspace.projectTitle, JSON.stringify({ mode: workspace.mode, contextItems, fileChunks }), workspace.updatedAt]);
     await database.query(`INSERT INTO graph_layouts (workspace_id,layout_id,owner_scope) VALUES ($1,'default',$2::jsonb) ON CONFLICT DO NOTHING`, [workspace.projectId, JSON.stringify({ scopeType: 'workspace', scopeId: workspace.projectId })]);
     for (const node of nodes) {
       let reference: SealedNodeRef | undefined;
