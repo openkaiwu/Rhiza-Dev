@@ -44,11 +44,10 @@ export class NodeFilesystemBlobStore implements BlobStorePort {
     return this.putStream((async function* () { yield bytes; })(), sha256(bytes), bytes.length);
   }
 
-  async putStream(bytes: AsyncIterable<Uint8Array>, digest: string, expectedSize: number): Promise<BlobPutResult> {
-    assertDigest(digest);
+  // Generated ciphertext has no digest until encryption finishes; hash the staged file before publication.
+  async putStream(bytes: AsyncIterable<Uint8Array>, expectedDigest: string | undefined, expectedSize: number): Promise<BlobPutResult> {
+    if (expectedDigest !== undefined) assertDigest(expectedDigest);
     if (!Number.isSafeInteger(expectedSize) || expectedSize < 0) throw new BlobIntegrityError('Invalid blob size');
-    const blobRef = blobRefFor(digest);
-    const target = this.pathFor(blobRef);
     const temporary = resolve(this.root, 'tmp', `${randomUUID()}.tmp`);
     await mkdir(dirname(temporary), { recursive: true });
     try {
@@ -66,7 +65,10 @@ export class NodeFilesystemBlobStore implements BlobStorePort {
       await this.checkpoint?.('temp-written');
       const hash = createHash('sha256');
       for await (const chunk of createReadStream(temporary)) hash.update(chunk);
-      if (hash.digest('hex') !== digest) throw new BlobIntegrityError('Temporary blob digest mismatch');
+      const digest = hash.digest('hex');
+      if (expectedDigest !== undefined && digest !== expectedDigest) throw new BlobIntegrityError('Temporary blob digest mismatch');
+      const blobRef = blobRefFor(digest);
+      const target = this.pathFor(blobRef);
       await this.checkpoint?.('temp-verified');
       await mkdir(dirname(target), { recursive: true });
       try { await link(temporary, target); }
