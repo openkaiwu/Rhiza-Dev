@@ -48,7 +48,8 @@ type PendingContent = { workspaceId: string; commandId: string; reference: Seale
   | { workspaceId: string; edgeId: string; reference: SealedEdgeRef }
   | { workspaceId: string; contextItemId: string; reference: SealedContextItemRef }
   | { workspaceId: string; fileChunkId: string; reference: SealedFileChunkRef }
-  | { workspaceId: string; attachmentId: string; reference: SealedAttachmentRef };
+  | { workspaceId: string; attachmentId: string; reference: SealedAttachmentRef }
+  | { workspaceId: string; resourceId: string; reference: SealedResourceRef };
 export interface SqlQueryable {
   query<Row = Record<string, unknown>>(sql: string, values?: unknown[]): Promise<QueryResult<Row>>;
 }
@@ -277,6 +278,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       else if ('contextItemId' in item) await this.contextItemContent!.destroy(item.workspaceId, item.contextItemId, item.reference);
       else if ('fileChunkId' in item) await this.fileChunkContent!.destroy(item.workspaceId, item.fileChunkId, item.reference);
       else if ('attachmentId' in item) await this.attachmentContent!.destroy(item.workspaceId, item.attachmentId, item.reference);
+      else if ('resourceId' in item) await this.resourceContent!.destroy(item.workspaceId, item.resourceId, item.reference);
       else await this.receiptContent!.destroy(item.workspaceId, item.commandId, item.reference, item.kind);
       pending.pop();
     }
@@ -1467,7 +1469,18 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       }
       await database.query(`INSERT INTO rhiza_segments (id,node_id,ordinal,title,created_at,content_ref) VALUES ($1,$2,$3,$4,$5,$6::jsonb) ON CONFLICT (id) DO UPDATE SET node_id=EXCLUDED.node_id,ordinal=EXCLUDED.ordinal,title=EXCLUDED.title,content_ref=EXCLUDED.content_ref`, [segment.id,segment.nodeId,segment.ordinal,reference ? '' : segment.title,segment.createdAt,reference ? JSON.stringify(reference) : null]);
     }
-    for (const resource of resources) await database.query(`INSERT INTO rhiza_resources (resource_id,workspace_id,kind,logical_name,created_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (resource_id) DO NOTHING`, [resource.id,resource.workspaceId,resource.kind,resource.logicalName,resource.createdAt]);
+    for (const resource of resources) {
+      let reference: SealedResourceRef | undefined;
+      if (this.resourceContent) {
+        if ((await database.query('SELECT resource_id FROM rhiza_resources WHERE resource_id=$1', [resource.id])).rows.length) continue;
+        const pending = this.transactionContent.get(database);
+        if (!pending) throw new Error('RESOURCE_CONTENT_REQUIRES_TRANSACTION');
+        reference = await this.resourceContent.seal(resource.workspaceId, resource.id, resource);
+        pending.push({ workspaceId: resource.workspaceId, resourceId: resource.id, reference });
+      }
+      const inserted = await database.query(`INSERT INTO rhiza_resources (resource_id,workspace_id,kind,logical_name,created_at,content_ref) VALUES ($1,$2,$3,$4,$5,$6::jsonb) ON CONFLICT (resource_id) DO NOTHING RETURNING resource_id`, [resource.id,resource.workspaceId,resource.kind,reference ? '[sealed]' : resource.logicalName,resource.createdAt,reference ? JSON.stringify(reference) : null]);
+      if (reference && !inserted.rows.length) await this.resourceContent!.destroy(resource.workspaceId, resource.id, reference);
+    }
     for (const version of resourceVersions) await database.query(`INSERT INTO rhiza_resource_versions (resource_version_id,resource_id,version,digest_algorithm,digest,canonicalization,media_type,size_bytes,blob_ref,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [version.id,version.resourceId,version.version,version.digestAlgorithm,version.digest,version.canonicalization,version.mediaType,version.size,version.blobRef,version.createdAt]);
     for (const manifest of manifests) {
       let reference: SealedManifestRef | undefined;
