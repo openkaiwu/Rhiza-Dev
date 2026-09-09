@@ -18,6 +18,7 @@ import { SealedAnchorContent } from './infrastructure/sealed-anchor-content';
 import { SealedSegmentContent } from './infrastructure/sealed-segment-content';
 import { SealedEdgeContent } from './infrastructure/sealed-edge-content';
 import { SealedContextItemContent } from './infrastructure/sealed-context-item-content';
+import { SealedResourceContent } from './infrastructure/sealed-resource-content';
 import { SealedAttachmentContent } from './infrastructure/sealed-attachment-content';
 import { SealedFileChunkContent } from './infrastructure/sealed-file-chunk-content';
 import { randomUUID } from 'node:crypto';
@@ -38,13 +39,13 @@ describe('embedded Workspace backend', () => {
       query: async () => { throw new Error('query escaped transaction'); },
       transaction: async <T>(callback: (client: SqlQueryable) => Promise<T>) => callback({ query } as SqlQueryable),
     };
-    const store = new PostgresWorkspaceStore(database, undefined, receipts, SealedRunContent.atDirectory(join(directory, 'runs')), SealedJournalContent.atDirectory(join(directory, 'journal')), SealedMessageContent.atDirectory(join(directory, 'messages')), SealedManifestContent.atDirectory(join(directory, 'manifests')), SealedNodeContent.atDirectory(join(directory, 'nodes')), SealedAnchorContent.atDirectory(join(directory, 'anchors')), SealedSegmentContent.atDirectory(join(directory, 'segments')), SealedEdgeContent.atDirectory(join(directory, 'edges')), SealedContextItemContent.atDirectory(join(directory, 'context-items')), SealedFileChunkContent.atDirectory(join(directory, 'file-chunks')), SealedAttachmentContent.atDirectory(join(directory, 'attachments')));
+    const store = new PostgresWorkspaceStore(database, undefined, receipts, SealedRunContent.atDirectory(join(directory, 'runs')), SealedJournalContent.atDirectory(join(directory, 'journal')), SealedMessageContent.atDirectory(join(directory, 'messages')), SealedManifestContent.atDirectory(join(directory, 'manifests')), SealedNodeContent.atDirectory(join(directory, 'nodes')), SealedAnchorContent.atDirectory(join(directory, 'anchors')), SealedSegmentContent.atDirectory(join(directory, 'segments')), SealedEdgeContent.atDirectory(join(directory, 'edges')), SealedContextItemContent.atDirectory(join(directory, 'context-items')), SealedFileChunkContent.atDirectory(join(directory, 'file-chunks')), SealedAttachmentContent.atDirectory(join(directory, 'attachments')), SealedResourceContent.atDirectory(join(directory, 'resources')));
     try {
       await expect(store.reclaimHistoricalKeys()).rejects.toThrow('CONTENT_KEY_REFERENCES_UNHEALTHY');
       expect(await receipts.read('workspace', 'unpublished', candidate)).toEqual({ keep: true });
       expect(statements[0]).toBe("SET LOCAL lock_timeout = '5s'");
       expect(statements[1]).toContain('pg_advisory_xact_lock(');
-      expect(statements[2]).toBe('LOCK TABLE command_receipts,execution_runs,workspace_events,rhiza_messages,rhiza_nodes,rhiza_context_manifests,rhiza_anchors,rhiza_segments,rhiza_edges,rhiza_projects,rhiza_attachments IN SHARE MODE');
+      expect(statements[2]).toBe('LOCK TABLE command_receipts,execution_runs,workspace_events,rhiza_messages,rhiza_nodes,rhiza_context_manifests,rhiza_anchors,rhiza_segments,rhiza_edges,rhiza_projects,rhiza_attachments,rhiza_resources IN SHARE MODE');
       expect(statements.slice(3).every(sql => sql.trim().startsWith('SELECT'))).toBe(true);
     } finally { await rm(directory, { recursive: true, force: true }); }
   });
@@ -54,7 +55,7 @@ describe('embedded Workspace backend', () => {
     const statements: string[] = [];
     const query = async (sql: string) => { statements.push(sql); return { rows: [] }; };
     const database = { query: async () => { throw new Error('query escaped transaction'); }, transaction: async <T>(callback: (client: SqlQueryable) => Promise<T>) => callback({ query }) };
-    const store = new PostgresWorkspaceStore(database, undefined, SealedReceiptContent.atDirectory(join(directory, 'receipts')), SealedRunContent.atDirectory(join(directory, 'runs')), SealedJournalContent.atDirectory(join(directory, 'journal')), SealedMessageContent.atDirectory(join(directory, 'messages')), SealedManifestContent.atDirectory(join(directory, 'manifests')), SealedNodeContent.atDirectory(join(directory, 'nodes')), SealedAnchorContent.atDirectory(join(directory, 'anchors')), SealedSegmentContent.atDirectory(join(directory, 'segments')), SealedEdgeContent.atDirectory(join(directory, 'edges')), SealedContextItemContent.atDirectory(join(directory, 'context-items')), SealedFileChunkContent.atDirectory(join(directory, 'file-chunks')), SealedAttachmentContent.atDirectory(join(directory, 'attachments')));
+    const store = new PostgresWorkspaceStore(database, undefined, SealedReceiptContent.atDirectory(join(directory, 'receipts')), SealedRunContent.atDirectory(join(directory, 'runs')), SealedJournalContent.atDirectory(join(directory, 'journal')), SealedMessageContent.atDirectory(join(directory, 'messages')), SealedManifestContent.atDirectory(join(directory, 'manifests')), SealedNodeContent.atDirectory(join(directory, 'nodes')), SealedAnchorContent.atDirectory(join(directory, 'anchors')), SealedSegmentContent.atDirectory(join(directory, 'segments')), SealedEdgeContent.atDirectory(join(directory, 'edges')), SealedContextItemContent.atDirectory(join(directory, 'context-items')), SealedFileChunkContent.atDirectory(join(directory, 'file-chunks')), SealedAttachmentContent.atDirectory(join(directory, 'attachments')), SealedResourceContent.atDirectory(join(directory, 'resources')));
     try {
       await store.readExisting();
       expect(statements[0]).toContain("pg_advisory_xact_lock_shared(hashtext('rhiza:content-lifecycle'))");
@@ -100,6 +101,8 @@ describe('embedded Workspace backend', () => {
     try {
       const first = await openEmbeddedWorkspaceStore(data);
       let seeded = await first.read();
+      const resource = { id: 'private-resource', workspaceId: seeded.projectId, kind: 'attachment' as const, logicalName: 'private resource name', createdAt: new Date().toISOString() };
+      seeded = await first.update(current => ({ ...current, resources: [...current.resources, resource] }));
       const attachment = { id: randomUUID(), name: 'private.txt', extractedText: 'private text', summary: 'private summary', mimeType: 'text/plain', size: 12, kind: 'file' as const, createdAt: new Date().toISOString() };
       seeded = await first.update(current => ({ ...current, attachments: [...current.attachments, attachment] }));
       const chunk = { id: 'sealed-test-chunk', attachmentId: 'test-attachment', ordinal: 0, startOffset: 0, endOffset: 7, tokens: 2, text: 'private', terms: ['private'], embedding: [0.5] };
@@ -137,6 +140,9 @@ describe('embedded Workspace backend', () => {
       expect(audit.contextItems).toHaveLength(seeded.contextItems.length);
       expect(audit.fileChunks).toHaveLength(1);
       expect(audit.attachments.length).toBeGreaterThan(0);
+      expect(audit.resources.length).toBeGreaterThan(0);
+      expect(audit.resources.every(item => item.referenced && item.state === 'active')).toBe(true);
+      expect((await reopened.read()).resources).toEqual(expect.arrayContaining([resource]));
       expect(audit.attachments.every(item => item.referenced && item.state === 'active')).toBe(true);
       expect((await reopened.read()).attachments).toEqual(expect.arrayContaining([expect.objectContaining(attachment)]));
       expect(audit.fileChunks[0]).toMatchObject({ referenced: true, state: 'active' });
@@ -167,6 +173,8 @@ describe('embedded Workspace backend', () => {
         const chunks = (await inspection.query<{ items: unknown[] }>("SELECT state->'fileChunks' AS items FROM rhiza_projects WHERE id=$1", [seeded.projectId])).rows[0].items;
         expect(chunks).toHaveLength(1);
         const storedAttachment = (await inspection.query('SELECT name,extracted_text,summary,content_ref FROM rhiza_attachments WHERE id=$1', [attachment.id])).rows[0];
+        const storedResource = (await inspection.query('SELECT logical_name,content_ref FROM rhiza_resources WHERE resource_id=$1', [resource.id])).rows[0];
+        expect(storedResource).toMatchObject({ logical_name: '[sealed]', content_ref: { format: 'rhiza.sealed-resource.v1' } });
         expect(storedAttachment).toMatchObject({ name: '[sealed]', extracted_text: null, summary: null, content_ref: { format: 'rhiza.sealed-attachment.v1' } });
         expect(chunks[0]).toMatchObject({ text: '', terms: [], embedding: [], contentRef: { format: 'rhiza.sealed-file-chunk.v1' } });
         for (const item of items) {

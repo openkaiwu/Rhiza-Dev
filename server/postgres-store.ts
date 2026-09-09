@@ -203,7 +203,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
   };
 
   static fromConnectionString(connectionString: string, projectId?: string, contentDirectory = resolve('var/receipt-content')) {
-    return new PostgresWorkspaceStore(new Pool({ connectionString, max: 10, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 5_000 }), projectId, SealedReceiptContent.atDirectory(contentDirectory), SealedRunContent.atDirectory(resolve(contentDirectory, 'runs')), SealedJournalContent.atDirectory(resolve(contentDirectory, 'journal')), SealedMessageContent.atDirectory(resolve(contentDirectory, 'messages')), SealedManifestContent.atDirectory(resolve(contentDirectory, 'manifests')), SealedNodeContent.atDirectory(resolve(contentDirectory, 'nodes')), SealedAnchorContent.atDirectory(resolve(contentDirectory, 'anchors')), SealedSegmentContent.atDirectory(resolve(contentDirectory, 'segments')), SealedEdgeContent.atDirectory(resolve(contentDirectory, 'edges')), SealedContextItemContent.atDirectory(resolve(contentDirectory, 'context-items')), SealedFileChunkContent.atDirectory(resolve(contentDirectory, 'file-chunks')), SealedAttachmentContent.atDirectory(resolve(contentDirectory, 'attachments')));
+    return new PostgresWorkspaceStore(new Pool({ connectionString, max: 10, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 5_000 }), projectId, SealedReceiptContent.atDirectory(contentDirectory), SealedRunContent.atDirectory(resolve(contentDirectory, 'runs')), SealedJournalContent.atDirectory(resolve(contentDirectory, 'journal')), SealedMessageContent.atDirectory(resolve(contentDirectory, 'messages')), SealedManifestContent.atDirectory(resolve(contentDirectory, 'manifests')), SealedNodeContent.atDirectory(resolve(contentDirectory, 'nodes')), SealedAnchorContent.atDirectory(resolve(contentDirectory, 'anchors')), SealedSegmentContent.atDirectory(resolve(contentDirectory, 'segments')), SealedEdgeContent.atDirectory(resolve(contentDirectory, 'edges')), SealedContextItemContent.atDirectory(resolve(contentDirectory, 'context-items')), SealedFileChunkContent.atDirectory(resolve(contentDirectory, 'file-chunks')), SealedAttachmentContent.atDirectory(resolve(contentDirectory, 'attachments')), SealedResourceContent.atDirectory(resolve(contentDirectory, 'resources')));
   }
 
   /** PostgreSQL hosts admit one Chat runtime per database; a second host must not reconcile live work. */
@@ -337,10 +337,10 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
   }
 
   private async inspectHistoricalKeys(reclaim: boolean) {
-    const { receiptContent, runContent, journalContent, messageContent, manifestContent, nodeContent, anchorContent, segmentContent, edgeContent, contextItemContent, fileChunkContent, attachmentContent } = this;
-    if (!receiptContent || !runContent || !journalContent || !messageContent || !manifestContent || !nodeContent || !anchorContent || !segmentContent || !edgeContent || !contextItemContent || !fileChunkContent || !attachmentContent) throw new Error('HISTORY_CONTENT_STORES_UNAVAILABLE');
+    const { receiptContent, runContent, journalContent, messageContent, manifestContent, nodeContent, anchorContent, segmentContent, edgeContent, contextItemContent, fileChunkContent, attachmentContent, resourceContent } = this;
+    if (!receiptContent || !runContent || !journalContent || !messageContent || !manifestContent || !nodeContent || !anchorContent || !segmentContent || !edgeContent || !contextItemContent || !fileChunkContent || !attachmentContent || !resourceContent) throw new Error('HISTORY_CONTENT_STORES_UNAVAILABLE');
     return this.inTransaction(async database => {
-      if (reclaim) await database.query('LOCK TABLE command_receipts,execution_runs,workspace_events,rhiza_messages,rhiza_nodes,rhiza_context_manifests,rhiza_anchors,rhiza_segments,rhiza_edges,rhiza_projects,rhiza_attachments IN SHARE MODE');
+      if (reclaim) await database.query('LOCK TABLE command_receipts,execution_runs,workspace_events,rhiza_messages,rhiza_nodes,rhiza_context_manifests,rhiza_anchors,rhiza_segments,rhiza_edges,rhiza_projects,rhiza_attachments,rhiza_resources IN SHARE MODE');
       const { rows } = await database.query<{ family: string; workspace_id: string; id: string; reference: unknown }>(`
         SELECT 'runs' AS family,workspace_id,run_id AS id,input_content_ref AS reference FROM execution_runs WHERE input_content_ref IS NOT NULL
         UNION ALL SELECT 'journal',workspace_id,event_id::text,payload_content_ref FROM workspace_events WHERE payload_content_ref IS NOT NULL
@@ -351,6 +351,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         UNION ALL SELECT 'segments',n.project_id,s.id::text,s.content_ref FROM rhiza_segments s JOIN rhiza_nodes n ON n.id=s.node_id WHERE s.content_ref IS NOT NULL
         UNION ALL SELECT 'edges',project_id,id::text,content_ref FROM rhiza_edges WHERE content_ref IS NOT NULL
         UNION ALL SELECT 'attachments',project_id,id::text,content_ref FROM rhiza_attachments WHERE content_ref IS NOT NULL
+        UNION ALL SELECT 'resources',workspace_id,resource_id,content_ref FROM rhiza_resources WHERE content_ref IS NOT NULL
         UNION ALL SELECT 'contextItems',p.id,item->>'id',item->'contentRef' FROM rhiza_projects p
           CROSS JOIN LATERAL jsonb_array_elements(COALESCE(p.state->'contextItems','[]'::jsonb)) item WHERE item ? 'contentRef'
         UNION ALL SELECT 'fileChunks',p.id,item->>'id',item->'contentRef' FROM rhiza_projects p
@@ -370,6 +371,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         contextItems: await contextItemContent.auditKeys(references('contextItems')),
         fileChunks: await fileChunkContent.auditKeys(references('fileChunks')),
         attachments: await attachmentContent.auditKeys(references('attachments')),
+        resources: await resourceContent.auditKeys(references('resources')),
       };
       let revoked = 0;
       if (reclaim) {
@@ -389,6 +391,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         revoked += await contextItemContent.revokeUnreferencedKeys(references('contextItems'));
         revoked += await fileChunkContent.revokeUnreferencedKeys(references('fileChunks'));
         revoked += await attachmentContent.revokeUnreferencedKeys(references('attachments'));
+        revoked += await resourceContent.revokeUnreferencedKeys(references('resources'));
       }
       return { audit, revoked };
     }, true);
