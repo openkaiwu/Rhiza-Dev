@@ -29,6 +29,10 @@ it('freezes context through encrypted blobs and independently revokes each versi
     const importedIdentity = { workspaceId: 'workspace-import', contentId: 'import-version' };
     const imported = await blobs.putStream((async function* () { yield sourceBytes; })(), version.digest, sourceBytes.length, importedIdentity);
     expect(await blobs.read(imported.blobRef, imported.digest)).toEqual(sourceBytes);
+    const resumed = await blobs.putStream((async function* () { yield sourceBytes; })(), version.digest, sourceBytes.length, importedIdentity);
+    expect(await blobs.read(resumed.blobRef, resumed.digest)).toEqual(sourceBytes);
+    await expect(blobs.put(new TextEncoder().encode('different'), importedIdentity)).rejects.toThrow('CONTENT_IDENTITY_CONFLICT');
+    expect(await blobs.read(imported.blobRef, imported.digest)).toEqual(sourceBytes);
     const failedIdentity = { ...importedIdentity, contentId: 'bad-digest' };
     await expect(blobs.putStream((async function* () { yield sourceBytes; })(), '0'.repeat(64), sourceBytes.length, failedIdentity)).rejects.toThrow('CONTENT_DIGEST_MISMATCH');
     await expect(new NodeContentKeys(join(root, 'keys')).read(failedIdentity)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');

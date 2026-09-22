@@ -22,11 +22,15 @@ export class NodeSealedContentStore {
   revokeUnreferencedKeys(identities: Iterable<ContentIdentity>) { return this.keys.revokeUnreferenced(identities); }
 
   /** Streaming publication; the bounded document reader remains limited to 64 MiB. */
-  async putStream(identity: ContentIdentity, plaintext: AsyncIterable<Uint8Array>, expectedSize: number): Promise<SealedContentRef> {
+  async putStream(identity: ContentIdentity, plaintext: AsyncIterable<Uint8Array>, expectedSize: number, expectedDigest?: string): Promise<SealedContentRef> {
     if (!Number.isSafeInteger(expectedSize) || expectedSize < 0 || expectedSize > 2 * 1024 ** 3) throw new Error('CONTENT_SIZE_INVALID');
     let key: Buffer | undefined;
+    let created = false;
     try {
-      key = await this.keys.create(identity);
+      if (expectedDigest) {
+        const publication = await this.keys.createOrRead(identity, expectedDigest);
+        key = publication.key; created = publication.created;
+      } else { key = await this.keys.create(identity); created = true; }
       const iv = randomBytes(12);
       const cipher = createCipheriv('aes-256-gcm', key, iv, { authTagLength: 16 });
       cipher.setAAD(associatedData(identity));
@@ -53,9 +57,11 @@ export class NodeSealedContentStore {
         yield* blobs.readStream(staged.blobRef, staged.digest);
       }
       const ciphertext = await blobs.putStream(envelope(), undefined, expectedSize + headerBytes);
-      return { version: 1, digest: hash.digest('hex'), size: expectedSize, ciphertext };
+      const plaintextDigest = hash.digest('hex');
+      if (expectedDigest && plaintextDigest !== expectedDigest) throw new Error('CONTENT_DIGEST_MISMATCH');
+      return { version: 1, digest: plaintextDigest, size: expectedSize, ciphertext };
     } catch (error) {
-      try { if (key) await this.keys.destroy(identity); }
+      try { if (key && created) await this.keys.destroy(identity); }
       catch (cleanup) { throw new AggregateError([error, cleanup], 'CONTENT_PUBLICATION_CLEANUP_FAILED', { cause: cleanup }); }
       throw error;
     } finally { key?.fill(0); }

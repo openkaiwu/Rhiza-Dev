@@ -3,11 +3,14 @@ import type { WorkspaceUnitOfWork } from './ports/workspace-unit-of-work';
 import type { PortableWorkspaceFacts } from './ports/portable-workspace';
 
 export async function completeBundleImport(identity: BundleImportIdentity, facts: PortableWorkspaceFacts,
-  checkpoints: BundleImportCheckpointPort, ingestAndVerify: () => Promise<unknown>, uow: WorkspaceUnitOfWork): Promise<void> {
+  checkpoints: BundleImportCheckpointPort, ingestAndVerify: () => Promise<PortableWorkspaceFacts>, uow: WorkspaceUnitOfWork): Promise<void> {
   if (!uow.activatePortableImport || !uow.withWorkspace) throw new Error('PORTABLE_WORKSPACE_UNAVAILABLE');
   if (identity.workspaceId !== facts.workspace.projectId) throw new Error('BUNDLE_WORKSPACE_MISMATCH');
-  await prepareBundleImport(identity, checkpoints, ingestAndVerify);
-  await uow.withWorkspace(identity.workspaceId, () => uow.activatePortableImport!(identity.importId, identity.ownerId, facts));
+  let targetFacts: PortableWorkspaceFacts | undefined;
+  const checkpoint = await prepareBundleImport(identity, checkpoints, async () => { targetFacts = await ingestAndVerify(); });
+  if (checkpoint.phase === 'activated') return;
+  if (!targetFacts) throw new Error('BUNDLE_IMPORT_CONTENT_UNAVAILABLE');
+  await uow.withWorkspace(identity.workspaceId, () => uow.activatePortableImport!(identity.importId, identity.ownerId, targetFacts!));
 }
 
 /** Content verification precedes the durable phase change, including when resuming blobs-ready. */

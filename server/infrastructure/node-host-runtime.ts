@@ -147,9 +147,9 @@ export class NodeHostRuntimeAdapter implements HostRuntimePort {
   readonly blobs: BlobStorePort;
   constructor(
     private readonly root: string,
-    options: { checkpoint?: (checkpoint: BlobCheckpoint) => void | Promise<void>; credential?: (name: string) => Promise<string | undefined> } = {},
+    options: { checkpoint?: (checkpoint: BlobCheckpoint) => void | Promise<void>; credential?: (name: string) => Promise<string | undefined>; blobs?: BlobStorePort } = {},
   ) {
-    this.blobs = new NodeFilesystemBlobStore(root, options.checkpoint);
+    this.blobs = options.blobs ?? new NodeFilesystemBlobStore(root, options.checkpoint);
     this.credential = options.credential;
   }
   private readonly credential?: (name: string) => Promise<string | undefined>;

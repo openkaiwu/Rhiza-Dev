@@ -21,6 +21,7 @@ import type { PortableWorkspaceFacts } from './application/ports/portable-worksp
 import type { BundleImportCheckpoint } from './application/ports/bundle-import';
 import { validatePortableReferences } from './application/portable-references';
 import { validatePortableHistory } from './application/portable-history';
+import { portableWorkspaceFacts } from './application/portable-workspace';
 import { SqlBundleImportCheckpoints } from './infrastructure/bundle-import-checkpoints';
 import { SealedReceiptContent, type SealedReceiptRef } from './infrastructure/sealed-receipt-content';
 import { SealedRunContent, type SealedRunInputRef } from './infrastructure/sealed-run-content';
@@ -1019,12 +1020,13 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
   async activatePortableImport(importId: string, ownerId: string, facts: PortableWorkspaceFacts): Promise<void> {
     const conflict = (code: string) => Object.assign(new Error(code), { code, status: 409 });
     if (facts.workspace.projectId !== this.defaultWorkspaceId) throw conflict('BUNDLE_WORKSPACE_MISMATCH');
-    validatePortableReferences(facts);
-    validatePortableHistory(facts, semanticStateChecksum);
+    const portableFacts = portableWorkspaceFacts(facts, input => semanticStateChecksum(input as Record<string, unknown>));
+    validatePortableReferences(portableFacts);
+    validatePortableHistory(portableFacts, semanticStateChecksum);
     await this.inTransaction(async database => {
       const checkpoints = await database.query<BundleImportCheckpoint>('SELECT workspace_id AS "workspaceId",state_digest AS "stateDigest",phase FROM bundle_imports WHERE import_id=$1 AND owner_id=$2 FOR UPDATE', [importId, ownerId]);
       const checkpoint = checkpoints.rows[0];
-      if (!checkpoint || checkpoint.workspaceId !== facts.workspace.projectId || checkpoint.stateDigest !== semanticStateChecksum({ facts })) throw conflict('BUNDLE_IMPORT_CONFLICT');
+      if (!checkpoint || checkpoint.workspaceId !== facts.workspace.projectId || checkpoint.stateDigest !== semanticStateChecksum({ facts: portableFacts })) throw conflict('BUNDLE_IMPORT_CONFLICT');
       if (checkpoint.phase === 'activated') return;
       if (checkpoint.phase !== 'blobs-ready') throw conflict('BUNDLE_IMPORT_NOT_READY');
       // Import alone takes coarse locks: existing legacy upserts must not touch another Workspace's IDs.

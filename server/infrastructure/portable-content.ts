@@ -63,6 +63,31 @@ export async function ingestPortableBlobs(staged: StagedPortableWorkspace, blobs
   return refs;
 }
 
+/** Rebind portable content-addressed blobs to target-scoped ResourceVersion identities. */
+export async function ingestPortableWorkspace(staged: StagedPortableWorkspace, blobs: BlobStorePort): Promise<PortableWorkspaceFacts> {
+  if (!blobs.putStream) throw bundleError('BUNDLE_STREAMING_STORAGE_REQUIRED');
+  const facts = structuredClone(staged.facts);
+  const byVersion = new Map(facts.workspace.resourceVersions.map(version => [version.id, version]));
+  for (const version of facts.workspace.resourceVersions) {
+    const path = `blobs/sha256/${version.digest}`;
+    const source = staged.files.get(path);
+    const entry = staged.index.entries.find(item => item.path === path);
+    if (!source || !entry || entry.size !== version.size) throw bundleError('BUNDLE_MISSING_CONTENT');
+    const stored = await blobs.putStream(createReadStream(source), version.digest, version.size, {
+      workspaceId: facts.workspace.projectId,
+      contentId: version.id,
+    });
+    if (stored.digest !== version.digest || stored.size !== version.size) throw bundleError('BUNDLE_DIGEST_MISMATCH');
+    version.blobRef = stored.blobRef;
+  }
+  for (const attachment of facts.workspace.attachments) {
+    const version = attachment.resourceVersionId ? byVersion.get(attachment.resourceVersionId) : undefined;
+    if (!version || version.digest !== attachment.digest) throw bundleError('BUNDLE_BROKEN_REFERENCES');
+    attachment.blobRef = version.blobRef;
+  }
+  return facts;
+}
+
 /** Owns temporary files until the caller activates or abandons the import. No live store writes. */
 export async function stagePortableWorkspace(path: string, limits: BundleLimits = BUNDLE_LIMITS): Promise<StagedPortableWorkspace> {
   const staged = await stageBundleArchive(path, limits);

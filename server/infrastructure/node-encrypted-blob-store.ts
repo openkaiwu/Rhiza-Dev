@@ -4,7 +4,7 @@ import { NodeSealedContentStore, type SealedContentRef } from './node-sealed-con
 
 /** Explicit encrypted composition; legacy references must be migrated before selecting this adapter. */
 export class NodeEncryptedBlobStore implements BlobStorePort {
-  constructor(private readonly content: NodeSealedContentStore) {}
+  constructor(private readonly content: NodeSealedContentStore, private readonly legacy?: BlobStorePort) {}
 
   async put(bytes: Uint8Array, identity?: BlobContentIdentity): Promise<BlobPutResult> {
     const snapshot = Buffer.from(bytes);
@@ -27,7 +27,7 @@ export class NodeEncryptedBlobStore implements BlobStorePort {
       }
       if (hash.digest('hex') !== expectedDigest) throw new Error('CONTENT_DIGEST_MISMATCH');
     }
-    const reference = await this.content.putStream(identity, verified(), expectedSize);
+    const reference = await this.content.putStream(identity, verified(), expectedSize, expectedDigest);
     return { digestAlgorithm: 'sha256', digest: reference.digest, size: reference.size,
       blobRef: `${prefix}/${reference.ciphertext.digest}/${reference.digest}/${reference.size}` };
   }
@@ -47,11 +47,21 @@ export class NodeEncryptedBlobStore implements BlobStorePort {
   }
 
   async read(blobRef: string, expectedDigest: string): Promise<Uint8Array> {
+    if (blobRef.startsWith('sha256/')) {
+      if (!this.legacy) throw new Error('LEGACY_BLOB_REFERENCE_UNAVAILABLE');
+      return this.legacy.read(blobRef, expectedDigest);
+    }
     const { identity, reference } = this.decode(blobRef, expectedDigest);
     return this.content.read(identity, reference);
   }
 
   async *readStream(blobRef: string, expectedDigest: string): AsyncIterable<Uint8Array> {
+    if (blobRef.startsWith('sha256/')) {
+      if (!this.legacy) throw new Error('LEGACY_BLOB_REFERENCE_UNAVAILABLE');
+      if (this.legacy.readStream) yield* this.legacy.readStream(blobRef, expectedDigest);
+      else yield await this.legacy.read(blobRef, expectedDigest);
+      return;
+    }
     const { identity, reference } = this.decode(blobRef, expectedDigest);
     yield* this.content.readStream(identity, reference);
   }

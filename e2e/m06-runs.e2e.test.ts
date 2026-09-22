@@ -23,7 +23,7 @@ import { semanticStateChecksum } from '../server/infrastructure/workspace-semant
 import { portableWorkspaceFacts } from '../server/application/portable-workspace';
 import { validatePortableReferences } from '../server/application/portable-references';
 import { stageBundleArchive, describeBundleFile, writeBundleArchive } from '../server/infrastructure/bundle-archive';
-import { decodePortableDocument, ingestPortableBlobs, NodeImportArchiveStore, stagePortableWorkspace, validatePortableContent } from '../server/infrastructure/portable-content';
+import { decodePortableDocument, ingestPortableBlobs, ingestPortableWorkspace, NodeImportArchiveStore, stagePortableWorkspace, validatePortableContent } from '../server/infrastructure/portable-content';
 import { BUNDLE_LIMITS } from '../server/domain/portable-bundle';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
@@ -576,7 +576,11 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
       new NodeFilesystemBlobStore(join(uploadDirectory, 'encrypted-export')),
       new NodeContentKeys(join(uploadDirectory, 'encrypted-export-keys')),
     ));
-    const originalBlobs = new NodeFilesystemBlobStore(uploadDirectory);
+    const originalRawBlobs = new NodeFilesystemBlobStore(uploadDirectory);
+    const originalBlobs = new NodeEncryptedBlobStore(new NodeSealedContentStore(
+      originalRawBlobs,
+      new NodeContentKeys(join(uploadDirectory, 'resource-keys')),
+    ), originalRawBlobs);
     const locations = new Map<string, string>();
     expect(facts.workspace.resourceVersions.length).toBeGreaterThan(0);
     for (const version of facts.workspace.resourceVersions) {
@@ -727,7 +731,7 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     expect(await targetCheckpoints.read(identity.importId, identity.ownerId)).toMatchObject({ phase: 'blobs-ready' });
     const resumedArchive = await new NodeImportArchiveStore(archiveRoot).stage(identity.archiveDigest);
     try {
-      await completeBundleImport(identity, resumedArchive.facts, targetCheckpoints, () => ingestPortableBlobs(resumedArchive, destinationBlobs), new RepositoryWorkspaceUnitOfWork(target));
+      await completeBundleImport(identity, resumedArchive.facts, targetCheckpoints, () => ingestPortableWorkspace(resumedArchive, destinationBlobs), new RepositoryWorkspaceUnitOfWork(target));
     } finally { await resumedArchive.dispose(); }
     await target.activatePortableImport(identity.importId, identity.ownerId, portable);
     expect(await targetCheckpoints.read(identity.importId, identity.ownerId)).toMatchObject({ phase: 'activated', revision: 3 });
@@ -856,7 +860,7 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
       expect(current.body.replay.classification).toBe('current-model');
       expect(requests.at(-1)?.modelId).toBe('new-model');
       expect(requests.at(-1)?.prompt).toBe(original.input.request.prompt);
-      const blobRead = vi.spyOn(NodeFilesystemBlobStore.prototype, 'read').mockRejectedValue(Object.assign(new Error('missing'), { reason: 'missing_blob' }));
+      const blobRead = vi.spyOn(NodeEncryptedBlobStore.prototype, 'read').mockRejectedValue(Object.assign(new Error('missing'), { reason: 'missing_blob' }));
       try {
         const missing = await request(app).post(url).send({ policy: 'current-model' }).expect(409);
         expect(missing.body.error.code).toBe('REPLAY_MISSING_RESOURCE');
@@ -908,7 +912,11 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     expect(observedVersions).toBeGreaterThan(0);
     expect(new Set(manifest.contextItems.map(item => item.sourceType))).toEqual(new Set(['node', 'segment', 'reference', 'file', 'chunk']));
     const workspace = await store.read();
-    const blobs = new NodeFilesystemBlobStore(uploadDirectory);
+    const rawBlobs = new NodeFilesystemBlobStore(uploadDirectory);
+    const blobs = new NodeEncryptedBlobStore(new NodeSealedContentStore(
+      rawBlobs,
+      new NodeContentKeys(join(uploadDirectory, 'resource-keys')),
+    ), rawBlobs);
     const [run] = await store.listRuns();
     for (const [index, item] of manifest.contextItems.entries()) {
       const version = workspace.resourceVersions.find(version => version.id === item.resourceVersionId)!;

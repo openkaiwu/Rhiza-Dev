@@ -60,6 +60,44 @@ export class NodeContentKeys {
     return key;
   }
 
+  /** Resume an interrupted immutable publication only when its plaintext digest is unchanged. */
+  async createOrRead(identity: ContentIdentity, binding: string): Promise<{ key: Buffer; created: boolean }> {
+    if (!/^[a-f0-9]{64}$/.test(binding)) throw new Error('CONTENT_DIGEST_INVALID');
+    const directory = this.directory(identity);
+    await mkdir(this.root, { recursive: true, mode: 0o700 });
+    let reserved = false;
+    try { await mkdir(directory, { mode: 0o700 }); reserved = true; await syncDirectory(this.root); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
+    const bindingPath = join(directory, 'binding');
+    if (reserved) {
+      const handle = await open(bindingPath, 'wx', 0o600);
+      try { await handle.writeFile(binding); await handle.sync(); } finally { await handle.close(); }
+      await syncDirectory(directory);
+    } else {
+      let stored: string;
+      try { stored = await readFile(bindingPath, 'utf8'); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error('CONTENT_IDENTITY_CONFLICT', { cause: error });
+        throw error;
+      }
+      if (stored !== binding) throw new Error('CONTENT_IDENTITY_CONFLICT');
+    }
+    const keyPath = join(directory, 'key');
+    const key = randomBytes(32);
+    try {
+      const handle = await open(keyPath, 'wx', 0o600);
+      try { await handle.writeFile(key); await handle.sync(); } finally { await handle.close(); }
+      await syncDirectory(directory);
+      return { key, created: true };
+    } catch (error) {
+      key.fill(0);
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      const existing = await readFile(keyPath);
+      if (existing.length !== 32) { existing.fill(0); throw new Error('CONTENT_KEY_UNAVAILABLE'); }
+      return { key: existing, created: false };
+    }
+  }
+
   async read(identity: ContentIdentity): Promise<Buffer> {
     try {
       const key = await readFile(join(this.directory(identity), 'key'));

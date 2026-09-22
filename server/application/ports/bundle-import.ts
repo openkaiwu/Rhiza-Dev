@@ -18,7 +18,7 @@ export interface StagedBundleImport {
   facts: import('./portable-workspace').PortableWorkspaceFacts;
   archiveDigest: string;
   retain(): Promise<void>;
-  ingest(): Promise<unknown>;
+  ingest(): Promise<import('./portable-workspace').PortableWorkspaceFacts>;
   dispose(): Promise<void>;
 }
 export interface BundleImportArchivePort {
