@@ -423,6 +423,7 @@ describe('PostgreSQL workspace persistence', () => {
       expect(recovered.auditEvents).toContainEqual(expect.objectContaining({
         id: receiptId, action: 'node.purged', entityId: nodeId, nodeId: undefined,
       }));
+      expect(await store.readProvenance(messageId)).toMatchObject({ outputRef: messageId, status: 'purged', missingRefs: [] });
     } finally {
       await database.close();
     }

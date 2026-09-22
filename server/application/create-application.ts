@@ -469,6 +469,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
         case 'GetProvenance': {
           const link = await unitOfWork.readProvenance?.(envelope.payload.outputId);
           if (!link) throw legacyError('来源记录不存在。', 404, 'PROVENANCE_NOT_FOUND');
+          if (link.status === 'purged') return link;
           const missingRefs = [...link.missingRefs];
           if (link.runRef && !await unitOfWork.getRun?.(link.runRef)) missingRefs.push(`run:${link.runRef}`);
           if (link.contextManifestRef) {

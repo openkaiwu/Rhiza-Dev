@@ -1515,6 +1515,20 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     const audits = changedItems(workspace.auditEvents, previous?.auditEvents);
     const contextItems = await this.prepareContextItems(database, workspace, previous);
     const fileChunks = await this.prepareFileChunks(database, workspace, previous);
+    if (options?.purge && previous) {
+      const removedMessages = new Set(previous.messages.filter(item => !workspace.messages.some(candidate => candidate.id === item.id)).map(item => item.id));
+      const removedManifests = new Set(previous.manifests.filter(item => !workspace.manifests.some(candidate => candidate.id === item.id)).map(item => item.id));
+      const links = await database.query<{ output_ref: string; record: ProvenanceLink }>('SELECT output_ref,record FROM provenance_links WHERE workspace_id=$1', [workspace.projectId]);
+      for (const row of links.rows) {
+        const link = asJson<ProvenanceLink>(row.record);
+        if (!removedMessages.has(link.outputRef) && !link.inputRefs.some(id => removedMessages.has(id))
+          && (!link.parentRevisionRef || !removedMessages.has(link.parentRevisionRef))
+          && (!link.branchSourceRef || !removedMessages.has(link.branchSourceRef))
+          && (!link.contextManifestRef || !removedManifests.has(link.contextManifestRef))) continue;
+        await database.query('UPDATE provenance_links SET record=$3::jsonb WHERE workspace_id=$1 AND output_ref=$2', [workspace.projectId, row.output_ref,
+          JSON.stringify({ ...link, status: 'purged', missingRefs: [] })]);
+      }
+    }
     await database.query(`INSERT INTO rhiza_projects (id, title, state, created_at, updated_at) VALUES ($1,$2,$3::jsonb,$4,$4) ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, state=EXCLUDED.state, updated_at=EXCLUDED.updated_at`, [workspace.projectId, workspace.projectTitle, JSON.stringify({ mode: workspace.mode, contextItems, fileChunks }), workspace.updatedAt]);
     await database.query(`INSERT INTO graph_layouts (workspace_id,layout_id,owner_scope) VALUES ($1,'default',$2::jsonb) ON CONFLICT DO NOTHING`, [workspace.projectId, JSON.stringify({ scopeType: 'workspace', scopeId: workspace.projectId })]);
     for (const node of nodes) {

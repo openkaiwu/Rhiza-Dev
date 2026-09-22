@@ -284,7 +284,7 @@ export interface ProvenanceLink {
   modelSpecRef?: string;
   providerEndpointRef?: string;
   runtimeSnapshotRef?: string;
-  status: 'recorded' | 'pre-run' | 'broken-reference';
+  status: 'recorded' | 'pre-run' | 'broken-reference' | 'purged';
   missingRefs: string[];
   createdAt: string;
 }

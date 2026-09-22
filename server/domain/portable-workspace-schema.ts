@@ -72,7 +72,7 @@ const run = object({ id, workspaceId: id, nodeId: id, commandId: id, status: enu
 ['parentRunRef', 'originInputHash', 'dispatchingAt', 'runningAt', 'terminalAt', 'cancelRequestedAt', 'error']);
 const provenance = object({ schemaVersion: { const: '1.0.0' }, id, workspaceId: id, outputRef: id, inputRefs: strings,
   contextManifestRef: id, runRef: id, parentRevisionRef: id, branchSourceRef: id, modelSpecRef: id, providerEndpointRef: id, runtimeSnapshotRef: id,
-  status: enumeration('recorded', 'pre-run'), missingRefs: { type: 'array', maxItems: 0 }, createdAt: date },
+  status: enumeration('recorded', 'pre-run', 'purged'), missingRefs: { type: 'array', maxItems: 0 }, createdAt: date },
 ['contextManifestRef', 'runRef', 'parentRevisionRef', 'branchSourceRef', 'modelSpecRef', 'providerEndpointRef', 'runtimeSnapshotRef']);
 
 // Match workspaceSemanticSnapshot: omit aggregate timestamps and rename graph collections.

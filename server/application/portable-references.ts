@@ -71,7 +71,12 @@ export function validatePortableReferences(facts: PortableWorkspaceFacts): void 
   if (outputs.size !== provenance.length) throw bundleError('BUNDLE_DUPLICATE_OUTPUT_PROVENANCE');
   for (const message of workspace.messages.filter(message => message.kind === 'assistant')) ref(outputs, message.id, 'output-provenance');
   for (const link of provenance) {
-    scope(link.workspaceId, link.id); ref(messages, link.outputRef, link.id); ref(runIds, link.runRef, link.id); ref(manifests, link.contextManifestRef, link.id);
+    scope(link.workspaceId, link.id);
+    if (link.status === 'purged') {
+      if (link.missingRefs.length) missing.push(`${link.id}:purged-missing-refs`);
+      continue;
+    }
+    ref(messages, link.outputRef, link.id); ref(runIds, link.runRef, link.id); ref(manifests, link.contextManifestRef, link.id);
     const run = runById.get(link.runRef ?? '');
     const output = messageById.get(link.outputRef);
     const manifest = manifestById.get(link.contextManifestRef ?? '');
