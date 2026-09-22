@@ -61,7 +61,12 @@ export class NodeSealedContentStore {
       if (expectedDigest && plaintextDigest !== expectedDigest) throw new Error('CONTENT_DIGEST_MISMATCH');
       return { version: 1, digest: plaintextDigest, size: expectedSize, ciphertext };
     } catch (error) {
-      try { if (key && created) await this.keys.destroy(identity); }
+      try {
+        if (key && created) {
+          if (expectedDigest) await this.keys.abortPublication(identity, expectedDigest);
+          else await this.keys.destroy(identity);
+        }
+      }
       catch (cleanup) { throw new AggregateError([error, cleanup], 'CONTENT_PUBLICATION_CLEANUP_FAILED', { cause: cleanup }); }
       throw error;
     } finally { key?.fill(0); }

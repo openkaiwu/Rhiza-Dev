@@ -7,6 +7,10 @@ import { expect, it, vi } from 'vitest';
 import { loadMigrations } from './migrate';
 import { SealedResourceContent } from '../server/infrastructure/sealed-resource-content';
 import { PostgresWorkspaceStore } from '../server/postgres-store';
+import { NodeFilesystemBlobStore } from '../server/infrastructure/node-host-runtime';
+import { NodeContentKeys } from '../server/infrastructure/node-content-keys';
+import { NodeSealedContentStore } from '../server/infrastructure/node-sealed-content-store';
+import { NodeEncryptedBlobStore } from '../server/infrastructure/node-encrypted-blob-store';
 
 it('protects sealed resource names and refuses unsafe downgrade', async () => {
   const database = new PGlite();
@@ -21,7 +25,7 @@ it('protects sealed resource names and refuses unsafe downgrade', async () => {
     const reference = { format: 'rhiza.sealed-resource.v1', contentId: 'content', reference: {
       version: 1, digest, size: 10, ciphertext: { digestAlgorithm: 'sha256', digest, blobRef: `sha256/aa/${digest}`, size: 39 },
     } };
-    const write = (ref: unknown, name = '[sealed]') => database.query('UPDATE rhiza_resources SET content_ref=$1::jsonb,logical_name=$2', [JSON.stringify(ref), name]);
+    const write = (ref: unknown, name = '[sealed]') => database.query("UPDATE rhiza_resources SET content_ref=$1::jsonb,logical_name=$2 WHERE resource_id='resource'", [JSON.stringify(ref), name]);
     await write(reference);
     await expect(write(reference, 'private')).rejects.toThrow();
     for (const invalid of [null, {}, { ...reference, extra: 'private' }, { ...reference, contentId: '' }, { ...reference, reference: { ...reference.reference, size: -1 } }]) await expect(write(invalid)).rejects.toThrow();
@@ -44,6 +48,20 @@ it('protects sealed resource names and refuses unsafe downgrade', async () => {
     await expect(store.sealLegacyResourceContent(0)).rejects.toThrow('INVALID_RESOURCE_MIGRATION_LIMIT');
     expect((await store.read()).resources[0].logicalName).toBe('private name');
     migrationSeal.mockRestore();
+    const rawBlobs = new NodeFilesystemBlobStore(join(root, 'resource-blobs'));
+    const encryptedBlobs = new NodeEncryptedBlobStore(new NodeSealedContentStore(
+      rawBlobs,
+      new NodeContentKeys(join(root, 'resource-blob-keys')),
+    ), rawBlobs);
+    const raw = await rawBlobs.put(new TextEncoder().encode('legacy resource bytes'));
+    await database.query("INSERT INTO rhiza_resources(resource_id,workspace_id,kind,logical_name) VALUES ('blob-resource',$1,'attachment','blob')", [workspace]);
+    await database.query("INSERT INTO rhiza_resource_versions(resource_version_id,resource_id,version,digest_algorithm,digest,canonicalization,media_type,size_bytes,blob_ref) VALUES ('blob-version','blob-resource',1,'sha256',$1,'raw-v1','text/plain',$2,$3)", [raw.digest, raw.size, raw.blobRef]);
+    expect(await store.sealLegacyResourceBlobs(rawBlobs, encryptedBlobs, 1)).toBe(1);
+    expect(await store.sealLegacyResourceBlobs(rawBlobs, encryptedBlobs, 1)).toBe(0);
+    const migratedBlob = (await database.query<{ blob_ref: string }>("SELECT blob_ref FROM rhiza_resource_versions WHERE resource_version_id='blob-version'")).rows[0].blob_ref;
+    expect(migratedBlob).toMatch(/^sealed-v1\//);
+    expect(new TextDecoder().decode(await encryptedBlobs.read(migratedBlob, raw.digest))).toBe('legacy resource bytes');
+    await expect(store.sealLegacyResourceBlobs(rawBlobs, encryptedBlobs, 0)).rejects.toThrow('INVALID_RESOURCE_BLOB_MIGRATION_LIMIT');
     await write(ref);
     const seal = vi.spyOn(content, 'seal');
     const manifestId = '00000000-0000-4000-8000-000000000010';

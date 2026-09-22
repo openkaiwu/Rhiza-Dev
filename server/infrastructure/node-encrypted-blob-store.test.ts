@@ -36,6 +36,8 @@ it('freezes context through encrypted blobs and independently revokes each versi
     const failedIdentity = { ...importedIdentity, contentId: 'bad-digest' };
     await expect(blobs.putStream((async function* () { yield sourceBytes; })(), '0'.repeat(64), sourceBytes.length, failedIdentity)).rejects.toThrow('CONTENT_DIGEST_MISMATCH');
     await expect(new NodeContentKeys(join(root, 'keys')).read(failedIdentity)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    const recovered = await blobs.putStream((async function* () { yield sourceBytes; })(), version.digest, sourceBytes.length, failedIdentity);
+    expect(await blobs.read(recovered.blobRef, recovered.digest)).toEqual(sourceBytes);
     await content.destroy({ workspaceId: 'workspace-a', contentId: version.id });
     await expect(blobs.read(version.blobRef, version.digest)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     const restored = new NodeEncryptedBlobStore(content);

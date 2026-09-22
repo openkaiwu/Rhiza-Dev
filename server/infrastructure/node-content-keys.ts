@@ -113,6 +113,17 @@ export class NodeContentKeys {
     await this.revoke(this.keyId(identity));
   }
 
+  /** Roll back a publication that failed before its reference could be committed. */
+  async abortPublication(identity: ContentIdentity, binding: string): Promise<void> {
+    const directory = this.directory(identity);
+    let stored: string;
+    try { stored = await readFile(join(directory, 'binding'), 'utf8'); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
+    if (stored !== binding) throw new Error('CONTENT_IDENTITY_CONFLICT');
+    await rm(directory, { recursive: true, force: true });
+    await syncDirectory(this.root);
+  }
+
   /** Caller must exclude all publishers for the entire call and supply every live identity. */
   async revokeUnreferenced(liveIdentities: Iterable<ContentIdentity>): Promise<number> {
     const records = await this.audit(liveIdentities);

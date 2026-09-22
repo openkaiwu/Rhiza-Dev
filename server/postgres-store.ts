@@ -35,6 +35,7 @@ import { SealedContextItemContent, contextItemStorageProjection, type SealedCont
 import { SealedFileChunkContent, fileChunkStorageProjection, type SealedFileChunkRef } from './infrastructure/sealed-file-chunk-content';
 import { SealedAttachmentContent, type SealedAttachmentRef } from './infrastructure/sealed-attachment-content';
 import { SealedResourceContent, type SealedResourceRef } from './infrastructure/sealed-resource-content';
+import type { BlobStorePort } from './application/ports/host-runtime';
 import { manifestReferenceProjection, SealedManifestContent, type SealedManifestRef } from './infrastructure/sealed-manifest-content';
 
 interface QueryResult<Row> { rows: Row[] }
@@ -1235,6 +1236,49 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
   async listWorkspaceIds(): Promise<string[]> {
     const result = await this.database.query<{ id: string }>('SELECT id FROM rhiza_projects ORDER BY id');
     return result.rows.map(row => String(row.id));
+  }
+
+  /** Offline, restartable migration from shared plaintext blobs to scoped ResourceVersion ciphertext. */
+  async sealLegacyResourceBlobs(source: BlobStorePort, target: BlobStorePort, limit = 100): Promise<number> {
+    if (!target.putStream) throw new Error('RESOURCE_BLOB_STREAMING_STORAGE_REQUIRED');
+    const putStream = target.putStream.bind(target);
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error('INVALID_RESOURCE_BLOB_MIGRATION_LIMIT');
+    return this.inTransaction(async database => {
+      await database.query("SET LOCAL lock_timeout = '5s'");
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
+      await database.query('LOCK TABLE rhiza_resource_versions IN ACCESS EXCLUSIVE MODE');
+      const { rows } = await database.query<{ resource_version_id: string; digest: string; size_bytes: number; blob_ref: string }>(`
+        SELECT rv.resource_version_id,rv.digest,rv.size_bytes,rv.blob_ref
+        FROM rhiza_resource_versions rv JOIN rhiza_resources r ON r.resource_id=rv.resource_id
+        WHERE r.workspace_id=$1 AND rv.blob_ref LIKE 'sha256/%'
+        ORDER BY rv.resource_version_id LIMIT $2
+      `, [this.defaultWorkspaceId, limit]);
+      const replacements: Array<{ id: string; sourceRef: string; targetRef: string }> = [];
+      for (const row of rows) {
+        const stream = source.readStream ? source.readStream(row.blob_ref, row.digest) : (async function* () { yield await source.read(row.blob_ref, row.digest); })();
+        const stored = await putStream(stream, row.digest, Number(row.size_bytes), {
+          workspaceId: this.defaultWorkspaceId,
+          contentId: row.resource_version_id,
+        });
+        if (stored.digest !== row.digest || stored.size !== Number(row.size_bytes) || !stored.blobRef.startsWith('sealed-v1/')) {
+          throw new Error('RESOURCE_BLOB_MIGRATION_VERIFICATION_FAILED');
+        }
+        let verifiedSize = 0;
+        const verified = target.readStream ? target.readStream(stored.blobRef, stored.digest) : [await target.read(stored.blobRef, stored.digest)];
+        const hash = createHash('sha256');
+        for await (const chunk of verified) { verifiedSize += chunk.byteLength; hash.update(chunk); }
+        if (verifiedSize !== stored.size || hash.digest('hex') !== stored.digest) throw new Error('RESOURCE_BLOB_MIGRATION_VERIFICATION_FAILED');
+        replacements.push({ id: row.resource_version_id, sourceRef: row.blob_ref, targetRef: stored.blobRef });
+      }
+      if (!replacements.length) return 0;
+      await database.query('ALTER TABLE rhiza_resource_versions DISABLE TRIGGER rhiza_resource_versions_immutable');
+      for (const replacement of replacements) {
+        const updated = await database.query('UPDATE rhiza_resource_versions SET blob_ref=$3 WHERE resource_version_id=$1 AND blob_ref=$2 RETURNING resource_version_id', [replacement.id, replacement.sourceRef, replacement.targetRef]);
+        if (!updated.rows.length) throw new Error('RESOURCE_BLOB_MIGRATION_CONFLICT');
+      }
+      await database.query('ALTER TABLE rhiza_resource_versions ENABLE TRIGGER rhiza_resource_versions_immutable');
+      return replacements.length;
+    }, true);
   }
 
   async backfillJournal(): Promise<{ checksum: string; created: boolean; eventCount: number }> {

@@ -31,6 +31,7 @@
 - Context Compiler 的 JSON snapshot 保存精确文本（包括空字符串），Blob 必须先校验再随 Run 创建登记 ResourceVersion。历史查询只沿 Manifest 冻结引用读取；不能用当前索引或来源内容填补缺失证据。Manifest v1 的 DELETE 不受 legacy purge 开关豁免。
 - ResourceVersion 是 append-only 历史事实：同一 Resource 的新内容只能新增版本，不得修改或删除旧版本；FileChunk 只能登记为 materialization，不能替代原始 ResourceVersion。
 - Blob 提交顺序固定为 temp write → SHA-256 verify → atomic promote → Workspace/DB commit。DB 失败后保留已 promote blob 给 grace-period GC，不能先提交引用再补文件。
+- Scoped ResourceVersion Blob 的密钥身份必须绑定 plaintext digest。同一 `{workspaceId, resourceVersionId}` 的中断重试只可复用相同 digest；不同 digest 必须报 identity conflict，已生效密钥不得因失败重试而撤销。历史 `sha256` 迁移必须先读回 scoped 密文并核对 digest/size，再更新不可变引用；在全库引用和归档 pin 未对账前不得删除明文对象。
 - orphan GC 只能在调用方提供覆盖整个 BlobStore 的完整 active-reference set 后执行；不得用当前用户或单个 Workspace 的局部引用集合扫描全局 store。
 - versioned blob 读取失败或 digest 不匹配必须返回稳定 `BLOB_INTEGRITY_ERROR`，不能静默回退旧 UUID 附件。旧路径只服务尚未回填的 legacy attachment；运行 `pnpm run resources:backfill` 后 dangling 必须为 0 且重复运行 checksum 一致。
 - M04 的 HostRuntimePort 只包含当前 Chat 所需 file/path/blob/credential seam。spawn/PTY/process supervision 属于 M24，Desktop 与真实跨平台 host matrix 属于 M29；不要为这些延后能力在 M04 建兼容层或 fake matrix。
