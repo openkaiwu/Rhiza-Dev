@@ -52,6 +52,13 @@ type PendingContent = { workspaceId: string; commandId: string; reference: Seale
   | { workspaceId: string; fileChunkId: string; reference: SealedFileChunkRef }
   | { workspaceId: string; attachmentId: string; reference: SealedAttachmentRef }
   | { workspaceId: string; resourceId: string; reference: SealedResourceRef };
+type PurgeContentFamily = 'node' | 'message' | 'manifest' | 'segment' | 'anchor' | 'edge' | 'context-item';
+interface PurgeKeyReference {
+  workspaceId: string;
+  family: PurgeContentFamily;
+  entityId: string;
+  reference: unknown;
+}
 export interface SqlQueryable {
   query<Row = Record<string, unknown>>(sql: string, values?: unknown[]): Promise<QueryResult<Row>>;
 }
@@ -758,6 +765,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       });
     });
     await this.queue;
+    if (options?.purge) await this.resumePendingPurges();
     return result;
   }
 
@@ -851,7 +859,69 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     });
     await this.queue;
     if (failure) throw failure;
+    if (command.options?.purge) await this.resumePendingPurges();
     return result;
+  }
+
+  /**
+   * Resume the post-commit half of Purge. Key destruction is idempotent: a crash
+   * after destruction but before the SQL acknowledgement safely repeats it.
+   */
+  async resumePendingPurges(limit = 100): Promise<{ completed: number; pending: number }> {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 1000) throw new Error('PURGE_RESUME_LIMIT_INVALID');
+    const checkpoints = await this.database.query<{ purge_id: string }>("SELECT purge_id FROM purge_checkpoints WHERE phase='pending' ORDER BY created_at,purge_id LIMIT $1", [limit]);
+    let completed = 0;
+    for (const checkpoint of checkpoints.rows) {
+      try {
+        const revoked = await this.inTransaction(async database => {
+          const claimed = await database.query<{ workspace_id: string }>("SELECT workspace_id FROM purge_checkpoints WHERE purge_id=$1 AND phase='pending' FOR UPDATE", [checkpoint.purge_id]);
+          if (!claimed.rows[0]) return false;
+          const references = await database.query<{ ordinal: number; content_family: PurgeContentFamily; entity_id: string; content_ref: unknown }>(
+            'SELECT ordinal,content_family,entity_id,content_ref FROM purge_key_references WHERE purge_id=$1 AND revoked_at IS NULL ORDER BY ordinal', [checkpoint.purge_id]);
+          for (const row of references.rows) {
+            await this.destroyPurgeReference({
+              workspaceId: claimed.rows[0].workspace_id,
+              family: row.content_family, entityId: row.entity_id, reference: asJson(row.content_ref),
+            });
+            await database.query('UPDATE purge_key_references SET revoked_at=now() WHERE purge_id=$1 AND ordinal=$2', [checkpoint.purge_id, row.ordinal]);
+          }
+          await database.query("UPDATE purge_checkpoints SET phase='revoked',revoked_at=now(),last_error=NULL,updated_at=now() WHERE purge_id=$1", [checkpoint.purge_id]);
+          return true;
+        }, true);
+        if (revoked) completed += 1;
+      } catch (error) {
+        const code = String((error as { code?: string; name?: string }).code || (error as Error).name || 'PURGE_KEY_REVOCATION_FAILED').slice(0, 120);
+        await this.database.query("UPDATE purge_checkpoints SET last_error=$2,updated_at=now() WHERE purge_id=$1 AND phase='pending'", [checkpoint.purge_id, code]);
+      }
+    }
+    const remaining = await this.database.query<{ count: number }>("SELECT count(*)::int count FROM purge_checkpoints WHERE phase='pending'");
+    return { completed, pending: Number(remaining.rows[0]?.count || 0) };
+  }
+
+  private async destroyPurgeReference(item: PurgeKeyReference): Promise<void> {
+    switch (item.family) {
+      case 'node':
+        if (!this.nodeContent) throw new Error('NODE_CONTENT_STORE_UNAVAILABLE');
+        return this.nodeContent.destroy(item.workspaceId, item.entityId, item.reference as SealedNodeRef);
+      case 'message':
+        if (!this.messageContent) throw new Error('MESSAGE_CONTENT_STORE_UNAVAILABLE');
+        return this.messageContent.destroy(item.workspaceId, item.entityId, item.reference as SealedMessageRef);
+      case 'manifest':
+        if (!this.manifestContent) throw new Error('MANIFEST_CONTENT_STORE_UNAVAILABLE');
+        return this.manifestContent.destroy(item.workspaceId, item.entityId, item.reference as SealedManifestRef);
+      case 'segment':
+        if (!this.segmentContent) throw new Error('SEGMENT_CONTENT_STORE_UNAVAILABLE');
+        return this.segmentContent.destroy(item.workspaceId, item.entityId, item.reference as SealedSegmentRef);
+      case 'anchor':
+        if (!this.anchorContent) throw new Error('ANCHOR_CONTENT_STORE_UNAVAILABLE');
+        return this.anchorContent.destroy(item.workspaceId, item.entityId, item.reference as SealedAnchorRef);
+      case 'edge':
+        if (!this.edgeContent) throw new Error('EDGE_CONTENT_STORE_UNAVAILABLE');
+        return this.edgeContent.destroy(item.workspaceId, item.entityId, item.reference as SealedEdgeRef);
+      case 'context-item':
+        if (!this.contextItemContent) throw new Error('CONTEXT_ITEM_CONTENT_STORE_UNAVAILABLE');
+        return this.contextItemContent.destroy(item.workspaceId, item.entityId, item.reference as SealedContextItemRef);
+    }
   }
 
   private async executeCommandNow<T>(command: TransactionalWorkspaceCommand<T>): Promise<TransactionalWorkspaceCommandResult<T>> {
@@ -1482,6 +1552,50 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     return items;
   }
 
+  private async stagePurgeCheckpoint(database: SqlQueryable, workspace: WorkspaceData, previous: WorkspaceData, purge: NonNullable<WorkspaceUpdateOptions['purge']>) {
+    const inserted = await database.query<{ purge_id: string }>(`INSERT INTO purge_checkpoints (purge_id,workspace_id,node_id)
+      VALUES ($1,$2,$3) ON CONFLICT (purge_id) DO NOTHING RETURNING purge_id`, [purge.auditReceiptId, workspace.projectId, purge.nodeId]);
+    if (!inserted.rows.length) {
+      const existing = await database.query<{ workspace_id: string; node_id: string }>('SELECT workspace_id,node_id FROM purge_checkpoints WHERE purge_id=$1', [purge.auditReceiptId]);
+      if (existing.rows[0]?.workspace_id !== workspace.projectId || existing.rows[0]?.node_id !== purge.nodeId) throw new Error('PURGE_CHECKPOINT_IDENTITY_CONFLICT');
+      return;
+    }
+
+    const references: Array<{ family: PurgeContentFamily; entityId: string; reference: unknown }> = [];
+    const collect = async (family: PurgeContentFamily, sql: string, values: unknown[]) => {
+      const rows = await database.query<{ entity_id: string; content_ref: unknown }>(sql, values);
+      for (const row of rows.rows) references.push({ family, entityId: String(row.entity_id), reference: asJson(row.content_ref) });
+    };
+    const removed = <T extends { id: string }>(before: T[], after: T[]) => {
+      const remaining = new Set(after.map(item => item.id));
+      return before.filter(item => !remaining.has(item.id)).map(item => item.id);
+    };
+    await collect('node', 'SELECT id::text entity_id,content_ref FROM rhiza_nodes WHERE project_id=$1 AND id=$2 AND content_ref IS NOT NULL', [workspace.projectId, purge.nodeId]);
+    await collect('message', 'SELECT m.id::text entity_id,m.content_ref FROM rhiza_messages m JOIN rhiza_nodes n ON n.id=m.node_id WHERE n.project_id=$1 AND m.id=ANY($2::uuid[]) AND m.content_ref IS NOT NULL',
+      [workspace.projectId, removed(previous.messages, workspace.messages)]);
+    await collect('manifest', 'SELECT id::text entity_id,content_ref FROM rhiza_context_manifests WHERE project_id=$1 AND id=ANY($2::uuid[]) AND content_ref IS NOT NULL',
+      [workspace.projectId, removed(previous.manifests, workspace.manifests)]);
+    await collect('segment', 'SELECT s.id::text entity_id,s.content_ref FROM rhiza_segments s JOIN rhiza_nodes n ON n.id=s.node_id WHERE n.project_id=$1 AND s.id=ANY($2::uuid[]) AND s.content_ref IS NOT NULL',
+      [workspace.projectId, removed(previous.segments, workspace.segments)]);
+    await collect('anchor', 'SELECT id::text entity_id,content_ref FROM rhiza_anchors WHERE project_id=$1 AND id=ANY($2::uuid[]) AND content_ref IS NOT NULL',
+      [workspace.projectId, removed(previous.anchors, workspace.anchors)]);
+    await collect('edge', 'SELECT id::text entity_id,content_ref FROM rhiza_edges WHERE project_id=$1 AND id=ANY($2::uuid[]) AND content_ref IS NOT NULL',
+      [workspace.projectId, removed(previous.discussionEdges, workspace.discussionEdges)]);
+
+    const stored = (await database.query<{ items: unknown }>("SELECT state->'contextItems' AS items FROM rhiza_projects WHERE id=$1", [workspace.projectId])).rows[0];
+    const currentIds = new Set(workspace.contextItems.map(item => item.id));
+    const removedIds = new Set(previous.contextItems.filter(item => !currentIds.has(item.id)).map(item => item.id));
+    for (const item of asJson<Array<{ id: string; contentRef?: SealedContextItemRef }>>(stored?.items || [])) {
+      if (removedIds.has(item.id) && item.contentRef) references.push({ family: 'context-item', entityId: item.id, reference: item.contentRef });
+    }
+
+    references.sort((left, right) => left.family.localeCompare(right.family) || left.entityId.localeCompare(right.entityId));
+    for (const [ordinal, reference] of references.entries()) {
+      await database.query(`INSERT INTO purge_key_references (purge_id,ordinal,content_family,entity_id,content_ref)
+        VALUES ($1,$2,$3,$4,$5::jsonb)`, [purge.auditReceiptId, ordinal, reference.family, reference.entityId, JSON.stringify(reference.reference)]);
+    }
+  }
+
   private async persist(database: SqlQueryable, workspace: WorkspaceData, previous?: WorkspaceData, options?: WorkspaceUpdateOptions): Promise<void> {
     if (options?.purge) {
       const nodeId = options.purge.nodeId;
@@ -1501,6 +1615,8 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         OR input_envelope->'request'->'contextItems' @> $4::jsonb OR input_envelope->'request'->'contextItems' @> $5::jsonb) LIMIT 1`,
         [workspace.projectId, nodeId, JSON.stringify([{ nodeId }]), JSON.stringify([{ sourceNodeId: nodeId }]), JSON.stringify([{ sourceType: 'node', sourceId: nodeId }])]);
       if (sealedReference || retained.rows.length) throw Object.assign(new Error('该节点仍被不可变执行历史引用，请使用归档；物理删除需要统一的执行历史清理策略。'), { code: 'PURGE_HAS_EXECUTION_HISTORY', status: 409 });
+      if (!previous) throw new Error('PURGE_PREVIOUS_STATE_REQUIRED');
+      await this.stagePurgeCheckpoint(database, workspace, previous, options.purge);
     }
     const nodes = changedItems(workspace.discussionNodes, previous?.discussionNodes);
     const segments = changedItems(workspace.segments, previous?.segments);

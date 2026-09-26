@@ -21,6 +21,8 @@ if (process.env.DATABASE_URL || featureFlags.postgresPersistence) {
 }
 if (!(store instanceof PostgresWorkspaceStore)) throw new Error('Chat execution requires transactional persistence');
 await store.acquireRuntimeOwnership();
+const purgeRecovery = await store.resumePendingPurges();
+if (purgeRecovery.pending) console.warn(`[api] ${purgeRecovery.pending} purge checkpoint(s) remain pending key revocation`);
 await store.reconcileRuns();
 const serveFrontend = process.env.SERVE_FRONTEND !== 'false';
 const runtime = new ProviderRuntime(provider);
