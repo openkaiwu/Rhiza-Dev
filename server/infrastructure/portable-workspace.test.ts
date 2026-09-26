@@ -15,7 +15,7 @@ describe('portable export DTO', () => {
     expect(version.blobRef).toContain('sealed-v1/');
   });
   it('removes operational locations and credentials at nested metadata boundaries', () => {
-    const source = { text: 'User-authored /Users/example/file discussion', origin_metadata: { username: 'private-name', path: '/private/file' },
+    const source = { text: 'User-authored relative/file discussion', origin_metadata: { username: 'private-name', path: '/private/file' },
       annotations: { internalUrl: 'https://private.test' }, nested: { api_key: 'secret', credential_ref: 'vault-key', safe: 'yes' } };
     expect(stripOperationalMetadata(source)).toEqual({ text: source.text, nested: { safe: 'yes' } });
   });

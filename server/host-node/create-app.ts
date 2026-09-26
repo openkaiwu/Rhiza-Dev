@@ -3,7 +3,7 @@ import { CONTEXT_VERSIONS, IndexedContextPlanner } from '../context-runtime/inde
 import { semanticStateChecksum } from '../infrastructure/workspace-semantic-checksum';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { AIRuntime } from '../ai-runtime';
 import { createRhizaApplication } from '../application/create-application';
 import { LegacyContextPlanner } from '../context-runtime/legacy-planner';
@@ -46,7 +46,7 @@ export function createApp(
     hashRunInput: input => semanticStateChecksum(input as unknown as Record<string, unknown>),
     providers: provider,
     host,
-    portableBundle: new NodePortableBundle(host.blobs),
+    portableBundle: new NodePortableBundle(host.blobs, join(uploadDirectory, 'imports', 'transient')),
     bundleImport: new NodeBundleImport(resolve(uploadDirectory, 'imports'), host.blobs),
     bundleImportCheckpoints: store.bundleImportCheckpoints,
     hashPortableFacts: facts => semanticStateChecksum({ facts }),

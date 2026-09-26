@@ -54,7 +54,7 @@ export interface StagedBundleArchive {
 }
 
 /** All extracted paths are beneath a newly created private staging directory. */
-export async function stageBundleArchive(path: string, limits: BundleLimits = BUNDLE_LIMITS): Promise<StagedBundleArchive> {
+export async function stageBundleArchive(path: string, limits: BundleLimits = BUNDLE_LIMITS, stagingRoot = tmpdir()): Promise<StagedBundleArchive> {
   const file = await stat(path);
   if (!file.isFile() || file.size > limits.maxArchiveBytes) throw bundleError('BUNDLE_QUOTA_EXCEEDED');
   const archiveHash = createHash('sha256');
@@ -65,7 +65,8 @@ export async function stageBundleArchive(path: string, limits: BundleLimits = BU
     archiveHash.update(chunk);
   }
   const zip = await openZip(path).catch(() => { throw bundleError('BUNDLE_INVALID_ARCHIVE'); });
-  const directory = await mkdtemp(join(tmpdir(), 'rhiza-bundle-stage-'));
+  await mkdir(stagingRoot, { recursive: true, mode: 0o700 });
+  const directory = await mkdtemp(join(stagingRoot, 'rhiza-bundle-stage-'));
   try {
     const entries = await metadata(zip, limits);
     const indexEntry = entries.find(entry => entry.fileName === 'index.json');

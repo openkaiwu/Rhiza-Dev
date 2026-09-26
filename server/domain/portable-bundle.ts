@@ -1,5 +1,6 @@
 export const BUNDLE_MEDIA_TYPE = 'application/vnd.rhiza.workspace.manifest.v1+json';
 export const BUNDLE_FORMAT_VERSION = '1.0.0';
+export const BUNDLE_IMPORT_RECOVERY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 export const BUNDLE_LIMITS = Object.freeze({
   maxArchiveBytes: 2 * 1024 ** 3, maxExpandedBytes: 10 * 1024 ** 3,
   maxCompressionRatio: 100, maxEntries: 100_000, maxSingleEntryBytes: 2 * 1024 ** 3,

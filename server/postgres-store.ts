@@ -19,6 +19,7 @@ import { PostgresGraphProjectionAdapter } from './graph-projection/postgres-adap
 import { deriveProvenance, type ProvenanceLink } from './provenance/model';
 import type { PortableWorkspaceFacts } from './application/ports/portable-workspace';
 import type { BundleImportCheckpoint } from './application/ports/bundle-import';
+import { BUNDLE_IMPORT_RECOVERY_WINDOW_MS } from './domain/portable-bundle';
 import { validatePortableReferences } from './application/portable-references';
 import { validatePortableHistory } from './application/portable-history';
 import { portableWorkspaceFacts } from './application/portable-workspace';
@@ -230,6 +231,13 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     if (this.runtimeOwner) { await this.runtimeOwner.query("SELECT pg_advisory_unlock(hashtext('rhiza:chat-runtime'))"); this.runtimeOwner.release(); this.runtimeOwner = undefined; }
     if (this.database.end) await this.database.end();
     else if (this.database.close) await this.database.close();
+  }
+
+  /** Runtime-owner maintenance: active and recent import checkpoints pin their archive digest. */
+  async retainedImportArchivePins(): Promise<ReadonlySet<string>> {
+    const result = await this.database.query<{ archive_digest: string }>(`SELECT DISTINCT archive_digest FROM bundle_imports
+      WHERE updated_at >= now() - ($1::double precision * interval '1 millisecond')`, [BUNDLE_IMPORT_RECOVERY_WINDOW_MS]);
+    return new Set(result.rows.map(row => row.archive_digest));
   }
 
   private async inTransaction<T>(callback: (database: SqlQueryable) => Promise<T>, exclusiveContent = false): Promise<T> {

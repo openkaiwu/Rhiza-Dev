@@ -1,7 +1,7 @@
 # ADR-009: Portable history, Replay and privileged Purge
 
-- Status: Draft; implementation and M09 acceptance pending
-- Date: 2026-09-09
+- Status: Accepted contract; M09 implementation and gate evidence pending
+- Date: 2026-09-27
 - Baseline: V4.2 M09, inheriting V4.1 sections 10.6, 12 and 14
 - Linear: INH-73 through INH-81
 
@@ -29,6 +29,8 @@ The default limits are 2 GiB archive bytes, 10 GiB expanded bytes, compression r
 
 Import checkpoints are validation, staged facts/blobs, reference resolution, projection rebuild, checksum verification and activation. Staging is isolated from normal Workspace listing and reads. Persisted checkpoint identity binds archive digest and target identity; resumption revalidates facts and bytes rather than trusting a completed flag. Failure quarantines or removes staging; activation is atomic through the Application storage boundary. Activation retries reconcile a previously committed result instead of duplicating it.
 
+The recoverable import archive is encrypted at rest with an independent per-archive data key; its portable digest remains the identity of the original ZIP. Private upload and extracted working files are removed when their call ends; if the process is killed, the next startup or quiescent maintenance removes abandoned files under the project-owned transient directory. Until then, that directory may contain plaintext and must be protected as part of the content backup boundary. A checkpoint pins the retained archive for seven days after its most recent update, including the activated phase; an archive retained before checkpoint creation has seven days from its file publication time. If several checkpoints share one digest, any unexpired checkpoint pins it. Startup or quiescent maintenance may release an unpinned archive after the window: revoke its key first, remove its descriptor, then collect unreferenced ciphertext with the same grace window. A legacy plaintext retained ZIP must be fully validated, encrypted, read back and revalidated before its old file is removed. Expired interrupted imports require the user to upload the archive again.
+
 Empty-store import preserves every logical identity. Existing identical Workspace content is idempotent; the same identity with different content is rejected. No import-as-fork remapping is performed. Identity, provenance, graph and context checksums and core Conversation operations must survive a clean-store round trip.
 
 ## Purge and retained evidence
@@ -36,6 +38,8 @@ Empty-store import preserves every logical identity. Existing identical Workspac
 Archive hides normal content while retaining readable history. Tombstone hides content while preserving identity and relationships. Privileged Purge requires explicit confirmation, owner authorization, enumeration of affected references and a minimal audit fact. It marks provenance purged/redacted and retains Manifest/ResourceVersion identities. Ordinary roles continue to be denied Manifest UPDATE/DELETE. The earlier blanket refusal for nodes with execution history must be replaced only when all referenced copies are covered by the Purge flow.
 
 The existing plaintext historical request, semantic Journal snapshots and shared content-addressed blobs require a migration before cryptographic erasure can be claimed. Deletable content must move behind encrypted, scoped data keys and immutable content references; immutable historical facts retain only non-content evidence. Purge must remove readable replicas and destroy applicable keys without deleting another Workspace's shared content. Migration and interruption tests must cover existing data, not only newly written resources. Exported user-controlled Bundles cannot be recalled; both export and Purge UI must disclose this limitation.
+
+Purge is a two-step durable operation. Its SQL transaction writes the tombstone, redacted provenance, minimal audit fact and the exact key references to revoke. Once committed, reads of purge-pending content fail closed. Key revocation runs afterward, records per-reference acknowledgement and resumes after interruption; repeating a destroy is safe. A completed current-store revocation does not assert erasure of prior backups. Database snapshots, WAL and content/key directories form one backup boundary and must have a documented, tested retention period before a deployment can pass the M09 erasure gate. A backup containing an old data key can restore its corresponding content until that backup expires. Rhiza cannot revoke a Bundle already exported to user-controlled storage.
 
 ### Content encryption boundary (implementation in progress)
 
@@ -45,8 +49,8 @@ Migration 0030 records the node tombstone transaction's affected scoped-key refe
 
 The migration inventory includes both `execution_runs.input_envelope` and `record.input`, `workspace_events.payload` (baseline and stateChanges), `command_receipts.result/error`, Manifest metadata, current messages/anchors/chunks, resource blobs, and retained import ZIPs. Covering only ResourceVersion blobs leaves readable replicas. Derived projections, trace/error fields and operational backups also require an explicit retention and content review. Existing immutable triggers cannot simply be disabled by a normal Application request; the administrative migration needs a separate, bounded capability and verified restart checkpoints. Ordinary UPDATE/DELETE restrictions remain in place after migration.
 
-Resource-scoped destruction must preserve independently owned copies in other Workspaces. A global Provider SecretVault key is therefore not an erasure boundary. Key-store integration, replica migration, redacted read behavior, interrupted key-destruction recovery and backup-retention guarantees remain open implementation requirements.
+Resource-scoped destruction must preserve independently owned copies in other Workspaces. A global Provider SecretVault key is therefore not an erasure boundary. Complete replica migration, redacted reads across every historical path, and a verified deployment backup-retention policy remain gate requirements.
 
 ## Acceptance evidence
 
-INH-81 requires complete output provenance, all Replay classifications, no silent version fallback, closed Bundle references, no operational secret/location leaks, complete archive attack rejection, clean-store checksum equality and usable Conversation operations. Checkpoint failure injection must prove recovery. Product entry points require browser verification. This draft is not contract acceptance or milestone completion; each requirement needs executable and commit-bound evidence.
+INH-81 requires complete output provenance, all Replay classifications, no silent version fallback, closed Bundle references, no operational secret/location leaks, complete archive attack rejection, clean-store checksum equality and usable Conversation operations. Checkpoint failure injection must prove recovery. Product entry points require browser verification. Accepting this contract does not close the milestone; each requirement needs executable and commit-bound evidence.

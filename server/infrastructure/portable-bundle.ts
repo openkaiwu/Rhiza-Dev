@@ -18,12 +18,13 @@ import { portableWorkspaceSchema } from '../domain/portable-workspace-schema';
 import journalSchema from '../contracts/domain-event-envelope.schema.json';
 
 export class NodePortableBundle implements PortableBundlePort {
-  constructor(private readonly blobs: BlobStorePort) {}
+  constructor(private readonly blobs: BlobStorePort, private readonly stagingRoot = tmpdir()) {}
 
   async export(source: PortableWorkspaceFacts): Promise<BundleExport> {
     const facts = portableWorkspaceFacts(source, input => semanticStateChecksum(input as Record<string, unknown>));
     validatePortableReferences(facts);
-    const directory = await mkdtemp(join(tmpdir(), 'rhiza-bundle-export-'));
+    await mkdir(this.stagingRoot, { recursive: true, mode: 0o700 });
+    const directory = await mkdtemp(join(this.stagingRoot, 'rhiza-bundle-export-'));
     try {
       const files = new Map<string, string>();
       const entries: BundleDescriptor[] = [];

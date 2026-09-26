@@ -1,10 +1,16 @@
 import type { PortableWorkspaceFacts } from '../application/ports/portable-workspace';
 import type { BundleIndex } from '../domain/portable-bundle';
 import { BUNDLE_LIMITS, bundleError, type BundleLimits } from '../domain/portable-bundle';
-import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { link, lstat, mkdir, mkdtemp, open, readFile, readdir, rm, stat, utimes } from 'node:fs/promises';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { NodeFilesystemBlobStore } from './node-host-runtime';
+import { NodeContentKeys } from './node-content-keys';
+import { NodeSealedContentStore, type SealedContentRef } from './node-sealed-content-store';
 import { stageBundleArchive, type StagedBundleArchive } from './bundle-archive';
 import { semanticStateChecksum } from './workspace-semantic-checksum';
 import Ajv2020 from 'ajv/dist/2020.js';
@@ -29,23 +35,167 @@ const validateSemanticFields = ajv.compile(portableSemanticDeltaSchema);
 
 export interface StagedPortableWorkspace extends StagedBundleArchive { facts: PortableWorkspaceFacts }
 
-/** Separate from resource GC; checkpoints retain the archive digest needed after process loss. */
+interface RetainedArchiveRef { version: 1; contentId: string; reference: SealedContentRef }
+
+/** Separate from resource GC; recovery archives have independent scoped keys. */
 export class NodeImportArchiveStore {
+  private readonly content: NodeSealedContentStore;
   private readonly blobs: NodeFilesystemBlobStore;
-  constructor(private readonly root: string) { this.blobs = new NodeFilesystemBlobStore(root); }
+  constructor(private readonly root: string) {
+    this.blobs = new NodeFilesystemBlobStore(root);
+    this.content = new NodeSealedContentStore(this.blobs, new NodeContentKeys(join(root, 'keys')));
+  }
+  private descriptorPath(digest: string) { return join(this.root, 'retained', `${digest}.json`); }
+  private transientRoot() { return join(this.root, 'transient'); }
+  private identity(contentId: string) { return { workspaceId: 'rhiza-bundle-import', contentId }; }
+  private async descriptor(digest: string): Promise<RetainedArchiveRef | undefined> {
+    const path = this.descriptorPath(digest);
+    let file: Awaited<ReturnType<typeof lstat>>;
+    try { file = await lstat(path); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      throw error;
+    }
+    if (!file.isFile()) throw bundleError('BUNDLE_RETAINED_ARCHIVE_INVALID');
+    let bytes: Buffer;
+    try { bytes = await readFile(path); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      throw error;
+    }
+    let value: RetainedArchiveRef;
+    try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as RetainedArchiveRef; }
+    catch { throw bundleError('BUNDLE_RETAINED_ARCHIVE_INVALID'); }
+    const ciphertext = value?.reference?.ciphertext;
+    if (value?.version !== 1 || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value.contentId)
+      || value.reference?.version !== 1 || value.reference.digest !== digest
+      || !Number.isSafeInteger(value.reference.size) || value.reference.size < 0 || value.reference.size > BUNDLE_LIMITS.maxArchiveBytes
+      || ciphertext?.digestAlgorithm !== 'sha256' || !/^[a-f0-9]{64}$/.test(ciphertext.digest)
+      || ciphertext.blobRef !== `sha256/${ciphertext.digest.slice(0, 2)}/${ciphertext.digest}`
+      || ciphertext.size !== value.reference.size + 29) {
+      throw bundleError('BUNDLE_RETAINED_ARCHIVE_INVALID');
+    }
+    return value;
+  }
   async retain(path: string, expectedDigest: string): Promise<void> {
+    if (!/^[a-f0-9]{64}$/.test(expectedDigest)) throw bundleError('BUNDLE_INVALID_ARCHIVE_DIGEST');
     const file = await stat(path);
     if (!file.isFile() || file.size > BUNDLE_LIMITS.maxArchiveBytes) throw bundleError('BUNDLE_QUOTA_EXCEEDED');
-    await this.blobs.putStream(createReadStream(path), expectedDigest, file.size);
+    const existing = await this.descriptor(expectedDigest);
+    if (existing) {
+      for await (const chunk of this.content.readStream(this.identity(existing.contentId), existing.reference)) void chunk;
+      const refreshed = new Date();
+      await utimes(this.descriptorPath(expectedDigest), refreshed, refreshed);
+      return;
+    }
+    const contentId = randomUUID();
+    let reference: SealedContentRef;
+    try { reference = await this.content.putStream(this.identity(contentId), createReadStream(path), file.size, expectedDigest); }
+    catch (error) {
+      if ((error as Error).message === 'CONTENT_DIGEST_MISMATCH') throw bundleError('BUNDLE_ARCHIVE_DIGEST_MISMATCH');
+      throw error;
+    }
+    const directory = join(this.root, 'retained');
+    const temporary = join(directory, `${randomUUID()}.tmp`);
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    try {
+      const handle = await open(temporary, 'wx', 0o600);
+      try { await handle.writeFile(JSON.stringify({ version: 1, contentId, reference })); await handle.sync(); }
+      finally { await handle.close(); }
+      try { await link(temporary, this.descriptorPath(expectedDigest)); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        const winner = await this.descriptor(expectedDigest);
+        if (!winner) throw bundleError('BUNDLE_RETAINED_ARCHIVE_INVALID');
+        for await (const chunk of this.content.readStream(this.identity(winner.contentId), winner.reference)) void chunk;
+        await this.content.destroy(this.identity(contentId));
+      }
+      const parent = await open(directory, 'r');
+      try { await parent.sync(); } finally { await parent.close(); }
+    } finally { await rm(temporary, { force: true }); }
   }
   async stage(digest: string): Promise<StagedPortableWorkspace> {
     if (!/^[a-f0-9]{64}$/.test(digest)) throw bundleError('BUNDLE_INVALID_ARCHIVE_DIGEST');
-    const staged = await stagePortableWorkspace(join(this.root, 'blobs', 'sha256', digest.slice(0, 2), digest));
-    if (staged.archiveDigest !== digest) {
-      await staged.dispose();
-      throw bundleError('BUNDLE_ARCHIVE_DIGEST_MISMATCH');
+    const retained = await this.descriptor(digest);
+    if (!retained) throw bundleError('BUNDLE_RETAINED_ARCHIVE_MISSING');
+    await mkdir(this.transientRoot(), { recursive: true, mode: 0o700 });
+    const directory = await mkdtemp(join(this.transientRoot(), 'rhiza-bundle-recovery-'));
+    let staged: StagedPortableWorkspace | undefined;
+    try {
+      const archivePath = join(directory, 'archive.rhiza');
+      await pipeline(Readable.from(this.content.readStream(this.identity(retained.contentId), retained.reference)), createWriteStream(archivePath, { flags: 'wx', mode: 0o600 }));
+      staged = await stagePortableWorkspace(archivePath, BUNDLE_LIMITS, this.transientRoot());
+      if (staged.archiveDigest !== digest) throw bundleError('BUNDLE_ARCHIVE_DIGEST_MISMATCH');
+      const ready = staged;
+      return { ...ready, dispose: async () => { try { await ready.dispose(); } finally { await rm(directory, { recursive: true, force: true }); } } };
+    } catch (error) { try { await staged?.dispose(); } finally { await rm(directory, { recursive: true, force: true }); } throw error; }
+  }
+
+  /** Convert a pre-encryption retained ZIP before orphan collection can remove it. */
+  async migrateLegacy(digest: string): Promise<boolean> {
+    if (!/^[a-f0-9]{64}$/.test(digest)) throw bundleError('BUNDLE_INVALID_ARCHIVE_DIGEST');
+    const path = join(this.root, 'blobs', 'sha256', digest.slice(0, 2), digest);
+    let file: Awaited<ReturnType<typeof lstat>>;
+    try { file = await lstat(path); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw error;
     }
-    return staged;
+    if (!file.isFile()) throw bundleError('BUNDLE_RETAINED_ARCHIVE_INVALID');
+    const legacy = await stagePortableWorkspace(path, BUNDLE_LIMITS, this.transientRoot());
+    try {
+      if (legacy.archiveDigest !== digest) throw bundleError('BUNDLE_ARCHIVE_DIGEST_MISMATCH');
+      if (!await this.descriptor(digest)) await this.retain(path, digest);
+      const encrypted = await this.stage(digest);
+      try {
+        if (semanticStateChecksum({ facts: encrypted.facts }) !== semanticStateChecksum({ facts: legacy.facts })) throw bundleError('BUNDLE_ARCHIVE_DIGEST_MISMATCH');
+      } finally { await encrypted.dispose(); }
+      await rm(path);
+      return true;
+    } finally { await legacy.dispose(); }
+  }
+
+  /** Maintenance only: caller owns the runtime and supplies every live checkpoint pin. */
+  async reclaim(pinnedDigests: ReadonlySet<string>, recoveryWindowMs: number, now = Date.now()) {
+    if (!Number.isSafeInteger(recoveryWindowMs) || recoveryWindowMs < 0) throw new Error('BUNDLE_RECOVERY_WINDOW_INVALID');
+    const transient = this.transientRoot();
+    const abandoned = await readdir(transient, { withFileTypes: true }).catch(error => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw error;
+    });
+    for (const entry of abandoned) {
+      if (entry.isDirectory() && /^rhiza-bundle-(upload|stage|recovery|export)-/.test(entry.name)) {
+        await rm(join(transient, entry.name), { recursive: true, force: true });
+      }
+    }
+    const directory = join(this.root, 'retained');
+    const names = await readdir(directory).catch(error => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw error;
+    });
+    const live = new Set<string>();
+    let released = 0;
+    for (const name of names.sort()) {
+      if (!/^[a-f0-9]{64}\.json$/.test(name)) continue;
+      const digest = name.slice(0, 64);
+      const file = await lstat(this.descriptorPath(digest));
+      if (!file.isFile()) throw bundleError('BUNDLE_RETAINED_ARCHIVE_INVALID');
+      const retained = await this.descriptor(digest);
+      if (!retained) throw bundleError('BUNDLE_RETAINED_ARCHIVE_INVALID');
+      if (pinnedDigests.has(digest) || now - file.mtimeMs < recoveryWindowMs) {
+        live.add(digest);
+        continue;
+      }
+      await this.content.destroy(this.identity(retained.contentId));
+      await rm(this.descriptorPath(digest));
+      released += 1;
+    }
+    const active = await Promise.all([...live].map(digest => this.descriptor(digest)));
+    const descriptors = active.filter((item): item is RetainedArchiveRef => !!item);
+    if (descriptors.length !== live.size) throw bundleError('BUNDLE_RETAINED_ARCHIVE_INVALID');
+    await this.content.revokeUnreferencedKeys(descriptors.map(item => this.identity(item.contentId)));
+    const garbage = await this.blobs.collectOrphans(new Set(descriptors.map(item => item.reference.ciphertext.blobRef)), recoveryWindowMs, now);
+    return { released, retained: live.size, deletedCiphertexts: garbage.deleted.length };
   }
 }
 
@@ -89,8 +239,8 @@ export async function ingestPortableWorkspace(staged: StagedPortableWorkspace, b
 }
 
 /** Owns temporary files until the caller activates or abandons the import. No live store writes. */
-export async function stagePortableWorkspace(path: string, limits: BundleLimits = BUNDLE_LIMITS): Promise<StagedPortableWorkspace> {
-  const staged = await stageBundleArchive(path, limits);
+export async function stagePortableWorkspace(path: string, limits: BundleLimits = BUNDLE_LIMITS, stagingRoot = tmpdir()): Promise<StagedPortableWorkspace> {
+  const staged = await stageBundleArchive(path, limits, stagingRoot);
   try {
     const chunks: Buffer[] = [];
     let bytes = 0;

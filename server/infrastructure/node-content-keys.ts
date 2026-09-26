@@ -93,7 +93,7 @@ export class NodeContentKeys {
       key.fill(0);
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
       const existing = await readFile(keyPath);
-      if (existing.length !== 32) { existing.fill(0); throw new Error('CONTENT_KEY_UNAVAILABLE'); }
+      if (existing.length !== 32) { existing.fill(0); throw new Error('CONTENT_KEY_UNAVAILABLE', { cause: error }); }
       return { key: existing, created: false };
     }
   }
