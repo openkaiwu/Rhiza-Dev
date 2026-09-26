@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { api } from '../api';
+import { ApiError, api } from '../api';
 
 export function BundleControls({ workspaceId, onImported }: { workspaceId?: string; onImported?: (workspaceId: string) => Promise<void> }) {
   const [selection, setSelection] = useState<{ file: File; key: string }>();
@@ -23,7 +23,9 @@ export function BundleControls({ workspaceId, onImported }: { workspaceId?: stri
       const result = await api.importWorkspaceBundle(selection.file, selection.key);
       setMessage('导入成功。');
       await onImported?.(result.workspaceId);
-    } catch (error) { setMessage(error instanceof Error ? error.message : '导入失败，请重试。'); }
+    } catch (error) { setMessage(error instanceof ApiError && error.code === 'BUNDLE_TARGET_EXISTS'
+      ? '目标工作区已存在，导入不会覆盖。请在不含该工作区的实例中导入。'
+      : error instanceof Error ? error.message : '导入失败，请重试。'); }
     finally { running.current = false; setBusy(false); }
   };
   return <details className="bundle-controls">

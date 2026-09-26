@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api } from '../api';
+import { ApiError, api } from '../api';
 import { BundleControls } from './BundleControls';
 
 afterEach(() => vi.restoreAllMocks());
@@ -37,6 +37,18 @@ describe('BundleControls', () => {
     await screen.findByText('Invalid archive');
     expect(screen.queryByRole('button', { name: '导入所选归档' })).not.toBeInTheDocument();
     expect(upload).not.toHaveBeenCalled();
+  });
+  it('explains an existing target without exposing the server code', async () => {
+    vi.spyOn(api, 'previewWorkspaceBundle').mockResolvedValue({ workspaceId: 'existing', name: 'Existing', archiveDigest: 'a'.repeat(64), messages: 0, runs: 0, resourceVersions: 0 });
+    vi.spyOn(api, 'importWorkspaceBundle').mockRejectedValue(new ApiError('BUNDLE_TARGET_EXISTS', 'BUNDLE_TARGET_EXISTS', 409));
+    render(<BundleControls/>);
+    fireEvent.click(screen.getByText('导入 / 导出 Workspace'));
+    fireEvent.change(screen.getByLabelText('选择 .rhiza 归档'), { target: { files: [new File(['bundle'], 'workspace.rhiza')] } });
+    fireEvent.click(screen.getByRole('button', { name: '预检所选归档' }));
+    await screen.findByText('Existing');
+    fireEvent.click(screen.getByRole('button', { name: '导入所选归档' }));
+    await screen.findByText('目标工作区已存在，导入不会覆盖。请在不含该工作区的实例中导入。');
+    expect(screen.queryByText('BUNDLE_TARGET_EXISTS')).not.toBeInTheDocument();
   });
   it('rejects a non-bundle file before sending it', () => {
     const upload = vi.spyOn(api, 'importWorkspaceBundle');

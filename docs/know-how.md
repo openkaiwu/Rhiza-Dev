@@ -42,6 +42,7 @@
 - 历史 Workspace 回填写 `workspace.baseline.backfilled`、内联 versioned semantic snapshot 与 checksum，不伪造过去的细粒度行为。固定 command id `backfill:workspace-baseline:v1` 保证脚本可中断、可重跑；新建 Workspace 的 `workspace.created` 自带初始 snapshot。
 - 确定性拒绝须在命令锁内回滚 savepoint 并提交 rejected receipt；不能先释放锁再用新事务补 receipt，否则并发同 id 重试可能先提交不同结果。生命周期命令与内容命令遵守同一 Workspace 锁顺序。
 - Backfill 必须发生在业务 tail 之前；如果已有 event 却没有 sequence-1 baseline，应以 `JOURNAL_BASELINE_ORDER_CONFLICT` 停止并从启用前备份恢复，不能移动或改写既有 sequence。
+- 默认 Workspace 启动时幂等运行 Journal baseline backfill，保证全新库首次 Bundle 导出可用；中途退出重启可续跑。已有非法 tail 仍应 fail-closed，而非在导出查询中临时伪造 baseline。
 - 无 `DATABASE_URL` 时默认使用 embedded PGlite；JSON WorkspaceStore 只作为 fixture/importer。旧 JSON 数据必须通过 `pnpm run workspace:import-json` 显式导入，再运行/确认 Journal baseline。
 - 可选的 `RHIZA_PROJECT_ID` 将空字符串和纯空格视为未配置，非空值必须是 UUID；`.env.example` 中的可选持久化配置保持注释状态，确保复制后直接使用 embedded PGlite。开发环境修改 `API_PORT` 时，Vite `/api` 代理必须读取同一配置。
 - Workspace 更新通过串行队列与临时文件替换，避免多个请求交错造成 JSON 部分写入。
