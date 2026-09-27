@@ -12,6 +12,7 @@ import { PostgresWorkspaceStore, type SqlQueryable } from '../server/postgres-st
 import { SealedNodeContent, type SealedNodeRef } from '../server/infrastructure/sealed-node-content';
 import { SealedJournalContent, type SealedJournalRef } from '../server/infrastructure/sealed-journal-content';
 import { SealedReceiptContent, type SealedReceiptRef } from '../server/infrastructure/sealed-receipt-content';
+import { NodeEncryptedBlobStore } from '../server/infrastructure/node-encrypted-blob-store';
 import { validatePortableHistory } from '../server/application/portable-history';
 import { semanticStateChecksum } from '../server/infrastructure/workspace-semantic-checksum';
 import { workspaceSemanticSnapshot } from '../server/domain-journal';
@@ -80,6 +81,32 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       const hidden = (await store.read()).resourceVersions.find(version => version.id === versionId)!;
       expect(hidden).toMatchObject({ id: versionId, digest, blobRef: 'purged-v1', purgedAt: expect.any(String) });
       expect(hidden.blobRef).not.toBe(blobRef);
+    } finally { await database.close(); }
+  });
+
+  it('resumes a scoped ResourceVersion key revocation without harming another Workspace', async () => {
+    const database = await migratedDatabase(backend);
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-purge-resource-key-'));
+    directories.push(directory);
+    const blobs = NodeEncryptedBlobStore.atDirectory(directory);
+    const workspaceId = randomUUID(), versionId = randomUUID(), otherWorkspaceId = randomUUID(), otherVersionId = randomUUID();
+    const purgeId = randomUUID();
+    const store = new PostgresWorkspaceStore(database, workspaceId, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, blobs);
+    try {
+      const workspace = await store.read();
+      const bytes = new TextEncoder().encode('resource purge fixture');
+      const target = await blobs.put(bytes, { workspaceId, contentId: versionId });
+      const other = await blobs.put(bytes, { workspaceId: otherWorkspaceId, contentId: otherVersionId });
+      const reference = { workspaceId, resourceVersionId: versionId, digest: target.digest, size: target.size, blobRef: target.blobRef };
+      await database.query('INSERT INTO purge_checkpoints(purge_id,workspace_id,node_id) VALUES ($1,$2,$3)', [purgeId, workspaceId, workspace.activeNodeId]);
+      await database.query("INSERT INTO purge_key_references(purge_id,ordinal,content_family,entity_id,content_ref) VALUES ($1,0,'resource-version',$2,$3::jsonb)",
+        [purgeId, versionId, JSON.stringify(reference)]);
+      expect(await new PostgresWorkspaceStore(database, workspaceId).resumePendingPurges()).toEqual({ completed: 0, pending: 1 });
+      expect(await store.resumePendingPurges()).toEqual({ completed: 1, pending: 0 });
+      await expect(blobs.read(target.blobRef, target.digest)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+      expect(Buffer.from(await blobs.read(other.blobRef, other.digest))).toEqual(Buffer.from(bytes));
+      expect(await store.resumePendingPurges()).toEqual({ completed: 0, pending: 0 });
     } finally { await database.close(); }
   });
 

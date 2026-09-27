@@ -1,10 +1,18 @@
 import { createHash } from 'node:crypto';
+import { join } from 'node:path';
 import type { BlobContentIdentity, BlobPutResult, BlobStorePort } from '../application/ports/host-runtime';
+import { NodeContentKeys } from './node-content-keys';
+import { NodeFilesystemBlobStore } from './node-host-runtime';
 import { NodeSealedContentStore, type SealedContentRef } from './node-sealed-content-store';
 
 /** Explicit encrypted composition; legacy references must be migrated before selecting this adapter. */
 export class NodeEncryptedBlobStore implements BlobStorePort {
   constructor(private readonly content: NodeSealedContentStore, private readonly legacy?: BlobStorePort) {}
+
+  static atDirectory(root: string): NodeEncryptedBlobStore {
+    const legacy = new NodeFilesystemBlobStore(root);
+    return new NodeEncryptedBlobStore(new NodeSealedContentStore(legacy, new NodeContentKeys(join(root, 'resource-keys'))), legacy);
+  }
 
   async put(bytes: Uint8Array, identity?: BlobContentIdentity): Promise<BlobPutResult> {
     const snapshot = Buffer.from(bytes);

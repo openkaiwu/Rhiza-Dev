@@ -55,7 +55,7 @@ type PendingContent = { workspaceId: string; commandId: string; reference: Seale
   | { workspaceId: string; fileChunkId: string; reference: SealedFileChunkRef }
   | { workspaceId: string; attachmentId: string; reference: SealedAttachmentRef }
   | { workspaceId: string; resourceId: string; reference: SealedResourceRef };
-type PurgeContentFamily = 'node' | 'message' | 'manifest' | 'segment' | 'anchor' | 'edge' | 'context-item' | 'journal' | 'receipt-result' | 'receipt-error';
+type PurgeContentFamily = 'node' | 'message' | 'manifest' | 'segment' | 'anchor' | 'edge' | 'context-item' | 'journal' | 'receipt-result' | 'receipt-error' | 'resource-version';
 interface PurgeKeyReference {
   workspaceId: string;
   family: PurgeContentFamily;
@@ -163,7 +163,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   private readonly scoped = new Map<string, PostgresWorkspaceStore>();
   readonly defaultWorkspaceId: string;
 
-constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: string, private readonly receiptContent?: SealedReceiptContent, private readonly runContent?: SealedRunContent, private readonly journalContent?: SealedJournalContent, private readonly messageContent?: SealedMessageContent, private readonly manifestContent?: SealedManifestContent, private readonly nodeContent?: SealedNodeContent, private readonly anchorContent?: SealedAnchorContent, private readonly segmentContent?: SealedSegmentContent, private readonly edgeContent?: SealedEdgeContent, private readonly contextItemContent?: SealedContextItemContent, private readonly fileChunkContent?: SealedFileChunkContent, private readonly attachmentContent?: SealedAttachmentContent, private readonly resourceContent?: SealedResourceContent) {
+constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: string, private readonly receiptContent?: SealedReceiptContent, private readonly runContent?: SealedRunContent, private readonly journalContent?: SealedJournalContent, private readonly messageContent?: SealedMessageContent, private readonly manifestContent?: SealedManifestContent, private readonly nodeContent?: SealedNodeContent, private readonly anchorContent?: SealedAnchorContent, private readonly segmentContent?: SealedSegmentContent, private readonly edgeContent?: SealedEdgeContent, private readonly contextItemContent?: SealedContextItemContent, private readonly fileChunkContent?: SealedFileChunkContent, private readonly attachmentContent?: SealedAttachmentContent, private readonly resourceContent?: SealedResourceContent, private readonly resourceBlobs?: NodeEncryptedBlobStore) {
     const configuredWorkspaceId = defaultWorkspaceId?.trim();
     if (configuredWorkspaceId && !uuidPattern.test(configuredWorkspaceId)) throw new Error('RHIZA_PROJECT_ID must be a UUID when set');
     this.defaultWorkspaceId = configuredWorkspaceId || DEFAULT_PROJECT_ID;
@@ -172,7 +172,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
   forWorkspace(workspaceId: string): WorkspaceRepository {
     if (workspaceId === this.defaultWorkspaceId) return this;
     let scoped = this.scoped.get(workspaceId);
-    if (!scoped) { scoped = new PostgresWorkspaceStore(this.database, workspaceId, this.receiptContent, this.runContent, this.journalContent, this.messageContent, this.manifestContent, this.nodeContent, this.anchorContent, this.segmentContent, this.edgeContent, this.contextItemContent, this.fileChunkContent, this.attachmentContent, this.resourceContent); this.scoped.set(workspaceId, scoped); }
+    if (!scoped) { scoped = new PostgresWorkspaceStore(this.database, workspaceId, this.receiptContent, this.runContent, this.journalContent, this.messageContent, this.manifestContent, this.nodeContent, this.anchorContent, this.segmentContent, this.edgeContent, this.contextItemContent, this.fileChunkContent, this.attachmentContent, this.resourceContent, this.resourceBlobs); this.scoped.set(workspaceId, scoped); }
     return scoped;
   }
 
@@ -219,8 +219,8 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     }),
   };
 
-  static fromConnectionString(connectionString: string, projectId?: string, contentDirectory = resolve('var/receipt-content')) {
-    return new PostgresWorkspaceStore(new Pool({ connectionString, max: 10, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 5_000 }), projectId, SealedReceiptContent.atDirectory(contentDirectory), SealedRunContent.atDirectory(resolve(contentDirectory, 'runs')), SealedJournalContent.atDirectory(resolve(contentDirectory, 'journal')), SealedMessageContent.atDirectory(resolve(contentDirectory, 'messages')), SealedManifestContent.atDirectory(resolve(contentDirectory, 'manifests')), SealedNodeContent.atDirectory(resolve(contentDirectory, 'nodes')), SealedAnchorContent.atDirectory(resolve(contentDirectory, 'anchors')), SealedSegmentContent.atDirectory(resolve(contentDirectory, 'segments')), SealedEdgeContent.atDirectory(resolve(contentDirectory, 'edges')), SealedContextItemContent.atDirectory(resolve(contentDirectory, 'context-items')), SealedFileChunkContent.atDirectory(resolve(contentDirectory, 'file-chunks')), SealedAttachmentContent.atDirectory(resolve(contentDirectory, 'attachments')), SealedResourceContent.atDirectory(resolve(contentDirectory, 'resources')));
+  static fromConnectionString(connectionString: string, projectId?: string, contentDirectory = resolve('var/receipt-content'), resourceBlobs?: NodeEncryptedBlobStore) {
+    return new PostgresWorkspaceStore(new Pool({ connectionString, max: 10, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 5_000 }), projectId, SealedReceiptContent.atDirectory(contentDirectory), SealedRunContent.atDirectory(resolve(contentDirectory, 'runs')), SealedJournalContent.atDirectory(resolve(contentDirectory, 'journal')), SealedMessageContent.atDirectory(resolve(contentDirectory, 'messages')), SealedManifestContent.atDirectory(resolve(contentDirectory, 'manifests')), SealedNodeContent.atDirectory(resolve(contentDirectory, 'nodes')), SealedAnchorContent.atDirectory(resolve(contentDirectory, 'anchors')), SealedSegmentContent.atDirectory(resolve(contentDirectory, 'segments')), SealedEdgeContent.atDirectory(resolve(contentDirectory, 'edges')), SealedContextItemContent.atDirectory(resolve(contentDirectory, 'context-items')), SealedFileChunkContent.atDirectory(resolve(contentDirectory, 'file-chunks')), SealedAttachmentContent.atDirectory(resolve(contentDirectory, 'attachments')), SealedResourceContent.atDirectory(resolve(contentDirectory, 'resources')), resourceBlobs);
   }
 
   /** PostgreSQL hosts admit one Chat runtime per database; a second host must not reconcile live work. */
@@ -1017,6 +1017,12 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       case 'context-item':
         if (!this.contextItemContent) throw new Error('CONTEXT_ITEM_CONTENT_STORE_UNAVAILABLE');
         return this.contextItemContent.destroy(item.workspaceId, item.entityId, item.reference as SealedContextItemRef);
+      case 'resource-version': {
+        if (!this.resourceBlobs) throw new Error('RESOURCE_BLOB_STORE_UNAVAILABLE');
+        const reference = item.reference as { workspaceId: string; resourceVersionId: string; digest: string; size: number; blobRef: string };
+        if (reference.workspaceId !== item.workspaceId || reference.resourceVersionId !== item.entityId) throw new Error('PURGE_RESOURCE_IDENTITY_MISMATCH');
+        return this.resourceBlobs.revokeResourceVersion(reference);
+      }
     }
   }
 

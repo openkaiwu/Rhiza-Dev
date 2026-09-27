@@ -10,10 +10,8 @@ import { LegacyContextPlanner } from '../context-runtime/legacy-planner';
 import { loadFeatureFlags, type FeatureFlags } from '../feature-flags';
 import { createHttpApp } from '../http/app';
 import { NodeFilesystemLegacyUpload } from '../infrastructure/node-filesystem-legacy-upload';
-import { NodeFilesystemBlobStore, NodeHostRuntimeAdapter } from '../infrastructure/node-host-runtime';
-import { NodeContentKeys } from '../infrastructure/node-content-keys';
+import { NodeHostRuntimeAdapter } from '../infrastructure/node-host-runtime';
 import { NodeEncryptedBlobStore } from '../infrastructure/node-encrypted-blob-store';
-import { NodeSealedContentStore } from '../infrastructure/node-sealed-content-store';
 import { NodePortableBundle } from '../infrastructure/portable-bundle';
 import { NodeBundleImport } from '../infrastructure/node-bundle-import';
 import { RepositoryWorkspaceUnitOfWork } from '../infrastructure/workspace-repository-unit-of-work';
@@ -31,14 +29,10 @@ export function createApp(
   runtime: AIRuntime = new ProviderRuntime(provider),
   featureFlags: FeatureFlags = loadFeatureFlags(),
   uploadDirectory = resolve('var/uploads'),
+  encryptedBlobs = NodeEncryptedBlobStore.atDirectory(uploadDirectory),
 ) {
   const defaultWorkspaceId = store.defaultWorkspaceId ?? DEFAULT_WORKSPACE_ID;
   const upload = new NodeFilesystemLegacyUpload(uploadDirectory);
-  const legacyBlobs = new NodeFilesystemBlobStore(uploadDirectory);
-  const encryptedBlobs = new NodeEncryptedBlobStore(
-    new NodeSealedContentStore(legacyBlobs, new NodeContentKeys(resolve(uploadDirectory, 'resource-keys'))),
-    legacyBlobs,
-  );
   const host = new NodeHostRuntimeAdapter(uploadDirectory, { blobs: encryptedBlobs });
   const application = createRhizaApplication({
     unitOfWork: new RepositoryWorkspaceUnitOfWork(store),
