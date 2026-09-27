@@ -1,4 +1,4 @@
-import type { RuntimeRequest } from './runtime';
+import type { RuntimeEvent, RuntimeRequest } from './runtime';
 import type { TokenUsage } from '../domain';
 
 export type RunStatus = 'created' | 'dispatching' | 'running' | 'completed' | 'failed' | 'canceled' | 'interrupted';
@@ -34,6 +34,7 @@ export type RunMutation = { kind: 'create'; run: ExecutionRun } | {
   patch: Pick<ExecutionRun, 'status'> & Partial<Pick<ExecutionRun, 'dispatchingAt' | 'runningAt' | 'terminalAt' | 'cancelRequestedAt' | 'error' | 'telemetry'>>;
 };
 export interface RunTrace { sequence: number; type: string; at: string }
+const traceTypes = new Set<RuntimeEvent['type']>(['RUN_START', 'CONTENT_DELTA', 'REASONING_DELTA', 'TOOL_CALL_DELTA', 'USAGE', 'RUN_END', 'RUN_ERROR']);
 
 /** Content stays in the transport. Only bounded metadata is retained here. */
 export class RunTraceBuffer {
@@ -41,6 +42,7 @@ export class RunTraceBuffer {
   count = 0;
   constructor(private readonly write: (batch: RunTrace[]) => Promise<void>) {}
   async push(type: string, at: string) {
+    if (!traceTypes.has(type as RuntimeEvent['type'])) throw new Error('RUN_TRACE_TYPE_INVALID');
     const trace = { sequence: ++this.count, type, at };
     this.pending.push(trace);
     if (this.pending.length >= 128) await this.flush();

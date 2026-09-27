@@ -123,6 +123,7 @@
 - Retry/Regenerate 使用新 Run + parentRunRef。相同 command id 只用于幂等重放，不能用它发起新的外部调用。
 - 临时 Chat 不写正式消息/节点，但保留执行输入与终态。不得为了沿用“临时不落盘”概念绕过执行审计。
 - PostgreSQL 启动恢复必须在取得 runtime ownership 且尚未接受请求时运行，不能在在线查询中扫全库并中断其他活跃请求。
+- Run trace 只能保存已知事件类型与 `sequence/type/at`，存储适配器须重新投影输入而非直接 JSON 序列化调用方对象；历史 trace 行还需审计额外字段。
 - 有 Run 关联或输入引用的节点不能仅删除原节点后宣称物理清除；Purge 以 `PURGE_HAS_EXECUTION_HISTORY` 拒绝，使用 Archive 保留可解释历史。
 - ResourceVersion Blob 密钥对账必须读取全部 Workspace 的版本引用，并校验 `sealed-v1` 的 Workspace/版本身份、digest 与 size；只读审计不授权回收。停服回收须同时独占数据库和上传目录，先对历史正文与资源密钥全量预检，再分别在锁内重读引用并撤销孤儿密钥；缺失的已引用密钥应阻断，不能误清理其他 Workspace 的同摘要内容。
 - Purge 的 SQL 删除、redacted provenance、审计事实与待撤销 scoped key 清单必须同事务提交；提交后 key destroy 可中断且不可回滚，因此逐项 acknowledgement 与 checkpoint 必须允许重复撤销。启动取得 runtime ownership 后先分批排空 pending checkpoint，再读 Workspace、回填 Journal 或开放 HTTP；某一批无法推进则拒绝启动，不能只记录警告。执行历史保护只能在 Run、Journal、receipt/trace 等每一份正文副本均进入该流程后移除。

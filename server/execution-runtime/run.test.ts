@@ -21,3 +21,12 @@ it('backpressures trace writes and bounds the transient ring at 256 events', asy
   expect(stream.recent).toHaveLength(256);
   expect(stream.recent[0].sequence).toBe(9745);
 });
+
+it('rejects unknown runtime event types before trace persistence', async () => {
+  const writes: unknown[] = [];
+  const trace = new RunTraceBuffer(async batch => { writes.push(...batch); });
+  await expect(trace.push('provider response body', 'now')).rejects.toThrow('RUN_TRACE_TYPE_INVALID');
+  await trace.flush();
+  expect(trace.count).toBe(0);
+  expect(writes).toEqual([]);
+});

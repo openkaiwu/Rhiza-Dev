@@ -1191,10 +1191,11 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
   }
 
   async writeRunTraces(runId: string, attempt: number, traces: RunTrace[]) {
+    const metadata = traces.map(({ sequence, type, at }) => ({ sequence, type, at }));
     await this.database.query(`INSERT INTO execution_run_traces (run_id,attempt,sequence,record)
       SELECT r.run_id,$3,(t->>'sequence')::int,t FROM execution_runs r, jsonb_array_elements($4::jsonb) t
       WHERE r.workspace_id=$1 AND r.run_id=$2 AND r.attempt=$3
-      ON CONFLICT (run_id,attempt,sequence) DO NOTHING`, [this.defaultWorkspaceId, runId, attempt, JSON.stringify(traces)]);
+      ON CONFLICT (run_id,attempt,sequence) DO NOTHING`, [this.defaultWorkspaceId, runId, attempt, JSON.stringify(metadata)]);
   }
 
   private async insertRun(database: SqlQueryable, run: ExecutionRun) {

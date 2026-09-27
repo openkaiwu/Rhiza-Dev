@@ -1083,6 +1083,10 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     expect(run.status).toBe('completed');
     expect(run.telemetry.traceCount).toBe(10001);
     expect((await database.query<{ count: number }>('SELECT count(*)::int count FROM execution_run_traces')).rows[0].count).toBe(10001);
+    const attemptedTrace = { sequence: 10002, type: 'RUN_END', at: new Date().toISOString(), delta: 'must not persist' };
+    await store.writeRunTraces(run.id, run.attempt, [attemptedTrace]);
+    const storedTrace = await database.query<{ record: Record<string, unknown> }>('SELECT record FROM execution_run_traces WHERE run_id=$1 AND sequence=$2', [run.id, attemptedTrace.sequence]);
+    expect(storedTrace.rows[0].record).toEqual({ sequence: attemptedTrace.sequence, type: attemptedTrace.type, at: attemptedTrace.at });
     expect((await store.readJournal()).length).toBeLessThanOrEqual(10);
     expect((await store.read()).messages).toEqual(before.messages);
   });
