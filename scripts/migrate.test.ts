@@ -5,7 +5,7 @@ import { loadMigrations } from './migrate';
 describe('PostgreSQL migration baseline', () => {
   it('has an ordered, checksummed core schema migration', async () => {
     const migrations = await loadMigrations();
-    expect(migrations.map(item => item.version)).toEqual(['0001', '0002', '0003', '0004', '0005', '0006', '0007', '0008', '0009', '0010', '0011', '0012', '0013', '0014', '0015', '0016', '0017', '0018', '0019', '0020', '0021', '0022', '0023', '0024', '0025', '0026', '0027', '0028', '0029', '0030']);
+    expect(migrations.map(item => item.version)).toEqual(['0001', '0002', '0003', '0004', '0005', '0006', '0007', '0008', '0009', '0010', '0011', '0012', '0013', '0014', '0015', '0016', '0017', '0018', '0019', '0020', '0021', '0022', '0023', '0024', '0025', '0026', '0027', '0028', '0029', '0030', '0031']);
     expect(migrations.every(item => /^[a-f0-9]{64}$/.test(item.checksum))).toBe(true);
     expect(migrations[0].sql).toContain('CREATE TABLE rhiza_projects');
     expect(migrations[0].sql).toContain('CREATE TABLE rhiza_context_manifests');
@@ -30,5 +30,6 @@ describe('PostgreSQL migration baseline', () => {
     expect(migrations[28].sql).toContain('sealed-v1');
     expect(migrations[29].sql).toContain('CREATE TABLE purge_checkpoints');
     expect(migrations[29].sql).toContain('CREATE TABLE purge_key_references');
+    expect(migrations[30].sql).toContain('CREATE TABLE journal_payload_redactions');
   });
 });

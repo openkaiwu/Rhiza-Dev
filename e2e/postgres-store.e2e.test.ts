@@ -1,5 +1,8 @@
 // @vitest-environment node
 import { randomUUID } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { loadMigrations } from '../scripts/migrate';
 import { PGlite } from '@electric-sql/pglite';
 import { Pool } from 'pg';
@@ -10,6 +13,7 @@ import { createRhizaApplication } from '../server/application/create-application
 import { createHttpApp } from '../server/http/app';
 import { WorkspaceDirectory } from '../server/identity/workspace-directory';
 import { PostgresWorkspaceStore } from '../server/postgres-store';
+import { SealedJournalContent } from '../server/infrastructure/sealed-journal-content';
 import { RepositoryWorkspaceUnitOfWork } from '../server/infrastructure/workspace-repository-unit-of-work';
 import { PostgresGraphProjectionAdapter } from '../server/graph-projection/postgres-adapter';
 import { buildWorkspaceGraphProjection } from '../server/graph-projection/model';
@@ -44,8 +48,8 @@ async function migratedDatabase(backend: 'embedded' | 'postgres' = 'embedded') {
   return database;
 }
 
-function legacyApp(database: TestDatabase, defaultWorkspaceId: string) {
-  const store = new PostgresWorkspaceStore(database, defaultWorkspaceId);
+function legacyApp(database: TestDatabase, defaultWorkspaceId: string, journalContent?: SealedJournalContent) {
+  const store = new PostgresWorkspaceStore(database, defaultWorkspaceId, undefined, undefined, journalContent);
   const application = createRhizaApplication({
     unitOfWork: new RepositoryWorkspaceUnitOfWork(store), workspaceDirectory: new WorkspaceDirectory(store.workspaceDirectory), defaultWorkspaceId,
     runtime: { kind: 'provider-adapter', listModels: async () => [{ id: 'model', provider: 'test', model: 'test', displayName: 'test', active: true }], async *generate() { yield { type: 'RUN_END', requestId: 'run', text: 'unused', model: 'test', provider: 'test' } as const; } },
@@ -107,9 +111,11 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
 
   it('serves a bounded, rebuildable graph projection through the scoped v1 endpoint', async () => {
     const database = await migratedDatabase(backend); const workspaceId = randomUUID();
+    const contentDirectory = await mkdtemp(join(tmpdir(), 'rhiza-m07-journal-'));
     try {
-      const { app } = legacyApp(database, workspaceId);
+      const { app, store } = legacyApp(database, workspaceId, SealedJournalContent.atDirectory(contentDirectory));
       await request(app).get('/api/workspace').expect(200);
+      await store.backfillJournal();
       await request(app).post('/api/graph/nodes').send({ title: 'Projected', x: 120, y: 80 }).expect(201);
       const first = await request(app).get(`/api/v1/workspaces/${workspaceId}/graph/neighborhood?objectTypes=conversation&depth=3&nodeLimit=500&edgeLimit=2000`).expect(200);
       await request(app).get(`/api/v1/workspaces/${workspaceId}/graph/neighborhood?cursor=invalid`).expect(400);
@@ -133,7 +139,8 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       expect((await database.query<{ count: number }>('SELECT count(*)::int count FROM projection_checkpoints WHERE workspace_id=$1', [workspaceId])).rows[0]?.count).toBe(2);
       const removedId = first.body.graph.objects.find((item: { title: string }) => item.title === 'Projected').ref.objectId;
       await request(app).delete(`/api/graph/nodes/${removedId}`).expect(200);
-      await request(app).post(`/api/graph/nodes/${removedId}/purge`).send({ confirmation: `PURGE ${removedId}`, reason: 'M07 disposable fixture' }).expect(200);
+      const purged = await request(app).post(`/api/graph/nodes/${removedId}/purge`).send({ confirmation: `PURGE ${removedId}`, reason: 'M07 disposable fixture' });
+      expect(purged.status, JSON.stringify(purged.body)).toBe(200);
       // Age the removal beyond the bounded activity feed, without mutating any existing event.
       await database.query(`INSERT INTO workspace_events
         (event_id,workspace_id,sequence,rhiza_envelope_version,event_type,event_source,subject,data_schema,aggregate_type,aggregate_id,aggregate_revision,actor_ref,scope_ref,command_id,event_index,payload,occurred_at)
@@ -142,7 +149,7 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       await request(app).post(`/api/v1/workspaces/${workspaceId}/graph/rebuild`).expect(200);
       const recovered = await request(app).get(`/api/v1/workspaces/${workspaceId}/graph/neighborhood?objectTypes=conversation`).expect(200);
       expect(recovered.body.graph.objects).toContainEqual(expect.objectContaining({ ref: expect.objectContaining({ objectId: removedId }), lifecycle: 'tombstoned' }));
-    } finally { await database.close(); }
+    } finally { await database.close(); await rm(contentDirectory, { recursive: true, force: true }); }
   });
 
 });

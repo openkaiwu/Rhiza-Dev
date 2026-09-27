@@ -21,7 +21,7 @@ import type { PortableWorkspaceFacts } from './application/ports/portable-worksp
 import type { BundleImportCheckpoint } from './application/ports/bundle-import';
 import { BUNDLE_IMPORT_RECOVERY_WINDOW_MS } from './domain/portable-bundle';
 import { validatePortableReferences } from './application/portable-references';
-import { validatePortableHistory } from './application/portable-history';
+import { redactPortableHistory, validatePortableHistory } from './application/portable-history';
 import { portableWorkspaceFacts } from './application/portable-workspace';
 import { SqlBundleImportCheckpoints } from './infrastructure/bundle-import-checkpoints';
 import { SealedReceiptContent, type SealedReceiptRef } from './infrastructure/sealed-receipt-content';
@@ -54,7 +54,7 @@ type PendingContent = { workspaceId: string; commandId: string; reference: Seale
   | { workspaceId: string; fileChunkId: string; reference: SealedFileChunkRef }
   | { workspaceId: string; attachmentId: string; reference: SealedAttachmentRef }
   | { workspaceId: string; resourceId: string; reference: SealedResourceRef };
-type PurgeContentFamily = 'node' | 'message' | 'manifest' | 'segment' | 'anchor' | 'edge' | 'context-item';
+type PurgeContentFamily = 'node' | 'message' | 'manifest' | 'segment' | 'anchor' | 'edge' | 'context-item' | 'journal';
 interface PurgeKeyReference {
   workspaceId: string;
   family: PurgeContentFamily;
@@ -383,10 +383,12 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     const { receiptContent, runContent, journalContent, messageContent, manifestContent, nodeContent, anchorContent, segmentContent, edgeContent, contextItemContent, fileChunkContent, attachmentContent, resourceContent } = this;
     if (!receiptContent || !runContent || !journalContent || !messageContent || !manifestContent || !nodeContent || !anchorContent || !segmentContent || !edgeContent || !contextItemContent || !fileChunkContent || !attachmentContent || !resourceContent) throw new Error('HISTORY_CONTENT_STORES_UNAVAILABLE');
     return this.inTransaction(async database => {
-      if (reclaim) await database.query('LOCK TABLE command_receipts,execution_runs,workspace_events,rhiza_messages,rhiza_nodes,rhiza_context_manifests,rhiza_anchors,rhiza_segments,rhiza_edges,rhiza_projects,rhiza_attachments,rhiza_resources IN SHARE MODE');
+      if (reclaim) await database.query('LOCK TABLE command_receipts,execution_runs,workspace_events,journal_payload_redactions,rhiza_messages,rhiza_nodes,rhiza_context_manifests,rhiza_anchors,rhiza_segments,rhiza_edges,rhiza_projects,rhiza_attachments,rhiza_resources IN SHARE MODE');
       const { rows } = await database.query<{ family: string; workspace_id: string; id: string; reference: unknown }>(`
         SELECT 'runs' AS family,workspace_id,run_id AS id,input_content_ref AS reference FROM execution_runs WHERE input_content_ref IS NOT NULL
-        UNION ALL SELECT 'journal',workspace_id,event_id::text,payload_content_ref FROM workspace_events WHERE payload_content_ref IS NOT NULL
+        UNION ALL SELECT 'journal',e.workspace_id,e.event_id::text,COALESCE(r.content_ref,e.payload_content_ref)
+          FROM workspace_events e LEFT JOIN journal_payload_redactions r ON r.event_id=e.event_id
+          WHERE COALESCE(r.content_ref,e.payload_content_ref) IS NOT NULL
         UNION ALL SELECT 'messages',n.project_id,m.id::text,m.content_ref FROM rhiza_messages m JOIN rhiza_nodes n ON n.id=m.node_id WHERE m.content_ref IS NOT NULL
         UNION ALL SELECT 'manifests',project_id,id::text,content_ref FROM rhiza_context_manifests WHERE content_ref IS NOT NULL
         UNION ALL SELECT 'nodes',project_id,id::text,content_ref FROM rhiza_nodes WHERE content_ref IS NOT NULL
@@ -934,6 +936,9 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
 
   private async destroyPurgeReference(item: PurgeKeyReference): Promise<void> {
     switch (item.family) {
+      case 'journal':
+        if (!this.journalContent) throw new Error('JOURNAL_CONTENT_STORE_UNAVAILABLE');
+        return this.journalContent.destroy(item.workspaceId, item.entityId, item.reference as SealedJournalRef);
       case 'node':
         if (!this.nodeContent) throw new Error('NODE_CONTENT_STORE_UNAVAILABLE');
         return this.nodeContent.destroy(item.workspaceId, item.entityId, item.reference as SealedNodeRef);
@@ -1115,7 +1120,8 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       const members = await database.query<{ user_id: string; role: 'owner' | 'member' }>('SELECT user_id,role FROM workspace_members WHERE workspace_id=$1 ORDER BY user_id', [this.defaultWorkspaceId]);
       const runs = await database.query<{ record: ExecutionRun; input_content_ref: unknown }>('SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1 ORDER BY run_id', [this.defaultWorkspaceId]);
       const provenance = await database.query<{ record: ProvenanceLink }>('SELECT record FROM provenance_links WHERE workspace_id=$1 ORDER BY output_ref', [this.defaultWorkspaceId]);
-      const journal = await database.query<Record<string, unknown>>('SELECT * FROM workspace_events WHERE workspace_id=$1 ORDER BY sequence', [this.defaultWorkspaceId]);
+      const journal = await database.query<Record<string, unknown>>(`SELECT e.*,r.content_ref redacted_content_ref FROM workspace_events e
+        LEFT JOIN journal_payload_redactions r ON r.event_id=e.event_id WHERE e.workspace_id=$1 ORDER BY e.sequence`, [this.defaultWorkspaceId]);
       return { workspace, directory: { workspaceId: record.workspace_id, name: record.name, status: record.status, createdBy: record.created_by, revision: Number(record.revision) },
         members: members.rows.map(member => ({ userId: member.user_id, role: member.role })),
         runs: await Promise.all(runs.rows.map(row => this.decodeRun(row))), provenance: provenance.rows.map(row => asJson<ProvenanceLink>(row.record)), journal: await Promise.all(journal.rows.map(row => this.decodeJournalEvent(row))) };
@@ -1241,14 +1247,17 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
 
   private async decodeJournalEvent(row: Record<string, unknown>): Promise<DomainEventEnvelope> {
     const event = storedJournalEvent(row);
-    if (row.payload_content_ref == null) return event;
+    const reference = row.redacted_content_ref ?? row.payload_content_ref;
+    if (reference == null) return event;
     if (!this.journalContent) throw new Error('JOURNAL_CONTENT_STORE_UNAVAILABLE');
-    return { ...event, payload: await this.journalContent.read(event.workspaceId, event.eventId, asJson<SealedJournalRef>(row.payload_content_ref)) };
+    return { ...event, payload: await this.journalContent.read(event.workspaceId, event.eventId, asJson<SealedJournalRef>(reference)) };
   }
 
   async readJournal(limit = 50): Promise<DomainEventEnvelope[]> {
     const result = await this.database.query<Record<string, unknown>>(`
-      SELECT * FROM workspace_events WHERE workspace_id=$1 ORDER BY sequence DESC LIMIT $2
+      SELECT e.*,r.content_ref redacted_content_ref FROM workspace_events e
+      LEFT JOIN journal_payload_redactions r ON r.event_id=e.event_id
+      WHERE e.workspace_id=$1 ORDER BY e.sequence DESC LIMIT $2
     `, [this.defaultWorkspaceId, Math.min(10_000, Math.max(1, limit))]);
     return Promise.all(result.rows.map(row => this.decodeJournalEvent(row)));
   }
@@ -1322,7 +1331,9 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       const runs = await database.query<{ record: ExecutionRun; input_content_ref: unknown }>('SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1', [this.defaultWorkspaceId]);
       const sequence = await database.query<{ sequence: number }>('SELECT COALESCE(MAX(sequence),0)::bigint AS sequence FROM workspace_events WHERE workspace_id=$1', [this.defaultWorkspaceId]);
       // Removal history must survive more than the activity endpoint's 10k-event window.
-      const removed = await database.query<Record<string, unknown>>("SELECT * FROM workspace_events WHERE workspace_id=$1 AND event_type IN ('object.purged','graph.relation.removed') ORDER BY sequence", [this.defaultWorkspaceId]);
+      const removed = await database.query<Record<string, unknown>>(`SELECT e.*,r.content_ref redacted_content_ref FROM workspace_events e
+        LEFT JOIN journal_payload_redactions r ON r.event_id=e.event_id
+        WHERE e.workspace_id=$1 AND e.event_type IN ('object.purged','graph.relation.removed') ORDER BY e.sequence`, [this.defaultWorkspaceId]);
       const events = await Promise.all(removed.rows.map(row => this.decodeJournalEvent(row)));
       const projection = buildWorkspaceGraphProjection(workspace, await Promise.all(runs.rows.map(row => this.decodeRun(row))), Number(sequence.rows[0]?.sequence ?? 0), events);
       return new PostgresGraphProjectionAdapter({ query: database.query.bind(database), transaction: work => work(database) }, this.defaultWorkspaceId).materialize(projection, force);
@@ -1407,7 +1418,9 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       const checksum = semanticChecksum(workspace);
       const existing = await database.query<{ count: number }>('SELECT count(*)::int count FROM workspace_events WHERE workspace_id=$1', [this.defaultWorkspaceId]);
       const eventCount = Number(existing.rows[0]?.count || 0);
-      const baseline = await database.query<Record<string, unknown>>("SELECT * FROM workspace_events WHERE workspace_id=$1 AND sequence=1 AND event_type IN ('workspace.baseline.backfilled','workspace.created')", [this.defaultWorkspaceId]);
+      const baseline = await database.query<Record<string, unknown>>(`SELECT e.*,r.content_ref redacted_content_ref FROM workspace_events e
+        LEFT JOIN journal_payload_redactions r ON r.event_id=e.event_id
+        WHERE e.workspace_id=$1 AND e.sequence=1 AND e.event_type IN ('workspace.baseline.backfilled','workspace.created')`, [this.defaultWorkspaceId]);
       if (baseline.rows[0] && (await this.decodeJournalEvent(baseline.rows[0])).payload.snapshot != null) return { checksum, created: false, eventCount };
       if (eventCount > 0) throw Object.assign(new Error(`Workspace ${this.defaultWorkspaceId} has Journal events but no sequence-1 baseline`), { code: 'JOURNAL_BASELINE_ORDER_CONFLICT', status: 409 });
       const sequence = 1;
@@ -1634,6 +1647,25 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     const removedIds = new Set(previous.contextItems.filter(item => !currentIds.has(item.id)).map(item => item.id));
     for (const item of asJson<Array<{ id: string; contentRef?: SealedContextItemRef }>>(stored?.items || [])) {
       if (removedIds.has(item.id) && item.contentRef) references.push({ family: 'context-item', entityId: item.id, reference: item.contentRef });
+    }
+
+    const journal = await database.query<Record<string, unknown>>(`SELECT e.*,r.content_ref redacted_content_ref FROM workspace_events e
+      LEFT JOIN journal_payload_redactions r ON r.event_id=e.event_id WHERE e.workspace_id=$1 ORDER BY e.sequence`, [workspace.projectId]);
+    if (journal.rows.length) {
+      if (!this.journalContent || journal.rows.some(row => (row.redacted_content_ref ?? row.payload_content_ref) == null)) {
+        throw Object.assign(new Error('Purge requires sealed Journal history'), { code: 'PURGE_JOURNAL_MIGRATION_REQUIRED', status: 409 });
+      }
+      const events = await Promise.all(journal.rows.map(row => this.decodeJournalEvent(row)));
+      const redacted = redactPortableHistory(events, workspaceSemanticSnapshot(previous), workspaceSemanticSnapshot(workspace), semanticStateChecksum);
+      for (const [index, event] of redacted.entries()) {
+        const row = journal.rows[index]!;
+        references.push({ family: 'journal', entityId: event.eventId, reference: asJson(row.redacted_content_ref ?? row.payload_content_ref) });
+        const replacement = await this.prepareJournalPayload(database, workspace.projectId, event.eventId, event.payload);
+        await database.query(`INSERT INTO journal_payload_redactions(event_id,workspace_id,purge_id,content_ref)
+          VALUES ($1,$2,$3,$4::jsonb) ON CONFLICT (event_id) DO UPDATE
+          SET purge_id=EXCLUDED.purge_id,content_ref=EXCLUDED.content_ref,created_at=now()`,
+        [event.eventId, workspace.projectId, purge.auditReceiptId, replacement.reference]);
+      }
     }
 
     references.sort((left, right) => left.family.localeCompare(right.family) || left.entityId.localeCompare(right.entityId));

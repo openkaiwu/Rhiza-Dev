@@ -45,7 +45,7 @@ describe('embedded Workspace backend', () => {
       expect(await receipts.read('workspace', 'unpublished', candidate)).toEqual({ keep: true });
       expect(statements[0]).toBe("SET LOCAL lock_timeout = '5s'");
       expect(statements[1]).toContain('pg_advisory_xact_lock(');
-      expect(statements[2]).toBe('LOCK TABLE command_receipts,execution_runs,workspace_events,rhiza_messages,rhiza_nodes,rhiza_context_manifests,rhiza_anchors,rhiza_segments,rhiza_edges,rhiza_projects,rhiza_attachments,rhiza_resources IN SHARE MODE');
+      expect(statements[2]).toBe('LOCK TABLE command_receipts,execution_runs,workspace_events,journal_payload_redactions,rhiza_messages,rhiza_nodes,rhiza_context_manifests,rhiza_anchors,rhiza_segments,rhiza_edges,rhiza_projects,rhiza_attachments,rhiza_resources IN SHARE MODE');
       expect(statements.slice(3).every(sql => sql.trim().startsWith('SELECT'))).toBe(true);
     } finally { await rm(directory, { recursive: true, force: true }); }
   });

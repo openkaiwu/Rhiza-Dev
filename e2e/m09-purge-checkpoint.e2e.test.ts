@@ -8,6 +8,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadMigrations } from '../scripts/migrate';
 import { PostgresWorkspaceStore } from '../server/postgres-store';
 import { SealedNodeContent, type SealedNodeRef } from '../server/infrastructure/sealed-node-content';
+import { SealedJournalContent, type SealedJournalRef } from '../server/infrastructure/sealed-journal-content';
+import { validatePortableHistory } from '../server/application/portable-history';
+import { semanticStateChecksum } from '../server/infrastructure/workspace-semantic-checksum';
+import { workspaceSemanticSnapshot } from '../server/domain-journal';
 
 describe('M09 durable Purge checkpoint', () => {
   const directories: string[] = [];
@@ -61,5 +65,70 @@ describe('M09 durable Purge checkpoint', () => {
     } finally {
       await database.close();
     }
+  }, 30_000);
+
+  it('publishes replayable redacted Journal history before revoking the old payload key', async () => {
+    const database = new PGlite();
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-purge-journal-'));
+    directories.push(directory);
+    const journalContent = SealedJournalContent.atDirectory(join(directory, 'journal'));
+    const workspaceId = randomUUID();
+    const store = new PostgresWorkspaceStore(database, workspaceId, undefined, undefined, journalContent);
+    try {
+      for (const migration of await loadMigrations()) await database.exec(migration.sql);
+      const workspace = await store.read();
+      await store.workspaceDirectory.ensureWorkspace({ workspaceId, name: 'Journal purge', status: 'active', createdBy: randomUUID(), revision: 1 });
+      const nodeId = randomUUID();
+      const secondNodeId = randomUUID();
+      const removedMessageId = randomUUID();
+      const retainedMessageId = randomUUID();
+      const createdAt = new Date().toISOString();
+      await store.update(current => ({ ...current, messages: [...current.messages,
+        { id: removedMessageId, nodeId, kind: 'user', text: 'removed message secret', createdAt },
+        { id: retainedMessageId, nodeId: workspace.activeNodeId, kind: 'assistant', text: 'retained reply', sourceMessageId: removedMessageId, createdAt }],
+        discussionNodes: [...current.discussionNodes, {
+        id: nodeId, title: 'journal secret title', summary: 'journal secret summary', status: 'archived', kind: 'branch',
+        sourceNodeId: workspace.activeNodeId, x: 10, y: 20, createdAt, updatedAt: createdAt,
+      }, {
+        id: secondNodeId, title: 'second journal secret', summary: 'second retained branch', status: 'archived', kind: 'branch',
+        sourceNodeId: workspace.activeNodeId, x: 30, y: 40, createdAt, updatedAt: createdAt,
+      }] }));
+      await store.backfillJournal();
+      const original = (await database.query<{ event_id: string; payload_content_ref: SealedJournalRef }>('SELECT event_id,payload_content_ref FROM workspace_events WHERE workspace_id=$1', [workspaceId])).rows[0]!;
+      const purgeId = randomUUID();
+      vi.spyOn(journalContent, 'destroy').mockRejectedValueOnce(Object.assign(new Error('interrupted'), { code: 'SIMULATED_INTERRUPTION' }));
+      await store.update(current => ({
+        ...current, discussionNodes: current.discussionNodes.filter(node => node.id !== nodeId),
+        messages: current.messages.filter(message => message.id !== removedMessageId)
+          .map(message => message.id === retainedMessageId ? { ...message, sourceMessageId: undefined } : message),
+        auditEvents: [...current.auditEvents, { id: purgeId, projectId: workspaceId, nodeId, action: 'node.purged', entityType: 'node', entityId: nodeId,
+          metadata: { reason: 'journal redaction test' }, createdAt }],
+      }), { purge: { nodeId, auditReceiptId: purgeId } });
+
+      expect((await database.query<{ phase: string }>('SELECT phase FROM purge_checkpoints WHERE purge_id=$1', [purgeId])).rows[0]?.phase).toBe('pending');
+      const events = await store.readJournal();
+      expect(JSON.stringify(events)).not.toContain('journal secret title');
+      expect(JSON.stringify(events)).not.toContain('removed message secret');
+      const facts = await store.readPortableWorkspace();
+      expect(validatePortableHistory(facts, semanticStateChecksum)).toBe(semanticStateChecksum(workspaceSemanticSnapshot(facts.workspace)));
+      expect(JSON.stringify(facts)).not.toContain('journal secret title');
+      expect(JSON.stringify(facts)).not.toContain('removed message secret');
+      expect((await database.query<{ content_family: string }>('SELECT content_family FROM purge_key_references WHERE purge_id=$1', [purgeId])).rows)
+        .toContainEqual({ content_family: 'journal' });
+
+      const reopened = new PostgresWorkspaceStore(database, workspaceId, undefined, undefined, journalContent);
+      expect(await reopened.resumePendingPurges()).toEqual({ completed: 1, pending: 0 });
+      await expect(journalContent.read(workspaceId, original.event_id, original.payload_content_ref)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+      expect(JSON.stringify(await reopened.readJournal())).not.toContain('journal secret title');
+
+      const secondPurgeId = randomUUID();
+      await reopened.update(current => ({ ...current, discussionNodes: current.discussionNodes.filter(node => node.id !== secondNodeId),
+        auditEvents: [...current.auditEvents, { id: secondPurgeId, projectId: workspaceId, nodeId: secondNodeId,
+          action: 'node.purged', entityType: 'node', entityId: secondNodeId, metadata: { reason: 'second purge' }, createdAt }],
+      }), { purge: { nodeId: secondNodeId, auditReceiptId: secondPurgeId } });
+      const twiceRedacted = await reopened.readPortableWorkspace();
+      expect(JSON.stringify(twiceRedacted)).not.toContain('second journal secret');
+      expect(validatePortableHistory(twiceRedacted, semanticStateChecksum)).toBe(semanticStateChecksum(workspaceSemanticSnapshot(twiceRedacted.workspace)));
+    } finally { await database.close(); }
   }, 30_000);
 });
