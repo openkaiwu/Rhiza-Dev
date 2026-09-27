@@ -39,6 +39,78 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
   const directories: string[] = [];
   afterEach(async () => Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))));
 
+  it('counts legacy plaintext families without reading their bodies', async () => {
+    const database = await migratedDatabase(backend);
+    const store = new PostgresWorkspaceStore(database, randomUUID());
+    try {
+      expect(Object.values(await store.auditLegacyPlaintextReplicas()).every(count => count === 0)).toBe(true);
+      await store.read();
+      await store.backfillJournal();
+      const counts = await store.auditLegacyPlaintextReplicas();
+      expect(counts.nodes).toBeGreaterThan(0);
+      expect(counts.messages).toBeGreaterThan(0);
+      expect(counts.journal_payloads).toBeGreaterThan(0);
+      expect(counts.context_items).toBeGreaterThan(0);
+      expect(counts.resource_blobs).toBe(0);
+    } finally { await database.close(); }
+  });
+
+  it('redacts every saved Graph namespace and candidate index in the Purge transaction', async () => {
+    const database = await migratedDatabase(backend);
+    const workspaceId = randomUUID();
+    const store = new PostgresWorkspaceStore(database, workspaceId);
+    try {
+      const current = await store.read();
+      const nodeId = randomUUID(), messageId = randomUUID(), edgeId = randomUUID(), purgeId = randomUUID();
+      const createdAt = new Date().toISOString();
+      await store.update(workspace => ({ ...workspace,
+        discussionNodes: [...workspace.discussionNodes, { id: nodeId, title: 'private graph title', summary: 'private graph summary',
+          anchorText: 'private graph anchor', status: 'archived' as const, kind: 'branch' as const,
+          sourceNodeId: current.activeNodeId, x: 20, y: 30, createdAt, updatedAt: createdAt }],
+        messages: [...workspace.messages, { id: messageId, nodeId, kind: 'user' as const, text: 'private graph message', createdAt }],
+        discussionEdges: [...workspace.discussionEdges, { id: edgeId, source: current.activeNodeId, target: nodeId,
+          relation: 'related-to' as const, label: 'private graph relation', createdAt }],
+      }));
+      await store.rebuildGraphProjection();
+      await store.rebuildGraphProjection();
+      const before = await database.query<{ title: string; summary: string; metadata: unknown; projection_version: string }>(
+        'SELECT title,summary,metadata,projection_version FROM workspace_objects WHERE workspace_id=$1 AND object_id=ANY($2::text[])', [workspaceId, [nodeId, messageId]]);
+      expect(new Set(before.rows.map(row => row.projection_version)).size).toBe(2);
+      expect(JSON.stringify(before.rows)).toContain('private graph message');
+      expect(JSON.stringify(before.rows)).toContain('private graph anchor');
+
+      const purge = () => store.update(workspace => ({ ...workspace,
+        discussionNodes: workspace.discussionNodes.filter(node => node.id !== nodeId),
+        messages: workspace.messages.filter(message => message.id !== messageId),
+        discussionEdges: workspace.discussionEdges.filter(edge => edge.id !== edgeId),
+        auditEvents: [...workspace.auditEvents, { id: purgeId, projectId: workspaceId, nodeId, action: 'node.purged',
+          entityType: 'node', entityId: nodeId, metadata: { reason: 'test' }, createdAt }],
+      }), { purge: { nodeId, auditReceiptId: purgeId } });
+      await database.exec(`CREATE FUNCTION fail_projection_redaction() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN RAISE EXCEPTION 'injected graph redaction failure'; END $$`);
+      await database.exec('CREATE TRIGGER fail_projection_redaction BEFORE UPDATE ON graph_relations FOR EACH ROW EXECUTE FUNCTION fail_projection_redaction()');
+      await expect(purge()).rejects.toThrow('injected graph redaction failure');
+      expect(JSON.stringify((await database.query('SELECT title,summary FROM workspace_objects WHERE workspace_id=$1 AND object_id=$2', [workspaceId, nodeId])).rows))
+        .toContain('private graph title');
+      expect((await database.query('SELECT phase FROM purge_checkpoints WHERE purge_id=$1', [purgeId])).rows).toHaveLength(0);
+      await database.exec('DROP TRIGGER fail_projection_redaction ON graph_relations');
+      await database.exec('DROP FUNCTION fail_projection_redaction()');
+      await purge();
+      const objects = await database.query<{ title: string; summary: string; metadata: unknown }>(
+        'SELECT title,summary,metadata FROM workspace_objects WHERE workspace_id=$1 AND object_id=ANY($2::text[])', [workspaceId, [nodeId, messageId]]);
+      expect(objects.rows).toHaveLength(before.rows.length);
+      expect(objects.rows.every(row => row.title === '[purged]' && row.summary === '' && JSON.stringify(row.metadata) === '{}')).toBe(true);
+      const relations = await database.query<{ label: string }>('SELECT label FROM graph_relations WHERE workspace_id=$1 AND relation_id=$2', [workspaceId, edgeId]);
+      expect(relations.rows).toHaveLength(2);
+      expect(relations.rows.every(row => row.label === '')).toBe(true);
+      const candidates = await database.query('SELECT source_id FROM context_candidate_index WHERE workspace_id=$1 AND source_node_id=$2', [workspaceId, nodeId]);
+      expect(candidates.rows).toHaveLength(0);
+      const rebuilt = await store.readGraphProjection();
+      expect(JSON.stringify(rebuilt)).not.toContain('private graph');
+      expect(rebuilt.objects.find(object => object.ref.objectId === nodeId)).toBeUndefined();
+    } finally { await database.close(); }
+  });
+
   it('commits the tombstone before key revocation and resumes an interrupted revocation after reopen', async () => {
     const database = await migratedDatabase(backend);
     const directory = await mkdtemp(join(tmpdir(), 'rhiza-purge-checkpoint-'));

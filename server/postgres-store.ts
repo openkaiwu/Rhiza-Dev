@@ -348,6 +348,29 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     return (await this.inspectHistoricalKeys(false)).audit;
   }
 
+  /** One MVCC snapshot across every historical plaintext family; counts only, never bodies. */
+  async auditLegacyPlaintextReplicas(): Promise<Record<string, number>> {
+    const result = await this.database.query<Record<string, number>>(`SELECT
+      (SELECT count(*)::int FROM command_receipts WHERE purged_at IS NULL AND status='committed' AND result_content_ref IS NULL) AS receipt_results,
+      (SELECT count(*)::int FROM command_receipts WHERE purged_at IS NULL AND status='rejected' AND error_content_ref IS NULL) AS receipt_errors,
+      (SELECT count(*)::int FROM execution_runs WHERE input_content_ref IS NULL) AS run_inputs,
+      (SELECT count(*)::int FROM workspace_events WHERE payload_content_ref IS NULL) AS journal_payloads,
+      (SELECT count(*)::int FROM rhiza_messages WHERE content_ref IS NULL) AS messages,
+      (SELECT count(*)::int FROM rhiza_context_manifests WHERE content_ref IS NULL) AS manifests,
+      (SELECT count(*)::int FROM rhiza_nodes WHERE content_ref IS NULL) AS nodes,
+      (SELECT count(*)::int FROM rhiza_segments WHERE content_ref IS NULL) AS segments,
+      (SELECT count(*)::int FROM rhiza_anchors WHERE selected_text IS NOT NULL AND content_ref IS NULL) AS anchors,
+      (SELECT count(*)::int FROM rhiza_edges WHERE content_ref IS NULL) AS edges,
+      (SELECT count(*)::int FROM rhiza_attachments WHERE content_ref IS NULL) AS attachments,
+      (SELECT count(*)::int FROM rhiza_resources WHERE content_ref IS NULL) AS resources,
+      (SELECT count(*)::int FROM rhiza_resource_versions WHERE blob_ref NOT LIKE 'sealed-v1/%') AS resource_blobs,
+      (SELECT count(*)::int FROM rhiza_projects p, jsonb_array_elements(coalesce(p.state->'contextItems','[]'::jsonb)) item
+        WHERE jsonb_typeof(item->'contentRef') IS DISTINCT FROM 'object') AS context_items,
+      (SELECT count(*)::int FROM rhiza_projects p, jsonb_array_elements(coalesce(p.state->'fileChunks','[]'::jsonb)) item
+        WHERE jsonb_typeof(item->'contentRef') IS DISTINCT FROM 'object') AS file_chunks`);
+    return result.rows[0]!;
+  }
+
   /** Offline maintenance only; all users of the content directories must be stopped. */
   async reclaimHistoricalKeys() {
     await this.acquireRuntimeOwnership();
@@ -1736,6 +1759,13 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     if (options?.purge && previous) {
       const removedMessages = new Set(previous.messages.filter(item => !workspace.messages.some(candidate => candidate.id === item.id)).map(item => item.id));
       const removedManifests = new Set(previous.manifests.filter(item => !workspace.manifests.some(candidate => candidate.id === item.id)).map(item => item.id));
+      const removedEdges = previous.discussionEdges.filter(item => !workspace.discussionEdges.some(candidate => candidate.id === item.id)).map(item => item.id);
+      await database.query(`UPDATE workspace_objects SET title='[purged]',summary='',metadata='{}'::jsonb,
+        lifecycle_status='tombstoned',object_status='tombstoned' WHERE workspace_id=$1 AND
+        ((object_type='conversation' AND object_id=$2) OR (object_type='message' AND object_id=ANY($3::text[])))`,
+      [workspace.projectId, options.purge.nodeId, [...removedMessages]]);
+      await database.query(`UPDATE graph_relations SET label='',lifecycle_status='retracted' WHERE workspace_id=$1 AND
+        (source_id=$2 OR target_id=$2 OR relation_id=ANY($3::text[]))`, [workspace.projectId, options.purge.nodeId, removedEdges]);
       const links = await database.query<{ output_ref: string; record: ProvenanceLink }>('SELECT output_ref,record FROM provenance_links WHERE workspace_id=$1', [workspace.projectId]);
       for (const row of links.rows) {
         const link = asJson<ProvenanceLink>(row.record);
@@ -1844,6 +1874,12 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     await database.query('UPDATE rhiza_projects SET active_node_id=$2 WHERE id=$1', [workspace.projectId, workspace.activeNodeId]);
     await this.deleteMissing(database, workspace, options);
     await materializeContextCandidates(database, workspace, previous);
+    if (options?.purge && previous) {
+      const removedSegments = previous.segments.filter(item => !workspace.segments.some(candidate => candidate.id === item.id)).map(item => item.id);
+      await database.query(`DELETE FROM context_candidate_index WHERE workspace_id=$1 AND
+        (source_node_id=$2 OR (source_type='node' AND source_id=$2) OR (source_type='segment' AND source_id=ANY($3::text[])))`,
+      [workspace.projectId, options.purge.nodeId, removedSegments]);
+    }
     await this.persistProvenance(database, workspace, messages);
   }
 

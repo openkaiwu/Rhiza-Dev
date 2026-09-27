@@ -24,6 +24,8 @@ M09 当前实现：新 Assistant output 在原事务内写入 `provenance_links`
 
 历史消息若持有附件 ID，共享历史校验返回 `PURGE_HAS_RESOURCE_HISTORY`，避免删除节点后仍由 ResourceVersion/Blob 路径读到原始附件。该拒绝仅是完整资源撤销前的安全边界，不代表附件、派生文件块和外部 Bundle 已进入 Purge checkpoint。
 
+Purge 事务还会清空被删 Node/Message 在所有已保存 Graph projection namespace 中的 title、summary、metadata，并清空其关系标签；同事务清理对应 Context candidate index 行。Graph 查询随后按当前状态重新物化 active namespace。旧 projection version 不能作为可保留的正文副本；此处理不替代 Run/资源/备份边界的剩余 Purge 工作。
+
 Bundle 导出通过 `/api/v1/workspaces/:workspaceId/bundle` 读取同一事务中的完整 Workspace、Run、Provenance 与 Journal；Application 构造去除运行环境位置和凭据元数据的 portable DTO，Node adapter 以 ZIP 和 SHA-256 描述符输出冻结内容。去除 endpoint 配置后重新计算 portable inputHash，并用 originInputHash 保留原执行引用；该快照不能直接声明 Exact Replay。Domain 定义 portable Workspace v1 schema；Node 解码器使用本地固定 schema 校验字段、引用闭合、内容摘要与每个 Run 的描述符身份，归档携带的 schema 仅作文档。Journal payload 继续使用现有 envelope schema，逐事件历史一致性恢复仍需实现。空目标导入保留原逻辑身份，既有目标拒绝覆盖；同一已激活 checkpoint 的重复调用幂等。`POST /api/bundle/import` 接收 `application/vnd.rhiza.workspace+zip` 流，经 ImportWorkspaceBundle Command 完成导入；当前仅接受归档中的 owner 身份，不执行跨用户身份映射。`Idempotency-Key` 用于重试，归档保存在独立 imports 目录以支持恢复。
 
 当前仓库不是 LibreChat fork。按 V4.2 基线，现有 `server/provider-*` 承担当前 API 配置的 Runtime Adapter 职责；`librechat-data-provider` 提供共享 Model Spec 与文件策略，Rhiza 的 Project、Node、Edge、Context 与 State 语义保持独立。后续迁移仍应扩展 Runtime 能力，而不是让 LibreChat Conversation/Mongo schema 进入 Rhiza Domain。旧映射仅见 `docs/archive/librechat-migration.md`，不定义当前架构。
@@ -37,6 +39,8 @@ Bundle 导出通过 `/api/v1/workspaces/:workspaceId/bundle` 读取同一事务�
 `reclaimHistoricalKeys` 是停服维护专用 Repository 操作：获取运行时独占权、内容独占事务锁和全部引用表的 SHARE 锁，在同一连接读取所有工作区引用。全部类别的已引用密钥元数据健康后才开始撤销未引用 active key；永久保留空 tombstone，失败后的重复执行跳过已撤销项。文件撤销不随 SQL 回滚恢复。内容目录必须仅属于当前数据库，调用前须停止所有目录使用者（包括直接文件发布者）；数据库锁无法保护其他数据库或进程直接访问同一目录。真实 PostgreSQL 并发行为尚待验收，此操作不等同于对象 Purge。
 
 `pnpm run m09:keys:audit` 对全部 Workspace 的历史正文与 ResourceVersion Blob 密钥做只读引用审计；`RHIZA_OFFLINE_KEY_RECONCILIATION=1 pnpm run m09:keys:reclaim` 仅用于停服后、数据库及上传目录独占的维护窗口。资源引用会核验 scoped blobRef 中的 Workspace/ResourceVersion 身份、摘要及大小；任何已引用密钥缺失或失效都阻止撤销。回收在独占内容锁及 ResourceVersion 表锁下重新读全库引用，先撤销孤儿密钥，再另行按完整保留集合清理不可读密文；当前尚无自动加密 Blob GC。普通业务请求不得调用此维护入口。
+
+M09 Gate 另运行 `m09:plaintext:audit`：用单条数据库快照查询计数所有历史正文族及未密封 ResourceVersion Blob，不读取或输出正文；任一计数非零即阻断验收。该审计只证明当前数据库引用状态，不能替代旧明文 Blob 文件、WAL/备份或已导出 Bundle 的保留期检查。
 
 - React + TypeScript：界面与本地交互状态
 - Vite：开发服务器与生产构建

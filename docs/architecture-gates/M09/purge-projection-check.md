@@ -1,0 +1,5 @@
+# M09 Purge projection replicas (partial)
+
+A regression exposed plaintext left in saved Graph projection namespaces after a Node Purge: archived Node title/summary and Message excerpt remained in earlier `workspace_objects` versions. The Purge SQL transaction now redacts those rows across all versions, removes metadata and relation labels, and deletes candidates for the removed Node/Segments. A later Graph query rematerializes the active namespace without recovering the deleted text.
+
+The embedded and isolated local PostgreSQL regression both pass. It creates two saved Graph versions, injects a failure after object redaction to prove rollback retains the pre-Purge state and does not commit a checkpoint, then repeats Purge successfully and verifies every saved version, relation label and candidate index row. The final isolated PostgreSQL E2E run passed 139/139. This is not a full crypto-shred claim: Run/resource replicas, old files, WAL, backups and exported Bundles remain outside this check.

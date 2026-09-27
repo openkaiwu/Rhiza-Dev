@@ -423,12 +423,15 @@ const M08_CONFIG: MilestoneConfig = {
 };
 
 export const M09_COMMANDS = [
-  'pnpm run m09:traces:audit', 'pnpm run lint', 'pnpm run typecheck', 'pnpm run test:unit', 'pnpm run test:e2e',
+  'pnpm run m09:plaintext:audit', 'pnpm run m09:traces:audit', 'pnpm run m09:keys:audit', 'pnpm run lint', 'pnpm run typecheck', 'pnpm run test:unit', 'pnpm run test:e2e',
   'pnpm run licenses:verify', 'pnpm run verify:g0', 'pnpm run verify:m02:boundaries', 'pnpm run verify:m04:host-boundary', 'pnpm run build',
 ];
 export const M09_PATHS = [...new Set([...M08_PATHS,
   'docs/adr/ADR-009-portable-history.md', 'docs/architecture-gates/M09/acceptance.json',
   'docs/architecture-gates/M09/replay-browser-check.md', 'docs/architecture-gates/M09/replay-desktop.jpg', 'docs/architecture-gates/M09/replay-narrow.jpg',
+  'docs/architecture-gates/M09/bundle-browser-check.md', 'docs/architecture-gates/M09/bundle-desktop.jpg', 'docs/architecture-gates/M09/provenance-narrow.jpg',
+  'docs/architecture-gates/M09/plaintext-audit-check.md',
+  'docs/architecture-gates/M09/purge-projection-check.md',
   'db/migrations/0013_provenance_links.up.sql', 'db/migrations/0014_bundle_imports.up.sql',
   'db/migrations/0029_scoped_resource_blobs.up.sql', 'db/migrations/0030_purge_checkpoints.up.sql',
   'db/migrations/0031_journal_purge_redactions.up.sql', 'db/migrations/0032_purged_receipts.up.sql',
@@ -436,11 +439,14 @@ export const M09_PATHS = [...new Set([...M08_PATHS,
   'server/application/prepare-bundle-import.ts', 'server/infrastructure/bundle-archive.ts', 'server/infrastructure/node-bundle-import.ts',
   'server/infrastructure/node-encrypted-blob-store.ts', 'server/infrastructure/portable-bundle.ts', 'server/infrastructure/portable-content.ts',
   'e2e/m09-default-bundle.e2e.test.ts', 'e2e/m09-provenance.e2e.test.ts', 'e2e/m09-purge-checkpoint.e2e.test.ts',
-  'scripts/audit-run-traces.ts', 'scripts/reconcile-content-keys.ts', 'scripts/reclaim-bundle-import-archives.ts',
+  'scripts/audit-legacy-plaintext.ts', 'scripts/audit-run-traces.ts', 'scripts/reconcile-content-keys.ts', 'scripts/reclaim-bundle-import-archives.ts',
 ])];
 export const M09_FIXTURES = [...M08_FIXTURES,
   { id: 'm09-acceptance-v1', path: 'docs/architecture-gates/M09/acceptance.json', role: 'acceptance_fixture' },
   { id: 'm09-replay-browser-check-v1', path: 'docs/architecture-gates/M09/replay-browser-check.md', role: 'acceptance_fixture' },
+  { id: 'm09-bundle-browser-check-v1', path: 'docs/architecture-gates/M09/bundle-browser-check.md', role: 'acceptance_fixture' },
+  { id: 'm09-plaintext-audit-check-v1', path: 'docs/architecture-gates/M09/plaintext-audit-check.md', role: 'acceptance_fixture' },
+  { id: 'm09-purge-projection-check-v1', path: 'docs/architecture-gates/M09/purge-projection-check.md', role: 'acceptance_fixture' },
 ];
 export const M09_ACCEPTANCE_CHECKS = [
   'provenance_replay', 'bundle_security', 'import_recovery_round_trip', 'purge_replica_erasure',

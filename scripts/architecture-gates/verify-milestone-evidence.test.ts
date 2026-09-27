@@ -269,8 +269,17 @@ describe('M09 strict closure evidence', () => {
   const passed = () => ({ schemaVersion: '1.0.0', checks: Object.fromEntries(M09_ACCEPTANCE_CHECKS.map(id => [id, { status: 'pass', evidencePaths: ['docs/architecture-gates/M09/replay-browser-check.md'] }])) });
   const paths = new Set(M09_PATHS);
   it('binds the acceptance checklist and PostgreSQL staging to the milestone gate', () => {
+    const checks = (JSON.parse(readFileSync('package.json', 'utf8')) as { scripts: Record<string, string> }).scripts['m09:checks'];
+    for (const command of M09_COMMANDS) expect(checks).toContain(command);
     expect(M09_COMMANDS).toContain('pnpm run test:e2e');
     expect(M09_COMMANDS).toContain('pnpm run m09:traces:audit');
+    expect(M09_COMMANDS).toContain('pnpm run m09:plaintext:audit');
+    expect(M09_COMMANDS).toContain('pnpm run m09:keys:audit');
+    expect(paths.has('docs/architecture-gates/M09/bundle-browser-check.md')).toBe(true);
+    expect(paths.has('docs/architecture-gates/M09/bundle-desktop.jpg')).toBe(true);
+    expect(paths.has('docs/architecture-gates/M09/provenance-narrow.jpg')).toBe(true);
+    expect(paths.has('docs/architecture-gates/M09/plaintext-audit-check.md')).toBe(true);
+    expect(paths.has('docs/architecture-gates/M09/purge-projection-check.md')).toBe(true);
     expect(M09_FIXTURES.every(fixture => paths.has(fixture.path))).toBe(true);
     expect(m09ObservedMetrics('')).toMatchObject({ real_postgres_e2e: { status: 'skipped' } });
     expect(() => validateM09Acceptance(passed(), paths)).not.toThrow();
