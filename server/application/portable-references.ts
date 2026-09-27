@@ -75,6 +75,7 @@ export function validatePortableReferences(facts: PortableWorkspaceFacts): void 
     if (run.status === 'completed' && !run.nodeId.startsWith('temp:')) ref(manifests, run.input.request.manifestId, run.id);
     if (run.input.request.requestId !== run.id || !run.input.executor.modelSpecRef || !run.input.executor.providerEndpointRef) missing.push(`${run.id}:runtime-snapshot`);
     for (const attachment of run.input.request.attachments ?? []) if (attachment.resourceVersionId && purgedVersions.has(attachment.resourceVersionId)) missing.push(`${run.id}:purged-attachment`);
+    for (const item of run.input.request.contextItems) if (item.sourceId && (purgedVersions.has(item.sourceId) || purgedResources.has(item.sourceId))) missing.push(`${run.id}:purged-context-source`);
   }
   const outputs = new Set(provenance.map(link => link.outputRef));
   if (outputs.size !== provenance.length) throw bundleError('BUNDLE_DUPLICATE_OUTPUT_PROVENANCE');

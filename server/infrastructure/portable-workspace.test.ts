@@ -35,6 +35,15 @@ describe('portable export DTO', () => {
     invalid.workspace.fileChunks.push({ id: 'chunk', attachmentId: 'attachment', ordinal: 0, text: 'erased text',
       startOffset: 0, endOffset: 11, tokens: 2, terms: [], embedding: [], resourceVersionId: 'version' });
     expect(() => validatePortableReferences(invalid)).toThrow(expect.objectContaining({ missingRefs: expect.arrayContaining(['chunk:purged-version']) }));
+    invalid.workspace.fileChunks = [];
+    invalid.runs.push({ id: 'run', workspaceId: workspace.projectId, nodeId: workspace.activeNodeId, commandId: 'command',
+      status: 'failed', attempt: 1, input: { schemaVersion: '1.0.0', executor: { runtime: 'provider-adapter', modelSpecRef: 'model', providerEndpointRef: 'endpoint', model: 'model', provider: 'Provider' },
+        request: { requestId: 'run', manifestId: 'manifest', projectId: workspace.projectId, nodeId: workspace.activeNodeId, modelId: 'model', prompt: '', history: [],
+          contextItems: [{ id: 'context', title: 'erased', detail: 'erased', role: 'Reference', status: 'active', tokens: 1, sourceType: 'reference', sourceId: 'version' }], mode: 'Strict' } },
+      inputHash: digest, createdAt, telemetry: { traceCount: 0 } });
+    expect(() => validatePortableReferences(invalid)).toThrow(expect.objectContaining({ missingRefs: expect.arrayContaining(['run:purged-context-source']) }));
+    invalid.runs[0]!.input.request.contextItems[0]!.sourceId = 'resource';
+    expect(() => validatePortableReferences(invalid)).toThrow(expect.objectContaining({ missingRefs: expect.arrayContaining(['run:purged-context-source']) }));
   });
   it('normalizes encrypted locations in nested historical content without changing digests', () => {
     const digest = 'a'.repeat(64);
