@@ -24,11 +24,14 @@ if (process.env.DATABASE_URL || featureFlags.postgresPersistence) {
 }
 if (!(store instanceof PostgresWorkspaceStore)) throw new Error('Chat execution requires transactional persistence');
 await store.acquireRuntimeOwnership();
+let purgeRecovery = await store.resumePendingPurges();
+while (purgeRecovery.pending) {
+  if (!purgeRecovery.completed) throw new Error('PURGE_RECOVERY_INCOMPLETE');
+  purgeRecovery = await store.resumePendingPurges();
+}
 // Complete or resume the default Workspace baseline before serving read-only Bundle export.
 await store.read();
 await store.backfillJournal();
-const purgeRecovery = await store.resumePendingPurges();
-if (purgeRecovery.pending) console.warn(`[api] ${purgeRecovery.pending} purge checkpoint(s) remain pending key revocation`);
 const uploadDirectory = resolve(process.env.RHIZA_UPLOAD_DIR || 'var/uploads');
 const retainedArchives = new NodeImportArchiveStore(resolve(uploadDirectory, 'imports'));
 const archivePins = await store.retainedImportArchivePins();
