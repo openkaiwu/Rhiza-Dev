@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "1.0.0",
+  "checks": {
+    "provenance_replay": { "status": "pending", "evidencePaths": [] },
+    "bundle_security": { "status": "pending", "evidencePaths": [] },
+    "import_recovery_round_trip": { "status": "pending", "evidencePaths": [] },
+    "purge_replica_erasure": { "status": "pending", "evidencePaths": [] },
+    "postgres_staging": { "status": "pending", "evidencePaths": [] },
+    "browser_acceptance": { "status": "pending", "evidencePaths": [] },
+    "backup_retention": { "status": "pending", "evidencePaths": [] }
+  }
+}
