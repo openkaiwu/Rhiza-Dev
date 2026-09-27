@@ -55,7 +55,7 @@ type PendingContent = { workspaceId: string; commandId: string; reference: Seale
   | { workspaceId: string; fileChunkId: string; reference: SealedFileChunkRef }
   | { workspaceId: string; attachmentId: string; reference: SealedAttachmentRef }
   | { workspaceId: string; resourceId: string; reference: SealedResourceRef };
-type PurgeContentFamily = 'node' | 'message' | 'manifest' | 'segment' | 'anchor' | 'edge' | 'context-item' | 'journal' | 'receipt-result' | 'receipt-error' | 'resource-version' | 'resource' | 'attachment' | 'file-chunk';
+type PurgeContentFamily = 'node' | 'message' | 'manifest' | 'segment' | 'anchor' | 'edge' | 'context-item' | 'journal' | 'receipt-result' | 'receipt-error' | 'resource-version' | 'resource' | 'attachment' | 'file-chunk' | 'run-input';
 interface PurgeKeyReference {
   workspaceId: string;
   family: PurgeContentFamily;
@@ -990,6 +990,9 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
 
   private async destroyPurgeReference(item: PurgeKeyReference): Promise<void> {
     switch (item.family) {
+      case 'run-input':
+        if (!this.runContent) throw new Error('RUN_CONTENT_STORE_UNAVAILABLE');
+        return this.runContent.destroy(item.workspaceId, item.entityId, item.reference as SealedRunInputRef);
       case 'receipt-result':
       case 'receipt-error':
         if (!this.receiptContent) throw new Error('RECEIPT_CONTENT_STORE_UNAVAILABLE');

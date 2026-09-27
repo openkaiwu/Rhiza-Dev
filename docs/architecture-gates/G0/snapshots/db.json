@@ -66,6 +66,8 @@
     "db/migrations/0032_purged_receipts.down.sql": "sha256:545fd810a3bee976b43d220103bc05e9744312ec82255365e7ed6db843318c91",
     "db/migrations/0032_purged_receipts.up.sql": "sha256:0de521d01512f10cb8f91c80f86224a6a28e80d801c534e92a6766a3c4e995e0",
     "db/migrations/0033_purged_resource_versions.down.sql": "sha256:b5923a805f987760efe8742aad377540e4ccae964ad50ab6b6ef6f8395043272",
-    "db/migrations/0033_purged_resource_versions.up.sql": "sha256:a80568d33a59c7190058acf27a306635ce99fbcb6f939504ebb3c5d149b6e359"
+    "db/migrations/0033_purged_resource_versions.up.sql": "sha256:a80568d33a59c7190058acf27a306635ce99fbcb6f939504ebb3c5d149b6e359",
+    "db/migrations/0034_run_input_purge_refs.down.sql": "sha256:974f91429e983fdf24586d9c300eeff0b3f1e45e750830f700ad2ed7f51b1f5e",
+    "db/migrations/0034_run_input_purge_refs.up.sql": "sha256:ccc9b61cd23005e1c320c2d3d8725bd25db2fce77916ea7e538812d7be98e8f7"
   }
 }

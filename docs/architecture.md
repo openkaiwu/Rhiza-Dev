@@ -52,6 +52,8 @@ Node 启动组合根在 Purge 恢复前创建唯一的 ResourceVersion 加密 Bl
 
 迁移 0033 允许 `resource`、`attachment`、`file-chunk` checkpoint 引用；恢复器现在也能按 Workspace 与实体身份幂等撤销这三类正文密钥，缺少对应存储时保持 pending。Application 目前仍拒绝带资源历史的 Purge，尚未在业务事务中登记这些引用或处置所有派生副本；恢复能力不等于资源 Purge 已开放。
 
+迁移 0034 允许 `run-input` checkpoint 引用；恢复器按 Workspace/Run 身份撤销已登记的加密输入密钥，缺少 Run 内容存储则保持 pending。执行历史仍由 `PURGE_HAS_EXECUTION_HISTORY` 拒绝，直到 Run 关联的其他正文副本与事务登记全部覆盖。
+
 - React + TypeScript：界面与本地交互状态
 - Vite：开发服务器与生产构建
 - Express：Workspace、Context 与 Chat API

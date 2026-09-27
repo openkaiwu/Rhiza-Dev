@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
@@ -13,6 +13,7 @@ import { SealedNodeContent, type SealedNodeRef } from '../server/infrastructure/
 import { SealedJournalContent, type SealedJournalRef } from '../server/infrastructure/sealed-journal-content';
 import { SealedReceiptContent, type SealedReceiptRef } from '../server/infrastructure/sealed-receipt-content';
 import { SealedContextItemContent, type SealedContextItemRef } from '../server/infrastructure/sealed-context-item-content';
+import { SealedRunContent } from '../server/infrastructure/sealed-run-content';
 import { SealedResourceContent } from '../server/infrastructure/sealed-resource-content';
 import { SealedAttachmentContent } from '../server/infrastructure/sealed-attachment-content';
 import { SealedFileChunkContent } from '../server/infrastructure/sealed-file-chunk-content';
@@ -161,6 +162,32 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       await expect(attachments.read(workspaceId, attachmentId, attachmentRef)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
       await expect(chunks.read(workspaceId, chunkId, chunkRef)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
       expect(await resources.read(otherWorkspaceId, resourceId, otherRef)).toEqual({ logicalName: 'retained resource' });
+      expect(await store.resumePendingPurges()).toEqual({ completed: 0, pending: 0 });
+    } finally { await database.close(); }
+  });
+
+  it('resumes a scoped Run input key revocation from a durable checkpoint', async () => {
+    const database = await migratedDatabase(backend);
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-purge-run-input-'));
+    directories.push(directory);
+    const runs = SealedRunContent.atDirectory(directory);
+    const workspaceId = randomUUID(), otherWorkspaceId = randomUUID(), runId = randomUUID(), purgeId = randomUUID();
+    const input = { secret: 'historical Run request' };
+    const hash = semanticStateChecksum(input);
+    const store = new PostgresWorkspaceStore(database, workspaceId, undefined, runs);
+    try {
+      const workspace = await store.read();
+      const target = await runs.seal(workspaceId, runId, input, hash);
+      const other = await runs.seal(otherWorkspaceId, runId, input, hash);
+      await database.query('INSERT INTO purge_checkpoints(purge_id,workspace_id,node_id) VALUES ($1,$2,$3)', [purgeId, workspaceId, workspace.activeNodeId]);
+      await database.query("INSERT INTO purge_key_references(purge_id,ordinal,content_family,entity_id,content_ref) VALUES ($1,0,'run-input',$2,$3::jsonb)",
+        [purgeId, runId, JSON.stringify(target)]);
+      await expect(database.exec(await readFile(resolve('db/migrations/0034_run_input_purge_refs.down.sql'), 'utf8')))
+        .rejects.toThrow('purged run input content cannot be restored');
+      expect(await new PostgresWorkspaceStore(database, workspaceId).resumePendingPurges()).toEqual({ completed: 0, pending: 1 });
+      expect(await store.resumePendingPurges()).toEqual({ completed: 1, pending: 0 });
+      await expect(runs.read(workspaceId, runId, target, hash)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+      expect(await runs.read(otherWorkspaceId, runId, other, hash)).toEqual(input);
       expect(await store.resumePendingPurges()).toEqual({ completed: 0, pending: 0 });
     } finally { await database.close(); }
   });
