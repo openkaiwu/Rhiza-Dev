@@ -3,7 +3,7 @@
   "checks": {
     "provenance_replay": { "status": "pending", "evidencePaths": [] },
     "bundle_security": { "status": "pass", "evidencePaths": ["docs/architecture-gates/M09/bundle-security-check.md"] },
-    "import_recovery_round_trip": { "status": "pending", "evidencePaths": [] },
+    "import_recovery_round_trip": { "status": "pass", "evidencePaths": ["docs/architecture-gates/M09/import-recovery-check.md"] },
     "purge_replica_erasure": { "status": "pending", "evidencePaths": [] },
     "postgres_staging": { "status": "pending", "evidencePaths": [] },
     "browser_acceptance": { "status": "pass", "evidencePaths": ["docs/architecture-gates/M09/bundle-browser-check.md", "docs/architecture-gates/M09/replay-browser-check.md", "docs/architecture-gates/M09/provenance-run-backed-desktop.png", "docs/architecture-gates/M09/provenance-run-backed-narrow.png", "docs/architecture-gates/M09/clean-import-replay-desktop.png", "docs/architecture-gates/M09/clean-import-replay-narrow.png"] },

@@ -5,9 +5,12 @@ import { once } from 'node:events';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { expect, it } from 'vitest';
+import { Pool } from 'pg';
+import { describe, expect, it } from 'vitest';
+import { loadMigrations } from '../scripts/migrate';
 import { LOCAL_USER_ID } from '../server/identity/workspace-scope';
 import { openEmbeddedWorkspaceStore } from '../server/embedded-store';
+import { PostgresWorkspaceStore } from '../server/postgres-store';
 import { portableWorkspaceFacts } from '../server/application/portable-workspace';
 import { completeBundleImport } from '../server/application/prepare-bundle-import';
 import { NodeContentKeys } from '../server/infrastructure/node-content-keys';
@@ -21,10 +24,13 @@ import { semanticStateChecksum } from '../server/infrastructure/workspace-semant
 import type { BundleImportIdentity } from '../server/application/ports/bundle-import';
 import type { ExecutionRun } from '../server/execution-runtime/run';
 
+for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M09 import SIGKILL recovery (${backend})`, () => {
 it.each(['validated', 'blobs-ready', 'activating'] as const)('resumes an import after SIGKILL at %s checkpoint', async phase => {
   const root = await mkdtemp(join(tmpdir(), 'rhiza-import-sigkill-'));
   const source = await openEmbeddedWorkspaceStore(join(root, 'source'));
   let child: ReturnType<typeof spawn> | undefined;
+  let admin: Pool | undefined;
+  let schema: string | undefined;
   try {
     const workspace = await source.read();
     await source.workspaceDirectory.ensureWorkspace({ workspaceId: workspace.projectId, name: 'Crash fixture', status: 'active', createdBy: LOCAL_USER_ID, revision: 1 });
@@ -68,15 +74,30 @@ it.each(['validated', 'blobs-ready', 'activating'] as const)('resumes an import 
     finally { await staged.dispose(); }
     const targetData = join(root, 'target');
     const targetUploads = join(root, 'target-uploads');
-    const prepared = await openEmbeddedWorkspaceStore(targetData, workspace.projectId);
+    let scopedUrl: string | undefined;
+    if (backend === 'postgres') {
+      admin = new Pool({ connectionString: process.env.DATABASE_URL });
+      schema = `m09_import_${randomUUID().replaceAll('-', '')}`;
+      await admin.query(`CREATE SCHEMA ${schema}`);
+      const url = new URL(process.env.DATABASE_URL!);
+      url.searchParams.set('options', `-c search_path=${schema}`);
+      scopedUrl = url.toString();
+      const migration = new Pool({ connectionString: scopedUrl });
+      try { for (const entry of await loadMigrations()) await migration.query(entry.sql); }
+      finally { await migration.end(); }
+    }
+    const openTarget = () => backend === 'postgres'
+      ? Promise.resolve(PostgresWorkspaceStore.fromConnectionString(scopedUrl!, workspace.projectId, `${targetData}.content`))
+      : openEmbeddedWorkspaceStore(targetData, workspace.projectId, 'verify');
+    const prepared = backend === 'postgres' ? await openTarget() : await openEmbeddedWorkspaceStore(targetData, workspace.projectId);
     await prepared.close();
     const identity: BundleImportIdentity = { importId: randomUUID(), ownerId: LOCAL_USER_ID, workspaceId: workspace.projectId,
       archiveDigest: staged.archiveDigest, stateDigest: semanticStateChecksum({ facts: portable }) };
     const identityPath = join(root, 'identity.json');
     await writeFile(identityPath, JSON.stringify(identity));
-    child = spawn(process.execPath, ['--import', 'tsx', resolve('e2e/fixtures/m09-import-crash-child.ts'), phase,
+    child = spawn(process.execPath, ['--import', 'tsx', resolve('e2e/fixtures/m09-import-crash-child.ts'), phase, backend,
       targetData, targetUploads, archiveRoot, identityPath], { cwd: resolve('.'), stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, DATABASE_URL: '' } });
+      env: { ...process.env, DATABASE_URL: scopedUrl ?? '' } });
     let output = '';
     await new Promise<void>((done, fail) => {
       const timeout = setTimeout(() => fail(new Error(`CHECKPOINT_TIMEOUT:${output}`)), 30_000);
@@ -86,7 +107,7 @@ it.each(['validated', 'blobs-ready', 'activating'] as const)('resumes an import 
     const exited = once(child, 'exit');
     child.kill('SIGKILL');
     await exited;
-    const target = await openEmbeddedWorkspaceStore(targetData, workspace.projectId, 'verify');
+    const target = await openTarget();
     try {
       expect(await target.bundleImportCheckpoints.read(identity.importId, identity.ownerId)).toMatchObject({ phase: phase === 'validated' ? 'validated' : 'blobs-ready' });
       expect(await target.readExisting()).toBeUndefined();
@@ -101,6 +122,7 @@ it.each(['validated', 'blobs-ready', 'activating'] as const)('resumes an import 
       } finally { await recovered.dispose(); }
       expect(await target.bundleImportCheckpoints.read(identity.importId, identity.ownerId)).toMatchObject({ phase: 'activated' });
       expect(portableWorkspaceFacts(await target.readPortableWorkspace(), value => semanticStateChecksum(value as Record<string, unknown>))).toEqual(portable);
+      expect((await target.readGraphProjection()).checksum).toBe((await source.readGraphProjection()).checksum);
       const version = (await target.read()).resourceVersions.find(item => item.id === 'crash-version')!;
       expect(version.blobRef).toMatch(/^sealed-v1\//);
       expect(version.digest).toBe(createHash('sha256').update(bytes).digest('hex'));
@@ -112,6 +134,8 @@ it.each(['validated', 'blobs-ready', 'activating'] as const)('resumes an import 
   } finally {
     if (child?.exitCode === null && child.signalCode === null) { child.kill('SIGKILL'); await once(child, 'exit'); }
     await source.close();
+    if (admin && schema) { await admin.query(`DROP SCHEMA ${schema} CASCADE`); await admin.end(); }
     await rm(root, { recursive: true, force: true });
   }
 }, 90_000);
+});
