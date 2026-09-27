@@ -119,7 +119,8 @@ export function validateWorkspaceHistoryUpdate(previous: WorkspaceData, next: Wo
   }
   const attachmentIds = new Set(previous.attachments.map(item => item.id));
   const chunkIds = new Set(previous.fileChunks.map(item => item.id));
-  const resourceContext = previous.contextItems.some(item => item.sourceNodeId === purge.nodeId
+  const retainedContextIds = new Set(next.contextItems.map(item => item.id));
+  const resourceContext = previous.contextItems.some(item => (item.sourceNodeId === purge.nodeId || !retainedContextIds.has(item.id))
     && (item.sourceType === 'file' || item.sourceType === 'chunk'
       || (item.sourceId && (attachmentIds.has(item.sourceId) || chunkIds.has(item.sourceId)))));
   if (removedMessageIds.some(id => priorMessages.get(id)?.attachmentIds?.length) || resourceContext) {
