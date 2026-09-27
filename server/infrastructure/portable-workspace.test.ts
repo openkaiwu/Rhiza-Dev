@@ -55,6 +55,13 @@ describe('portable export DTO', () => {
       .toEqual({ snapshot: { resourceVersions: [{ ...version, blobRef: `sha256/aa/${digest}` }], attachments: [{ ...version, blobRef: `sha256/aa/${digest}` }] } });
     expect(version.blobRef).toContain('sealed-v1/');
   });
+  it('rejects a current ContextItem with an unresolved typed source', () => {
+    const workspace = createSeedWorkspace();
+    workspace.contextItems[0]!.sourceId = 'missing-node';
+    const facts: PortableWorkspaceFacts = { workspace, directory: { workspaceId: workspace.projectId, name: 'Workspace', status: 'active', createdBy: 'owner', revision: 1 },
+      members: [{ userId: 'owner', role: 'owner' }], journal: [], provenance: [], runs: [] };
+    expect(() => validatePortableReferences(facts)).toThrow(expect.objectContaining({ missingRefs: expect.arrayContaining(['c1:missing-node']) }));
+  });
   it('rebinds portable Run attachment snapshots to the imported scoped ResourceVersion', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'rhiza-run-attachment-import-'));
     try {
@@ -80,6 +87,9 @@ describe('portable export DTO', () => {
       const invalid = structuredClone(facts);
       invalid.runs[0]!.input.request.attachments![0]!.resourceVersionId = 'missing';
       expect(() => validatePortableReferences(invalid)).toThrow(expect.objectContaining({ missingRefs: expect.arrayContaining(['run:attachment-version']) }));
+      invalid.runs[0]!.input.request.attachments![0]!.resourceVersionId = 'version';
+      invalid.runs[0]!.input.request.history.push({ id: 'history', nodeId: workspace.activeNodeId, kind: 'user', text: '', createdAt, attachmentIds: ['missing-attachment'] });
+      expect(() => validatePortableReferences(invalid)).toThrow(expect.objectContaining({ missingRefs: expect.arrayContaining(['run:history-attachment:missing-attachment']) }));
       const sealedRef = `sealed-v1/${workspace.projectId}/version/${'c'.repeat(64)}/${digest}/${bytes.length}`;
       const putStream = vi.fn(async (stream: AsyncIterable<Uint8Array>) => {
         const chunks: Uint8Array[] = [];

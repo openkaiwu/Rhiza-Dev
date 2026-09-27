@@ -24,7 +24,8 @@ export function validatePortableReferences(facts: PortableWorkspaceFacts): void 
   const runById = new Map(runs.map(run => [run.id, run]));
   const messageById = new Map(workspace.messages.map(message => [message.id, message]));
   const manifestById = new Map(workspace.manifests.map(manifest => [manifest.id, manifest]));
-  ids(workspace.discussionEdges, 'edge'); ids(provenance, 'provenance'); ids(workspace.materializations, 'materialization'); ids(workspace.fileChunks, 'chunk');
+  ids(workspace.discussionEdges, 'edge'); ids(provenance, 'provenance'); ids(workspace.materializations, 'materialization');
+  const chunks = ids(workspace.fileChunks, 'chunk');
   const ref = (set: Set<string>, value: string | undefined, owner: string) => { if (value !== undefined && !set.has(value)) missing.push(`${owner}:${value}`); };
   const scope = (id: string, owner: string) => { if (id !== workspace.projectId) missing.push(`${owner}:workspace:${id}`); };
   scope(directory.workspaceId, 'directory');
@@ -40,6 +41,14 @@ export function validatePortableReferences(facts: PortableWorkspaceFacts): void 
   for (const segment of workspace.segments) ref(nodes, segment.nodeId, segment.id);
   for (const anchor of workspace.anchors) { ref(nodes, anchor.nodeId, anchor.id); ref(messages, anchor.messageId, anchor.id); ref(segments, anchor.segmentId, anchor.id); }
   for (const edge of workspace.discussionEdges) { ref(nodes, edge.source, edge.id); ref(nodes, edge.target, edge.id); ref(anchors, edge.anchorId, edge.id); }
+  for (const item of workspace.contextItems) {
+    const source = item.sourceType === 'node' ? nodes : item.sourceType === 'segment' ? segments
+      : item.sourceType === 'file' ? attachments : item.sourceType === 'chunk' ? chunks : undefined;
+    if (source) {
+      if (item.sourceId) ref(source, item.sourceId, item.id);
+      else missing.push(`${item.id}:source-id`);
+    }
+  }
   for (const resource of workspace.resources) scope(resource.workspaceId, resource.id);
   for (const version of workspace.resourceVersions) {
     ref(resources, version.resourceId, version.id);
