@@ -1087,6 +1087,14 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     await store.writeRunTraces(run.id, run.attempt, [attemptedTrace]);
     const storedTrace = await database.query<{ record: Record<string, unknown> }>('SELECT record FROM execution_run_traces WHERE run_id=$1 AND sequence=$2', [run.id, attemptedTrace.sequence]);
     expect(storedTrace.rows[0].record).toEqual({ sequence: attemptedTrace.sequence, type: attemptedTrace.type, at: attemptedTrace.at });
+    await expect(store.writeRunTraces(run.id, run.attempt, [{ sequence: 10003, type: 'RUN_END', at: 'provider body' }])).rejects.toThrow('RUN_TRACE_TIMESTAMP_INVALID');
+    expect(await store.auditRunTraceMetadata()).toEqual({ total: 10002, invalid: 0 });
+    await database.query(`UPDATE execution_run_traces SET record=jsonb_set(record,'{delta}',to_jsonb($3::text))
+      WHERE run_id=$1 AND sequence=$2`, [run.id, attemptedTrace.sequence, 'legacy content']);
+    expect(await store.auditRunTraceMetadata()).toEqual({ total: 10002, invalid: 1 });
+    await database.query(`UPDATE execution_run_traces SET record=jsonb_set(record - 'delta','{at}',to_jsonb($3::text))
+      WHERE run_id=$1 AND sequence=$2`, [run.id, attemptedTrace.sequence, 'legacy content']);
+    expect(await store.auditRunTraceMetadata()).toEqual({ total: 10002, invalid: 1 });
     expect((await store.readJournal()).length).toBeLessThanOrEqual(10);
     expect((await store.read()).messages).toEqual(before.messages);
   });

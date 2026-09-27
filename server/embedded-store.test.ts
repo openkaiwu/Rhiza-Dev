@@ -107,7 +107,8 @@ describe('embedded Workspace backend', () => {
       seeded = await first.update(current => ({ ...current, attachments: [...current.attachments, attachment] }));
       const chunk = { id: 'sealed-test-chunk', attachmentId: 'test-attachment', ordinal: 0, startOffset: 0, endOffset: 7, tokens: 2, text: 'private', terms: ['private'], embedding: [0.5] };
       seeded = await first.update(current => ({ ...current, fileChunks: [chunk] }));
-      const targetNode = { ...seeded.discussionNodes[0], id: randomUUID(), title: 'relation target' };
+      const targetCreatedAt = new Date(Date.parse(seeded.discussionNodes[0].createdAt) + 1).toISOString();
+      const targetNode = { ...seeded.discussionNodes[0], id: randomUUID(), title: 'relation target', createdAt: targetCreatedAt, updatedAt: targetCreatedAt };
       const edge = { id: randomUUID(), source: seeded.discussionNodes[0].id, target: targetNode.id, relation: 'related-to' as const, label: 'private relationship', createdAt: new Date().toISOString() };
       seeded = await first.update(current => ({ ...current, discussionNodes: [...current.discussionNodes, targetNode], discussionEdges: [...current.discussionEdges, edge] }));
       const anchor = { id: randomUUID(), nodeId: seeded.messages[0].nodeId, messageId: seeded.messages[0].id, selectedText: 'persisted private quote', startOffset: 0, endOffset: 4, createdAt: new Date().toISOString() };

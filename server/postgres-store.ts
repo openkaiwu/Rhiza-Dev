@@ -3,7 +3,7 @@ import type { ContextPlanningInput } from './context-runtime/contracts';
 import { createHash, randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { resolve } from 'node:path';
-import type { ExecutionRun, RunMutation, RunTrace } from './execution-runtime/run';
+import { projectRunTrace, RUN_TRACE_TYPES, type ExecutionRun, type RunMutation, type RunTrace } from './execution-runtime/run';
 import { semanticStateChecksum } from './infrastructure/workspace-semantic-checksum';
 import type { Anchor, AuditEvent, ContextManifest, DiscussionEdge, DiscussionNode, FileChunk, Resource, ResourceMaterialization, ResourceVersion, Segment, StoredAttachment, StoredMessage, WorkspaceData } from './domain';
 import { createSeedWorkspace } from './seed';
@@ -1191,11 +1191,23 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
   }
 
   async writeRunTraces(runId: string, attempt: number, traces: RunTrace[]) {
-    const metadata = traces.map(({ sequence, type, at }) => ({ sequence, type, at }));
+    const metadata = traces.map(projectRunTrace);
     await this.database.query(`INSERT INTO execution_run_traces (run_id,attempt,sequence,record)
       SELECT r.run_id,$3,(t->>'sequence')::int,t FROM execution_runs r, jsonb_array_elements($4::jsonb) t
       WHERE r.workspace_id=$1 AND r.run_id=$2 AND r.attempt=$3
       ON CONFLICT (run_id,attempt,sequence) DO NOTHING`, [this.defaultWorkspaceId, runId, attempt, JSON.stringify(metadata)]);
+  }
+
+  async auditRunTraceMetadata(): Promise<{ total: number; invalid: number }> {
+    const result = await this.database.query<{ total: number; invalid: number }>(`SELECT count(*)::int AS total,
+      count(*) FILTER (WHERE (jsonb_typeof(record)='object'
+        AND record - ARRAY['sequence','type','at']='{}'::jsonb
+        AND record->'sequence'=to_jsonb(sequence)
+        AND jsonb_typeof(record->'type')='string' AND record->>'type'=ANY($1::text[])
+        AND jsonb_typeof(record->'at')='string'
+        AND record->>'at' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z$') IS NOT TRUE)::int AS invalid
+      FROM execution_run_traces`, [[...RUN_TRACE_TYPES]]);
+    return { total: Number(result.rows[0]?.total ?? 0), invalid: Number(result.rows[0]?.invalid ?? 0) };
   }
 
   private async insertRun(database: SqlQueryable, run: ExecutionRun) {

@@ -34,7 +34,15 @@ export type RunMutation = { kind: 'create'; run: ExecutionRun } | {
   patch: Pick<ExecutionRun, 'status'> & Partial<Pick<ExecutionRun, 'dispatchingAt' | 'runningAt' | 'terminalAt' | 'cancelRequestedAt' | 'error' | 'telemetry'>>;
 };
 export interface RunTrace { sequence: number; type: string; at: string }
-const traceTypes = new Set<RuntimeEvent['type']>(['RUN_START', 'CONTENT_DELTA', 'REASONING_DELTA', 'TOOL_CALL_DELTA', 'USAGE', 'RUN_END', 'RUN_ERROR']);
+export const RUN_TRACE_TYPES = ['RUN_START', 'CONTENT_DELTA', 'REASONING_DELTA', 'TOOL_CALL_DELTA', 'USAGE', 'RUN_END', 'RUN_ERROR'] as const satisfies readonly RuntimeEvent['type'][];
+const traceTypes = new Set<string>(RUN_TRACE_TYPES);
+export function projectRunTrace({ sequence, type, at }: RunTrace): RunTrace {
+  if (!Number.isSafeInteger(sequence) || sequence < 1) throw new Error('RUN_TRACE_SEQUENCE_INVALID');
+  if (!traceTypes.has(type)) throw new Error('RUN_TRACE_TYPE_INVALID');
+  const timestamp = Date.parse(at);
+  if (!Number.isFinite(timestamp) || new Date(timestamp).toISOString() !== at) throw new Error('RUN_TRACE_TIMESTAMP_INVALID');
+  return { sequence, type, at };
+}
 
 /** Content stays in the transport. Only bounded metadata is retained here. */
 export class RunTraceBuffer {
@@ -42,8 +50,8 @@ export class RunTraceBuffer {
   count = 0;
   constructor(private readonly write: (batch: RunTrace[]) => Promise<void>) {}
   async push(type: string, at: string) {
-    if (!traceTypes.has(type as RuntimeEvent['type'])) throw new Error('RUN_TRACE_TYPE_INVALID');
-    const trace = { sequence: ++this.count, type, at };
+    const trace = projectRunTrace({ sequence: this.count + 1, type, at });
+    this.count = trace.sequence;
     this.pending.push(trace);
     if (this.pending.length >= 128) await this.flush();
   }
