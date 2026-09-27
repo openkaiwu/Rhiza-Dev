@@ -133,7 +133,7 @@
 - Provenance 回填成功数不等于全库覆盖率；`m09:provenance:audit` 要扫描所有仍存在的 Assistant 输出，并区分缺失、broken-reference 与无效/悬空记录，不能把 pre-run 当成缺失。
 - `m09:files:audit` 只能在停服且 `RHIZA_UPLOAD_DIR` 指向被测数据库的实际上传目录时运行；它通过历史逻辑 digest/key/checkpoint 检查已知原明文路径，零结果不代表任意孤儿文件、WAL 或备份已过期，更不授权删除。
 - 旧原始 ResourceVersion Blob/附件文件不能与 SQL 引用更新同事务删除：先分批密封并读回，再在停服独占窗口运行 `m09:files:reclaim`，逐批验证每个 scoped 密文及原文件摘要/身份后精确 unlink；旧文件的每层父目录都必须是真实目录，不能透过 symlink 越出上传根目录。重复运行安全。该命令不处理归档、无引用孤儿、WAL、备份或外部 Bundle，也不代替备份保留策略。
-- 旧消息可直接持有 `attachmentIds`，即使没有 Run/Manifest 也会让原始 ResourceVersion Blob 在节点删除后继续可读。共享历史校验以 `PURGE_HAS_RESOURCE_HISTORY` 拒绝这类 Purge；在资源身份、派生块、Blob key 与 Bundle/备份副本完成统一撤销前不可放行。
+- 旧消息的 `attachmentIds` 和节点关联的 file/chunk ContextItem 都可能在没有 Run/Manifest 时指向仍可读的 ResourceVersion；后者即使标成 `reference` 也可能通过 `sourceId` 指向附件或文件块。共享历史校验以 `PURGE_HAS_RESOURCE_HISTORY` 拒绝这类 Purge；在资源身份、派生块、Blob key 与 Bundle/备份副本完成统一撤销前不可放行。
 - Graph rebuild 会保留旧 projection namespace，其 Node title/Message summary/关系 label 是独立正文副本。Purge 必须在删除 Current State 的同一事务中脱敏所有历史 namespace 与 Context candidate index，不能只等待下次 Graph 查询重建 active alias。
 
 - Graph layout command 的 `nodeId` 只用于定位节点，写回领域节点时只合入 `x/y`；否则 JSON 中多出的命令字段会与 SQL 重读结果不同，触发事务语义校验回滚。
