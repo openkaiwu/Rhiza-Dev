@@ -279,6 +279,7 @@ describe('M09 strict closure evidence', () => {
     expect(paths.has('docs/architecture-gates/M09/bundle-desktop.jpg')).toBe(true);
     expect(paths.has('docs/architecture-gates/M09/provenance-narrow.jpg')).toBe(true);
     expect(paths.has('docs/architecture-gates/M09/plaintext-audit-check.md')).toBe(true);
+    expect(paths.has('docs/architecture-gates/M09/trace-sanitization-check.md')).toBe(true);
     expect(paths.has('docs/architecture-gates/M09/purge-projection-check.md')).toBe(true);
     expect(M09_FIXTURES.every(fixture => paths.has(fixture.path))).toBe(true);
     expect(m09ObservedMetrics('')).toMatchObject({ real_postgres_e2e: { status: 'skipped' } });

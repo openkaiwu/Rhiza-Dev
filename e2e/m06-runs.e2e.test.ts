@@ -1097,11 +1097,26 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     await expect(store.writeRunTraces(run.id, run.attempt, [{ sequence: 10003, type: 'RUN_END', at: 'provider body' }])).rejects.toThrow('RUN_TRACE_TIMESTAMP_INVALID');
     expect(await store.auditRunTraceMetadata()).toEqual({ total: 10002, invalid: 0 });
     await database.query(`UPDATE execution_run_traces SET record=jsonb_set(record,'{delta}',to_jsonb($3::text))
+      WHERE run_id=$1 AND sequence IN ($2,$2-1)`, [run.id, attemptedTrace.sequence, 'legacy content']);
+    expect(await store.auditRunTraceMetadata()).toEqual({ total: 10002, invalid: 2 });
+    expect(await store.sanitizeLegacyRunTraces(1)).toBe(1);
+    expect(await store.auditRunTraceMetadata()).toEqual({ total: 10002, invalid: 1 });
+    expect(await store.sanitizeLegacyRunTraces(1)).toBe(1);
+    expect(await store.auditRunTraceMetadata()).toEqual({ total: 10002, invalid: 0 });
+    expect(await store.sanitizeLegacyRunTraces(1)).toBe(0);
+    await database.query(`UPDATE execution_run_traces SET record=jsonb_set(record,'{delta}',to_jsonb($3::text))
+      WHERE run_id=$1 AND sequence=$2`, [run.id, attemptedTrace.sequence, 'legacy content']);
+    await database.query(`UPDATE execution_run_traces SET record=jsonb_set(record,'{at}',to_jsonb($3::text))
       WHERE run_id=$1 AND sequence=$2`, [run.id, attemptedTrace.sequence, 'legacy content']);
     expect(await store.auditRunTraceMetadata()).toEqual({ total: 10002, invalid: 1 });
-    await database.query(`UPDATE execution_run_traces SET record=jsonb_set(record - 'delta','{at}',to_jsonb($3::text))
-      WHERE run_id=$1 AND sequence=$2`, [run.id, attemptedTrace.sequence, 'legacy content']);
+    await expect(store.sanitizeLegacyRunTraces(1)).rejects.toThrow('RUN_TRACE_TIMESTAMP_INVALID');
     expect(await store.auditRunTraceMetadata()).toEqual({ total: 10002, invalid: 1 });
+    await database.query('UPDATE execution_run_traces SET record=jsonb_set(record,\'{at}\',to_jsonb($3::text)) WHERE run_id=$1 AND sequence=$2', [run.id, attemptedTrace.sequence, '2026-02-30T12:00:00.000Z']);
+    expect(await store.auditRunTraceMetadata()).toEqual({ total: 10002, invalid: 1 });
+    await expect(store.sanitizeLegacyRunTraces(1)).rejects.toThrow('RUN_TRACE_TIMESTAMP_INVALID');
+    await database.query('UPDATE execution_run_traces SET record=$3::jsonb WHERE run_id=$1 AND sequence=$2', [run.id, attemptedTrace.sequence, 'null']);
+    expect(await store.auditRunTraceMetadata()).toEqual({ total: 10002, invalid: 1 });
+    await expect(store.sanitizeLegacyRunTraces(1)).rejects.toThrow('RUN_TRACE_MIGRATION_UNSAFE');
     expect((await store.readJournal()).length).toBeLessThanOrEqual(10);
     expect((await store.read()).messages).toEqual(before.messages);
   });

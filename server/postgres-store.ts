@@ -1233,14 +1233,36 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
 
   async auditRunTraceMetadata(): Promise<{ total: number; invalid: number }> {
     const result = await this.database.query<{ total: number; invalid: number }>(`SELECT count(*)::int AS total,
-      count(*) FILTER (WHERE (jsonb_typeof(record)='object'
-        AND record - ARRAY['sequence','type','at']='{}'::jsonb
+      count(*) FILTER (WHERE (CASE WHEN jsonb_typeof(record)='object' THEN
+        record - ARRAY['sequence','type','at']='{}'::jsonb
         AND record->'sequence'=to_jsonb(sequence)
         AND jsonb_typeof(record->'type')='string' AND record->>'type'=ANY($1::text[])
         AND jsonb_typeof(record->'at')='string'
-        AND record->>'at' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z$') IS NOT TRUE)::int AS invalid
+        AND CASE WHEN record->>'at' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z$'
+          THEN to_char((record->>'at')::timestamptz AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')=record->>'at'
+          ELSE false END
+        ELSE false END) IS NOT TRUE)::int AS invalid
       FROM execution_run_traces`, [[...RUN_TRACE_TYPES]]);
     return { total: Number(result.rows[0]?.total ?? 0), invalid: Number(result.rows[0]?.invalid ?? 0) };
+  }
+
+  /** Offline migration: remove legacy trace extras without inventing invalid history. */
+  async sanitizeLegacyRunTraces(limit = 100): Promise<number> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error('INVALID_TRACE_MIGRATION_LIMIT');
+    return this.inTransaction(async database => {
+      await database.query("SET LOCAL lock_timeout = '5s'");
+      const { rows } = await database.query<{ run_id: string; attempt: number; sequence: number; record: RunTrace }>(`SELECT run_id,attempt,sequence,record FROM execution_run_traces
+        WHERE CASE WHEN jsonb_typeof(record)='object' THEN record - ARRAY['sequence','type','at'] <> '{}'::jsonb ELSE true END
+        ORDER BY run_id,attempt,sequence LIMIT $1 FOR UPDATE`, [limit]);
+      for (const row of rows) {
+        if (!row.record || typeof row.record !== 'object' || Array.isArray(row.record)) throw new Error('RUN_TRACE_MIGRATION_UNSAFE');
+        const projected = projectRunTrace(row.record);
+        if (projected.sequence !== row.sequence) throw new Error('RUN_TRACE_MIGRATION_UNSAFE');
+        await database.query(`UPDATE execution_run_traces SET record=$4::jsonb
+          WHERE run_id=$1 AND attempt=$2 AND sequence=$3`, [row.run_id, row.attempt, row.sequence, JSON.stringify(projected)]);
+      }
+      return rows.length;
+    });
   }
 
   private async insertRun(database: SqlQueryable, run: ExecutionRun) {
