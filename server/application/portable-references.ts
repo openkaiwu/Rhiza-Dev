@@ -18,6 +18,7 @@ export function validatePortableReferences(facts: PortableWorkspaceFacts): void 
   const versions = ids(workspace.resourceVersions, 'version'), attachments = ids(workspace.attachments, 'attachment');
   const segments = ids(workspace.segments, 'segment'), anchors = ids(workspace.anchors, 'anchor'), runIds = ids(runs, 'run');
   const versionById = new Map(workspace.resourceVersions.map(version => [version.id, version]));
+  const attachmentById = new Map(workspace.attachments.map(attachment => [attachment.id, attachment]));
   const purgedVersions = new Set(workspace.resourceVersions.filter(version => version.purgedAt).map(version => version.id));
   const purgedResources = new Set(workspace.resourceVersions.filter(version => version.purgedAt).map(version => version.resourceId));
   const runById = new Map(runs.map(run => [run.id, run]));
@@ -74,7 +75,14 @@ export function validatePortableReferences(facts: PortableWorkspaceFacts): void 
     if (!run.nodeId.startsWith('temp:')) ref(nodes, run.nodeId, run.id);
     if (run.status === 'completed' && !run.nodeId.startsWith('temp:')) ref(manifests, run.input.request.manifestId, run.id);
     if (run.input.request.requestId !== run.id || !run.input.executor.modelSpecRef || !run.input.executor.providerEndpointRef) missing.push(`${run.id}:runtime-snapshot`);
-    for (const attachment of run.input.request.attachments ?? []) if (attachment.resourceVersionId && purgedVersions.has(attachment.resourceVersionId)) missing.push(`${run.id}:purged-attachment`);
+    for (const attachment of run.input.request.attachments ?? []) {
+      const version = versionById.get(attachment.resourceVersionId ?? '');
+      const current = attachmentById.get(attachment.id);
+      if (!current || !version || version.purgedAt || current.resourceVersionId !== attachment.resourceVersionId
+        || version.resourceId !== attachment.resourceId || version.digest !== attachment.digest
+        || version.size !== attachment.size || version.blobRef !== attachment.blobRef) missing.push(`${run.id}:attachment-version`);
+    }
+    for (const message of run.input.request.history) for (const id of message.attachmentIds ?? []) ref(attachments, id, `${run.id}:history-attachment`);
     for (const item of run.input.request.contextItems) if (item.sourceId && (purgedVersions.has(item.sourceId) || purgedResources.has(item.sourceId))) missing.push(`${run.id}:purged-context-source`);
   }
   const outputs = new Set(provenance.map(link => link.outputRef));

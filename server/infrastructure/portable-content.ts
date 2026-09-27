@@ -236,6 +236,18 @@ export async function ingestPortableWorkspace(staged: StagedPortableWorkspace, b
     if (!version || version.digest !== attachment.digest) throw bundleError('BUNDLE_BROKEN_REFERENCES');
     attachment.blobRef = version.blobRef;
   }
+  const byAttachment = new Map(facts.workspace.attachments.map(attachment => [attachment.id, attachment]));
+  for (const run of facts.runs) {
+    if (!run.input.request.attachments?.length) continue;
+    for (const attachment of run.input.request.attachments) {
+      const current = byAttachment.get(attachment.id);
+      const version = byVersion.get(attachment.resourceVersionId ?? '');
+      if (!current || !version || version.purgedAt || current.resourceVersionId !== version.id
+        || version.resourceId !== attachment.resourceId || version.digest !== attachment.digest || version.size !== attachment.size) throw bundleError('BUNDLE_BROKEN_REFERENCES');
+      attachment.blobRef = version.blobRef;
+    }
+    run.inputHash = semanticStateChecksum(run.input as unknown as Record<string, unknown>);
+  }
   return facts;
 }
 

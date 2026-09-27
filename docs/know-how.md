@@ -32,6 +32,7 @@
 - ResourceVersion 是 append-only 历史事实：同一 Resource 的新内容只能新增版本，不得修改或删除旧版本；FileChunk 只能登记为 materialization，不能替代原始 ResourceVersion。
 - Blob 提交顺序固定为 temp write → SHA-256 verify → atomic promote → Workspace/DB commit。DB 失败后保留已 promote blob 给 grace-period GC，不能先提交引用再补文件。
 - Scoped ResourceVersion Blob 的密钥身份必须绑定 plaintext digest。同一 `{workspaceId, resourceVersionId}` 的中断重试只可复用相同 digest；不同 digest 必须报 identity conflict，已生效密钥不得因失败重试而撤销。历史 `sha256` 迁移必须先读回 scoped 密文并核对 digest/size，再更新不可变引用；在全库引用和归档 pin 未对账前不得删除明文对象。
+- Bundle 导入的目标端 Blob 重绑不止更新 Workspace 的 ResourceVersion/Attachment：终态 Run 的冻结附件也含 `blobRef`。先校验其身份与版本，再替换为目标 `sealed-v1` 引用并重算当前 `inputHash`；`originInputHash` 保留原执行证据，否则导入后附件 Replay 会因引用不一致失败。
 - Bundle 恢复用归档与 Resource Blob 分目录、分密钥；checkpoint 的七天恢复窗口按最新 updated_at 计算，同 digest 任一有效 checkpoint 都是 pin。清理时先撤销归档密钥，再删除描述符并按完整保留集合做 ciphertext GC。旧明文归档要先完整校验、加密并从密文读回通过后才能删除；导入/导出临时明文只放在项目私有 imports/transient，重启后持有运行时独占权才清理。运行清理前须独占服务，避免在途 retain 尚未发布描述符时误撤销密钥。
 - orphan GC 只能在调用方提供覆盖整个 BlobStore 的完整 active-reference set 后执行；不得用当前用户或单个 Workspace 的局部引用集合扫描全局 store。
 - versioned blob 读取失败或 digest 不匹配必须返回稳定 `BLOB_INTEGRITY_ERROR`，不能静默回退旧 UUID 附件。旧路径只服务尚未回填的 legacy attachment；运行 `pnpm run resources:backfill` 后 dangling 必须为 0 且重复运行 checksum 一致。

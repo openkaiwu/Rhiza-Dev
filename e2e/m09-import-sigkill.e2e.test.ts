@@ -19,6 +19,7 @@ import { ingestPortableWorkspace, NodeImportArchiveStore, stagePortableWorkspace
 import { RepositoryWorkspaceUnitOfWork } from '../server/infrastructure/workspace-repository-unit-of-work';
 import { semanticStateChecksum } from '../server/infrastructure/workspace-semantic-checksum';
 import type { BundleImportIdentity } from '../server/application/ports/bundle-import';
+import type { ExecutionRun } from '../server/execution-runtime/run';
 
 it.each(['validated', 'blobs-ready', 'activating'] as const)('resumes an import after SIGKILL at %s checkpoint', async phase => {
   const root = await mkdtemp(join(tmpdir(), 'rhiza-import-sigkill-'));
@@ -31,7 +32,10 @@ it.each(['validated', 'blobs-ready', 'activating'] as const)('resumes an import 
     const sourceBlobs = new NodeFilesystemBlobStore(join(root, 'source-uploads'));
     const stored = await sourceBlobs.put(bytes);
     const createdAt = new Date().toISOString();
+    const attachment = { id: randomUUID(), name: 'crash.txt', mimeType: 'text/plain', size: stored.size, kind: 'file' as const,
+      resourceId: 'crash-resource', resourceVersionId: 'crash-version', digest: stored.digest, blobRef: stored.blobRef, createdAt };
     await source.update(current => ({ ...current,
+      attachments: [...current.attachments, attachment],
       resources: [...current.resources, { id: 'crash-resource', workspaceId: current.projectId, kind: 'attachment', logicalName: 'Crash fixture', createdAt },
         { id: 'purged-resource', workspaceId: current.projectId, kind: 'attachment', logicalName: '[purged]', createdAt }],
       resourceVersions: [...current.resourceVersions, { id: 'crash-version', resourceId: 'crash-resource', version: 1,
@@ -40,6 +44,19 @@ it.each(['validated', 'blobs-ready', 'activating'] as const)('resumes an import 
           canonicalization: 'raw-v1', mediaType: 'text/plain', size: 9, blobRef: 'purged-v1', createdAt, purgedAt: createdAt }],
     }));
     await source.backfillJournal();
+    const runId = randomUUID();
+    const input = { schemaVersion: '1.0.0' as const, request: { requestId: runId, manifestId: 'uncommitted-manifest', projectId: workspace.projectId,
+      nodeId: workspace.activeNodeId, modelId: 'model', prompt: 'attachment replay fixture', history: [], contextItems: [], mode: 'Strict' as const,
+      attachments: [structuredClone(attachment)] }, executor: { runtime: 'provider-adapter', modelSpecRef: 'model', providerEndpointRef: 'endpoint', model: 'model', provider: 'Provider' } };
+    const run: ExecutionRun = { id: runId, commandId: runId, workspaceId: workspace.projectId, nodeId: workspace.activeNodeId,
+      status: 'created', attempt: 1, input, inputHash: semanticStateChecksum(input), createdAt, telemetry: { traceCount: 0 } };
+    const command = (commandId: string) => ({ commandId, commandType: 'TestRun', actor: { actorType: 'human' as const, actorId: LOCAL_USER_ID },
+      scope: { scopeType: 'workspace' as const, scopeId: workspace.projectId }, occurredAt: createdAt });
+    const unchanged = async (current: Awaited<ReturnType<typeof source.read>>) => ({ next: current, value: {} });
+    const events = () => [{ eventType: 'workspace.renamed' as const, aggregateType: 'workspace' as const, aggregateId: workspace.projectId, payload: {} }];
+    await source.executeCommand({ context: command(runId), options: { run: { kind: 'create', run } }, apply: unchanged, events });
+    await source.executeCommand({ context: command(randomUUID()), options: { run: { kind: 'transition', runId, attempt: 1,
+      from: ['created'], patch: { status: 'failed', terminalAt: createdAt, error: { code: 'TEST', class: 'provider', message: 'fixture' } } } }, apply: unchanged, events });
     const facts = await source.readPortableWorkspace();
     const portable = portableWorkspaceFacts(facts, value => semanticStateChecksum(value as Record<string, unknown>));
     const exported = await new NodePortableBundle(sourceBlobs).export(facts);
@@ -87,6 +104,8 @@ it.each(['validated', 'blobs-ready', 'activating'] as const)('resumes an import 
       const version = (await target.read()).resourceVersions.find(item => item.id === 'crash-version')!;
       expect(version.blobRef).toMatch(/^sealed-v1\//);
       expect(version.digest).toBe(createHash('sha256').update(bytes).digest('hex'));
+      expect((await target.getRun(runId))?.input.request.attachments?.[0]?.blobRef).toBe(version.blobRef);
+      expect(Buffer.from(await NodeEncryptedBlobStore.atDirectory(targetUploads).read(version.blobRef, version.digest))).toEqual(Buffer.from(bytes));
       expect((await target.read()).resourceVersions.find(item => item.id === 'purged-version'))
         .toMatchObject({ blobRef: 'purged-v1', purgedAt: createdAt });
     } finally { await target.close(); }
