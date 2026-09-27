@@ -53,6 +53,8 @@ Resource-scoped destruction must preserve independently owned copies in other Wo
 
 An archived node whose removed messages still reference attachments is not purgeable yet, even if it has no Run. The current shared history validator returns `PURGE_HAS_RESOURCE_HISTORY` until ResourceVersion bytes, materialized chunks, retained archive references and their keys are included in the durable revocation workflow. A failed Purge leaves the node and attachments unchanged.
 
+For a purged ResourceVersion, the immutable source row retains its identity/digest/size while a committed checkpoint overlays its readable Blob reference as `purged-v1` with `purgedAt`. A portable v1 Bundle keeps that tombstone fact but omits its Blob entry; import preserves the tombstone without publishing a new key. A live attachment cannot reference a purged version. This representation alone does not enable resource-bearing Purge or prove backup erasure.
+
 ## Acceptance evidence
 
 INH-81 requires complete output provenance, all Replay classifications, no silent version fallback, closed Bundle references, no operational secret/location leaks, complete archive attack rejection, clean-store checksum equality and usable Conversation operations. Checkpoint failure injection must prove recovery. Product entry points require browser verification. Accepting this contract does not close the milestone; each requirement needs executable and commit-bound evidence.

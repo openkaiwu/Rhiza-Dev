@@ -46,6 +46,8 @@ M09 Gate 另运行 `m09:plaintext:audit`：用单条数据库快照查询计数�
 
 `m09:files:audit` 需停服并显式指向同一部署的 `DATABASE_URL` 与 `RHIZA_UPLOAD_DIR`：在持有运行时及内容生命周期锁时，只读核对现存 ResourceVersion 逻辑 digest、旧附件存储键、导入 checkpoint 摘要所对应的原明文路径，以及遗留导入工作目录；任何副本非零即阻断 Gate。停服维护命令 `RHIZA_OFFLINE_FILE_RECLAMATION=1 pnpm run m09:files:reclaim` 只移除有数据库来源的旧 ResourceVersion/附件原文件：全库锁定引用，每批读回所有对应的 scoped 密文并校验原文件的类型、大小、摘要及 inode 后才 unlink；失败可重跑。归档旧 ZIP 仍使用既有 `bundle:reclaim-imports` 完整校验/密封/保留期流程。上述操作均不扫描任意无引用文件、WAL、备份或用户已导出的 Bundle，不能单凭回收命令宣称完整擦除。
 
+ResourceVersion 清除后仍保留不可变 ID、摘要和大小；读取层以已提交 Purge checkpoint 覆盖原始 sealed 引用，返回 `blobRef: "purged-v1"` 与 `purgedAt`。Bundle v1 的该版本不携带 Blob 条目，clean-store 导入只恢复墓碑身份而不重新发布字节。迁移 0033 允许导入端保存这种墓碑，同时禁止墓碑引用与正常可读引用混用。当前资源历史 Purge 仍受 `PURGE_HAS_RESOURCE_HISTORY` 保护，直到附件/派生副本与持久密钥撤销流程全部接通。
+
 - React + TypeScript：界面与本地交互状态
 - Vite：开发服务器与生产构建
 - Express：Workspace、Context 与 Chat API

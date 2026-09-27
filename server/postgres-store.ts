@@ -94,8 +94,13 @@ function storedAttachment(row: Record<string, unknown>): StoredAttachment {
 }
 
 function storedResourceVersion(row: Record<string, unknown>): ResourceVersion {
-  return { id: String(row.resource_version_id), resourceId: String(row.resource_id), version: Number(row.version), digestAlgorithm: row.digest_algorithm as ResourceVersion['digestAlgorithm'], digest: String(row.digest), canonicalization: row.canonicalization as ResourceVersion['canonicalization'], mediaType: String(row.media_type), size: Number(row.size_bytes), blobRef: String(row.blob_ref), createdAt: asIso(row.created_at) };
+  const purgedAt = row.purged_at ?? row.purge_created_at;
+  return { id: String(row.resource_version_id), resourceId: String(row.resource_id), version: Number(row.version), digestAlgorithm: row.digest_algorithm as ResourceVersion['digestAlgorithm'], digest: String(row.digest), canonicalization: row.canonicalization as ResourceVersion['canonicalization'], mediaType: String(row.media_type), size: Number(row.size_bytes), blobRef: purgedAt ? 'purged-v1' : String(row.blob_ref), createdAt: asIso(row.created_at), ...(purgedAt ? { purgedAt: asIso(purgedAt) } : {}) };
 }
+const resourceVersionPurgeJoin = `LEFT JOIN LATERAL (
+  SELECT p.created_at purge_created_at FROM purge_key_references k JOIN purge_checkpoints p ON p.purge_id=k.purge_id
+  WHERE k.content_family='resource-version' AND k.entity_id=rv.resource_version_id AND p.workspace_id=$1 LIMIT 1
+) purge ON true`;
 
 const relationFromDb = (value: string): DiscussionEdge['relation'] => value.toLowerCase().replaceAll('_', '-') as DiscussionEdge['relation'];
 const relationToDb = (value: DiscussionEdge['relation']) => value.toUpperCase().replaceAll('-', '_');
@@ -363,8 +368,13 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       (SELECT count(*)::int FROM rhiza_anchors WHERE selected_text IS NOT NULL AND content_ref IS NULL) AS anchors,
       (SELECT count(*)::int FROM rhiza_edges WHERE content_ref IS NULL) AS edges,
       (SELECT count(*)::int FROM rhiza_attachments WHERE content_ref IS NULL) AS attachments,
-      (SELECT count(*)::int FROM rhiza_resources WHERE content_ref IS NULL) AS resources,
-      (SELECT count(*)::int FROM rhiza_resource_versions WHERE blob_ref NOT LIKE 'sealed-v1/%') AS resource_blobs,
+      (SELECT count(*)::int FROM rhiza_resources r WHERE content_ref IS NULL AND NOT (
+        logical_name='[purged]' AND EXISTS (SELECT 1 FROM rhiza_resource_versions rv WHERE rv.resource_id=r.resource_id)
+        AND NOT EXISTS (SELECT 1 FROM rhiza_resource_versions rv WHERE rv.resource_id=r.resource_id
+          AND rv.purged_at IS NULL AND NOT EXISTS (SELECT 1 FROM purge_key_references k JOIN purge_checkpoints p ON p.purge_id=k.purge_id
+            WHERE k.content_family='resource-version' AND k.entity_id=rv.resource_version_id AND p.workspace_id=r.workspace_id))
+      )) AS resources,
+      (SELECT count(*)::int FROM rhiza_resource_versions WHERE blob_ref NOT LIKE 'sealed-v1/%' AND NOT (blob_ref='purged-v1' AND purged_at IS NOT NULL)) AS resource_blobs,
       (SELECT count(*)::int FROM rhiza_projects p, jsonb_array_elements(coalesce(p.state->'contextItems','[]'::jsonb)) item
         WHERE jsonb_typeof(item->'contentRef') IS DISTINCT FROM 'object') AS context_items,
       (SELECT count(*)::int FROM rhiza_projects p, jsonb_array_elements(coalesce(p.state->'fileChunks','[]'::jsonb)) item
@@ -410,7 +420,9 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       if (reclaim) await database.query('LOCK TABLE rhiza_resources,rhiza_resource_versions IN SHARE MODE');
       const { rows } = await database.query<{ workspace_id: string; resource_version_id: string; digest: string; size_bytes: number; blob_ref: string }>(`
         SELECT r.workspace_id,rv.resource_version_id,rv.digest,rv.size_bytes,rv.blob_ref
-        FROM rhiza_resource_versions rv JOIN rhiza_resources r ON r.resource_id=rv.resource_id`);
+        FROM rhiza_resource_versions rv JOIN rhiza_resources r ON r.resource_id=rv.resource_id
+        WHERE rv.purged_at IS NULL AND NOT EXISTS (SELECT 1 FROM purge_key_references k JOIN purge_checkpoints p ON p.purge_id=k.purge_id
+          WHERE k.content_family='resource-version' AND k.entity_id=rv.resource_version_id AND p.workspace_id=r.workspace_id)`);
       const references = rows.map(row => ({ workspaceId: row.workspace_id, resourceVersionId: row.resource_version_id,
         digest: row.digest, size: Number(row.size_bytes), blobRef: row.blob_ref }));
       const audit = await blobs.auditKeys(references);
@@ -1363,7 +1375,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     const manifest = await this.decodeManifest(result.rows[0]);
     const [resources, versions] = await Promise.all([
       this.database.query<Record<string, unknown>>('SELECT * FROM rhiza_resources WHERE workspace_id=$1 AND resource_id=ANY($2::text[])', [this.defaultWorkspaceId, manifest.contextItems.flatMap(item => item.resourceId ? [item.resourceId] : [])]),
-      this.database.query<Record<string, unknown>>('SELECT rv.* FROM rhiza_resource_versions rv JOIN rhiza_resources r ON r.resource_id=rv.resource_id WHERE r.workspace_id=$1 AND rv.resource_version_id=ANY($2::text[])', [this.defaultWorkspaceId, manifest.contextItems.flatMap(item => item.resourceVersionId ? [item.resourceVersionId] : [])]),
+      this.database.query<Record<string, unknown>>(`SELECT rv.*,purge.purge_created_at FROM rhiza_resource_versions rv JOIN rhiza_resources r ON r.resource_id=rv.resource_id ${resourceVersionPurgeJoin} WHERE r.workspace_id=$1 AND rv.resource_version_id=ANY($2::text[])`, [this.defaultWorkspaceId, manifest.contextItems.flatMap(item => item.resourceVersionId ? [item.resourceVersionId] : [])]),
     ]);
     return { manifest, resources: await Promise.all(resources.rows.map(row => this.decodeResource(row))), versions: versions.rows.map(storedResourceVersion) };
   }
@@ -1380,12 +1392,15 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       const messages = node ? (await database.query<Record<string, unknown>>(
         'SELECT m.*,cm.request_id AS source_request_id,ARRAY(SELECT ma.attachment_id FROM rhiza_message_attachments ma WHERE ma.message_id=m.id ORDER BY ma.ordinal) AS attachment_ids FROM rhiza_messages m LEFT JOIN rhiza_context_manifests cm ON cm.id=m.manifest_id AND cm.project_id=$2 WHERE m.node_id=$1 ORDER BY m.event_ordinal,m.id', [node.id, project.id])).rows : [];
       const attachments = attachmentIds.length ? (await database.query<Record<string, unknown>>(
-        'SELECT a.*,rv.digest,rv.blob_ref FROM rhiza_attachments a LEFT JOIN rhiza_resource_versions rv ON rv.resource_version_id=a.resource_version_id WHERE a.project_id=$1 AND a.id::text=ANY($2::text[]) ORDER BY a.created_at,a.id', [project.id, attachmentIds])).rows : [];
+        `SELECT a.*,rv.digest,rv.blob_ref,rv.purged_at,purge.purge_created_at FROM rhiza_attachments a LEFT JOIN rhiza_resource_versions rv ON rv.resource_version_id=a.resource_version_id ${resourceVersionPurgeJoin} WHERE a.project_id=$1 AND a.id::text=ANY($2::text[]) ORDER BY a.created_at,a.id`, [project.id, attachmentIds])).rows : [];
       return {
         sourceRunId: (messages.find(row => row.id === sourceMessageId)?.source_request_id ?? undefined) as string | undefined,
         projectId: project.id, activeNodeId: nodeId, node, mode: project.mode || 'Assisted', contextItems: await this.decodeContextItems(project.context_items || []),
         messages: await Promise.all(messages.map(row => this.decodeMessage(row, row.attachment_ids as string[]))),
-        attachments: await Promise.all(attachments.map(row => this.decodeAttachment(row))),
+        attachments: await Promise.all(attachments.map(row => {
+          if (row.purged_at || row.purge_created_at) throw new Error('RESOURCE_PURGED_REFERENCE');
+          return this.decodeAttachment(row);
+        })),
       };
     });
   }
@@ -1628,7 +1643,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       database.query<Record<string, unknown>>('SELECT * FROM rhiza_context_manifests WHERE project_id = $1 ORDER BY created_at, id', [project.id]),
       database.query<Record<string, unknown>>('SELECT * FROM rhiza_attachments WHERE project_id = $1 ORDER BY created_at, id', [project.id]),
       database.query<Record<string, unknown>>('SELECT * FROM rhiza_resources WHERE workspace_id = $1 ORDER BY created_at, resource_id', [project.id]),
-      database.query<Record<string, unknown>>('SELECT rv.* FROM rhiza_resource_versions rv JOIN rhiza_resources r ON r.resource_id=rv.resource_id WHERE r.workspace_id=$1 ORDER BY rv.resource_id,rv.version', [project.id]),
+      database.query<Record<string, unknown>>(`SELECT rv.*,purge.purge_created_at FROM rhiza_resource_versions rv JOIN rhiza_resources r ON r.resource_id=rv.resource_id ${resourceVersionPurgeJoin} WHERE r.workspace_id=$1 ORDER BY rv.resource_id,rv.version`, [project.id]),
       database.query<Record<string, unknown>>('SELECT rm.* FROM rhiza_resource_materializations rm JOIN rhiza_resource_versions rv ON rv.resource_version_id=rm.resource_version_id JOIN rhiza_resources r ON r.resource_id=rv.resource_id WHERE r.workspace_id=$1 ORDER BY rm.created_at,rm.materialization_id', [project.id]),
       database.query<{ message_id: string; attachment_id: string; ordinal: number }>('SELECT ma.* FROM rhiza_message_attachments ma JOIN rhiza_messages m ON m.id = ma.message_id JOIN rhiza_nodes n ON n.id = m.node_id WHERE n.project_id = $1 ORDER BY ma.message_id, ma.ordinal', [project.id]),
       database.query<Record<string, unknown>>('SELECT * FROM rhiza_audit_events WHERE project_id = $1 ORDER BY created_at, id', [project.id]),
@@ -1644,6 +1659,8 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       Object.assign(nodes[index], await this.nodeContent.read(project.id, String(row.id), asJson<SealedNodeRef>(row.content_ref)));
     }
     const messages = await Promise.all(messagesResult.rows.map(row => this.decodeMessage(row, attachmentIds.get(String(row.id)) || [])));
+    const versions = resourceVersionsResult.rows.map(storedResourceVersion);
+    const versionById = new Map(versions.map(version => [version.id, version]));
     const state = asJson<{ mode?: WorkspaceData['mode']; contextItems?: WorkspaceData['contextItems']; fileChunks?: FileChunk[] }>(project.state || {});
     return {
       projectId: project.id, projectTitle: project.title, nodeId: project.active_node_id || nodes[0]?.id || '', activeNodeId: project.active_node_id || nodes[0]?.id || '',
@@ -1653,11 +1670,12 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       discussionEdges: await Promise.all(edgesResult.rows.map(row => this.decodeEdge(row))),
       manifests: await Promise.all(manifestsResult.rows.map(row => this.decodeManifest(row))),
       attachments: await Promise.all(attachmentsResult.rows.map(row => {
-        const version = resourceVersionsResult.rows.find(item => String(item.resource_version_id) === String(row.resource_version_id));
-        return this.decodeAttachment({ ...row, digest: version?.digest, blob_ref: version?.blob_ref });
+        const version = versionById.get(String(row.resource_version_id));
+        if (version?.purgedAt) throw new Error('RESOURCE_PURGED_REFERENCE');
+        return this.decodeAttachment({ ...row, digest: version?.digest, blob_ref: version?.blobRef });
       })),
       resources: await Promise.all(resourcesResult.rows.map(row => this.decodeResource(row))),
-      resourceVersions: resourceVersionsResult.rows.map(storedResourceVersion),
+      resourceVersions: versions,
       materializations: materializationsResult.rows.map(row => ({ id: String(row.materialization_id), resourceVersionId: String(row.resource_version_id), kind: row.kind as ResourceMaterialization['kind'], generator: row.generator as ResourceMaterialization['generator'], createdAt: asIso(row.created_at) })),
       fileChunks: await this.decodeFileChunks(state.fileChunks || []),
       auditEvents: auditResult.rows.map(row => ({ id: String(row.id), projectId: String(row.project_id), nodeId: row.node_id ? String(row.node_id) : undefined, action: String(row.action), entityType: row.entity_type as AuditEvent['entityType'], entityId: String(row.entity_id), metadata: asJson(row.metadata), createdAt: asIso(row.created_at) })),
@@ -1877,7 +1895,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       const inserted = await database.query(`INSERT INTO rhiza_resources (resource_id,workspace_id,kind,logical_name,created_at,content_ref) VALUES ($1,$2,$3,$4,$5,$6::jsonb) ON CONFLICT (resource_id) DO NOTHING RETURNING resource_id`, [resource.id,resource.workspaceId,resource.kind,reference ? '[sealed]' : resource.logicalName,resource.createdAt,reference ? JSON.stringify(reference) : null]);
       if (reference && !inserted.rows.length) await this.resourceContent!.destroy(resource.workspaceId, resource.id, reference);
     }
-    for (const version of resourceVersions) await database.query(`INSERT INTO rhiza_resource_versions (resource_version_id,resource_id,version,digest_algorithm,digest,canonicalization,media_type,size_bytes,blob_ref,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [version.id,version.resourceId,version.version,version.digestAlgorithm,version.digest,version.canonicalization,version.mediaType,version.size,version.blobRef,version.createdAt]);
+    for (const version of resourceVersions.filter(item => !previous?.resourceVersions.some(old => old.id === item.id))) await database.query(`INSERT INTO rhiza_resource_versions (resource_version_id,resource_id,version,digest_algorithm,digest,canonicalization,media_type,size_bytes,blob_ref,created_at,purged_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [version.id,version.resourceId,version.version,version.digestAlgorithm,version.digest,version.canonicalization,version.mediaType,version.size,version.blobRef,version.createdAt,version.purgedAt ?? null]);
     for (const manifest of manifests) {
       let reference: SealedManifestRef | undefined;
       if (this.manifestContent) {

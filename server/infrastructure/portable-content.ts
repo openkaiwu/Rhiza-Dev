@@ -219,6 +219,7 @@ export async function ingestPortableWorkspace(staged: StagedPortableWorkspace, b
   const facts = structuredClone(staged.facts);
   const byVersion = new Map(facts.workspace.resourceVersions.map(version => [version.id, version]));
   for (const version of facts.workspace.resourceVersions) {
+    if (version.purgedAt) continue;
     const path = `blobs/sha256/${version.digest}`;
     const source = staged.files.get(path);
     const entry = staged.index.entries.find(item => item.path === path);
@@ -305,7 +306,7 @@ export function validatePortableContent(facts: PortableWorkspaceFacts, index: Bu
     if (!entry || entry.digest !== `sha256:${digest}`) throw bundleError('BUNDLE_MISSING_CONTENT');
     if (size !== undefined && entry.size !== size) throw bundleError('BUNDLE_SIZE_MISMATCH');
   };
-  for (const version of facts.workspace.resourceVersions) requireBlob(version.digest, version.size);
+  for (const version of facts.workspace.resourceVersions) if (!version.purgedAt) requireBlob(version.digest, version.size);
   for (const run of facts.runs) {
     if (semanticStateChecksum({ ...run.input }) !== run.inputHash) throw bundleError('BUNDLE_RUNTIME_DIGEST_MISMATCH');
     requireBlob(run.inputHash);

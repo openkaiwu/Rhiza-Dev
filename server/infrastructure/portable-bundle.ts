@@ -56,6 +56,7 @@ export class NodePortableBundle implements PortableBundlePort {
         if (!files.has(name)) await add(name, run.input, 'application/vnd.rhiza.context-envelope.v1+json');
       }
       for (const version of source.workspace.resourceVersions) {
+        if (version.purgedAt) continue;
         const name = `blobs/sha256/${version.digest}`;
         if (files.has(name)) continue;
         reserve(version.size);

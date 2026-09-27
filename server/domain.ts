@@ -58,6 +58,7 @@ export interface ResourceVersion {
   size: number;
   blobRef: string;
   createdAt: string;
+  purgedAt?: string;
 }
 
 export interface ResourceMaterialization {

@@ -32,9 +32,12 @@ it.each(['validated', 'blobs-ready', 'activating'] as const)('resumes an import 
     const stored = await sourceBlobs.put(bytes);
     const createdAt = new Date().toISOString();
     await source.update(current => ({ ...current,
-      resources: [...current.resources, { id: 'crash-resource', workspaceId: current.projectId, kind: 'attachment', logicalName: 'Crash fixture', createdAt }],
+      resources: [...current.resources, { id: 'crash-resource', workspaceId: current.projectId, kind: 'attachment', logicalName: 'Crash fixture', createdAt },
+        { id: 'purged-resource', workspaceId: current.projectId, kind: 'attachment', logicalName: '[purged]', createdAt }],
       resourceVersions: [...current.resourceVersions, { id: 'crash-version', resourceId: 'crash-resource', version: 1,
-        digestAlgorithm: 'sha256', digest: stored.digest, canonicalization: 'raw-v1', mediaType: 'text/plain', size: stored.size, blobRef: stored.blobRef, createdAt }],
+        digestAlgorithm: 'sha256', digest: stored.digest, canonicalization: 'raw-v1', mediaType: 'text/plain', size: stored.size, blobRef: stored.blobRef, createdAt },
+        { id: 'purged-version', resourceId: 'purged-resource', version: 1, digestAlgorithm: 'sha256', digest: 'a'.repeat(64),
+          canonicalization: 'raw-v1', mediaType: 'text/plain', size: 9, blobRef: 'purged-v1', createdAt, purgedAt: createdAt }],
     }));
     await source.backfillJournal();
     const facts = await source.readPortableWorkspace();
@@ -84,6 +87,8 @@ it.each(['validated', 'blobs-ready', 'activating'] as const)('resumes an import 
       const version = (await target.read()).resourceVersions.find(item => item.id === 'crash-version')!;
       expect(version.blobRef).toMatch(/^sealed-v1\//);
       expect(version.digest).toBe(createHash('sha256').update(bytes).digest('hex'));
+      expect((await target.read()).resourceVersions.find(item => item.id === 'purged-version'))
+        .toMatchObject({ blobRef: 'purged-v1', purgedAt: createdAt });
     } finally { await target.close(); }
   } finally {
     if (child?.exitCode === null && child.signalCode === null) { child.kill('SIGKILL'); await once(child, 'exit'); }

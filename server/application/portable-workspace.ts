@@ -43,7 +43,7 @@ export function portableWorkspaceFacts(source: PortableWorkspaceFacts, hash: (in
     ...select(value, ['projectId', 'projectTitle', 'nodeId', 'activeNodeId', 'mode', 'updatedAt']),
     contextItems: value.contextItems.map(context), messages: value.messages.map(message), attachments: value.attachments.map(attachment),
     resources: value.resources.map(item => ({ ...select(item, ['id', 'workspaceId', 'kind', 'logicalName', 'createdAt']), logicalName: portableName(item.logicalName) })),
-    resourceVersions: value.resourceVersions.map(item => select(item, ['id', 'resourceId', 'version', 'digestAlgorithm', 'digest', 'canonicalization', 'mediaType', 'size', 'blobRef', 'createdAt'])),
+    resourceVersions: value.resourceVersions.map(item => select(item, ['id', 'resourceId', 'version', 'digestAlgorithm', 'digest', 'canonicalization', 'mediaType', 'size', 'blobRef', 'createdAt', 'purgedAt'])),
     materializations: value.materializations.map(item => select(item, ['id', 'resourceVersionId', 'kind', 'generator', 'createdAt'])),
     fileChunks: value.fileChunks.map(item => select(item, ['id', 'attachmentId', 'ordinal', 'text', 'startOffset', 'endOffset', 'tokens', 'terms', 'embedding', 'resourceVersionId'])),
     discussionNodes: value.discussionNodes.map(item => select(item, ['id', 'title', 'summary', 'status', 'kind', 'sourceNodeId', 'sourceMessageId', 'anchorText', 'x', 'y', 'createdAt', 'updatedAt'])),

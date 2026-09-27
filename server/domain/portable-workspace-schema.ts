@@ -45,7 +45,7 @@ const workspace = object({ projectId: id, projectTitle: text, nodeId: id, active
   contextItems: array(context), messages: array(message), attachments: array(attachment), manifests: array(manifest),
   resources: array(object({ id, workspaceId: id, kind: enumeration('attachment', 'context-source'), logicalName: text, createdAt: date })),
   resourceVersions: array(object({ id, resourceId: id, version: { type: 'integer', minimum: 1 }, digestAlgorithm: { const: 'sha256' }, digest,
-    canonicalization: { const: 'raw-v1' }, mediaType: text, size: integer, blobRef: id, createdAt: date })),
+    canonicalization: { const: 'raw-v1' }, mediaType: text, size: integer, blobRef: id, createdAt: date, purgedAt: date }, ['purgedAt'])),
   materializations: array(object({ id, resourceVersionId: id, kind: { const: 'file-chunks' }, generator: { const: 'legacy-context-planner-v1' }, createdAt: date })),
   fileChunks: array(object({ id, attachmentId: id, ordinal: integer, text, startOffset: integer, endOffset: integer, tokens: integer,
     terms: array(text), embedding: array(number), resourceVersionId: id }, ['resourceVersionId'])),

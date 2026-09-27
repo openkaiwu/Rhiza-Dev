@@ -1,12 +1,41 @@
 import { createHash } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createSeedWorkspace } from '../seed';
 import { canonicalJson } from '../domain/canonical-json';
 import { portableWorkspaceFacts, stripOperationalMetadata } from '../application/portable-workspace';
+import { validatePortableReferences } from '../application/portable-references';
 import type { PortableWorkspaceFacts } from '../application/ports/portable-workspace';
+import type { BundleIndex } from '../domain/portable-bundle';
+import type { BlobStorePort } from '../application/ports/host-runtime';
+import { ingestPortableWorkspace, validatePortableContent, type StagedPortableWorkspace } from './portable-content';
 
 const hash = (value: unknown) => createHash('sha256').update(canonicalJson(value)).digest('hex');
 describe('portable export DTO', () => {
+  it('retains purged ResourceVersion identity without exporting or ingesting its bytes', async () => {
+    const workspace = createSeedWorkspace();
+    const digest = 'a'.repeat(64), createdAt = workspace.updatedAt;
+    workspace.resources.push({ id: 'resource', workspaceId: workspace.projectId, kind: 'attachment', logicalName: '[purged]', createdAt });
+    workspace.resourceVersions.push({ id: 'version', resourceId: 'resource', version: 1, digestAlgorithm: 'sha256', digest,
+      canonicalization: 'raw-v1', mediaType: 'text/plain', size: 9, blobRef: 'purged-v1', createdAt, purgedAt: createdAt });
+    const facts: PortableWorkspaceFacts = { workspace, directory: { workspaceId: workspace.projectId, name: 'Workspace', status: 'active', createdBy: 'owner', revision: 1 },
+      members: [{ userId: 'owner', role: 'owner' }], journal: [], provenance: [], runs: [] };
+    const exported = portableWorkspaceFacts(facts, hash);
+    expect(exported.workspace.resourceVersions).toEqual(workspace.resourceVersions);
+    const index = { workspaceId: workspace.projectId, entries: [] } as unknown as BundleIndex;
+    expect(() => validatePortableContent(exported, index)).not.toThrow();
+    const putStream = vi.fn();
+    const staged = { facts: exported, index, files: new Map() } as unknown as StagedPortableWorkspace;
+    const ingested = await ingestPortableWorkspace(staged, { putStream } as unknown as BlobStorePort);
+    expect(ingested.workspace.resourceVersions).toEqual(workspace.resourceVersions);
+    expect(putStream).not.toHaveBeenCalled();
+    const invalid = structuredClone(exported);
+    invalid.workspace.resourceVersions[0]!.blobRef = `sha256/${digest.slice(0, 2)}/${digest}`;
+    expect(() => validatePortableReferences(invalid)).toThrow(expect.objectContaining({ missingRefs: expect.arrayContaining(['version:blob-identity']) }));
+    invalid.workspace.resourceVersions[0]!.blobRef = 'purged-v1';
+    invalid.workspace.fileChunks.push({ id: 'chunk', attachmentId: 'attachment', ordinal: 0, text: 'erased text',
+      startOffset: 0, endOffset: 11, tokens: 2, terms: [], embedding: [], resourceVersionId: 'version' });
+    expect(() => validatePortableReferences(invalid)).toThrow(expect.objectContaining({ missingRefs: expect.arrayContaining(['chunk:purged-version']) }));
+  });
   it('normalizes encrypted locations in nested historical content without changing digests', () => {
     const digest = 'a'.repeat(64);
     const version = { id: 'version', digest, blobRef: `sealed-v1/workspace/version/${'b'.repeat(64)}/${digest}/12` };

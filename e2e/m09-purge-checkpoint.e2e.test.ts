@@ -40,6 +40,49 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
   const directories: string[] = [];
   afterEach(async () => Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))));
 
+  it('reopens a purged ResourceVersion identity without requiring erased Blob bytes', async () => {
+    const database = await migratedDatabase(backend);
+    const workspaceId = randomUUID(), resourceId = randomUUID(), versionId = randomUUID();
+    const store = new PostgresWorkspaceStore(database, workspaceId);
+    try {
+      const createdAt = new Date().toISOString();
+      const digest = 'a'.repeat(64);
+      await store.update(current => ({ ...current,
+        resources: [...current.resources, { id: resourceId, workspaceId, kind: 'attachment', logicalName: '[purged]', createdAt }],
+        resourceVersions: [...current.resourceVersions, { id: versionId, resourceId, version: 1, digestAlgorithm: 'sha256',
+          digest, canonicalization: 'raw-v1', mediaType: 'text/plain', size: 9, blobRef: 'purged-v1', createdAt, purgedAt: createdAt }],
+      }));
+      const reopened = new PostgresWorkspaceStore(database, workspaceId);
+      expect((await reopened.read()).resourceVersions).toContainEqual(expect.objectContaining({ id: versionId, blobRef: 'purged-v1', purgedAt: createdAt }));
+      expect(await reopened.auditLegacyPlaintextReplicas()).toMatchObject({ resources: 0, resource_blobs: 0 });
+      const row = (await database.query<{ blob_ref: string; purged_at: unknown }>('SELECT blob_ref,purged_at FROM rhiza_resource_versions WHERE resource_version_id=$1', [versionId])).rows[0]!;
+      expect(row.blob_ref).toBe('purged-v1');
+      expect(row.purged_at).not.toBeNull();
+    } finally { await database.close(); }
+  });
+
+  it('hides a committed purge-pending ResourceVersion before key acknowledgement', async () => {
+    const database = await migratedDatabase(backend);
+    const workspaceId = randomUUID(), resourceId = randomUUID(), versionId = randomUUID(), purgeId = randomUUID();
+    const store = new PostgresWorkspaceStore(database, workspaceId);
+    try {
+      const current = await store.read();
+      const createdAt = new Date().toISOString(), digest = 'a'.repeat(64);
+      const blobRef = `sealed-v1/${workspaceId}/${versionId}/${'b'.repeat(64)}/${digest}/9`;
+      await store.update(workspace => ({ ...workspace,
+        resources: [...workspace.resources, { id: resourceId, workspaceId, kind: 'attachment', logicalName: 'private', createdAt }],
+        resourceVersions: [...workspace.resourceVersions, { id: versionId, resourceId, version: 1, digestAlgorithm: 'sha256',
+          digest, canonicalization: 'raw-v1', mediaType: 'text/plain', size: 9, blobRef, createdAt }],
+      }));
+      await database.query('INSERT INTO purge_checkpoints(purge_id,workspace_id,node_id) VALUES ($1,$2,$3)', [purgeId, workspaceId, current.activeNodeId]);
+      await database.query("INSERT INTO purge_key_references(purge_id,ordinal,content_family,entity_id,content_ref) VALUES ($1,0,'resource-version',$2,$3::jsonb)",
+        [purgeId, versionId, JSON.stringify({ workspaceId, resourceVersionId: versionId, digest, size: 9, blobRef })]);
+      const hidden = (await store.read()).resourceVersions.find(version => version.id === versionId)!;
+      expect(hidden).toMatchObject({ id: versionId, digest, blobRef: 'purged-v1', purgedAt: expect.any(String) });
+      expect(hidden.blobRef).not.toBe(blobRef);
+    } finally { await database.close(); }
+  });
+
   it('counts legacy plaintext families without reading their bodies', async () => {
     const database = await migratedDatabase(backend);
     const store = new PostgresWorkspaceStore(database, randomUUID());

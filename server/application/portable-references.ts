@@ -18,6 +18,8 @@ export function validatePortableReferences(facts: PortableWorkspaceFacts): void 
   const versions = ids(workspace.resourceVersions, 'version'), attachments = ids(workspace.attachments, 'attachment');
   const segments = ids(workspace.segments, 'segment'), anchors = ids(workspace.anchors, 'anchor'), runIds = ids(runs, 'run');
   const versionById = new Map(workspace.resourceVersions.map(version => [version.id, version]));
+  const purgedVersions = new Set(workspace.resourceVersions.filter(version => version.purgedAt).map(version => version.id));
+  const purgedResources = new Set(workspace.resourceVersions.filter(version => version.purgedAt).map(version => version.resourceId));
   const runById = new Map(runs.map(run => [run.id, run]));
   const messageById = new Map(workspace.messages.map(message => [message.id, message]));
   const manifestById = new Map(workspace.manifests.map(manifest => [manifest.id, manifest]));
@@ -40,22 +42,28 @@ export function validatePortableReferences(facts: PortableWorkspaceFacts): void 
   for (const resource of workspace.resources) scope(resource.workspaceId, resource.id);
   for (const version of workspace.resourceVersions) {
     ref(resources, version.resourceId, version.id);
-    if (version.blobRef !== `sha256/${version.digest.slice(0, 2)}/${version.digest}`) missing.push(`${version.id}:blob-identity`);
+    if (version.purgedAt ? version.blobRef !== 'purged-v1'
+      : version.blobRef !== `sha256/${version.digest.slice(0, 2)}/${version.digest}`) missing.push(`${version.id}:blob-identity`);
   }
   for (const attachment of workspace.attachments) {
     if (!attachment.resourceId || !attachment.resourceVersionId || !attachment.digest) missing.push(`${attachment.id}:unversioned-attachment`);
     ref(resources, attachment.resourceId, attachment.id); ref(versions, attachment.resourceVersionId, attachment.id);
     const version = versionById.get(attachment.resourceVersionId ?? '');
-    if (version && (version.resourceId !== attachment.resourceId || version.digest !== attachment.digest || version.blobRef !== attachment.blobRef)) missing.push(`${attachment.id}:version-mismatch`);
+    if (version && (version.purgedAt || version.resourceId !== attachment.resourceId || version.digest !== attachment.digest || version.blobRef !== attachment.blobRef)) missing.push(`${attachment.id}:version-mismatch`);
   }
   for (const materialization of workspace.materializations) ref(versions, materialization.resourceVersionId, materialization.id);
-  for (const chunk of workspace.fileChunks) { ref(attachments, chunk.attachmentId, chunk.id); ref(versions, chunk.resourceVersionId, chunk.id); }
+  for (const chunk of workspace.fileChunks) {
+    ref(attachments, chunk.attachmentId, chunk.id); ref(versions, chunk.resourceVersionId, chunk.id);
+    if (chunk.resourceVersionId && purgedVersions.has(chunk.resourceVersionId)) missing.push(`${chunk.id}:purged-version`);
+  }
+  for (const item of workspace.contextItems) if (item.sourceId && (purgedVersions.has(item.sourceId) || purgedResources.has(item.sourceId))) missing.push(`${item.id}:purged-source`);
   for (const manifest of workspace.manifests) {
     scope(manifest.projectId, manifest.id); ref(nodes, manifest.nodeId, manifest.id);
     if (manifest.schemaVersion === '1.0.0') ref(runIds, manifest.requestId, manifest.id);
     for (const attachmentId of manifest.attachmentIds) ref(attachments, attachmentId, manifest.id);
     for (const item of manifest.contextItems) {
       ref(resources, item.resourceId, manifest.id); ref(versions, item.resourceVersionId, manifest.id); ref(versions, item.originResourceVersionId, manifest.id);
+      if ((item.resourceVersionId && purgedVersions.has(item.resourceVersionId)) || (item.originResourceVersionId && purgedVersions.has(item.originResourceVersionId))) missing.push(`${manifest.id}:purged-version:${item.sourceId}`);
       const version = versionById.get(item.resourceVersionId ?? '');
       if (manifest.schemaVersion === '1.0.0' && (!version || version.resourceId !== item.resourceId || version.digest !== item.digest)) missing.push(`${manifest.id}:frozen-version:${item.sourceId}`);
     }
@@ -66,6 +74,7 @@ export function validatePortableReferences(facts: PortableWorkspaceFacts): void 
     if (!run.nodeId.startsWith('temp:')) ref(nodes, run.nodeId, run.id);
     if (run.status === 'completed' && !run.nodeId.startsWith('temp:')) ref(manifests, run.input.request.manifestId, run.id);
     if (run.input.request.requestId !== run.id || !run.input.executor.modelSpecRef || !run.input.executor.providerEndpointRef) missing.push(`${run.id}:runtime-snapshot`);
+    for (const attachment of run.input.request.attachments ?? []) if (attachment.resourceVersionId && purgedVersions.has(attachment.resourceVersionId)) missing.push(`${run.id}:purged-attachment`);
   }
   const outputs = new Set(provenance.map(link => link.outputRef));
   if (outputs.size !== provenance.length) throw bundleError('BUNDLE_DUPLICATE_OUTPUT_PROVENANCE');
