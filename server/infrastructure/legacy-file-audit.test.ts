@@ -79,8 +79,13 @@ it('reclaims a shared raw Blob with a purged version without treating its tombst
     await expect(reclaimKnownLegacyResourceFiles(root, versions,
       [{ workspaceId: 'purged-workspace', storageKey: 'legacy-attachment', resourceVersionId: 'purged-version', size: old.size }], blobs))
       .rejects.toThrow('LEGACY_ATTACHMENT_VERSION_REQUIRED');
+    await expect(reclaimKnownLegacyResourceFiles(root, versions,
+      [{ workspaceId: 'purged-workspace', storageKey: old.blobRef, resourceVersionId: 'purged-version', size: old.size }], blobs))
+      .rejects.toThrow('LEGACY_ATTACHMENT_VERSION_REQUIRED');
     expect(await readFile(join(root, 'blobs', ...old.blobRef.split('/')))).toEqual(bytes);
-    expect(await reclaimKnownLegacyResourceFiles(root, versions, [], blobs)).toEqual({ resourceBlobs: 1, attachments: 0 });
+    expect(await reclaimKnownLegacyResourceFiles(root, versions,
+      [{ workspaceId: 'live-workspace', storageKey: old.blobRef, resourceVersionId: 'live-version', size: old.size }], blobs))
+      .toEqual({ resourceBlobs: 1, attachments: 0 });
     expect(await blobs.read(live.blobRef, old.digest)).toEqual(bytes);
     expect(await reclaimKnownLegacyResourceFiles(root, versions, [], blobs)).toEqual({ resourceBlobs: 0, attachments: 0 });
     const purgedOnly = await raw.put(Buffer.from('purged-only raw copy'));

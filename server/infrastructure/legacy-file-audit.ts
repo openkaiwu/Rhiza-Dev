@@ -91,6 +91,11 @@ export async function reclaimKnownLegacyResourceFiles(root: string, versions: Le
   }
   const byKey = new Map<string, LegacyAttachmentFileReference[]>();
   for (const attachment of attachments) {
+    if (attachment.storageKey.startsWith('sha256/')) {
+      const version = attachment.resourceVersionId ? byId.get(attachment.resourceVersionId) : undefined;
+      if (!version || !sealedVersion(version) || version.workspaceId !== attachment.workspaceId || version.size !== attachment.size
+        || attachment.storageKey !== `sha256/${version.digest.slice(0, 2)}/${version.digest}`) throw new Error('LEGACY_ATTACHMENT_VERSION_REQUIRED');
+    }
     const refs = byKey.get(attachment.storageKey) ?? [];
     refs.push(attachment);
     byKey.set(attachment.storageKey, refs);
