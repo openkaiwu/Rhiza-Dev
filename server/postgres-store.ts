@@ -1218,6 +1218,31 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     });
   }
 
+  /** One database snapshot across all live assistant outputs; no message body is read. */
+  async auditProvenanceCoverage(): Promise<{ outputs: number; missing: number; broken: number; invalid: number }> {
+    const result = await this.database.query<{ outputs: number; missing: number; broken: number; invalid: number }>(`SELECT
+      count(*)::int outputs,
+      count(*) FILTER (WHERE p.output_ref IS NULL)::int missing,
+      count(*) FILTER (WHERE p.record->>'status'='broken-reference' OR
+        (jsonb_typeof(p.record->'missingRefs')='array' AND p.record->'missingRefs'<>'[]'::jsonb))::int broken,
+      count(*) FILTER (WHERE p.output_ref IS NOT NULL AND (
+        p.record->>'status' IS NULL OR p.record->>'status' NOT IN ('recorded','pre-run','purged','broken-reference')
+        OR jsonb_typeof(p.record->'inputRefs') IS DISTINCT FROM 'array'
+        OR jsonb_typeof(p.record->'missingRefs') IS DISTINCT FROM 'array'
+        OR (p.record->>'status'='recorded' AND (r.run_id IS NULL OR c.id IS NULL
+          OR c.id IS DISTINCT FROM m.manifest_id OR c.request_id::text IS DISTINCT FROM r.run_id
+          OR r.node_id IS DISTINCT FROM m.node_id::text))
+        OR (p.record->>'status'='pre-run' AND p.record->>'runRef' IS NOT NULL)
+      ))::int invalid
+      FROM rhiza_messages m JOIN rhiza_nodes n ON n.id=m.node_id
+      LEFT JOIN provenance_links p ON p.workspace_id=n.project_id AND p.output_ref=m.id::text
+      LEFT JOIN execution_runs r ON r.workspace_id=n.project_id AND r.run_id::text=p.record->>'runRef'
+      LEFT JOIN rhiza_context_manifests c ON c.project_id=n.project_id AND c.id::text=p.record->>'contextManifestRef'
+      WHERE m.kind='assistant'`);
+    const row = result.rows[0]!;
+    return { outputs: Number(row.outputs), missing: Number(row.missing), broken: Number(row.broken), invalid: Number(row.invalid) };
+  }
+
   async getRun(runId: string): Promise<ExecutionRun | undefined> {
     const result = await this.database.query<{ record: ExecutionRun; input_content_ref: unknown }>('SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1 AND run_id=$2', [this.defaultWorkspaceId, runId]);
     return result.rows[0] ? this.decodeRun(result.rows[0]) : undefined;

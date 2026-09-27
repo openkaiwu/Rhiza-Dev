@@ -875,6 +875,7 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     const { app, store, runtime } = await setup(async function* (input) { requests.push(structuredClone({ ...input, signal: undefined })); yield* success(input); });
     const originalResponse = await request(app).post('/api/chat').send({ message: 'original frozen question' }).expect(201);
     const [original] = await store.listRuns();
+    expect(await store.auditProvenanceCoverage()).toMatchObject({ missing: 0, broken: 0, invalid: 0 });
     const planner = vi.spyOn(PostgresWorkspaceStore.prototype, 'queryContextCandidates');
     try {
       const url = `/api/v1/workspaces/${original.workspaceId}/runs/${original.id}/replay`;

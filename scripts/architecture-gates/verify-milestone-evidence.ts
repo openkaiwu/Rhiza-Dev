@@ -423,7 +423,7 @@ const M08_CONFIG: MilestoneConfig = {
 };
 
 export const M09_COMMANDS = [
-  'pnpm run m09:plaintext:audit', 'pnpm run m09:files:audit', 'pnpm run m09:traces:audit', 'pnpm run m09:keys:audit', 'pnpm run lint', 'pnpm run typecheck', 'pnpm run test:unit', 'pnpm run test:e2e',
+  'pnpm run m09:plaintext:audit', 'pnpm run m09:provenance:audit', 'pnpm run m09:files:audit', 'pnpm run m09:traces:audit', 'pnpm run m09:keys:audit', 'pnpm run lint', 'pnpm run typecheck', 'pnpm run test:unit', 'pnpm run test:e2e',
   'pnpm run licenses:verify', 'pnpm run verify:g0', 'pnpm run verify:m02:boundaries', 'pnpm run verify:m04:host-boundary', 'pnpm run build',
 ];
 export const M09_PATHS = [...new Set([...M08_PATHS,
@@ -433,6 +433,7 @@ export const M09_PATHS = [...new Set([...M08_PATHS,
   'docs/architecture-gates/M09/provenance-run-backed-desktop.png', 'docs/architecture-gates/M09/provenance-run-backed-narrow.png',
   'docs/architecture-gates/M09/clean-import-replay-desktop.png', 'docs/architecture-gates/M09/clean-import-replay-narrow.png',
   'docs/architecture-gates/M09/plaintext-audit-check.md',
+  'docs/architecture-gates/M09/provenance-audit-check.md',
   'docs/architecture-gates/M09/legacy-file-audit-check.md',
   'docs/architecture-gates/M09/trace-sanitization-check.md',
   'docs/architecture-gates/M09/purge-projection-check.md',
@@ -443,7 +444,7 @@ export const M09_PATHS = [...new Set([...M08_PATHS,
   'server/application/prepare-bundle-import.ts', 'server/infrastructure/bundle-archive.ts', 'server/infrastructure/node-bundle-import.ts',
   'server/infrastructure/node-encrypted-blob-store.ts', 'server/infrastructure/portable-bundle.ts', 'server/infrastructure/portable-content.ts',
   'e2e/m09-default-bundle.e2e.test.ts', 'e2e/m09-provenance.e2e.test.ts', 'e2e/m09-purge-checkpoint.e2e.test.ts',
-  'scripts/audit-legacy-plaintext.ts', 'scripts/audit-legacy-files.ts', 'scripts/audit-run-traces.ts', 'scripts/sanitize-legacy-run-traces.ts', 'scripts/reconcile-content-keys.ts', 'scripts/reclaim-bundle-import-archives.ts',
+  'scripts/audit-legacy-plaintext.ts', 'scripts/audit-provenance.ts', 'scripts/audit-legacy-files.ts', 'scripts/audit-run-traces.ts', 'scripts/sanitize-legacy-run-traces.ts', 'scripts/reconcile-content-keys.ts', 'scripts/reclaim-bundle-import-archives.ts',
   'server/infrastructure/legacy-file-audit.ts', 'server/infrastructure/legacy-file-audit.test.ts',
 ])];
 export const M09_FIXTURES = [...M08_FIXTURES,
@@ -455,6 +456,7 @@ export const M09_FIXTURES = [...M08_FIXTURES,
   { id: 'm09-clean-import-replay-desktop-v1', path: 'docs/architecture-gates/M09/clean-import-replay-desktop.png', role: 'acceptance_fixture' },
   { id: 'm09-clean-import-replay-narrow-v1', path: 'docs/architecture-gates/M09/clean-import-replay-narrow.png', role: 'acceptance_fixture' },
   { id: 'm09-plaintext-audit-check-v1', path: 'docs/architecture-gates/M09/plaintext-audit-check.md', role: 'acceptance_fixture' },
+  { id: 'm09-provenance-audit-check-v1', path: 'docs/architecture-gates/M09/provenance-audit-check.md', role: 'acceptance_fixture' },
   { id: 'm09-legacy-file-audit-check-v1', path: 'docs/architecture-gates/M09/legacy-file-audit-check.md', role: 'acceptance_fixture' },
   { id: 'm09-trace-sanitization-check-v1', path: 'docs/architecture-gates/M09/trace-sanitization-check.md', role: 'acceptance_fixture' },
   { id: 'm09-purge-projection-check-v1', path: 'docs/architecture-gates/M09/purge-projection-check.md', role: 'acceptance_fixture' },

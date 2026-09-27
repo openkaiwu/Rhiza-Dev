@@ -274,6 +274,7 @@ describe('M09 strict closure evidence', () => {
     expect(M09_COMMANDS).toContain('pnpm run test:e2e');
     expect(M09_COMMANDS).toContain('pnpm run m09:traces:audit');
     expect(M09_COMMANDS).toContain('pnpm run m09:plaintext:audit');
+    expect(M09_COMMANDS).toContain('pnpm run m09:provenance:audit');
     expect(M09_COMMANDS).toContain('pnpm run m09:files:audit');
     expect(M09_COMMANDS).toContain('pnpm run m09:keys:audit');
     expect(paths.has('docs/architecture-gates/M09/bundle-browser-check.md')).toBe(true);
@@ -282,6 +283,7 @@ describe('M09 strict closure evidence', () => {
     expect(paths.has('docs/architecture-gates/M09/provenance-run-backed-desktop.png')).toBe(true);
     expect(paths.has('docs/architecture-gates/M09/clean-import-replay-narrow.png')).toBe(true);
     expect(paths.has('docs/architecture-gates/M09/plaintext-audit-check.md')).toBe(true);
+    expect(paths.has('docs/architecture-gates/M09/provenance-audit-check.md')).toBe(true);
     expect(paths.has('docs/architecture-gates/M09/legacy-file-audit-check.md')).toBe(true);
     expect(paths.has('docs/architecture-gates/M09/trace-sanitization-check.md')).toBe(true);
     expect(paths.has('docs/architecture-gates/M09/purge-projection-check.md')).toBe(true);

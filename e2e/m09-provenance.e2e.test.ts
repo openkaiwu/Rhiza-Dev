@@ -16,7 +16,9 @@ describe('M09 provenance persistence', () => {
       const outputs = workspace.messages.filter(message => message.kind === 'assistant');
       // Represent an existing aggregate whose provenance has not yet been backfilled.
       await database.query('DELETE FROM provenance_links');
+      expect(await store.auditProvenanceCoverage()).toEqual({ outputs: outputs.length, missing: outputs.length, broken: 0, invalid: 0 });
       expect(await store.backfillProvenance()).toBe(outputs.length);
+      expect(await store.auditProvenanceCoverage()).toEqual({ outputs: outputs.length, missing: 0, broken: 0, invalid: 0 });
       const before = (await database.query('SELECT record FROM provenance_links ORDER BY output_ref')).rows;
       expect(await store.backfillProvenance()).toBe(0);
       expect((await database.query('SELECT record FROM provenance_links ORDER BY output_ref')).rows).toEqual(before);
@@ -34,6 +36,10 @@ describe('M09 provenance persistence', () => {
       expect((await store.read()).messages.some(message => message.id === outputId)).toBe(false);
       expect(await store.readProvenance(outputId)).toBeUndefined();
       expect((await database.query('SELECT record FROM provenance_links ORDER BY output_ref')).rows).toEqual(before);
+      await database.query("UPDATE provenance_links SET record=jsonb_set(record,'{status}','\"broken-reference\"'::jsonb) WHERE output_ref=$1", [outputs[0].id]);
+      expect(await store.auditProvenanceCoverage()).toEqual({ outputs: outputs.length, missing: 0, broken: 1, invalid: 0 });
+      await database.query("UPDATE provenance_links SET record=jsonb_set(record,'{status}','\"unknown\"'::jsonb) WHERE output_ref=$1", [outputs[0].id]);
+      expect(await store.auditProvenanceCoverage()).toEqual({ outputs: outputs.length, missing: 0, broken: 0, invalid: 1 });
     } finally { await database.close(); }
   });
 });

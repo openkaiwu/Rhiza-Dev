@@ -130,6 +130,7 @@
 - Journal Purge 不更新 append-only 事件行；在同一事务发布脱敏 baseline/tail 覆盖层并登记原有效载荷密钥，所有历史读取与密钥对账只认覆盖层。无已加密且可重放的 baseline 时拒绝 Purge；仅删除 Current State 会让旧 Journal snapshot 泄露正文。
 - Purge 的幂等回执读取也属于历史正文边界：同事务标记旧密文回执不可读并登记 result/error 密钥，重试旧 command id 必须返回 `RECEIPT_PURGED` 而非重放旧结果；旧明文回执先迁移，否则拒绝 Purge。
 - M09 不能仅凭密钥引用健康宣称历史迁移完成；Gate 还须对全库历史正文列、嵌套 Context/FileChunk 与 ResourceVersion Blob 引用做同一时点的明文计数审计，并分别核对旧文件和备份保留边界。
+- Provenance 回填成功数不等于全库覆盖率；`m09:provenance:audit` 要扫描所有仍存在的 Assistant 输出，并区分缺失、broken-reference 与无效/悬空记录，不能把 pre-run 当成缺失。
 - `m09:files:audit` 只能在停服且 `RHIZA_UPLOAD_DIR` 指向被测数据库的实际上传目录时运行；它通过历史逻辑 digest/key/checkpoint 检查已知原明文路径，零结果不代表任意孤儿文件、WAL 或备份已过期，更不授权删除。
 - 旧消息可直接持有 `attachmentIds`，即使没有 Run/Manifest 也会让原始 ResourceVersion Blob 在节点删除后继续可读。共享历史校验以 `PURGE_HAS_RESOURCE_HISTORY` 拒绝这类 Purge；在资源身份、派生块、Blob key 与 Bundle/备份副本完成统一撤销前不可放行。
 - Graph rebuild 会保留旧 projection namespace，其 Node title/Message summary/关系 label 是独立正文副本。Purge 必须在删除 Current State 的同一事务中脱敏所有历史 namespace 与 Context candidate index，不能只等待下次 Graph 查询重建 active alias。
