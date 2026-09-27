@@ -50,6 +50,8 @@ ResourceVersion 清除后仍保留不可变 ID、摘要和大小；读取层以�
 
 Node 启动组合根在 Purge 恢复前创建唯一的 ResourceVersion 加密 Blob 适配器，并把它同时交给 Repository 恢复器与 HTTP Host；`resource-version` checkpoint 引用以 Workspace/版本/摘要/大小验证后幂等撤销对应密钥。缺失适配器会使该 checkpoint 保持 pending，启动拒绝对外服务。此接线不放宽上述资源历史 Purge 保护。
 
+迁移 0033 允许 `resource`、`attachment`、`file-chunk` checkpoint 引用；恢复器现在也能按 Workspace 与实体身份幂等撤销这三类正文密钥，缺少对应存储时保持 pending。Application 目前仍拒绝带资源历史的 Purge，尚未在业务事务中登记这些引用或处置所有派生副本；恢复能力不等于资源 Purge 已开放。
+
 - React + TypeScript：界面与本地交互状态
 - Vite：开发服务器与生产构建
 - Express：Workspace、Context 与 Chat API

@@ -55,7 +55,7 @@ type PendingContent = { workspaceId: string; commandId: string; reference: Seale
   | { workspaceId: string; fileChunkId: string; reference: SealedFileChunkRef }
   | { workspaceId: string; attachmentId: string; reference: SealedAttachmentRef }
   | { workspaceId: string; resourceId: string; reference: SealedResourceRef };
-type PurgeContentFamily = 'node' | 'message' | 'manifest' | 'segment' | 'anchor' | 'edge' | 'context-item' | 'journal' | 'receipt-result' | 'receipt-error' | 'resource-version';
+type PurgeContentFamily = 'node' | 'message' | 'manifest' | 'segment' | 'anchor' | 'edge' | 'context-item' | 'journal' | 'receipt-result' | 'receipt-error' | 'resource-version' | 'resource' | 'attachment' | 'file-chunk';
 interface PurgeKeyReference {
   workspaceId: string;
   family: PurgeContentFamily;
@@ -1018,6 +1018,15 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       case 'context-item':
         if (!this.contextItemContent) throw new Error('CONTEXT_ITEM_CONTENT_STORE_UNAVAILABLE');
         return this.contextItemContent.destroy(item.workspaceId, item.entityId, item.reference as SealedContextItemRef);
+      case 'resource':
+        if (!this.resourceContent) throw new Error('RESOURCE_CONTENT_STORE_UNAVAILABLE');
+        return this.resourceContent.destroy(item.workspaceId, item.entityId, item.reference as SealedResourceRef);
+      case 'attachment':
+        if (!this.attachmentContent) throw new Error('ATTACHMENT_CONTENT_STORE_UNAVAILABLE');
+        return this.attachmentContent.destroy(item.workspaceId, item.entityId, item.reference as SealedAttachmentRef);
+      case 'file-chunk':
+        if (!this.fileChunkContent) throw new Error('FILE_CHUNK_CONTENT_STORE_UNAVAILABLE');
+        return this.fileChunkContent.destroy(item.workspaceId, item.entityId, item.reference as SealedFileChunkRef);
       case 'resource-version': {
         if (!this.resourceBlobs) throw new Error('RESOURCE_BLOB_STORE_UNAVAILABLE');
         const reference = item.reference as { workspaceId: string; resourceVersionId: string; digest: string; size: number; blobRef: string };

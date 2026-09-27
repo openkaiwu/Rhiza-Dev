@@ -13,6 +13,9 @@ import { SealedNodeContent, type SealedNodeRef } from '../server/infrastructure/
 import { SealedJournalContent, type SealedJournalRef } from '../server/infrastructure/sealed-journal-content';
 import { SealedReceiptContent, type SealedReceiptRef } from '../server/infrastructure/sealed-receipt-content';
 import { SealedContextItemContent, type SealedContextItemRef } from '../server/infrastructure/sealed-context-item-content';
+import { SealedResourceContent } from '../server/infrastructure/sealed-resource-content';
+import { SealedAttachmentContent } from '../server/infrastructure/sealed-attachment-content';
+import { SealedFileChunkContent } from '../server/infrastructure/sealed-file-chunk-content';
 import { NodeEncryptedBlobStore } from '../server/infrastructure/node-encrypted-blob-store';
 import { NodeFilesystemBlobStore } from '../server/infrastructure/node-host-runtime';
 import { validatePortableHistory } from '../server/application/portable-history';
@@ -120,6 +123,38 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       expect(await store.resumePendingPurges()).toEqual({ completed: 1, pending: 0 });
       await expect(blobs.read(target.blobRef, target.digest)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
       expect(Buffer.from(await blobs.read(other.blobRef, other.digest))).toEqual(Buffer.from(bytes));
+      expect(await store.resumePendingPurges()).toEqual({ completed: 0, pending: 0 });
+    } finally { await database.close(); }
+  });
+
+  it('resumes Resource, Attachment and FileChunk key revocation from a durable checkpoint', async () => {
+    const database = await migratedDatabase(backend);
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-purge-resource-content-'));
+    directories.push(directory);
+    const resources = SealedResourceContent.atDirectory(join(directory, 'resources'));
+    const attachments = SealedAttachmentContent.atDirectory(join(directory, 'attachments'));
+    const chunks = SealedFileChunkContent.atDirectory(join(directory, 'file-chunks'));
+    const workspaceId = randomUUID(), otherWorkspaceId = randomUUID();
+    const resourceId = randomUUID(), attachmentId = randomUUID(), chunkId = randomUUID(), purgeId = randomUUID();
+    const store = new PostgresWorkspaceStore(database, workspaceId, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, chunks, attachments, resources);
+    try {
+      const workspace = await store.read();
+      const resourceRef = await resources.seal(workspaceId, resourceId, { logicalName: 'private resource' });
+      const attachmentRef = await attachments.seal(workspaceId, attachmentId, { name: 'private.txt', extractedText: 'private body' });
+      const chunkRef = await chunks.seal(workspaceId, chunkId, { text: 'private chunk', terms: ['private'], embedding: [] });
+      const otherRef = await resources.seal(otherWorkspaceId, resourceId, { logicalName: 'retained resource' });
+      await database.query('INSERT INTO purge_checkpoints(purge_id,workspace_id,node_id) VALUES ($1,$2,$3)', [purgeId, workspaceId, workspace.activeNodeId]);
+      for (const [ordinal, family, entityId, reference] of [
+        [0, 'resource', resourceId, resourceRef], [1, 'attachment', attachmentId, attachmentRef], [2, 'file-chunk', chunkId, chunkRef],
+      ] as const) await database.query('INSERT INTO purge_key_references(purge_id,ordinal,content_family,entity_id,content_ref) VALUES ($1,$2,$3,$4,$5::jsonb)',
+        [purgeId, ordinal, family, entityId, JSON.stringify(reference)]);
+      expect(await new PostgresWorkspaceStore(database, workspaceId).resumePendingPurges()).toEqual({ completed: 0, pending: 1 });
+      expect(await store.resumePendingPurges()).toEqual({ completed: 1, pending: 0 });
+      await expect(resources.read(workspaceId, resourceId, resourceRef)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+      await expect(attachments.read(workspaceId, attachmentId, attachmentRef)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+      await expect(chunks.read(workspaceId, chunkId, chunkRef)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+      expect(await resources.read(otherWorkspaceId, resourceId, otherRef)).toEqual({ logicalName: 'retained resource' });
       expect(await store.resumePendingPurges()).toEqual({ completed: 0, pending: 0 });
     } finally { await database.close(); }
   });
