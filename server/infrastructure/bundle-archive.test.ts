@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { createHash } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pipeline } from 'node:stream/promises';
@@ -58,11 +58,16 @@ describe('streamed Bundle archive validation', () => {
   });
   it('rejects traversal in ZIP metadata before creating any payload file', async () => {
     const path = await archive({ root: 'safe.json' });
+    const stagingRoot = join(directories[directories.length - 1], 'staging');
+    await mkdir(stagingRoot);
+    await writeFile(join(stagingRoot, 'a.json'), 'outside sentinel');
     const bytes = await readFile(path);
     const before = Buffer.from('safe.json'), after = Buffer.from('../a.json');
     for (let offset = bytes.indexOf(before); offset !== -1; offset = bytes.indexOf(before, offset + before.length)) after.copy(bytes, offset);
     await writeFile(path, bytes);
-    await expect(stageBundleArchive(path)).rejects.toThrow();
+    await expect(stageBundleArchive(path, BUNDLE_LIMITS, stagingRoot)).rejects.toThrow('BUNDLE_INVALID_ARCHIVE');
+    expect(await readFile(join(stagingRoot, 'a.json'), 'utf8')).toBe('outside sentinel');
+    expect(await readdir(stagingRoot)).toEqual(['a.json']);
   });
   it.each([0o040700, 0o020600, 0o060600, 0o010600, 0o140600])('rejects non-regular Unix entry mode %i', async mode => {
     await expect(stageBundleArchive(await archive({ mode }))).rejects.toThrow('BUNDLE_UNSAFE_ENTRY_TYPE');
@@ -90,6 +95,6 @@ describe('streamed Bundle archive validation', () => {
     }
     expect(changed).toBe(true);
     await writeFile(path, bytes);
-    await expect(stageBundleArchive(path)).rejects.toThrow(/BUNDLE_(INVALID_ARCHIVE|QUOTA_EXCEEDED)/);
+    await expect(stageBundleArchive(path)).rejects.toThrow('BUNDLE_INVALID_ARCHIVE');
   });
 });

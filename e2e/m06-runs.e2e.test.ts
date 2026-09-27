@@ -3,7 +3,7 @@ import { Pool } from 'pg';
 import type { SqlQueryable } from '../server/postgres-store';
 import { PGlite } from '@electric-sql/pglite';
 import { randomUUID } from 'node:crypto';
-import { copyFile, mkdir, mkdtemp, rm, readFile, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readdir, rm, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -665,6 +665,13 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     expect((await httpDatabase.query('SELECT * FROM rhiza_projects')).rows).toHaveLength(0);
     expect((await httpDatabase.query('SELECT * FROM command_receipts')).rows).toHaveLength(0);
     expect((await httpDatabase.query('SELECT * FROM workspace_events')).rows).toHaveLength(0);
+    for (const route of ['preview', 'import']) {
+      const rejected = await request(httpApp).post(`/api/bundle/${route}`).set('Content-Type', 'application/vnd.rhiza.workspace+zip').send(Buffer.from('not a zip')).expect(400);
+      expect(rejected.body.error.code).toBe('BUNDLE_INVALID_ARCHIVE');
+      expect((await httpDatabase.query('SELECT * FROM bundle_imports')).rows).toHaveLength(0);
+      expect((await httpDatabase.query('SELECT * FROM rhiza_projects')).rows).toHaveLength(0);
+      expect(await readdir(join(uploadDirectory, 'http-import', 'imports', 'transient'))).toEqual([]);
+    }
     await request(httpApp).post('/api/bundle/preview').send({}).expect(415);
     const upload = () => request(httpApp).post('/api/bundle/import').set('Content-Type', 'application/vnd.rhiza.workspace+zip').set('Idempotency-Key', 'import-roundtrip').send(download.body);
     const uploaded = await upload().expect(201);
