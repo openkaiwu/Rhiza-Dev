@@ -12,6 +12,7 @@ import { PostgresWorkspaceStore, type SqlQueryable } from '../server/postgres-st
 import { SealedNodeContent, type SealedNodeRef } from '../server/infrastructure/sealed-node-content';
 import { SealedJournalContent, type SealedJournalRef } from '../server/infrastructure/sealed-journal-content';
 import { SealedReceiptContent, type SealedReceiptRef } from '../server/infrastructure/sealed-receipt-content';
+import { SealedContextItemContent, type SealedContextItemRef } from '../server/infrastructure/sealed-context-item-content';
 import { NodeEncryptedBlobStore } from '../server/infrastructure/node-encrypted-blob-store';
 import { validatePortableHistory } from '../server/application/portable-history';
 import { semanticStateChecksum } from '../server/infrastructure/workspace-semantic-checksum';
@@ -107,6 +108,42 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       await expect(blobs.read(target.blobRef, target.digest)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
       expect(Buffer.from(await blobs.read(other.blobRef, other.digest))).toEqual(Buffer.from(bytes));
       expect(await store.resumePendingPurges()).toEqual({ completed: 0, pending: 0 });
+    } finally { await database.close(); }
+  });
+
+  it('revokes a removed ContextItem that referenced a purged Message without sourceNodeId', async () => {
+    const database = await migratedDatabase(backend);
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-purge-context-ref-'));
+    directories.push(directory);
+    const content = SealedContextItemContent.atDirectory(directory);
+    const workspaceId = randomUUID(), nodeId = randomUUID(), messageId = randomUUID(), itemId = randomUUID(), purgeId = randomUUID();
+    const store = new PostgresWorkspaceStore(database, workspaceId, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, content);
+    try {
+      const createdAt = new Date().toISOString();
+      await store.update(current => ({ ...current,
+        discussionNodes: [...current.discussionNodes, { id: nodeId, title: 'purge target', summary: '', status: 'archived' as const,
+          kind: 'branch' as const, sourceNodeId: current.activeNodeId, x: 0, y: 0, createdAt, updatedAt: createdAt }],
+        messages: [...current.messages, { id: messageId, nodeId, kind: 'user' as const, text: 'message secret', createdAt }],
+        contextItems: [...current.contextItems, { id: itemId, title: 'source title', detail: 'context secret', role: 'Reference' as const,
+          status: 'active' as const, tokens: 2, sourceType: 'reference' as const, sourceId: messageId }],
+      }));
+      const row = (await database.query<{ items: Array<{ id: string; contentRef: SealedContextItemRef }> }>(
+        "SELECT state->'contextItems' items FROM rhiza_projects WHERE id=$1", [workspaceId])).rows[0]!;
+      const reference = row.items.find(item => item.id === itemId)!.contentRef;
+      expect((await content.read(workspaceId, itemId, reference)).detail).toBe('context secret');
+      await store.update(current => ({ ...current,
+        discussionNodes: current.discussionNodes.filter(node => node.id !== nodeId),
+        messages: current.messages.filter(message => message.id !== messageId),
+        contextItems: current.contextItems.filter(item => item.id !== itemId),
+        auditEvents: [...current.auditEvents, { id: purgeId, projectId: workspaceId, nodeId, action: 'node.purged',
+          entityType: 'node', entityId: nodeId, metadata: { reason: 'test' }, createdAt }],
+      }), { purge: { nodeId, auditReceiptId: purgeId } });
+      expect((await database.query<{ content_family: string; entity_id: string }>(
+        'SELECT content_family,entity_id FROM purge_key_references WHERE purge_id=$1', [purgeId])).rows)
+        .toContainEqual({ content_family: 'context-item', entity_id: itemId });
+      await expect(content.read(workspaceId, itemId, reference)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+      expect((await store.read()).contextItems.some(item => item.id === itemId)).toBe(false);
     } finally { await database.close(); }
   });
 
