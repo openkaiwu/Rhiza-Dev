@@ -44,7 +44,7 @@ M09 Gate 另运行 `m09:plaintext:audit`：用单条数据库快照查询计数�
 
 `m09:provenance:audit` 在同一数据库快照中计数全库仍存在的 Assistant 输出、缺失的来源关系、显式 broken-reference 及无效/悬空的 recorded 关系；只输出计数，异常即阻断 Gate。这是来源覆盖检查，不替代 Replay 四分类、Blob 完整性或外部 staging 验收。
 
-`m09:files:audit` 需停服并显式指向同一部署的 `DATABASE_URL` 与 `RHIZA_UPLOAD_DIR`：在持有运行时及内容生命周期锁时，只读核对现存 ResourceVersion 逻辑 digest、旧附件存储键、导入 checkpoint 摘要所对应的原明文路径，以及遗留导入工作目录；任何副本非零即阻断 Gate。它不扫描任意无引用文件、WAL、备份或用户已导出的 Bundle；旧文件清理必须另有完整引用/pin 对账与部署保留策略，不能仅凭一次检查删文件。
+`m09:files:audit` 需停服并显式指向同一部署的 `DATABASE_URL` 与 `RHIZA_UPLOAD_DIR`：在持有运行时及内容生命周期锁时，只读核对现存 ResourceVersion 逻辑 digest、旧附件存储键、导入 checkpoint 摘要所对应的原明文路径，以及遗留导入工作目录；任何副本非零即阻断 Gate。停服维护命令 `RHIZA_OFFLINE_FILE_RECLAMATION=1 pnpm run m09:files:reclaim` 只移除有数据库来源的旧 ResourceVersion/附件原文件：全库锁定引用，每批读回所有对应的 scoped 密文并校验原文件的类型、大小、摘要及 inode 后才 unlink；失败可重跑。归档旧 ZIP 仍使用既有 `bundle:reclaim-imports` 完整校验/密封/保留期流程。上述操作均不扫描任意无引用文件、WAL、备份或用户已导出的 Bundle，不能单凭回收命令宣称完整擦除。
 
 - React + TypeScript：界面与本地交互状态
 - Vite：开发服务器与生产构建

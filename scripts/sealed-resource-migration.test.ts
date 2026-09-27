@@ -61,6 +61,9 @@ it('protects sealed resource names and refuses unsafe downgrade', async () => {
     const migratedBlob = (await database.query<{ blob_ref: string }>("SELECT blob_ref FROM rhiza_resource_versions WHERE resource_version_id='blob-version'")).rows[0].blob_ref;
     expect(migratedBlob).toMatch(/^sealed-v1\//);
     expect(new TextDecoder().decode(await encryptedBlobs.read(migratedBlob, raw.digest))).toBe('legacy resource bytes');
+    expect(await store.reclaimLegacyResourceFiles(join(root, 'resource-blobs'), encryptedBlobs)).toEqual({ resourceBlobs: 1, attachments: 0 });
+    expect(await store.reclaimLegacyResourceFiles(join(root, 'resource-blobs'), encryptedBlobs)).toEqual({ resourceBlobs: 0, attachments: 0 });
+    expect(new TextDecoder().decode(await encryptedBlobs.read(migratedBlob, raw.digest))).toBe('legacy resource bytes');
     await expect(store.sealLegacyResourceBlobs(rawBlobs, encryptedBlobs, 0)).rejects.toThrow('INVALID_RESOURCE_BLOB_MIGRATION_LIMIT');
     await write(ref);
     const seal = vi.spyOn(content, 'seal');

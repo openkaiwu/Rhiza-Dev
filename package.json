@@ -27,6 +27,7 @@
     "m09:plaintext:audit": "tsx scripts/audit-legacy-plaintext.ts",
     "m09:provenance:audit": "tsx scripts/audit-provenance.ts",
     "m09:files:audit": "tsx scripts/audit-legacy-files.ts",
+    "m09:files:reclaim": "tsx scripts/reclaim-legacy-files.ts",
     "m09:checks": "node -e \"if (!process.env.DATABASE_URL || !process.env.RHIZA_UPLOAD_DIR) { console.error('M09 requires staging DATABASE_URL and its RHIZA_UPLOAD_DIR'); process.exit(1) }\" && pnpm run m09:plaintext:audit && pnpm run m09:provenance:audit && pnpm run m09:files:audit && pnpm run m09:traces:audit && pnpm run m09:keys:audit && pnpm run lint && pnpm run typecheck && pnpm run test:unit && pnpm run test:e2e && pnpm run licenses:verify && pnpm run verify:g0 && pnpm run verify:m02:boundaries && pnpm run verify:m04:host-boundary && pnpm run build",
     "m09:evidence": "tsx scripts/architecture-gates/verify-milestone-evidence.ts --milestone M09 --write",
     "verify:m09:closure": "pnpm run m09:checks && tsx scripts/architecture-gates/verify-milestone-evidence.ts --milestone M09 --strict-current",

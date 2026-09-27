@@ -444,7 +444,7 @@ export const M09_PATHS = [...new Set([...M08_PATHS,
   'server/application/prepare-bundle-import.ts', 'server/infrastructure/bundle-archive.ts', 'server/infrastructure/node-bundle-import.ts',
   'server/infrastructure/node-encrypted-blob-store.ts', 'server/infrastructure/portable-bundle.ts', 'server/infrastructure/portable-content.ts',
   'e2e/m09-default-bundle.e2e.test.ts', 'e2e/m09-provenance.e2e.test.ts', 'e2e/m09-purge-checkpoint.e2e.test.ts',
-  'scripts/audit-legacy-plaintext.ts', 'scripts/audit-provenance.ts', 'scripts/audit-legacy-files.ts', 'scripts/audit-run-traces.ts', 'scripts/sanitize-legacy-run-traces.ts', 'scripts/reconcile-content-keys.ts', 'scripts/reclaim-bundle-import-archives.ts',
+  'scripts/audit-legacy-plaintext.ts', 'scripts/audit-provenance.ts', 'scripts/audit-legacy-files.ts', 'scripts/reclaim-legacy-files.ts', 'scripts/audit-run-traces.ts', 'scripts/sanitize-legacy-run-traces.ts', 'scripts/reconcile-content-keys.ts', 'scripts/reclaim-bundle-import-archives.ts',
   'server/infrastructure/legacy-file-audit.ts', 'server/infrastructure/legacy-file-audit.test.ts',
 ])];
 export const M09_FIXTURES = [...M08_FIXTURES,
