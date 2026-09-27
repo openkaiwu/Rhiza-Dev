@@ -564,9 +564,13 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
   });
   it('M09 captures complete portable facts with closed historical references', async () => {
     const { app, store, uploadDirectory, database, provider, runtime } = await setup(success);
+    const privateEndpoint = 'https://private-endpoint.example.test/v1';
+    vi.spyOn(runtime, 'listModels').mockResolvedValue([{ ...model, endpointVersion: 'private-v1',
+      endpoint: { baseUrl: privateEndpoint, chatPath: '/chat/completions', allowNoKey: false } }]);
     await request(app).post('/api/chat').send({ message: 'portable history' }).expect(201);
     const facts = await store.readPortableWorkspace();
     expect(facts.runs).toHaveLength(1);
+    expect(JSON.stringify(facts)).toContain(privateEndpoint);
     expect(facts.journal[0].sequence).toBe(1);
     expect(facts.provenance.length).toBe(facts.workspace.messages.filter(message => message.kind === 'assistant').length);
     const portable = portableWorkspaceFacts(facts, input => semanticStateChecksum(input as Record<string, unknown>));
@@ -798,6 +802,10 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     await expect(stagePortableWorkspace(path, { ...BUNDLE_LIMITS, maxDocumentBytes: 16 })).rejects.toThrow('BUNDLE_QUOTA_EXCEEDED');
     const staged = await stageBundleArchive(path);
     try {
+      const stagedBytes = Buffer.concat(await Promise.all([...staged.files.values()].map(file => readFile(file)))).toString('utf8');
+      expect(stagedBytes).not.toContain(privateEndpoint);
+      expect(stagedBytes).not.toContain('secret-never-in-run');
+      expect(stagedBytes).not.toContain(uploadDirectory);
       const document = JSON.parse(await readFile(staged.files.get(staged.index.root)!, 'utf8'));
       const ajv = new Ajv2020({ strict: true });
       addFormats(ajv); ajv.addSchema(journalSchema);
