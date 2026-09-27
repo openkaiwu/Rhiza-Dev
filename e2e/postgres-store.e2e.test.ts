@@ -14,6 +14,7 @@ import { createHttpApp } from '../server/http/app';
 import { WorkspaceDirectory } from '../server/identity/workspace-directory';
 import { PostgresWorkspaceStore } from '../server/postgres-store';
 import { SealedJournalContent } from '../server/infrastructure/sealed-journal-content';
+import { SealedReceiptContent } from '../server/infrastructure/sealed-receipt-content';
 import { RepositoryWorkspaceUnitOfWork } from '../server/infrastructure/workspace-repository-unit-of-work';
 import { PostgresGraphProjectionAdapter } from '../server/graph-projection/postgres-adapter';
 import { buildWorkspaceGraphProjection } from '../server/graph-projection/model';
@@ -48,8 +49,8 @@ async function migratedDatabase(backend: 'embedded' | 'postgres' = 'embedded') {
   return database;
 }
 
-function legacyApp(database: TestDatabase, defaultWorkspaceId: string, journalContent?: SealedJournalContent) {
-  const store = new PostgresWorkspaceStore(database, defaultWorkspaceId, undefined, undefined, journalContent);
+function legacyApp(database: TestDatabase, defaultWorkspaceId: string, journalContent?: SealedJournalContent, receiptContent?: SealedReceiptContent) {
+  const store = new PostgresWorkspaceStore(database, defaultWorkspaceId, receiptContent, undefined, journalContent);
   const application = createRhizaApplication({
     unitOfWork: new RepositoryWorkspaceUnitOfWork(store), workspaceDirectory: new WorkspaceDirectory(store.workspaceDirectory), defaultWorkspaceId,
     runtime: { kind: 'provider-adapter', listModels: async () => [{ id: 'model', provider: 'test', model: 'test', displayName: 'test', active: true }], async *generate() { yield { type: 'RUN_END', requestId: 'run', text: 'unused', model: 'test', provider: 'test' } as const; } },
@@ -113,7 +114,9 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
     const database = await migratedDatabase(backend); const workspaceId = randomUUID();
     const contentDirectory = await mkdtemp(join(tmpdir(), 'rhiza-m07-journal-'));
     try {
-      const { app, store } = legacyApp(database, workspaceId, SealedJournalContent.atDirectory(contentDirectory));
+      const { app, store } = legacyApp(database, workspaceId,
+        SealedJournalContent.atDirectory(join(contentDirectory, 'journal')),
+        SealedReceiptContent.atDirectory(join(contentDirectory, 'receipts')));
       await request(app).get('/api/workspace').expect(200);
       await store.backfillJournal();
       await request(app).post('/api/graph/nodes').send({ title: 'Projected', x: 120, y: 80 }).expect(201);

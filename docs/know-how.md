@@ -128,6 +128,7 @@
 - ResourceVersion Blob 密钥对账必须读取全部 Workspace 的版本引用，并校验 `sealed-v1` 的 Workspace/版本身份、digest 与 size；只读审计不授权回收。停服回收须同时独占数据库和上传目录，先对历史正文与资源密钥全量预检，再分别在锁内重读引用并撤销孤儿密钥；缺失的已引用密钥应阻断，不能误清理其他 Workspace 的同摘要内容。
 - Purge 的 SQL 删除、redacted provenance、审计事实与待撤销 scoped key 清单必须同事务提交；提交后 key destroy 可中断且不可回滚，因此逐项 acknowledgement 与 checkpoint 必须允许重复撤销。启动取得 runtime ownership 后先分批排空 pending checkpoint，再读 Workspace、回填 Journal 或开放 HTTP；某一批无法推进则拒绝启动，不能只记录警告。执行历史保护只能在 Run、Journal、receipt/trace 等每一份正文副本均进入该流程后移除。
 - Journal Purge 不更新 append-only 事件行；在同一事务发布脱敏 baseline/tail 覆盖层并登记原有效载荷密钥，所有历史读取与密钥对账只认覆盖层。无已加密且可重放的 baseline 时拒绝 Purge；仅删除 Current State 会让旧 Journal snapshot 泄露正文。
+- Purge 的幂等回执读取也属于历史正文边界：同事务标记旧密文回执不可读并登记 result/error 密钥，重试旧 command id 必须返回 `RECEIPT_PURGED` 而非重放旧结果；旧明文回执先迁移，否则拒绝 Purge。
 
 - Graph layout command 的 `nodeId` 只用于定位节点，写回领域节点时只合入 `x/y`；否则 JSON 中多出的命令字段会与 SQL 重读结果不同，触发事务语义校验回滚。
 

@@ -54,7 +54,7 @@ type PendingContent = { workspaceId: string; commandId: string; reference: Seale
   | { workspaceId: string; fileChunkId: string; reference: SealedFileChunkRef }
   | { workspaceId: string; attachmentId: string; reference: SealedAttachmentRef }
   | { workspaceId: string; resourceId: string; reference: SealedResourceRef };
-type PurgeContentFamily = 'node' | 'message' | 'manifest' | 'segment' | 'anchor' | 'edge' | 'context-item' | 'journal';
+type PurgeContentFamily = 'node' | 'message' | 'manifest' | 'segment' | 'anchor' | 'edge' | 'context-item' | 'journal' | 'receipt-result' | 'receipt-error';
 interface PurgeKeyReference {
   workspaceId: string;
   family: PurgeContentFamily;
@@ -336,7 +336,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
 
   private async receiptKeyReferences(database: SqlQueryable) {
     const { rows } = await database.query<{ workspace_id: string; command_id: string; result_content_ref: unknown; error_content_ref: unknown }>(
-      'SELECT workspace_id,command_id,result_content_ref,error_content_ref FROM command_receipts WHERE result_content_ref IS NOT NULL OR error_content_ref IS NOT NULL');
+      'SELECT workspace_id,command_id,result_content_ref,error_content_ref FROM command_receipts WHERE purged_at IS NULL AND (result_content_ref IS NOT NULL OR error_content_ref IS NOT NULL)');
     return rows.flatMap(row => (['result', 'error'] as const).flatMap(kind => {
       const reference = row[`${kind}_content_ref`];
       return reference == null ? [] : [{ workspaceId: row.workspace_id, commandId: row.command_id, reference: asJson<SealedReceiptRef>(reference), kind }];
@@ -936,6 +936,10 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
 
   private async destroyPurgeReference(item: PurgeKeyReference): Promise<void> {
     switch (item.family) {
+      case 'receipt-result':
+      case 'receipt-error':
+        if (!this.receiptContent) throw new Error('RECEIPT_CONTENT_STORE_UNAVAILABLE');
+        return this.receiptContent.destroy(item.workspaceId, item.entityId, item.reference as SealedReceiptRef, item.family === 'receipt-result' ? 'result' : 'error');
       case 'journal':
         if (!this.journalContent) throw new Error('JOURNAL_CONTENT_STORE_UNAVAILABLE');
         return this.journalContent.destroy(item.workspaceId, item.entityId, item.reference as SealedJournalRef);
@@ -1341,6 +1345,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
   }
 
   private async readReceiptResult<T>(row: Record<string, unknown>, kind: 'result' | 'error' = 'result'): Promise<T> {
+    if (row.purged_at != null) throw Object.assign(new Error('Command receipt content was purged'), { code: 'RECEIPT_PURGED', status: 410, storedReceipt: true });
     const reference = row[`${kind}_content_ref`];
     if (reference !== null && reference !== undefined) {
       if (!this.receiptContent) throw new Error('RECEIPT_CONTENT_STORE_UNAVAILABLE');
@@ -1356,8 +1361,10 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     return {
       workspaceId: String(row.workspace_id), commandId: String(row.command_id), commandType: String(row.command_type),
       status: row.status as CommandReceipt['status'], firstSequence: row.first_sequence === null ? undefined : Number(row.first_sequence),
-      lastSequence: row.last_sequence === null ? undefined : Number(row.last_sequence), result: (await this.readReceiptResult(row)) ?? undefined,
-      error: (await this.readReceiptResult(row, 'error')) ?? undefined, createdAt: asIso(row.created_at),
+      lastSequence: row.last_sequence === null ? undefined : Number(row.last_sequence),
+      result: row.purged_at == null ? (await this.readReceiptResult(row)) ?? undefined : undefined,
+      error: row.purged_at == null ? (await this.readReceiptResult(row, 'error')) ?? undefined : undefined,
+      createdAt: asIso(row.created_at),
     };
   }
 
@@ -1647,6 +1654,22 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     const removedIds = new Set(previous.contextItems.filter(item => !currentIds.has(item.id)).map(item => item.id));
     for (const item of asJson<Array<{ id: string; contentRef?: SealedContextItemRef }>>(stored?.items || [])) {
       if (removedIds.has(item.id) && item.contentRef) references.push({ family: 'context-item', entityId: item.id, reference: item.contentRef });
+    }
+
+    const receipts = await database.query<{ command_id: string; status: string; result: unknown; error: unknown; result_content_ref: unknown; error_content_ref: unknown }>(
+      'SELECT command_id,status,result,error,result_content_ref,error_content_ref FROM command_receipts WHERE workspace_id=$1 AND purged_at IS NULL ORDER BY command_id FOR UPDATE',
+      [workspace.projectId]);
+    if (receipts.rows.some(row => (row.status === 'committed' && row.result_content_ref == null && row.result != null)
+      || (row.status === 'rejected' && row.error_content_ref == null))) {
+      throw Object.assign(new Error('Purge requires sealed command receipts'), { code: 'PURGE_RECEIPT_MIGRATION_REQUIRED', status: 409 });
+    }
+    if (receipts.rows.some(row => row.result_content_ref != null || row.error_content_ref != null)) {
+      if (!this.receiptContent) throw Object.assign(new Error('Purge requires receipt content storage'), { code: 'PURGE_RECEIPT_STORE_UNAVAILABLE', status: 409 });
+      for (const row of receipts.rows) {
+        if (row.result_content_ref != null) references.push({ family: 'receipt-result', entityId: row.command_id, reference: asJson(row.result_content_ref) });
+        if (row.error_content_ref != null) references.push({ family: 'receipt-error', entityId: row.command_id, reference: asJson(row.error_content_ref) });
+      }
+      await database.query('UPDATE command_receipts SET purged_at=now() WHERE workspace_id=$1 AND purged_at IS NULL AND (result_content_ref IS NOT NULL OR error_content_ref IS NOT NULL)', [workspace.projectId]);
     }
 
     const journal = await database.query<Record<string, unknown>>(`SELECT e.*,r.content_ref redacted_content_ref FROM workspace_events e

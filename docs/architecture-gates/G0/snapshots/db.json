@@ -62,6 +62,8 @@
     "db/migrations/0030_purge_checkpoints.down.sql": "sha256:25c832affdcc00f824b7f3545e73d50bf40023c7b5237e23a482fcab0f269749",
     "db/migrations/0030_purge_checkpoints.up.sql": "sha256:e07c60afafbba74c2597ddfbe9587401345c1ed557b369ca9dde121f94dd45e9",
     "db/migrations/0031_journal_purge_redactions.down.sql": "sha256:420b0aaefa1593b22c59d6e6a6a1e0d10701d672df87e21c6b9697dd8164f0e2",
-    "db/migrations/0031_journal_purge_redactions.up.sql": "sha256:01994bfed9d5c7e99c87f76deb372aad1233e6be84252352d1bb65a84ebff32e"
+    "db/migrations/0031_journal_purge_redactions.up.sql": "sha256:01994bfed9d5c7e99c87f76deb372aad1233e6be84252352d1bb65a84ebff32e",
+    "db/migrations/0032_purged_receipts.down.sql": "sha256:545fd810a3bee976b43d220103bc05e9744312ec82255365e7ed6db843318c91",
+    "db/migrations/0032_purged_receipts.up.sql": "sha256:0de521d01512f10cb8f91c80f86224a6a28e80d801c534e92a6766a3c4e995e0"
   }
 }
