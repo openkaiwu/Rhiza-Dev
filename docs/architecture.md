@@ -12,6 +12,8 @@ Bundle staging 已接通归档文件、固定 schema 解码、引用/内容/历�
 
 M09 的标准 Embedded/PostgreSQL factory 已默认配置成功回执密文存储。迁移 0015 的 `result_content_ref` 与明文 `result` 互斥；三条成功回执写入和三条幂等读取路径统一处理，确认事务回滚时销毁新建密钥，COMMIT 响应不确定时保留。Embedded 配套目录为 `<dataDirectory>.content`，PostgreSQL factory 默认 `var/receipt-content`；这些目录需随数据库共同备份。旧回执、拒绝回执的 error、Run/Journal/其他正文迁移及完整 Purge 尚未完成。
 
+已激活的 Bundle 导入仍可能有独立密钥加密的恢复 ZIP；当前 Purge 尚不将该 ZIP 纳入 checkpoint。Repository 因此对带有 activated 导入记录的 Workspace 返回 `PURGE_HAS_RETAINED_ARCHIVE`，不提交墓碑或审计事实。即使七天窗口届满，数据库记录也不足以证明归档密钥已回收，所以不能仅按时间放行；后续须将精确归档引用撤销接入持久 Purge 流程。外部用户控制的导出依 ADR-009 仍不可召回。
+
 服务在取得运行时独占权后先初始化默认 Workspace 并幂等补齐 Journal baseline，再开放 Bundle 导出；新库首轮导出不依赖手工 backfill。已有 Journal tail 却缺失首事件 baseline 时仍由 `JOURNAL_BASELINE_ORDER_CONFLICT` 阻止启动，不重排历史。
 
 根系（Rhiza）是基于产品设计书构建的全栈网页端 MVP。它验证“对话网络 + 显式上下文 + 当前知识状态”的核心产品命题，并通过动态 Provider Registry 连接多个 OpenAI-compatible 模型供应商。当前实现具备确定性 local user、Workspace membership、多个 Workspace 的创建/切换/归档与路径级 scope 隔离；领域数据默认由 embedded PGlite 持久化，也可连接 PostgreSQL。成功 Application Command 通过 WorkspaceUnitOfWork 在同一事务写 Current State、append-only Domain Journal 与 CommandReceipt；模型目录仍使用原子 JSON，API Key 使用本机 AES-256-GCM 密钥加密。

@@ -48,6 +48,28 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
   const directories: string[] = [];
   afterEach(async () => Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))));
 
+  it('refuses Purge while an activated import archive can retain the original Workspace', async () => {
+    const database = await migratedDatabase(backend);
+    const workspaceId = randomUUID(), nodeId = randomUUID(), purgeId = randomUUID();
+    const store = new PostgresWorkspaceStore(database, workspaceId);
+    try {
+      const createdAt = new Date().toISOString();
+      await store.update(current => ({ ...current, discussionNodes: [...current.discussionNodes, {
+        id: nodeId, title: 'archive copy remains', summary: '', status: 'archived' as const,
+        kind: 'branch' as const, sourceNodeId: current.activeNodeId, x: 0, y: 0, createdAt, updatedAt: createdAt,
+      }] }));
+      await database.query(`INSERT INTO bundle_imports(import_id,owner_id,workspace_id,archive_digest,state_digest,phase,updated_at)
+        VALUES ($1,'owner',$2,$3,$4,'activated',now() - interval '8 days')`, [randomUUID(), workspaceId, 'a'.repeat(64), 'b'.repeat(64)]);
+      await expect(store.update(current => ({ ...current,
+        discussionNodes: current.discussionNodes.filter(node => node.id !== nodeId),
+        auditEvents: [...current.auditEvents, { id: purgeId, projectId: workspaceId, nodeId, action: 'node.purged',
+          entityType: 'node', entityId: nodeId, metadata: { reason: 'test' }, createdAt }],
+      }), { purge: { nodeId, auditReceiptId: purgeId } })).rejects.toMatchObject({ code: 'PURGE_HAS_RETAINED_ARCHIVE', status: 409 });
+      expect((await store.read()).discussionNodes.some(node => node.id === nodeId)).toBe(true);
+      expect((await database.query('SELECT purge_id FROM purge_checkpoints WHERE purge_id=$1', [purgeId])).rows).toHaveLength(0);
+    } finally { await database.close(); }
+  });
+
   it('reopens a purged ResourceVersion identity without requiring erased Blob bytes', async () => {
     const database = await migratedDatabase(backend);
     const directory = await mkdtemp(join(tmpdir(), 'rhiza-purged-legacy-file-'));

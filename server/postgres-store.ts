@@ -1830,6 +1830,11 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     if (options?.purge) {
       const nodeId = options.purge.nodeId;
       if (!previous) throw new Error('PURGE_PREVIOUS_STATE_REQUIRED');
+      // Expired checkpoint time does not prove the retained ZIP key was destroyed.
+      const retainedImport = await database.query('SELECT 1 FROM bundle_imports WHERE workspace_id=$1 AND phase=$2 LIMIT 1',
+        [workspace.projectId, 'activated']);
+      if (retainedImport.rows.length) throw Object.assign(new Error('该 Workspace 的导入恢复归档可能仍保留原始内容，当前不能执行 Purge。'),
+        { code: 'PURGE_HAS_RETAINED_ARCHIVE', status: 409 });
       const affectedIds = new Set([nodeId, ...[
         removedIds(previous.messages, workspace.messages), removedIds(previous.segments, workspace.segments),
         removedIds(previous.manifests, workspace.manifests), removedIds(previous.anchors, workspace.anchors),
