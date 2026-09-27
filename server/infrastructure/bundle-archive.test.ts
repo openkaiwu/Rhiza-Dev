@@ -12,7 +12,7 @@ import { stageBundleArchive } from './bundle-archive';
 
 const directories: string[] = [];
 afterEach(async () => { for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true }); });
-async function archive(options: { extra?: boolean; duplicate?: boolean; mode?: number; compress?: boolean; root?: string; body?: string; index?: (index: BundleIndex) => void } = {}) {
+async function archive(options: { extra?: boolean; duplicate?: boolean; caseDuplicate?: boolean; mode?: number; compress?: boolean; root?: string; body?: string; index?: (index: BundleIndex) => void } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'rhiza-archive-test-')); directories.push(directory);
   const root = options.root ?? 'workspace.json';
   const files = new Map([['rhiza-layout.json', JSON.stringify({ formatVersion: '1.0.0', index: 'index.json' })], [root, options.body ?? '{}']]);
@@ -24,6 +24,7 @@ async function archive(options: { extra?: boolean; duplicate?: boolean; mode?: n
   for (const [name, body] of files) zip.addBuffer(Buffer.from(body), name, { compress: options.compress ?? false, mode: name === root ? options.mode ?? 0o100600 : 0o100600 });
   if (options.extra) zip.addBuffer(Buffer.from('extra'), 'extra.json');
   if (options.duplicate) zip.addBuffer(Buffer.from('{}'), root);
+  if (options.caseDuplicate) zip.addBuffer(Buffer.from('{}'), root.toUpperCase());
   const path = join(directory, 'workspace.rhiza');
   const done = pipeline(zip.outputStream, createWriteStream(path)); zip.end(); await done;
   return path;
@@ -43,7 +44,13 @@ describe('streamed Bundle archive validation', () => {
   it('rejects undeclared entries, duplicate names and symlinks', async () => {
     await expect(stageBundleArchive(await archive({ extra: true }))).rejects.toThrow('BUNDLE_UNDECLARED_ENTRY');
     await expect(stageBundleArchive(await archive({ duplicate: true }))).rejects.toThrow('BUNDLE_DUPLICATE_ENTRY');
-    await expect(stageBundleArchive(await archive({ mode: 0o120777 }))).rejects.toThrow('BUNDLE_UNSAFE_ENTRY_TYPE');
+    await expect(stageBundleArchive(await archive({ caseDuplicate: true }))).rejects.toThrow('BUNDLE_DUPLICATE_ENTRY');
+    const stagingRoot = join(directories[directories.length - 1], 'staging');
+    await mkdir(stagingRoot);
+    await writeFile(join(stagingRoot, 'sentinel'), 'outside sentinel');
+    await expect(stageBundleArchive(await archive({ mode: 0o120777 }), BUNDLE_LIMITS, stagingRoot)).rejects.toThrow('BUNDLE_UNSAFE_ENTRY_TYPE');
+    expect(await readFile(join(stagingRoot, 'sentinel'), 'utf8')).toBe('outside sentinel');
+    expect(await readdir(stagingRoot)).toEqual(['sentinel']);
   });
   it('rejects descriptor digest and size mismatch', async () => {
     await expect(stageBundleArchive(await archive({ index: index => { index.entries[1].digest = `sha256:${'0'.repeat(64)}`; } }))).rejects.toThrow('BUNDLE_DIGEST_MISMATCH');
@@ -53,6 +60,8 @@ describe('streamed Bundle archive validation', () => {
     const path = await archive();
     await expect(stageBundleArchive(path, { ...BUNDLE_LIMITS, maxArchiveBytes: 10 })).rejects.toThrow('BUNDLE_QUOTA_EXCEEDED');
     await expect(stageBundleArchive(path, { ...BUNDLE_LIMITS, maxIndexBytes: 10 })).rejects.toThrow('BUNDLE_INVALID_INDEX');
+    await expect(stageBundleArchive(path, { ...BUNDLE_LIMITS, maxEntries: 2 })).rejects.toThrow('BUNDLE_QUOTA_EXCEEDED');
+    await expect(stageBundleArchive(path, { ...BUNDLE_LIMITS, maxSingleEntryBytes: 3 })).rejects.toThrow('BUNDLE_QUOTA_EXCEEDED');
     await expect(stageBundleArchive(path, { ...BUNDLE_LIMITS, maxExpandedBytes: 10 })).rejects.toThrow('BUNDLE_QUOTA_EXCEEDED');
     await expect(stageBundleArchive(await archive({ body: 'x'.repeat(100_000), compress: true }))).rejects.toThrow('BUNDLE_QUOTA_EXCEEDED');
   });
@@ -72,13 +81,13 @@ describe('streamed Bundle archive validation', () => {
   it.each([0o040700, 0o020600, 0o060600, 0o010600, 0o140600])('rejects non-regular Unix entry mode %i', async mode => {
     await expect(stageBundleArchive(await archive({ mode }))).rejects.toThrow('BUNDLE_UNSAFE_ENTRY_TYPE');
   });
-  it('rejects Unix link extra fields and malformed ZIPs with stable errors', async () => {
+  it.each([0x000d, 0x756e])('rejects Unix link extra field %i and malformed ZIPs with stable errors', async fieldId => {
     const path = await archive();
     const bytes = await readFile(path);
     const timestamp = Buffer.from([0x55, 0x54, 0x05, 0x00]);
     const offset = bytes.indexOf(timestamp);
     expect(offset).toBeGreaterThan(-1);
-    bytes.writeUInt16LE(0x756e, offset);
+    bytes.writeUInt16LE(fieldId, offset);
     await writeFile(path, bytes);
     await expect(stageBundleArchive(path)).rejects.toThrow('BUNDLE_UNSAFE_ENTRY_TYPE');
     await writeFile(path, 'not a zip');

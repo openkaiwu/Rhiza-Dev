@@ -2,7 +2,7 @@
   "schemaVersion": "1.0.0",
   "checks": {
     "provenance_replay": { "status": "pending", "evidencePaths": [] },
-    "bundle_security": { "status": "pending", "evidencePaths": [] },
+    "bundle_security": { "status": "pass", "evidencePaths": ["docs/architecture-gates/M09/bundle-security-check.md"] },
     "import_recovery_round_trip": { "status": "pending", "evidencePaths": [] },
     "purge_replica_erasure": { "status": "pending", "evidencePaths": [] },
     "postgres_staging": { "status": "pending", "evidencePaths": [] },
