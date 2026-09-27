@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -58,4 +58,26 @@ it('reclaims only verified old plaintext copies and can resume after one batch',
     expect(await reclaimKnownLegacyResourceFiles(root, versions, attachments, blobs, 1)).toEqual({ resourceBlobs: 0, attachments: 0 });
     expect(await blobs.read(sealed.blobRef, digest)).toEqual(bytes);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+it('refuses a raw Blob beneath a symlinked parent outside the upload root', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'rhiza-file-parent-'));
+  try {
+    const root = join(base, 'uploads');
+    const outside = join(base, 'outside');
+    await mkdir(root);
+    await mkdir(outside);
+    const bytes = Buffer.from('parent symlink fixture');
+    const raw = new NodeFilesystemBlobStore(root);
+    const old = await raw.put(bytes);
+    const blobs = new NodeEncryptedBlobStore(new NodeSealedContentStore(raw, new NodeContentKeys(join(root, 'resource-keys'))), raw);
+    const workspaceId = '00000000-0000-4000-8000-000000000001';
+    const resourceVersionId = '00000000-0000-4000-8000-000000000002';
+    const sealed = await blobs.put(bytes, { workspaceId, contentId: resourceVersionId });
+    await rename(join(root, 'blobs'), join(outside, 'blobs'));
+    await symlink(join(outside, 'blobs'), join(root, 'blobs'), 'dir');
+    const versions = [{ workspaceId, resourceVersionId, digest: old.digest, size: bytes.length, blobRef: sealed.blobRef }];
+    await expect(reclaimKnownLegacyResourceFiles(root, versions, [], blobs)).rejects.toThrow('LEGACY_FILE_SOURCE_PARENT_INVALID');
+    expect(await readFile(join(root, 'blobs', ...old.blobRef.split('/')))).toEqual(bytes);
+  } finally { await rm(base, { recursive: true, force: true }); }
 });

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, open, readdir, unlink } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import type { NodeEncryptedBlobStore } from './node-encrypted-blob-store';
 
 interface LegacyFileReferences {
@@ -70,7 +70,8 @@ export async function auditLegacyFileReplicas(root: string, references: LegacyFi
 export async function reclaimKnownLegacyResourceFiles(root: string, versions: LegacyResourceFileReference[],
   attachments: LegacyAttachmentFileReference[], blobs: NodeEncryptedBlobStore, limit = 100) {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error('LEGACY_FILE_RECLAIM_LIMIT_INVALID');
-  if (!(await lstat(root)).isDirectory()) throw new Error('UPLOAD_DIRECTORY_INVALID');
+  const directory = resolve(root);
+  if (!(await lstat(directory)).isDirectory()) throw new Error('UPLOAD_DIRECTORY_INVALID');
   const byId = new Map(versions.map(version => [version.resourceVersionId, version]));
   if (byId.size !== versions.length) throw new Error('RESOURCE_VERSION_ID_DUPLICATE');
   if (versions.some(version => !version.blobRef.startsWith('sealed-v1/'))) throw new Error('LEGACY_FILE_REPLACEMENT_INVALID');
@@ -82,7 +83,7 @@ export async function reclaimKnownLegacyResourceFiles(root: string, versions: Le
     byDigest.set(version.digest, refs);
   }
   for (const [digest, refs] of byDigest) {
-    const path = resourcePath(root, digest);
+    const path = resourcePath(directory, digest);
     if (await fileOrAbsent(path)) candidates.push({ path, digest, size: refs[0]!.size, versions: refs, kind: 'resourceBlobs' });
   }
   const byKey = new Map<string, LegacyAttachmentFileReference[]>();
@@ -92,7 +93,7 @@ export async function reclaimKnownLegacyResourceFiles(root: string, versions: Le
     byKey.set(attachment.storageKey, refs);
   }
   for (const [key, refs] of byKey) {
-    const path = attachmentPath(root, key);
+    const path = attachmentPath(directory, key);
     if (!path || !await fileOrAbsent(path)) continue;
     const sealed = refs.map(ref => {
       const version = ref.resourceVersionId ? byId.get(ref.resourceVersionId) : undefined;
@@ -106,6 +107,9 @@ export async function reclaimKnownLegacyResourceFiles(root: string, versions: Le
   const validated = new Set<string>();
   const proofs: Array<{ path: string; dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number; kind: 'resourceBlobs' | 'attachments' }> = [];
   for (const item of selected) {
+    for (let parent = dirname(item.path); parent !== directory; parent = dirname(parent)) {
+      if (!(await lstat(parent)).isDirectory()) throw new Error('LEGACY_FILE_SOURCE_PARENT_INVALID');
+    }
     if (item.versions.some(ref => ref.digest !== item.digest || ref.size !== item.size || !ref.blobRef.startsWith('sealed-v1/'))) {
       throw new Error('LEGACY_FILE_REPLACEMENT_INVALID');
     }
