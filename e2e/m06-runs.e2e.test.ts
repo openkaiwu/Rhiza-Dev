@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import type { SqlQueryable } from '../server/postgres-store';
 import { PGlite } from '@electric-sql/pglite';
 import { randomUUID } from 'node:crypto';
+import type { Server } from 'node:http';
 import { copyFile, mkdir, mkdtemp, readdir, rm, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -43,6 +44,14 @@ import { manifestReferenceProjection, SealedManifestContent } from '../server/in
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
+async function serve(app: ReturnType<typeof createApp>): Promise<Server> {
+  const server = await new Promise<Server>((resolve, reject) => {
+    const started = app.listen(0, '127.0.0.1', () => resolve(started));
+    started.once('error', reject);
+  });
+  cleanups.push(() => new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())));
+  return server;
+}
 const model = { id: 'model-one', providerEndpointRef: 'endpoint-one', model: 'same-model', provider: 'Provider', displayName: 'Test', active: true };
 interface TestDatabase extends SqlQueryable {
   exec(sql: string): Promise<unknown>;
@@ -66,7 +75,7 @@ async function fixture(generate: AIRuntime['generate'], backend: 'embedded' | 'p
   cleanups.push(() => rm(directory, { recursive: true, force: true }));
   const provider = new ProviderService(new ProviderStore(join(directory, 'providers.json')), new SecretVault(join(directory, 'key')), { baseUrl: 'https://example.test/v1', apiKey: 'secret-never-in-run', model: 'same-model', providerName: 'Test', chatPath: '/chat/completions', timeoutMs: 1000, temperature: 0.4, extraHeaders: {}, allowNoKey: false });
   const runtime: AIRuntime = { kind: 'provider-adapter', listModels: async () => [model], generate };
-  const app = createApp(store, provider, false, runtime, undefined, join(directory, 'uploads'));
+  const app = await serve(createApp(store, provider, false, runtime, undefined, join(directory, 'uploads')));
   const initial = await request(app).get('/api/workspace');
   expect(initial.status, JSON.stringify(initial.body)).toBe(200);
   await store.backfillJournal();
@@ -151,7 +160,7 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     const content = new SealedReceiptContent(new NodeSealedContentStore(new NodeFilesystemBlobStore(uploadDirectory), new NodeContentKeys(join(uploadDirectory, 'receipt-keys'))));
     const seal = vi.spyOn(content, 'seal');
     const store = new PostgresWorkspaceStore(database, undefined, content);
-    const app = createApp(store, provider, false, runtime, undefined, uploadDirectory);
+    const app = await serve(createApp(store, provider, false, runtime, undefined, uploadDirectory));
     await request(app).post('/api/chat').send({ message: 'private encrypted receipt' }).expect(201);
     const rows = await database.query<{ command_id: string; result: unknown; result_content_ref: unknown }>("SELECT command_id,result,result_content_ref FROM command_receipts WHERE command_type='CreateConversationRun' AND status='committed'");
     expect(rows.rows.length).toBeGreaterThan(0);
@@ -238,7 +247,7 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
       VALUES ($1,$2,$3,$4,$5,1,'{"sealed":true}'::jsonb,$6,$7,$8,$9::jsonb,$10::jsonb)`,
     [run.id,run.workspaceId,run.commandId,run.nodeId,run.status,run.inputHash,run.input.executor.modelSpecRef,run.input.executor.providerEndpointRef,JSON.stringify({ ...run, input: { sealed: true } }),JSON.stringify(reference)]);
     const reader = new PostgresWorkspaceStore(database, undefined, undefined, content);
-    const encryptedApp = createApp(reader, provider, false, runtime, undefined, uploadDirectory);
+    const encryptedApp = await serve(createApp(reader, provider, false, runtime, undefined, uploadDirectory));
     await request(encryptedApp).post('/api/chat').send({ message: 'encrypted new input' }).expect(201);
     const stored = (await database.query<{ input_envelope: unknown; record: { input: unknown }; input_content_ref: unknown }>('SELECT input_envelope,record,input_content_ref FROM execution_runs WHERE run_id<>$1 AND run_id<>$2', [source.id, run.id])).rows[0];
     expect(stored.input_envelope).toEqual({ sealed: true });
@@ -289,7 +298,7 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     const { database, uploadDirectory, provider, runtime } = await setup(success);
     const content = SealedJournalContent.atDirectory(join(uploadDirectory, 'journal-writes'));
     const store = new PostgresWorkspaceStore(database, undefined, undefined, undefined, content);
-    const app = createApp(store, provider, false, runtime, undefined, uploadDirectory);
+    const app = await serve(createApp(store, provider, false, runtime, undefined, uploadDirectory));
     await request(app).post('/api/chat').send({ message: 'private journal input' }).expect(201);
     const created = await request(app).post('/api/v1/workspaces').send({ name: 'encrypted lifecycle' }).expect(201);
     const rows = (await database.query<{ payload: unknown; payload_content_ref: unknown }>('SELECT payload,payload_content_ref FROM workspace_events WHERE payload_content_ref IS NOT NULL')).rows;
@@ -354,7 +363,7 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     const reference = await content.seal(workspace.projectId, message.id, message);
     await database.query("UPDATE rhiza_messages SET body='',reasoning=NULL,tool_calls=NULL,content_ref=$2::jsonb WHERE id=$1", [message.id, JSON.stringify(reference)]);
     const reader = new PostgresWorkspaceStore(database, undefined, undefined, undefined, undefined, content);
-    const encryptedApp = createApp(reader, provider, false, runtime, undefined, uploadDirectory);
+    const encryptedApp = await serve(createApp(reader, provider, false, runtime, undefined, uploadDirectory));
     await request(encryptedApp).post('/api/chat').send({ message: 'new encrypted message' }).expect(201);
     const stored = (await database.query<{ body: string; reasoning: unknown; tool_calls: unknown }>('SELECT body,reasoning,tool_calls FROM rhiza_messages WHERE content_ref IS NOT NULL')).rows;
     expect(stored.length).toBeGreaterThan(1);
@@ -408,7 +417,7 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
       await database.query('UPDATE rhiza_context_manifests SET manifest=$2::jsonb,content_ref=$3::jsonb WHERE id=$1', [manifest.id, JSON.stringify(manifestReferenceProjection(manifest)), JSON.stringify(reference)]);
     } finally { await database.exec('ALTER TABLE rhiza_context_manifests ENABLE TRIGGER rhiza_context_manifests_immutable'); }
     const reader = new PostgresWorkspaceStore(database, undefined, undefined, undefined, undefined, undefined, content);
-    const encryptedApp = createApp(reader, provider, false, runtime, undefined, uploadDirectory);
+    const encryptedApp = await serve(createApp(reader, provider, false, runtime, undefined, uploadDirectory));
     const next = await request(encryptedApp).post('/api/chat').send({ message: 'new sealed Manifest' }).expect(201);
     const stored = (await database.query<{ manifest: unknown; content_ref: unknown }>('SELECT manifest,content_ref FROM rhiza_context_manifests WHERE id=$1', [next.body.manifest.id])).rows[0];
     expect(stored.content_ref).toBeTruthy();
@@ -660,7 +669,7 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     cleanups.push(() => httpDatabase.close());
     for (const migration of await loadMigrations()) await httpDatabase.exec(migration.sql);
     const httpStore = new PostgresWorkspaceStore(httpDatabase, portable.workspace.projectId);
-    const httpApp = createApp(httpStore, provider, false, runtime, undefined, join(uploadDirectory, 'http-import'));
+    const httpApp = await serve(createApp(httpStore, provider, false, runtime, undefined, join(uploadDirectory, 'http-import')));
     const preview = await request(httpApp).post('/api/bundle/preview').set('Content-Type', 'application/vnd.rhiza.workspace+zip').send(download.body).expect(200);
     expect(preview.body).toMatchObject({ workspaceId: portable.workspace.projectId, name: portable.directory.name,
       messages: portable.workspace.messages.length, runs: portable.runs.length, resourceVersions: portable.workspace.resourceVersions.length });
@@ -677,12 +686,29 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
       expect(await readdir(join(uploadDirectory, 'http-import', 'imports', 'transient'))).toEqual([]);
     }
     await request(httpApp).post('/api/bundle/preview').send({}).expect(415);
+    let checkpointBeforeRetain = false;
+    const interruptedRetain = vi.spyOn(NodeImportArchiveStore.prototype, 'retain').mockImplementationOnce(async () => {
+      checkpointBeforeRetain = (await httpDatabase.query("SELECT phase FROM bundle_imports WHERE phase='validated'")).rows.length === 1;
+      throw new Error('injected archive retention failure');
+    });
+    try {
+      await request(httpApp).post('/api/bundle/import').set('Content-Type', 'application/vnd.rhiza.workspace+zip')
+        .set('Idempotency-Key', 'import-retain-interrupted').send(download.body).expect(500);
+      expect(checkpointBeforeRetain).toBe(true);
+      expect((await httpDatabase.query('SELECT id FROM rhiza_projects WHERE id=$1', [portable.workspace.projectId])).rows).toHaveLength(0);
+    } finally { interruptedRetain.mockRestore(); }
     const upload = () => request(httpApp).post('/api/bundle/import').set('Content-Type', 'application/vnd.rhiza.workspace+zip').set('Idempotency-Key', 'import-roundtrip').send(download.body);
     const uploaded = await upload().expect(201);
     expect(uploaded.body.workspaceId).toBe(portable.workspace.projectId);
     expect((await upload().expect(201)).body).toEqual(uploaded.body);
-    const conflict = await request(httpApp).post('/api/bundle/import').set('Content-Type', 'application/vnd.rhiza.workspace+zip').send(download.body).expect(409);
-    expect(conflict.body.error.code).toBe('BUNDLE_TARGET_EXISTS');
+    const checkpointCount = (await httpDatabase.query('SELECT import_id FROM bundle_imports')).rows.length;
+    const retainAfterConflict = vi.spyOn(NodeImportArchiveStore.prototype, 'retain');
+    try {
+      const conflict = await request(httpApp).post('/api/bundle/import').set('Content-Type', 'application/vnd.rhiza.workspace+zip').send(download.body).expect(409);
+      expect(conflict.body.error.code).toBe('BUNDLE_TARGET_EXISTS');
+      expect(retainAfterConflict).not.toHaveBeenCalled();
+      expect((await httpDatabase.query('SELECT import_id FROM bundle_imports')).rows).toHaveLength(checkpointCount);
+    } finally { retainAfterConflict.mockRestore(); }
     await request(httpApp).post('/api/bundle/import').send({}).expect(415);
     const ready = await stagePortableWorkspace(path);
     const archiveRoot = join(uploadDirectory, 'retained-imports');
@@ -778,7 +804,7 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     const restored = portableWorkspaceFacts(await target.readPortableWorkspace(), input => semanticStateChecksum(input as Record<string, unknown>));
     expect(restored).toEqual(portable);
     expect((await target.readGraphProjection()).checksum).toBe((await store.readGraphProjection()).checksum);
-    const importedApp = createApp(target, provider, false, runtime, undefined, join(uploadDirectory, 'imported-blobs'));
+    const importedApp = await serve(createApp(target, provider, false, runtime, undefined, join(uploadDirectory, 'imported-blobs')));
     const manifestId = portable.workspace.manifests.at(-1)!.id;
     const context = await request(importedApp).get(`/api/v1/workspaces/${portable.workspace.projectId}/context/manifests/${manifestId}`).expect(200);
     expect(context.body.sources.length).toBeGreaterThan(0);

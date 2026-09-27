@@ -1,12 +1,13 @@
 // @vitest-environment node
 import { randomUUID } from 'node:crypto';
+import type { Server } from 'node:http';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadMigrations } from '../scripts/migrate';
 import { PGlite } from '@electric-sql/pglite';
 import { Pool } from 'pg';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import type { ContextManifest } from '../server/domain';
 import { createRhizaApplication } from '../server/application/create-application';
@@ -26,6 +27,12 @@ interface TestDatabase extends SqlQueryable {
   close(): Promise<void>;
   transaction<T>(work: (database: SqlQueryable) => Promise<T>): Promise<T>;
 }
+const activeServers: Server[] = [];
+afterEach(async () => {
+  await Promise.all(activeServers.splice(0).map(server => new Promise<void>((resolve, reject) => {
+    server.close(error => error && (!('code' in error) || error.code !== 'ERR_SERVER_NOT_RUNNING') ? reject(error) : resolve());
+  })));
+});
 async function migratedDatabase(backend: 'embedded' | 'postgres' = 'embedded') {
   let database: TestDatabase;
   if (backend === 'embedded') database = new PGlite();
@@ -64,7 +71,10 @@ function legacyApp(database: TestDatabase, defaultWorkspaceId: string, journalCo
     planner: { plan: workspace => ({ items: workspace.contextItems, diagnostics: { candidateCount: 0, selectedCount: 0, elapsedMs: 0, fallback: false, budget: 1, usedTokens: 0 } }), sourceItem: (_workspace, _sourceType, sourceId) => ({ id: sourceId, title: sourceId, detail: sourceId, role: 'Reference', status: 'active', tokens: 1 }), processAttachment: () => ({ chunks: [], summary: '' }) },
     id: randomUUID, now: () => new Date().toISOString(),
   });
-  return { app: createHttpApp(application, { id: randomUUID, runtimeKind: 'provider-adapter', featureFlags: {}, providerPresets: {}, defaultWorkspaceId }), store };
+  const app = createHttpApp(application, { id: randomUUID, runtimeKind: 'provider-adapter', featureFlags: {}, providerPresets: {}, defaultWorkspaceId });
+  const server = app.listen(0, '127.0.0.1');
+  activeServers.push(server);
+  return { app: server, store };
 }
 
 for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M07 projection contract (${backend})`, () => {

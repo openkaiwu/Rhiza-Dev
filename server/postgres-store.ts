@@ -18,7 +18,7 @@ import { buildWorkspaceGraphProjection } from './graph-projection/model';
 import { PostgresGraphProjectionAdapter } from './graph-projection/postgres-adapter';
 import { deriveProvenance, type ProvenanceLink } from './provenance/model';
 import type { PortableWorkspaceFacts } from './application/ports/portable-workspace';
-import type { BundleImportCheckpoint } from './application/ports/bundle-import';
+import type { BundleImportCheckpoint, BundleImportIdentity } from './application/ports/bundle-import';
 import { BUNDLE_IMPORT_RECOVERY_WINDOW_MS } from './domain/portable-bundle';
 import { validatePortableReferences } from './application/portable-references';
 import { redactPortableHistory, validatePortableHistory } from './application/portable-history';
@@ -161,7 +161,21 @@ function relationalSeed(projectId: string): WorkspaceData {
 
 export class PostgresWorkspaceStore implements WorkspaceRepository {
   private readonly transactionContent = new WeakMap<SqlQueryable, PendingContent[]>();
-  get bundleImportCheckpoints() { return new SqlBundleImportCheckpoints(this.database); }
+  get bundleImportCheckpoints() {
+    const checkpoints = new SqlBundleImportCheckpoints(this.database);
+    return {
+      begin: (identity: BundleImportIdentity) => this.inTransaction(async database => {
+        await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [identity.workspaceId]);
+        const checkpoint = await new SqlBundleImportCheckpoints(database).begin(identity);
+        if (checkpoint.phase !== 'activated' && (await database.query('SELECT 1 FROM rhiza_projects WHERE id=$1', [identity.workspaceId])).rows.length) {
+          throw Object.assign(new Error('BUNDLE_TARGET_EXISTS'), { code: 'BUNDLE_TARGET_EXISTS', status: 409 });
+        }
+        return checkpoint;
+      }),
+      read: checkpoints.read.bind(checkpoints),
+      markBlobsReady: checkpoints.markBlobsReady.bind(checkpoints),
+    };
+  }
   private runtimeOwner?: SqlQueryable & { release(): void };
   private queue: Promise<void> = Promise.resolve();
   private readonly scoped = new Map<string, PostgresWorkspaceStore>();
@@ -839,6 +853,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     let result!: WorkspaceData;
     this.queue = this.queue.catch(() => undefined).then(async () => {
       result = await this.inTransaction(async database => {
+        if (options?.purge) await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
         let current = await this.readFrom(database, true);
         if (!current) {
           current = relationalSeed(this.defaultWorkspaceId);
@@ -1831,8 +1846,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       const nodeId = options.purge.nodeId;
       if (!previous) throw new Error('PURGE_PREVIOUS_STATE_REQUIRED');
       // Expired checkpoint time does not prove the retained ZIP key was destroyed.
-      const retainedImport = await database.query('SELECT 1 FROM bundle_imports WHERE workspace_id=$1 AND phase=$2 LIMIT 1',
-        [workspace.projectId, 'activated']);
+      const retainedImport = await database.query('SELECT 1 FROM bundle_imports WHERE workspace_id=$1 LIMIT 1', [workspace.projectId]);
       if (retainedImport.rows.length) throw Object.assign(new Error('该 Workspace 的导入恢复归档可能仍保留原始内容，当前不能执行 Purge。'),
         { code: 'PURGE_HAS_RETAINED_ARCHIVE', status: 409 });
       const affectedIds = new Set([nodeId, ...[

@@ -293,9 +293,10 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
         const staged = await dependencies.bundleImport.receive(envelope.payload.bytes);
         try {
           if (!staged.facts.members.some(member => member.userId === envelope.actor.actorId && member.role === 'owner')) throw legacyError('当前用户不是归档中的 Workspace owner。', 403, 'BUNDLE_IMPORT_FORBIDDEN');
-          await staged.retain();
           const identity = { importId: envelope.commandId, ownerId: envelope.actor.actorId, workspaceId: staged.facts.workspace.projectId,
             archiveDigest: staged.archiveDigest, stateDigest: dependencies.hashPortableFacts(staged.facts) };
+          await dependencies.bundleImportCheckpoints.begin(identity);
+          await staged.retain();
           await completeBundleImport(identity, staged.facts, dependencies.bundleImportCheckpoints, staged.ingest, unitOfWork);
           return { workspaceId: identity.workspaceId, importId: identity.importId };
         } finally { await staged.dispose(); }

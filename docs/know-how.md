@@ -70,6 +70,7 @@
 - Provider 测试注入 mock `fetch`，验证 Authorization、模型、Active Context Prompt 和响应解析，不进行真实付费调用。
 - 流式测试同时覆盖 SSE 多片段拼接、最终 Commit 事件和中途 `RUN_ERROR` 不落盘，避免只验证完整 JSON 回退路径。
 - API 集成测试使用临时目录，验证磁盘持久化并在测试结束后清理。
+- macOS 上 Node 的默认 `listen(0)` 可能只监听 IPv6，而 Supertest 对 server 对象固定请求 `127.0.0.1`；IPv4 同端口可被其他服务占用并偶发返回无关 401。E2E 测试服务须显式监听 `127.0.0.1` 并在 teardown 关闭。
 - 安全测试必须证明 Provider JSON 和 HTTP 响应都不含测试用明文 Key。
 - 支线集成测试要覆盖创建、坐标持久化、合并状态、活动节点回切和语义边写入。
 - Graph 回归测试要覆盖画布缩放、节点/关系创建与删除，以及删除节点后的边和消息级联清理。
@@ -131,7 +132,7 @@
 - Purge 的 SQL 删除、redacted provenance、审计事实与待撤销 scoped key 清单必须同事务提交；提交后 key destroy 可中断且不可回滚，因此逐项 acknowledgement 与 checkpoint 必须允许重复撤销。启动取得 runtime ownership 后先分批排空 pending checkpoint，再读 Workspace、回填 Journal 或开放 HTTP；某一批无法推进则拒绝启动，不能只记录警告。执行历史保护只能在 Run、Journal、receipt/trace 等每一份正文副本均进入该流程后移除。
 - Journal Purge 不更新 append-only 事件行；在同一事务发布脱敏 baseline/tail 覆盖层并登记原有效载荷密钥，所有历史读取与密钥对账只认覆盖层。无已加密且可重放的 baseline 时拒绝 Purge；仅删除 Current State 会让旧 Journal snapshot 泄露正文。
 - Purge 的幂等回执读取也属于历史正文边界：同事务标记旧密文回执不可读并登记 result/error 密钥，重试旧 command id 必须返回 `RECEIPT_PURGED` 而非重放旧结果；旧明文回执先迁移，否则拒绝 Purge。
-- 已激活的导入 checkpoint 可能仍有加密恢复 ZIP 持有被删节点正文；恢复窗口过期不等于密钥已实际撤销。归档密钥未纳入 Purge checkpoint 前，Repository 必须对该 Workspace 的 Purge 失败关闭，不能用 `updated_at` 作为安全放行依据。
+- 任意阶段的导入 checkpoint 都可能有加密恢复 ZIP 持有现有 Workspace 的旧正文。导入须在 Workspace 写锁下先检查目标并持久绑定 checkpoint 身份，再保留 ZIP；激活时复查目标，避免冲突或中断留下无数据库归属的归档。恢复窗口过期不等于密钥已实际撤销；归档密钥未纳入 Purge checkpoint 前，Repository 必须对关联 Workspace 的 Purge 失败关闭，不能用 phase 或 `updated_at` 作为安全放行依据。
 - M09 不能仅凭密钥引用健康宣称历史迁移完成；Gate 还须对全库历史正文列、嵌套 Context/FileChunk 与 ResourceVersion Blob 引用做同一时点的明文计数审计，并分别核对旧文件和备份保留边界。
 - Provenance 回填成功数不等于全库覆盖率；`m09:provenance:audit` 要扫描所有仍存在的 Assistant 输出，并区分缺失、broken-reference 与无效/悬空记录，不能把 pre-run 当成缺失。recorded 关系的直接回复输入、Manifest、Run、model、endpoint 和 runtime snapshot 必须与持久事实对账；仅存在一条链接不等于来源完整。
 - `m09:files:audit` 只能在停服且 `RHIZA_UPLOAD_DIR` 指向被测数据库的实际上传目录时运行；它通过历史逻辑 digest/key/checkpoint 检查已知原明文路径，零结果不代表任意孤儿文件、WAL 或备份已过期，更不授权删除。
