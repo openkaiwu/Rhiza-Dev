@@ -42,6 +42,8 @@ Bundle 导出通过 `/api/v1/workspaces/:workspaceId/bundle` 读取同一事务�
 
 M09 Gate 另运行 `m09:plaintext:audit`：用单条数据库快照查询计数所有历史正文族及未密封 ResourceVersion Blob，不读取或输出正文；任一计数非零即阻断验收。该审计只证明当前数据库引用状态，不能替代旧明文 Blob 文件、WAL/备份或已导出 Bundle 的保留期检查。
 
+`m09:files:audit` 需停服并显式指向同一部署的 `DATABASE_URL` 与 `RHIZA_UPLOAD_DIR`：在持有运行时及内容生命周期锁时，只读核对现存 ResourceVersion 逻辑 digest、旧附件存储键、导入 checkpoint 摘要所对应的原明文路径，以及遗留导入工作目录；任何副本非零即阻断 Gate。它不扫描任意无引用文件、WAL、备份或用户已导出的 Bundle；旧文件清理必须另有完整引用/pin 对账与部署保留策略，不能仅凭一次检查删文件。
+
 - React + TypeScript：界面与本地交互状态
 - Vite：开发服务器与生产构建
 - Express：Workspace、Context 与 Chat API
