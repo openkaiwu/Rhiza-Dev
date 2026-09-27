@@ -132,7 +132,7 @@
 - Journal Purge 不更新 append-only 事件行；在同一事务发布脱敏 baseline/tail 覆盖层并登记原有效载荷密钥，所有历史读取与密钥对账只认覆盖层。无已加密且可重放的 baseline 时拒绝 Purge；仅删除 Current State 会让旧 Journal snapshot 泄露正文。
 - Purge 的幂等回执读取也属于历史正文边界：同事务标记旧密文回执不可读并登记 result/error 密钥，重试旧 command id 必须返回 `RECEIPT_PURGED` 而非重放旧结果；旧明文回执先迁移，否则拒绝 Purge。
 - M09 不能仅凭密钥引用健康宣称历史迁移完成；Gate 还须对全库历史正文列、嵌套 Context/FileChunk 与 ResourceVersion Blob 引用做同一时点的明文计数审计，并分别核对旧文件和备份保留边界。
-- Provenance 回填成功数不等于全库覆盖率；`m09:provenance:audit` 要扫描所有仍存在的 Assistant 输出，并区分缺失、broken-reference 与无效/悬空记录，不能把 pre-run 当成缺失。
+- Provenance 回填成功数不等于全库覆盖率；`m09:provenance:audit` 要扫描所有仍存在的 Assistant 输出，并区分缺失、broken-reference 与无效/悬空记录，不能把 pre-run 当成缺失。recorded 关系的直接回复输入、Manifest、Run、model、endpoint 和 runtime snapshot 必须与持久事实对账；仅存在一条链接不等于来源完整。
 - `m09:files:audit` 只能在停服且 `RHIZA_UPLOAD_DIR` 指向被测数据库的实际上传目录时运行；它通过历史逻辑 digest/key/checkpoint 检查已知原明文路径，零结果不代表任意孤儿文件、WAL 或备份已过期，更不授权删除。
 - 旧原始 ResourceVersion Blob/附件文件不能与 SQL 引用更新同事务删除：先分批密封并读回，再在停服独占窗口运行 `m09:files:reclaim`，逐批验证仍可用版本的 scoped 密文及原文件摘要/身份后精确 unlink；数据库已标记 `purged-v1` 且带 `purgedAt` 的版本无可读替代密文，但旧附件（包括 `sha256/...` storage key）不能以该墓碑充当替代。旧文件的每层父目录都必须是真实目录，不能透过 symlink 越出上传根目录。重复运行安全。该命令不处理归档、无引用孤儿、WAL、备份或外部 Bundle，也不代替备份保留策略。
 - 旧消息的 `attachmentIds` 和节点关联的 file/chunk ContextItem 都可能在没有 Run/Manifest 时指向仍可读的 ResourceVersion；后者即使标成 `reference` 也可能通过 `sourceId` 指向附件或文件块。被 Purge 移除的文件类 ContextItem 也要检查：旧数据可能缺少 `sourceNodeId`，仅靠指向待删消息的 `sourceId` 被移除。共享历史校验以 `PURGE_HAS_RESOURCE_HISTORY` 拒绝这类 Purge；在资源身份、派生块、Blob key 与 Bundle/备份副本完成统一撤销前不可放行。

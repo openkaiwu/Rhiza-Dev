@@ -918,6 +918,24 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
       expect(await store.getRun(original.id)).toEqual(original);
     } finally { planner.mockRestore(); }
   });
+  it('M09 provenance audit rejects corrupted recorded identity and execution evidence', async () => {
+    const { app, store, database } = await setup(success);
+    const response = await request(app).post('/api/chat').send({ message: 'audit recorded provenance' }).expect(201);
+    const outputId = response.body.assistantMessage.id;
+    const original = await store.readProvenance(outputId);
+    expect(await store.auditProvenanceCoverage()).toMatchObject({ missing: 0, broken: 0, invalid: 0 });
+    for (const [field, value] of [
+      ['contextManifestRef', randomUUID()], ['inputRefs', []],
+      ['modelSpecRef', 'wrong-model'], ['providerEndpointRef', 'wrong-endpoint'],
+      ['runtimeSnapshotRef', 'wrong-runtime'],
+    ] as const) {
+      await database.query('UPDATE provenance_links SET record=jsonb_set(record,$2::text[],$3::jsonb) WHERE output_ref=$1',
+        [outputId, [field], JSON.stringify(value)]);
+      expect(await store.auditProvenanceCoverage(), field).toMatchObject({ invalid: 1 });
+      await database.query('UPDATE provenance_links SET record=$2::jsonb WHERE output_ref=$1',
+        [outputId, JSON.stringify(original)]);
+    }
+  });
   it('commits terminal, messages and immutable input together; regenerate creates a child; retries deduplicate external calls', async () => {
     let calls = 0;
     const { app, store, database } = await setup(async function* (input) { calls++; yield* success(input); });

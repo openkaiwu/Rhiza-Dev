@@ -1284,7 +1284,11 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         OR jsonb_typeof(p.record->'missingRefs') IS DISTINCT FROM 'array'
         OR (p.record->>'status'='recorded' AND (r.run_id IS NULL OR c.id IS NULL
           OR c.id IS DISTINCT FROM m.manifest_id OR c.request_id::text IS DISTINCT FROM r.run_id
-          OR r.node_id IS DISTINCT FROM m.node_id::text))
+          OR r.node_id IS DISTINCT FROM m.node_id::text
+          OR (m.reply_to_message_id IS NOT NULL AND NOT COALESCE(p.record->'inputRefs' @> jsonb_build_array(m.reply_to_message_id::text), false))
+          OR p.record->>'modelSpecRef' IS DISTINCT FROM r.model_spec_ref
+          OR p.record->>'providerEndpointRef' IS DISTINCT FROM r.provider_endpoint_ref
+          OR p.record->>'runtimeSnapshotRef' IS DISTINCT FROM ('run:' || r.run_id || ':input:' || COALESCE(r.record->>'originInputHash', r.input_hash))))
         OR (p.record->>'status'='pre-run' AND p.record->>'runRef' IS NOT NULL)
       ))::int invalid
       FROM rhiza_messages m JOIN rhiza_nodes n ON n.id=m.node_id
