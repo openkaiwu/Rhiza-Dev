@@ -398,7 +398,7 @@ describe('Rhiza API', () => {
   });
 
   it('isolates physical purge behind archived state, explicit confirmation and an audit receipt', async () => {
-    const { app } = await testApp();
+    const { app, store } = await testApp();
     const created = await request(app).post('/api/nodes').send({ title: '待清除支线', sourceMessageId: 'm2', messages: [{ kind: 'user', text: '需要受控清除的内容' }] }).expect(201);
     const nodeId = created.body.workspace.activeNodeId as string;
     await request(app).post('/api/chat').send({ message: '生成待清除 Manifest' }).expect(201);
@@ -408,6 +408,10 @@ describe('Rhiza API', () => {
     const segmentId = segmentResponse.body.segment.id as string;
     await request(app).post('/api/workspace/context').send({ sourceType: 'node', sourceId: nodeId }).expect(201);
     await request(app).post('/api/workspace/context').send({ sourceType: 'segment', sourceId: segmentId }).expect(201);
+    await store.update(current => ({ ...current, contextItems: [...current.contextItems, {
+      id: randomUUID(), title: '旧消息引用', detail: '需要受控清除的内容', role: 'Reference', status: 'active', tokens: 1,
+      sourceType: 'reference', sourceId: nodeMessageIds[0],
+    }] }));
 
     await request(app).post(`/api/graph/nodes/${nodeId}/purge`).send({ confirmation: `PURGE ${nodeId}`, reason: '测试显式物理清除' }).expect(409);
     await request(app).delete(`/api/graph/nodes/${nodeId}`).expect(200);
@@ -418,7 +422,7 @@ describe('Rhiza API', () => {
     expect(purged.body.workspace.messages.some((message: { nodeId: string }) => message.nodeId === nodeId)).toBe(false);
     expect(purged.body.workspace.segments.some((segment: { nodeId: string }) => segment.nodeId === nodeId)).toBe(false);
     expect(purged.body.workspace.manifests.some((manifest: { nodeId: string }) => manifest.nodeId === nodeId)).toBe(false);
-    expect(purged.body.workspace.contextItems.some((item: { sourceId?: string; sourceNodeId?: string }) => item.sourceId === nodeId || item.sourceId === segmentId || item.sourceNodeId === nodeId)).toBe(false);
+    expect(purged.body.workspace.contextItems.some((item: { sourceId?: string; sourceNodeId?: string }) => item.sourceId === nodeId || item.sourceId === segmentId || nodeMessageIds.includes(item.sourceId ?? '') || item.sourceNodeId === nodeId)).toBe(false);
     expect(purged.body.purgeReceipt).toMatchObject({ action: 'node.purged', entityType: 'node', entityId: nodeId, metadata: { reason: '测试显式物理清除', confirmation: 'explicit-id-phrase' } });
   });
 

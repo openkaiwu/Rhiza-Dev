@@ -137,6 +137,7 @@
 - Purged ResourceVersion 的可移植表示是保留原 ID/digest/size、置 `blobRef` 为 `purged-v1` 并带 `purgedAt`，Bundle 中不含其 Blob 条目；导入不能为它创建新密钥。来源数据库的不可变版本行保持原引用，通过已提交的 `resource-version` Purge key 清单在读取时覆盖为墓碑；目标空库可直接插入墓碑行。只有完整资源副本撤销接通后才能解除现有资源 Purge 拒绝保护。
 - 启动时 Resource Blob 适配器必须先于 Purge checkpoint 恢复构造，并由 Store 与 Host 共用同一上传目录/密钥根；恢复器按 checkpoint 的 Workspace/ResourceVersion 身份校验引用，缺少适配器保持 pending 并阻断启动。重复撤销允许；此能力不授权业务请求直接绕过 `PURGE_HAS_RESOURCE_HISTORY`。
 - Graph rebuild 会保留旧 projection namespace，其 Node title/Message summary/关系 label 是独立正文副本。Purge 必须在删除 Current State 的同一事务中脱敏所有历史 namespace 与 Context candidate index，不能只等待下次 Graph 查询重建 active alias。
+- 旧 ContextItem 可能仅以 `sourceId` 指向被 Purge 的 Message/Segment/Anchor 而没有 `sourceNodeId`；不能只按来源类型或节点字段清理。Application 移除这些项后，持久化 Purge checkpoint 才能登记其内容密钥撤销。
 
 - Graph layout command 的 `nodeId` 只用于定位节点，写回领域节点时只合入 `x/y`；否则 JSON 中多出的命令字段会与 SQL 重读结果不同，触发事务语义校验回滚。
 
