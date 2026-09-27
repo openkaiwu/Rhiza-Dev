@@ -1,8 +1,9 @@
 // @vitest-environment node
 import { randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { Pool } from 'pg';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -300,5 +301,46 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       expect((await database.query<{ count: number }>('SELECT count(*)::int count FROM rhiza_resource_versions WHERE resource_version_id=$1', [versionId])).rows[0]?.count).toBe(1);
       expect((await database.query<{ count: number }>('SELECT count(*)::int count FROM purge_checkpoints')).rows[0]?.count).toBe(0);
     } finally { await database.close(); }
+  }, 30_000);
+});
+
+describe.skipIf(!process.env.DATABASE_URL)('M09 PostgreSQL Purge process interruption', () => {
+  it('replays an unacknowledged key revocation after SIGKILL', async () => {
+    const database = await migratedDatabase('postgres');
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-purge-sigkill-'));
+    const contentDirectory = join(directory, 'nodes');
+    const content = SealedNodeContent.atDirectory(contentDirectory);
+    const workspaceId = randomUUID();
+    const store = new PostgresWorkspaceStore(database, workspaceId, undefined, undefined, undefined, undefined, undefined, content);
+    try {
+      const current = await store.read();
+      const nodeId = randomUUID(), purgeId = randomUUID(), createdAt = new Date().toISOString();
+      await store.update(workspace => ({ ...workspace, discussionNodes: [...workspace.discussionNodes, {
+        id: nodeId, title: 'SIGKILL secret', summary: '', status: 'archived' as const, kind: 'branch' as const,
+        sourceNodeId: current.activeNodeId, x: 0, y: 0, createdAt, updatedAt: createdAt,
+      }] }));
+      const reference = (await database.query<{ content_ref: SealedNodeRef }>('SELECT content_ref FROM rhiza_nodes WHERE id=$1', [nodeId])).rows[0]!.content_ref;
+      vi.spyOn(content, 'destroy').mockRejectedValueOnce(Object.assign(new Error('pause before revocation'), { code: 'PAUSE_BEFORE_REVOCATION' }));
+      await store.update(workspace => ({ ...workspace,
+        discussionNodes: workspace.discussionNodes.filter(node => node.id !== nodeId),
+        auditEvents: [...workspace.auditEvents, { id: purgeId, projectId: workspaceId, nodeId, action: 'node.purged',
+          entityType: 'node', entityId: nodeId, metadata: { reason: 'process interruption test' }, createdAt }],
+      }), { purge: { nodeId, auditReceiptId: purgeId } });
+      const schema = (await database.query<{ name: string }>('SELECT current_schema() name')).rows[0]!.name;
+      const child = spawnSync(process.execPath, ['--import', 'tsx', resolve('e2e/fixtures/m09-purge-crash-child.ts'), schema,
+        workspaceId, contentDirectory], { env: process.env, timeout: 20_000, encoding: 'utf8' });
+      expect(child.error).toBeUndefined();
+      expect(child.signal).toBe('SIGKILL');
+      expect((await database.query<{ phase: string; revoked_at: unknown }>('SELECT phase,revoked_at FROM purge_checkpoints WHERE purge_id=$1', [purgeId])).rows[0])
+        .toEqual({ phase: 'pending', revoked_at: null });
+      await expect(content.read(workspaceId, nodeId, reference)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+      const reopened = new PostgresWorkspaceStore(database, workspaceId, undefined, undefined, undefined, undefined, undefined, content);
+      expect(await reopened.resumePendingPurges()).toEqual({ completed: 1, pending: 0 });
+      expect(await reopened.resumePendingPurges()).toEqual({ completed: 0, pending: 0 });
+      expect((await reopened.read()).discussionNodes.some(node => node.id === nodeId)).toBe(false);
+    } finally {
+      await database.close();
+      await rm(directory, { recursive: true, force: true });
+    }
   }, 30_000);
 });
