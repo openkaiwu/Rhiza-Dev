@@ -14,6 +14,7 @@ import { SealedJournalContent, type SealedJournalRef } from '../server/infrastru
 import { SealedReceiptContent, type SealedReceiptRef } from '../server/infrastructure/sealed-receipt-content';
 import { SealedContextItemContent, type SealedContextItemRef } from '../server/infrastructure/sealed-context-item-content';
 import { NodeEncryptedBlobStore } from '../server/infrastructure/node-encrypted-blob-store';
+import { NodeFilesystemBlobStore } from '../server/infrastructure/node-host-runtime';
 import { validatePortableHistory } from '../server/application/portable-history';
 import { semanticStateChecksum } from '../server/infrastructure/workspace-semantic-checksum';
 import { workspaceSemanticSnapshot } from '../server/domain-journal';
@@ -44,15 +45,19 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
 
   it('reopens a purged ResourceVersion identity without requiring erased Blob bytes', async () => {
     const database = await migratedDatabase(backend);
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-purged-legacy-file-'));
+    directories.push(directory);
     const workspaceId = randomUUID(), resourceId = randomUUID(), versionId = randomUUID();
     const store = new PostgresWorkspaceStore(database, workspaceId);
     try {
       const createdAt = new Date().toISOString();
-      const digest = 'a'.repeat(64);
+      const raw = new NodeFilesystemBlobStore(directory);
+      const bytes = new TextEncoder().encode('old purged copy');
+      const { digest, size } = await raw.put(bytes);
       await store.update(current => ({ ...current,
         resources: [...current.resources, { id: resourceId, workspaceId, kind: 'attachment', logicalName: '[purged]', createdAt }],
         resourceVersions: [...current.resourceVersions, { id: versionId, resourceId, version: 1, digestAlgorithm: 'sha256',
-          digest, canonicalization: 'raw-v1', mediaType: 'text/plain', size: 9, blobRef: 'purged-v1', createdAt, purgedAt: createdAt }],
+          digest, canonicalization: 'raw-v1', mediaType: 'text/plain', size, blobRef: 'purged-v1', createdAt, purgedAt: createdAt }],
       }));
       const reopened = new PostgresWorkspaceStore(database, workspaceId);
       expect((await reopened.read()).resourceVersions).toContainEqual(expect.objectContaining({ id: versionId, blobRef: 'purged-v1', purgedAt: createdAt }));
@@ -60,6 +65,14 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       const row = (await database.query<{ blob_ref: string; purged_at: unknown }>('SELECT blob_ref,purged_at FROM rhiza_resource_versions WHERE resource_version_id=$1', [versionId])).rows[0]!;
       expect(row.blob_ref).toBe('purged-v1');
       expect(row.purged_at).not.toBeNull();
+      const connection = backend === 'postgres' ? new URL(process.env.DATABASE_URL!) : undefined;
+      if (connection) connection.searchParams.set('options', `-c search_path=${(await database.query<{ schema: string }>('SELECT current_schema() schema')).rows[0]!.schema}`);
+      const maintenance = connection ? new PostgresWorkspaceStore(new Pool({ connectionString: connection.toString() }), workspaceId) : reopened;
+      try {
+        expect(await maintenance.reclaimLegacyResourceFiles(directory, NodeEncryptedBlobStore.atDirectory(directory), 1))
+          .toEqual({ resourceBlobs: 1, attachments: 0 });
+      } finally { if (connection) await maintenance.close(); }
+      await expect(raw.read(`sha256/${digest.slice(0, 2)}/${digest}`, digest)).rejects.toThrow();
     } finally { await database.close(); }
   });
 

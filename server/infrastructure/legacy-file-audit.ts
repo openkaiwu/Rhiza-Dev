@@ -16,6 +16,7 @@ export interface LegacyResourceFileReference {
   digest: string;
   size: number;
   blobRef: string;
+  purgedAt?: string;
 }
 
 export interface LegacyAttachmentFileReference {
@@ -74,7 +75,9 @@ export async function reclaimKnownLegacyResourceFiles(root: string, versions: Le
   if (!(await lstat(directory)).isDirectory()) throw new Error('UPLOAD_DIRECTORY_INVALID');
   const byId = new Map(versions.map(version => [version.resourceVersionId, version]));
   if (byId.size !== versions.length) throw new Error('RESOURCE_VERSION_ID_DUPLICATE');
-  if (versions.some(version => !version.blobRef.startsWith('sealed-v1/'))) throw new Error('LEGACY_FILE_REPLACEMENT_INVALID');
+  const sealedVersion = (version: LegacyResourceFileReference) => version.blobRef.startsWith('sealed-v1/') && !version.purgedAt;
+  const purgedVersion = (version: LegacyResourceFileReference) => version.blobRef === 'purged-v1' && !!version.purgedAt;
+  if (versions.some(version => !sealedVersion(version) && !purgedVersion(version))) throw new Error('LEGACY_FILE_REPLACEMENT_INVALID');
   const candidates: Array<{ path: string; digest: string; size: number; versions: LegacyResourceFileReference[]; kind: 'resourceBlobs' | 'attachments' }> = [];
   const byDigest = new Map<string, LegacyResourceFileReference[]>();
   for (const version of versions) {
@@ -97,7 +100,7 @@ export async function reclaimKnownLegacyResourceFiles(root: string, versions: Le
     if (!path || !await fileOrAbsent(path)) continue;
     const sealed = refs.map(ref => {
       const version = ref.resourceVersionId ? byId.get(ref.resourceVersionId) : undefined;
-      return version?.workspaceId === ref.workspaceId && version.size === ref.size ? version : undefined;
+      return version && sealedVersion(version) && version.workspaceId === ref.workspaceId && version.size === ref.size ? version : undefined;
     });
     if (sealed.some(ref => !ref)) throw new Error('LEGACY_ATTACHMENT_VERSION_REQUIRED');
     candidates.push({ path, digest: sealed[0]!.digest, size: sealed[0]!.size,
@@ -110,12 +113,13 @@ export async function reclaimKnownLegacyResourceFiles(root: string, versions: Le
     for (let parent = dirname(item.path); parent !== directory; parent = dirname(parent)) {
       if (!(await lstat(parent)).isDirectory()) throw new Error('LEGACY_FILE_SOURCE_PARENT_INVALID');
     }
-    if (item.versions.some(ref => ref.digest !== item.digest || ref.size !== item.size || !ref.blobRef.startsWith('sealed-v1/'))) {
+    if (item.versions.some(ref => ref.digest !== item.digest || ref.size !== item.size || (!sealedVersion(ref) && !purgedVersion(ref)))) {
       throw new Error('LEGACY_FILE_REPLACEMENT_INVALID');
     }
-    const keyAudit = await blobs.auditKeys(item.versions);
+    const active = item.versions.filter(sealedVersion);
+    const keyAudit = await blobs.auditKeys(active);
     if (keyAudit.some(record => record.referenced && record.state !== 'active')) throw new Error('LEGACY_FILE_REPLACEMENT_KEY_UNHEALTHY');
-    for (const version of item.versions) {
+    for (const version of active) {
       if (validated.has(version.resourceVersionId)) continue;
       let size = 0;
       for await (const chunk of blobs.readStream(version.blobRef, version.digest)) size += chunk.byteLength;

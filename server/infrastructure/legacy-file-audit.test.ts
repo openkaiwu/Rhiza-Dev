@@ -60,6 +60,37 @@ it('reclaims only verified old plaintext copies and can resume after one batch',
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+it('reclaims a shared raw Blob with a purged version without treating its tombstone as a live key', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rhiza-file-tombstone-'));
+  try {
+    const bytes = Buffer.from('shared historical resource');
+    const raw = new NodeFilesystemBlobStore(root);
+    const old = await raw.put(bytes);
+    const blobs = NodeEncryptedBlobStore.atDirectory(root);
+    const live = await blobs.put(bytes, { workspaceId: 'live-workspace', contentId: 'live-version' });
+    const versions = [
+      { workspaceId: 'live-workspace', resourceVersionId: 'live-version', digest: old.digest, size: old.size, blobRef: live.blobRef },
+      { workspaceId: 'purged-workspace', resourceVersionId: 'purged-version', digest: old.digest, size: old.size,
+        blobRef: 'purged-v1', purgedAt: new Date().toISOString() },
+    ];
+    await expect(reclaimKnownLegacyResourceFiles(root, [versions[0]!, { ...versions[1]!, purgedAt: undefined }], [], blobs))
+      .rejects.toThrow('LEGACY_FILE_REPLACEMENT_INVALID');
+    await writeFile(join(root, 'legacy-attachment'), bytes);
+    await expect(reclaimKnownLegacyResourceFiles(root, versions,
+      [{ workspaceId: 'purged-workspace', storageKey: 'legacy-attachment', resourceVersionId: 'purged-version', size: old.size }], blobs))
+      .rejects.toThrow('LEGACY_ATTACHMENT_VERSION_REQUIRED');
+    expect(await readFile(join(root, 'blobs', ...old.blobRef.split('/')))).toEqual(bytes);
+    expect(await reclaimKnownLegacyResourceFiles(root, versions, [], blobs)).toEqual({ resourceBlobs: 1, attachments: 0 });
+    expect(await blobs.read(live.blobRef, old.digest)).toEqual(bytes);
+    expect(await reclaimKnownLegacyResourceFiles(root, versions, [], blobs)).toEqual({ resourceBlobs: 0, attachments: 0 });
+    const purgedOnly = await raw.put(Buffer.from('purged-only raw copy'));
+    expect(await reclaimKnownLegacyResourceFiles(root, [{ ...versions[1]!, digest: purgedOnly.digest, size: purgedOnly.size }], [], blobs))
+      .toEqual({ resourceBlobs: 1, attachments: 0 });
+    expect(await auditLegacyFileReplicas(root, { resourceDigests: [old.digest, purgedOnly.digest], attachmentKeys: [], archiveDigests: [] }))
+      .toMatchObject({ resourceBlobs: 0 });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 it('refuses a raw Blob beneath a symlinked parent outside the upload root', async () => {
   const base = await mkdtemp(join(tmpdir(), 'rhiza-file-parent-'));
   try {

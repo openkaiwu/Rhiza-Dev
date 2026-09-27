@@ -403,13 +403,14 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     await this.acquireRuntimeOwnership();
     return this.inTransaction(async database => {
       await database.query('LOCK TABLE rhiza_resources,rhiza_resource_versions,rhiza_attachments IN SHARE MODE');
-      const versions = await database.query<{ workspace_id: string; resource_version_id: string; digest: string; size_bytes: number; blob_ref: string }>(`
-        SELECT r.workspace_id,rv.resource_version_id,rv.digest,rv.size_bytes,rv.blob_ref
+      const versions = await database.query<{ workspace_id: string; resource_version_id: string; digest: string; size_bytes: number; blob_ref: string; purged_at: unknown }>(`
+        SELECT r.workspace_id,rv.resource_version_id,rv.digest,rv.size_bytes,rv.blob_ref,rv.purged_at
         FROM rhiza_resource_versions rv JOIN rhiza_resources r ON r.resource_id=rv.resource_id`);
       const attachments = await database.query<{ project_id: string; storage_key: string; resource_version_id: string | null; size_bytes: number }>(
         'SELECT project_id,storage_key,resource_version_id,size_bytes FROM rhiza_attachments');
       return reclaimKnownLegacyResourceFiles(uploadDirectory, versions.rows.map(row => ({ workspaceId: row.workspace_id,
-        resourceVersionId: row.resource_version_id, digest: row.digest, size: Number(row.size_bytes), blobRef: row.blob_ref })),
+        resourceVersionId: row.resource_version_id, digest: row.digest, size: Number(row.size_bytes), blobRef: row.blob_ref,
+        ...(row.purged_at ? { purgedAt: asIso(row.purged_at) } : {}) })),
       attachments.rows.map(row => ({ workspaceId: row.project_id, storageKey: row.storage_key,
         resourceVersionId: row.resource_version_id, size: Number(row.size_bytes) })), blobs, limit);
     }, true);
