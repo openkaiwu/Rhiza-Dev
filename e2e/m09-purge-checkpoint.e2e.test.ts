@@ -150,6 +150,12 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       ] as const) await database.query('INSERT INTO purge_key_references(purge_id,ordinal,content_family,entity_id,content_ref) VALUES ($1,$2,$3,$4,$5::jsonb)',
         [purgeId, ordinal, family, entityId, JSON.stringify(reference)]);
       expect(await new PostgresWorkspaceStore(database, workspaceId).resumePendingPurges()).toEqual({ completed: 0, pending: 1 });
+      vi.spyOn(attachments, 'destroy').mockRejectedValueOnce(new Error('injected revocation interruption'));
+      expect(await store.resumePendingPurges()).toEqual({ completed: 0, pending: 1 });
+      await expect(resources.read(workspaceId, resourceId, resourceRef)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+      expect(await attachments.read(workspaceId, attachmentId, attachmentRef)).toMatchObject({ name: 'private.txt' });
+      expect((await database.query<{ revoked_at: unknown }>('SELECT revoked_at FROM purge_key_references WHERE purge_id=$1 ORDER BY ordinal', [purgeId])).rows
+        .every(row => row.revoked_at === null)).toBe(true);
       expect(await store.resumePendingPurges()).toEqual({ completed: 1, pending: 0 });
       await expect(resources.read(workspaceId, resourceId, resourceRef)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
       await expect(attachments.read(workspaceId, attachmentId, attachmentRef)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
