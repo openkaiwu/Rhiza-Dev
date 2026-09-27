@@ -705,6 +705,17 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     const checkpoints = new SqlBundleImportCheckpoints(database);
     const identity = { importId: randomUUID(), ownerId: 'import-owner', workspaceId: portable.workspace.projectId,
       archiveDigest: ready.archiveDigest, stateDigest: semanticStateChecksum({ facts: portable }) };
+    await database.query(`INSERT INTO bundle_imports(import_id,owner_id,workspace_id,archive_digest,state_digest,updated_at)
+      VALUES ($1,$2,$3,$4,$5,now() - interval '8 days')`,
+    [randomUUID(), identity.ownerId, identity.workspaceId, identity.archiveDigest, identity.stateDigest]);
+    expect(await new PostgresWorkspaceStore(database).retainedImportArchivePins()).not.toContain(identity.archiveDigest);
+    const otherImportId = randomUUID();
+    await database.query(`INSERT INTO bundle_imports(import_id,owner_id,workspace_id,archive_digest,state_digest)
+      VALUES ($1,$2,$3,$4,$5)`,
+    [otherImportId, identity.ownerId, identity.workspaceId, identity.archiveDigest, identity.stateDigest]);
+    expect(await new PostgresWorkspaceStore(database).retainedImportArchivePins()).toContain(identity.archiveDigest);
+    await database.query('DELETE FROM bundle_imports WHERE import_id=$1', [otherImportId]);
+    expect(await new PostgresWorkspaceStore(database).retainedImportArchivePins()).not.toContain(identity.archiveDigest);
     const interruptedBlobs = new NodeFilesystemBlobStore(join(uploadDirectory, 'imported-blobs'), () => { throw new Error('ingest-interrupted'); });
     await expect(prepareBundleImport(identity, checkpoints, () => ingestPortableBlobs(ready, interruptedBlobs))).rejects.toThrow('ingest-interrupted');
     expect(await checkpoints.read(identity.importId, identity.ownerId)).toMatchObject({ phase: 'validated', revision: 1 });

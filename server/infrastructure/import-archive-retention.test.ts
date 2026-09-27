@@ -8,6 +8,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { NodeImportArchiveStore } from './portable-content';
+import { NodeSealedContentStore } from './node-sealed-content-store';
 
 describe('retained import archive encryption and recovery window', () => {
   it('retains only ciphertext, honors a checkpoint pin, then destroys the key and reclaims the archive', async () => {
@@ -71,5 +72,32 @@ describe('retained import archive encryption and recovery window', () => {
       child.kill('SIGKILL');
       await rm(directory, { recursive: true, force: true });
     }
+  });
+
+  it('retries archive reclamation after key destruction but before descriptor removal', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-retained-reclaim-'));
+    try {
+      const bytes = Buffer.from('archive reclaim interruption');
+      const digest = createHash('sha256').update(bytes).digest('hex');
+      const source = join(directory, 'source.rhiza');
+      const root = join(directory, 'imports');
+      await writeFile(source, bytes);
+      const store = new NodeImportArchiveStore(root);
+      await store.retain(source, digest);
+      const descriptorPath = join(root, 'retained', `${digest}.json`);
+      const content = Reflect.get(store, 'content') as NodeSealedContentStore;
+      const destroy = content.destroy.bind(content);
+      const interrupted = vi.spyOn(content, 'destroy').mockImplementationOnce(async identity => {
+        await destroy(identity);
+        throw new Error('simulated interruption after key destruction');
+      });
+      const future = Date.now() + 1000;
+      await expect(store.reclaim(new Set(), 0, future)).rejects.toThrow('simulated interruption');
+      expect((await stat(descriptorPath)).isFile()).toBe(true);
+      await expect(store.stage(digest)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+      interrupted.mockRestore();
+      expect(await store.reclaim(new Set(), 0, future)).toMatchObject({ released: 1, retained: 0 });
+      await expect(stat(descriptorPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally { await rm(directory, { recursive: true, force: true }); }
   });
 });
