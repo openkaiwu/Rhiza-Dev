@@ -8,7 +8,6 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { NodeImportArchiveStore } from './portable-content';
-import { NodeSealedContentStore } from './node-sealed-content-store';
 
 describe('retained import archive encryption and recovery window', () => {
   it('retains only ciphertext, honors a checkpoint pin, then destroys the key and reclaims the archive', async () => {
@@ -74,8 +73,9 @@ describe('retained import archive encryption and recovery window', () => {
     }
   });
 
-  it('retries archive reclamation after key destruction but before descriptor removal', async () => {
+  it('resumes after SIGKILL between archive key destruction and descriptor removal', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'rhiza-retained-reclaim-'));
+    let child: ReturnType<typeof spawn> | undefined;
     try {
       const bytes = Buffer.from('archive reclaim interruption');
       const digest = createHash('sha256').update(bytes).digest('hex');
@@ -85,19 +85,21 @@ describe('retained import archive encryption and recovery window', () => {
       const store = new NodeImportArchiveStore(root);
       await store.retain(source, digest);
       const descriptorPath = join(root, 'retained', `${digest}.json`);
-      const content = Reflect.get(store, 'content') as NodeSealedContentStore;
-      const destroy = content.destroy.bind(content);
-      const interrupted = vi.spyOn(content, 'destroy').mockImplementationOnce(async identity => {
-        await destroy(identity);
-        throw new Error('simulated interruption after key destruction');
-      });
+      const moduleUrl = pathToFileURL(join(import.meta.dirname, 'portable-content.ts')).href;
+      child = spawn(process.execPath, ['--import', 'tsx', '--input-type=module', '-e',
+        `import { NodeImportArchiveStore } from ${JSON.stringify(moduleUrl)};
+         const store = new NodeImportArchiveStore(process.argv[1]);
+         const content = Reflect.get(store, 'content');
+         const destroy = content.destroy.bind(content);
+         content.destroy = async identity => { await destroy(identity); process.kill(process.pid, 'SIGKILL'); };
+         await store.reclaim(new Set(), 0, Date.now() + 1000);`, root],
+      { cwd: resolve(import.meta.dirname, '../..'), stdio: 'ignore' });
+      expect(await once(child, 'exit')).toEqual([null, 'SIGKILL']);
       const future = Date.now() + 1000;
-      await expect(store.reclaim(new Set(), 0, future)).rejects.toThrow('simulated interruption');
       expect((await stat(descriptorPath)).isFile()).toBe(true);
       await expect(store.stage(digest)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
-      interrupted.mockRestore();
       expect(await store.reclaim(new Set(), 0, future)).toMatchObject({ released: 1, retained: 0 });
       await expect(stat(descriptorPath)).rejects.toMatchObject({ code: 'ENOENT' });
-    } finally { await rm(directory, { recursive: true, force: true }); }
-  });
+    } finally { child?.kill('SIGKILL'); await rm(directory, { recursive: true, force: true }); }
+  }, 15_000);
 });
