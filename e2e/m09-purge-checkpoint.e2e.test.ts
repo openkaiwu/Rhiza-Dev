@@ -142,6 +142,8 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       expect((await database.query<{ content_family: string; entity_id: string }>(
         'SELECT content_family,entity_id FROM purge_key_references WHERE purge_id=$1', [purgeId])).rows)
         .toContainEqual({ content_family: 'context-item', entity_id: itemId });
+      expect((await database.query('SELECT source_id FROM context_candidate_index WHERE workspace_id=$1 AND source_type=$2 AND source_id=$3',
+        [workspaceId, 'reference', messageId])).rows).toHaveLength(0);
       await expect(content.read(workspaceId, itemId, reference)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
       expect((await store.read()).contextItems.some(item => item.id === itemId)).toBe(false);
     } finally { await database.close(); }
