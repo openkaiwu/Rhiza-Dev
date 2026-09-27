@@ -4,6 +4,8 @@
 
 Bundle staging 已接通归档文件、固定 schema 解码、引用/内容/历史最终状态对账，并在失败时清理临时目录。生产导入、解包、恢复和导出的工作文件位于项目私有 imports/transient 目录；服务启动时（取得运行时独占权后）清理遗留目录，强制中断后不长期保留明文。当前操作配额：Workspace JSON 为 64 MiB，JSON 嵌套深度最多 128，index/layout 为 16 MiB；Blob 仍按独立的流式归档配额处理。导出同样执行文档大小限制。迁移 0014 新增独立的导入 checkpoint 元数据：绑定用户、Workspace 和归档/状态摘要，幂等创建、版本化阶段推进，数据库拒绝身份修改和阶段倒退；该表不提前创建目标 Workspace。Application 经 UnitOfWork 将空目标的 Workspace、成员、Run、Provenance、Journal 和 activated checkpoint 写入同一事务；失败全部回滚。导入端把 portable `sha256` 内容按目标 `{workspaceId, resourceVersionId}` 重新封装为 `sealed-v1`，再把目标存储事实交给激活事务；portable facts 仍用于归档 identity/history/stateDigest 校验。恢复用归档按原 ZIP digest 建立独立 AES-GCM 密文与密钥，checkpoint 更新后保留七天；启动或停服维护时根据所有仍在恢复窗口内的 checkpoint pin 撤销过期归档密钥并回收密文。旧版明文保留 ZIP 经完整校验、密封与读回验证后移除。生产 composition root 的新 ResourceVersion、附件与 Context Blob 默认使用同一 scoped 加密适配器；旧 `sha256` 引用仅保留只读迁移能力。迁移 0029 允许并约束 scoped 引用，`pnpm run resources:seal-blobs` 在停服独占运行时按 Workspace 分批迁移旧 Blob，读回摘要和大小一致后才更新引用；原明文须等待全库引用与 Bundle/GC pin 审计后再清理。导入期间暂用粗粒度表锁并拒绝全局 ID 碰撞，以隔离既有 upsert 写入路径；M10 仍须清理这些旧路径。已验证新 PGlite 库的事实往返、Journal 阶段回滚、数据库重开恢复、图投影和继续对话。UI、强制进程中断及完整里程碑验收仍待完成。
 
+进程级 SIGKILL 故障注入现已覆盖 validated、blobs-ready 与未提交激活事务后的重启恢复；上一段仍待完成的“强制进程中断”指完整阶段矩阵，尤其是归档校验进行中的中断及真实 PostgreSQL 验证。
+
 > **文档地位（2026-09-06 刷新）**：本文是 **Current Implementation Snapshot**，只描述当前已落地行为；目标架构与开发顺序以 `docs/Rhiza_技术架构设计书_V4.2_20260829.md` 和 `docs/Rhiza_开发路线图_V4.2_20260829.md` 为准。M01–M08 的接受结论以 `docs/architecture-gates/` 中的 commit-bound evidence 为准；未配置 `DATABASE_URL` 时，真实 PostgreSQL 用例为 skipped，不视为通过。
 
 ## 1. Overview
