@@ -894,6 +894,8 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
       expect(requests[1]).toMatchObject({ prompt: original.input.request.prompt, history: original.input.request.history, contextItems: original.input.request.contextItems });
       expect(replayed.body.manifest.contextItems).toEqual(originalResponse.body.manifest.contextItems);
       expect(replayed.body.replay).toMatchObject({ classification: 'exact', sourceRunRef: original.id });
+      expect((await store.listRuns()).find(run => run.id !== original.id)).toMatchObject({ parentRunRef: original.id,
+        input: { replay: { classification: 'exact', sourceRunRef: original.id, sourceManifestRef: original.input.request.manifestId } } });
       const models = vi.spyOn(runtime, 'listModels').mockResolvedValue([{ ...model, endpointVersion: 'changed' }]);
       const refused = await request(app).post(url).send({ policy: 'exact' }).expect(409);
       expect(refused.body.error.code).toBe('REPLAY_CONTRACT_CHANGED');
@@ -910,6 +912,7 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
         const missing = await request(app).post(url).send({ policy: 'current-model' }).expect(409);
         expect(missing.body.error.code).toBe('REPLAY_MISSING_RESOURCE');
         expect(requests).toHaveLength(4);
+        expect(await store.listRuns()).toHaveLength(4);
       } finally { blobRead.mockRestore(); }
       expect(planner).not.toHaveBeenCalled();
       expect(await store.getRun(original.id)).toEqual(original);
