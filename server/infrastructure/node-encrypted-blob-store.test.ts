@@ -42,8 +42,17 @@ it('freezes context through encrypted blobs and independently revokes each versi
     await expect(new NodeContentKeys(join(root, 'keys')).read(failedIdentity)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     const recovered = await blobs.putStream((async function* () { yield sourceBytes; })(), version.digest, sourceBytes.length, failedIdentity);
     expect(await blobs.read(recovered.blobRef, recovered.digest)).toEqual(sourceBytes);
-    await content.destroy({ workspaceId: 'workspace-a', contentId: version.id });
+    const scopedVersion = { workspaceId: 'workspace-a', resourceVersionId: version.id,
+      digest: version.digest, size: version.size, blobRef: version.blobRef };
+    await expect(blobs.revokeResourceVersion({ ...scopedVersion, workspaceId: 'workspace-b' }))
+      .rejects.toThrow('RESOURCE_BLOB_IDENTITY_MISMATCH');
+    await expect(blobs.revokeResourceVersion({ ...scopedVersion, blobRef: `sha256/${version.digest.slice(0, 2)}/${version.digest}` }))
+      .rejects.toThrow('RESOURCE_BLOB_REQUIRES_SEALED_REFERENCE');
+    await blobs.revokeResourceVersion(scopedVersion);
+    await blobs.revokeResourceVersion(scopedVersion);
     await expect(blobs.read(version.blobRef, version.digest)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    await expect(blobs.put(sourceBytes, { workspaceId: 'workspace-a', contentId: version.id }))
+      .rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     const restored = new NodeEncryptedBlobStore(content);
     expect(JSON.parse(new TextDecoder().decode(await restored.read(second.resourceVersion.blobRef, second.resourceVersion.digest))).content).toBe(item.content);
   } finally { await rm(root, { recursive: true, force: true }); }

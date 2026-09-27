@@ -70,6 +70,12 @@ export class NodeEncryptedBlobStore implements BlobStorePort {
     return this.content.revokeUnreferencedKeys(this.keyIdentities(references));
   }
 
+  async revokeResourceVersion(reference: { workspaceId: string; resourceVersionId: string; digest: string; size: number; blobRef: string }): Promise<void> {
+    const [identity] = this.keyIdentities([reference]);
+    if (!identity) throw new Error('RESOURCE_BLOB_REQUIRES_SEALED_REFERENCE');
+    await this.content.destroy(identity);
+  }
+
   async read(blobRef: string, expectedDigest: string): Promise<Uint8Array> {
     if (blobRef.startsWith('sha256/')) {
       if (!this.legacy) throw new Error('LEGACY_BLOB_REFERENCE_UNAVAILABLE');
