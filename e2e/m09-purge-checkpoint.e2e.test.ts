@@ -191,4 +191,42 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       expect((await database.query<{ count: number }>('SELECT count(*)::int count FROM purge_checkpoints')).rows[0]?.count).toBe(0);
     } finally { await database.close(); }
   }, 30_000);
+
+  it('keeps a node and its ResourceVersion intact when legacy messages reference an attachment', async () => {
+    const database = await migratedDatabase(backend);
+    const workspaceId = randomUUID();
+    const store = new PostgresWorkspaceStore(database, workspaceId);
+    try {
+      await store.read();
+      const nodeId = randomUUID();
+      const messageId = randomUUID();
+      const attachmentId = randomUUID();
+      const resourceId = randomUUID();
+      const versionId = randomUUID();
+      const purgeId = randomUUID();
+      const createdAt = new Date().toISOString();
+      const digest = 'a'.repeat(64);
+      await store.update(current => ({ ...current,
+        discussionNodes: [...current.discussionNodes, { id: nodeId, title: 'resource-bearing node', summary: '',
+          status: 'archived', kind: 'branch', sourceNodeId: current.activeNodeId, x: 0, y: 0, createdAt, updatedAt: createdAt }],
+        resources: [...current.resources, { id: resourceId, workspaceId, kind: 'attachment', logicalName: 'secret.txt', createdAt }],
+        resourceVersions: [...current.resourceVersions, { id: versionId, resourceId, version: 1, digestAlgorithm: 'sha256',
+          digest, canonicalization: 'raw-v1', mediaType: 'text/plain', size: 6, blobRef: `sha256/aa/${digest}`, createdAt }],
+        attachments: [...current.attachments, { id: attachmentId, name: 'secret.txt', mimeType: 'text/plain', size: 6,
+          kind: 'file', resourceId, resourceVersionId: versionId, digest, blobRef: `sha256/aa/${digest}`, createdAt }],
+        messages: [...current.messages, { id: messageId, nodeId, kind: 'user', text: 'legacy attachment', attachmentIds: [attachmentId], createdAt }],
+      }));
+      await expect(store.update(current => ({ ...current,
+        discussionNodes: current.discussionNodes.filter(node => node.id !== nodeId),
+        messages: current.messages.filter(message => message.id !== messageId),
+        auditEvents: [...current.auditEvents, { id: purgeId, projectId: workspaceId, nodeId, action: 'node.purged',
+          entityType: 'node', entityId: nodeId, metadata: { reason: 'test' }, createdAt }],
+      }), { purge: { nodeId, auditReceiptId: purgeId } })).rejects.toMatchObject({ code: 'PURGE_HAS_RESOURCE_HISTORY', status: 409 });
+      const retained = await store.read();
+      expect(retained.discussionNodes).toContainEqual(expect.objectContaining({ id: nodeId }));
+      expect(retained.attachments).toContainEqual(expect.objectContaining({ id: attachmentId, resourceVersionId: versionId }));
+      expect((await database.query<{ count: number }>('SELECT count(*)::int count FROM rhiza_resource_versions WHERE resource_version_id=$1', [versionId])).rows[0]?.count).toBe(1);
+      expect((await database.query<{ count: number }>('SELECT count(*)::int count FROM purge_checkpoints')).rows[0]?.count).toBe(0);
+    } finally { await database.close(); }
+  }, 30_000);
 });

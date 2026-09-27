@@ -129,6 +129,7 @@
 - Purge 的 SQL 删除、redacted provenance、审计事实与待撤销 scoped key 清单必须同事务提交；提交后 key destroy 可中断且不可回滚，因此逐项 acknowledgement 与 checkpoint 必须允许重复撤销。启动取得 runtime ownership 后先分批排空 pending checkpoint，再读 Workspace、回填 Journal 或开放 HTTP；某一批无法推进则拒绝启动，不能只记录警告。执行历史保护只能在 Run、Journal、receipt/trace 等每一份正文副本均进入该流程后移除。
 - Journal Purge 不更新 append-only 事件行；在同一事务发布脱敏 baseline/tail 覆盖层并登记原有效载荷密钥，所有历史读取与密钥对账只认覆盖层。无已加密且可重放的 baseline 时拒绝 Purge；仅删除 Current State 会让旧 Journal snapshot 泄露正文。
 - Purge 的幂等回执读取也属于历史正文边界：同事务标记旧密文回执不可读并登记 result/error 密钥，重试旧 command id 必须返回 `RECEIPT_PURGED` 而非重放旧结果；旧明文回执先迁移，否则拒绝 Purge。
+- 旧消息可直接持有 `attachmentIds`，即使没有 Run/Manifest 也会让原始 ResourceVersion Blob 在节点删除后继续可读。共享历史校验以 `PURGE_HAS_RESOURCE_HISTORY` 拒绝这类 Purge；在资源身份、派生块、Blob key 与 Bundle/备份副本完成统一撤销前不可放行。
 
 - Graph layout command 的 `nodeId` 只用于定位节点，写回领域节点时只合入 `x/y`；否则 JSON 中多出的命令字段会与 SQL 重读结果不同，触发事务语义校验回滚。
 

@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -419,6 +420,25 @@ describe('Rhiza API', () => {
     expect(purged.body.workspace.manifests.some((manifest: { nodeId: string }) => manifest.nodeId === nodeId)).toBe(false);
     expect(purged.body.workspace.contextItems.some((item: { sourceId?: string; sourceNodeId?: string }) => item.sourceId === nodeId || item.sourceId === segmentId || item.sourceNodeId === nodeId)).toBe(false);
     expect(purged.body.purgeReceipt).toMatchObject({ action: 'node.purged', entityType: 'node', entityId: nodeId, metadata: { reason: '测试显式物理清除', confirmation: 'explicit-id-phrase' } });
+  });
+
+  it('does not claim Purge while a node message still owns an attachment', async () => {
+    const { app, store } = await testApp();
+    const created = await request(app).post('/api/nodes').send({ title: 'Resource-bearing branch', messages: [{ kind: 'user', text: 'attached secret' }] }).expect(201);
+    const nodeId = created.body.workspace.activeNodeId as string;
+    const attachmentId = randomUUID();
+    await store.update(current => ({ ...current,
+      attachments: [...current.attachments, { id: attachmentId, name: 'secret.txt', mimeType: 'text/plain', size: 6,
+        kind: 'file', createdAt: new Date().toISOString() }],
+      messages: current.messages.map(message => message.nodeId === nodeId ? { ...message, attachmentIds: [attachmentId] } : message),
+    }));
+    await request(app).delete(`/api/graph/nodes/${nodeId}`).expect(200);
+    const response = await request(app).post(`/api/graph/nodes/${nodeId}/purge`)
+      .send({ confirmation: `PURGE ${nodeId}`, reason: 'attachment must be handled' }).expect(409);
+    expect(response.body.error.code).toBe('PURGE_HAS_RESOURCE_HISTORY');
+    const retained = (await request(app).get('/api/workspace').expect(200)).body.workspace;
+    expect(retained.discussionNodes).toContainEqual(expect.objectContaining({ id: nodeId, status: 'archived' }));
+    expect(retained.attachments).toContainEqual(expect.objectContaining({ id: attachmentId, name: 'secret.txt' }));
   });
 
   it('keeps runtime history and persisted messages scoped to the active graph node', async () => {

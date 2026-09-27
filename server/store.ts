@@ -117,6 +117,9 @@ export function validateWorkspaceHistoryUpdate(previous: WorkspaceData, next: Wo
     || removedManifestIds.some(id => priorManifests.get(id)?.nodeId !== purge.nodeId)) {
     throw new Error('Purge capability may remove only history owned by its specified node');
   }
+  if (removedMessageIds.some(id => priorMessages.get(id)?.attachmentIds?.length)) {
+    throw Object.assign(new Error('该节点的历史消息仍引用附件资源，请使用归档；Purge 需要先覆盖资源密钥撤销。'), { code: 'PURGE_HAS_RESOURCE_HISTORY', status: 409 });
+  }
   const removedSegments = previous.segments.filter(item => !next.segments.some(candidate => candidate.id === item.id));
   const removedAnchors = previous.anchors.filter(item => !next.anchors.some(candidate => candidate.id === item.id));
   const removedEdges = previous.discussionEdges.filter(item => !next.discussionEdges.some(candidate => candidate.id === item.id));

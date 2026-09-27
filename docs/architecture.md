@@ -22,6 +22,8 @@ M09 当前实现：新 Assistant output 在原事务内写入 `provenance_links`
 
 迁移 0032 将 Purge 前已密封的 CommandReceipt result/error 纳入同一 checkpoint；SQL 标记后，重复命令只返回 `RECEIPT_PURGED`，审计读取只保留回执身份和序列。旧明文回执阻断 Purge，必须先完成既有分批密封迁移。此策略会同时撤销该 Workspace 中与目标节点无关的旧回执正文；新 Purge 命令回执不在旧密钥清单内。Run、trace、归档与备份边界尚未闭合，执行历史保护继续生效。
 
+历史消息若持有附件 ID，共享历史校验返回 `PURGE_HAS_RESOURCE_HISTORY`，避免删除节点后仍由 ResourceVersion/Blob 路径读到原始附件。该拒绝仅是完整资源撤销前的安全边界，不代表附件、派生文件块和外部 Bundle 已进入 Purge checkpoint。
+
 Bundle 导出通过 `/api/v1/workspaces/:workspaceId/bundle` 读取同一事务中的完整 Workspace、Run、Provenance 与 Journal；Application 构造去除运行环境位置和凭据元数据的 portable DTO，Node adapter 以 ZIP 和 SHA-256 描述符输出冻结内容。去除 endpoint 配置后重新计算 portable inputHash，并用 originInputHash 保留原执行引用；该快照不能直接声明 Exact Replay。Domain 定义 portable Workspace v1 schema；Node 解码器使用本地固定 schema 校验字段、引用闭合、内容摘要与每个 Run 的描述符身份，归档携带的 schema 仅作文档。Journal payload 继续使用现有 envelope schema，逐事件历史一致性恢复仍需实现。空目标导入保留原逻辑身份，既有目标拒绝覆盖；同一已激活 checkpoint 的重复调用幂等。`POST /api/bundle/import` 接收 `application/vnd.rhiza.workspace+zip` 流，经 ImportWorkspaceBundle Command 完成导入；当前仅接受归档中的 owner 身份，不执行跨用户身份映射。`Idempotency-Key` 用于重试，归档保存在独立 imports 目录以支持恢复。
 
 当前仓库不是 LibreChat fork。按 V4.2 基线，现有 `server/provider-*` 承担当前 API 配置的 Runtime Adapter 职责；`librechat-data-provider` 提供共享 Model Spec 与文件策略，Rhiza 的 Project、Node、Edge、Context 与 State 语义保持独立。后续迁移仍应扩展 Runtime 能力，而不是让 LibreChat Conversation/Mongo schema 进入 Rhiza Domain。旧映射仅见 `docs/archive/librechat-migration.md`，不定义当前架构。
