@@ -37,6 +37,7 @@ import { SealedFileChunkContent, fileChunkStorageProjection, type SealedFileChun
 import { SealedAttachmentContent, type SealedAttachmentRef } from './infrastructure/sealed-attachment-content';
 import { SealedResourceContent, type SealedResourceRef } from './infrastructure/sealed-resource-content';
 import type { BlobStorePort } from './application/ports/host-runtime';
+import type { NodeEncryptedBlobStore } from './infrastructure/node-encrypted-blob-store';
 import { manifestReferenceProjection, SealedManifestContent, type SealedManifestRef } from './infrastructure/sealed-manifest-content';
 
 interface QueryResult<Row> { rows: Row[] }
@@ -351,6 +352,31 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
   async reclaimHistoricalKeys() {
     await this.acquireRuntimeOwnership();
     return (await this.inspectHistoricalKeys(true)).revoked;
+  }
+
+  async auditResourceBlobKeys(blobs: NodeEncryptedBlobStore) {
+    return (await this.inspectResourceBlobKeys(blobs, false)).audit;
+  }
+
+  /** Offline only; the upload/key directory must belong solely to this database. */
+  async reclaimResourceBlobKeys(blobs: NodeEncryptedBlobStore) {
+    await this.acquireRuntimeOwnership();
+    return (await this.inspectResourceBlobKeys(blobs, true)).revoked;
+  }
+
+  private async inspectResourceBlobKeys(blobs: NodeEncryptedBlobStore, reclaim: boolean) {
+    return this.inTransaction(async database => {
+      if (reclaim) await database.query('LOCK TABLE rhiza_resources,rhiza_resource_versions IN SHARE MODE');
+      const { rows } = await database.query<{ workspace_id: string; resource_version_id: string; digest: string; size_bytes: number; blob_ref: string }>(`
+        SELECT r.workspace_id,rv.resource_version_id,rv.digest,rv.size_bytes,rv.blob_ref
+        FROM rhiza_resource_versions rv JOIN rhiza_resources r ON r.resource_id=rv.resource_id`);
+      const references = rows.map(row => ({ workspaceId: row.workspace_id, resourceVersionId: row.resource_version_id,
+        digest: row.digest, size: Number(row.size_bytes), blobRef: row.blob_ref }));
+      const audit = await blobs.auditKeys(references);
+      if (reclaim && audit.some(record => record.referenced && record.state !== 'active')) throw new Error('RESOURCE_BLOB_KEYS_UNHEALTHY');
+      const revoked = reclaim ? await blobs.revokeUnreferencedKeys(references) : 0;
+      return { audit, revoked };
+    }, reclaim);
   }
 
   private async inspectHistoricalKeys(reclaim: boolean) {

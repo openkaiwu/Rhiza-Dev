@@ -46,6 +46,30 @@ export class NodeEncryptedBlobStore implements BlobStorePort {
     } } };
   }
 
+  private keyIdentities(references: ReadonlyArray<{ workspaceId: string; resourceVersionId: string; digest: string; size: number; blobRef: string }>) {
+    return references.flatMap(item => {
+      if (!/^[a-f0-9]{64}$/.test(item.digest) || !Number.isSafeInteger(item.size) || item.size < 0) throw new Error('RESOURCE_BLOB_REFERENCE_INVALID');
+      if (item.blobRef.startsWith('sha256/')) {
+        if (item.blobRef !== `sha256/${item.digest.slice(0, 2)}/${item.digest}`) throw new Error('RESOURCE_BLOB_REFERENCE_INVALID');
+        return [];
+      }
+      const { identity, reference } = this.decode(item.blobRef, item.digest);
+      if (identity.workspaceId !== item.workspaceId || identity.contentId !== item.resourceVersionId || reference.size !== item.size) {
+        throw new Error('RESOURCE_BLOB_IDENTITY_MISMATCH');
+      }
+      return [identity];
+    });
+  }
+
+  auditKeys(references: ReadonlyArray<{ workspaceId: string; resourceVersionId: string; digest: string; size: number; blobRef: string }>) {
+    return this.content.auditKeys(this.keyIdentities(references));
+  }
+
+  /** Offline only: the caller must hold the complete database reference snapshot and exclude publishers. */
+  revokeUnreferencedKeys(references: ReadonlyArray<{ workspaceId: string; resourceVersionId: string; digest: string; size: number; blobRef: string }>) {
+    return this.content.revokeUnreferencedKeys(this.keyIdentities(references));
+  }
+
   async read(blobRef: string, expectedDigest: string): Promise<Uint8Array> {
     if (blobRef.startsWith('sha256/')) {
       if (!this.legacy) throw new Error('LEGACY_BLOB_REFERENCE_UNAVAILABLE');

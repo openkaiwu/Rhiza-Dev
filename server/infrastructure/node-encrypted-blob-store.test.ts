@@ -21,6 +21,10 @@ it('freezes context through encrypted blobs and independently revokes each versi
     expect(first.resourceVersion.digest).toBe(second.resourceVersion.digest);
     expect(first.resourceVersion.blobRef).not.toBe(second.resourceVersion.blobRef);
     const version = first.resourceVersion;
+    expect(() => blobs.auditKeys([{ workspaceId: 'workspace-b', resourceVersionId: version.id, digest: version.digest,
+      size: version.size, blobRef: version.blobRef }])).toThrow('RESOURCE_BLOB_IDENTITY_MISMATCH');
+    expect(() => blobs.auditKeys([{ workspaceId: 'workspace-a', resourceVersionId: version.id, digest: version.digest,
+      size: version.size + 1, blobRef: version.blobRef }])).toThrow('RESOURCE_BLOB_IDENTITY_MISMATCH');
     expect(JSON.parse(new TextDecoder().decode(await blobs.read(version.blobRef, version.digest))).content).toBe(item.content);
     await expect(blobs.read(version.blobRef, '0'.repeat(64))).rejects.toThrow('CONTENT_REFERENCE_INVALID');
     await expect(blobs.put(new Uint8Array([1]))).rejects.toThrow('CONTENT_IDENTITY_REQUIRED');
