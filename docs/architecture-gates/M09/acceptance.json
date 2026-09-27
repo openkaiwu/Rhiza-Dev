@@ -6,7 +6,7 @@
     "import_recovery_round_trip": { "status": "pending", "evidencePaths": [] },
     "purge_replica_erasure": { "status": "pending", "evidencePaths": [] },
     "postgres_staging": { "status": "pending", "evidencePaths": [] },
-    "browser_acceptance": { "status": "pending", "evidencePaths": [] },
+    "browser_acceptance": { "status": "pass", "evidencePaths": ["docs/architecture-gates/M09/bundle-browser-check.md", "docs/architecture-gates/M09/replay-browser-check.md", "docs/architecture-gates/M09/provenance-run-backed-desktop.png", "docs/architecture-gates/M09/provenance-run-backed-narrow.png", "docs/architecture-gates/M09/clean-import-replay-desktop.png", "docs/architecture-gates/M09/clean-import-replay-narrow.png"] },
     "backup_retention": { "status": "pending", "evidencePaths": [] }
   }
 }

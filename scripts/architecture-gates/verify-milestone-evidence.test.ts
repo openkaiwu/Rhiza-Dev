@@ -278,6 +278,8 @@ describe('M09 strict closure evidence', () => {
     expect(paths.has('docs/architecture-gates/M09/bundle-browser-check.md')).toBe(true);
     expect(paths.has('docs/architecture-gates/M09/bundle-desktop.jpg')).toBe(true);
     expect(paths.has('docs/architecture-gates/M09/provenance-narrow.jpg')).toBe(true);
+    expect(paths.has('docs/architecture-gates/M09/provenance-run-backed-desktop.png')).toBe(true);
+    expect(paths.has('docs/architecture-gates/M09/clean-import-replay-narrow.png')).toBe(true);
     expect(paths.has('docs/architecture-gates/M09/plaintext-audit-check.md')).toBe(true);
     expect(paths.has('docs/architecture-gates/M09/trace-sanitization-check.md')).toBe(true);
     expect(paths.has('docs/architecture-gates/M09/purge-projection-check.md')).toBe(true);
