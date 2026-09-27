@@ -112,6 +112,10 @@ const changedItems = <T extends { id: string }>(items: T[], previous?: T[]): T[]
   const before = new Map(previous.map(item => [item.id, JSON.stringify(item)]));
   return items.filter(item => before.get(item.id) !== JSON.stringify(item));
 };
+const removedIds = <T extends { id: string }>(before: T[], after: T[]): string[] => {
+  const remaining = new Set(after.map(item => item.id));
+  return before.filter(item => !remaining.has(item.id)).map(item => item.id);
+};
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 function stableUuid(namespace: string, kind: string, value: string): string {
@@ -1758,27 +1762,22 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       const rows = await database.query<{ entity_id: string; content_ref: unknown }>(sql, values);
       for (const row of rows.rows) references.push({ family, entityId: String(row.entity_id), reference: asJson(row.content_ref) });
     };
-    const removed = <T extends { id: string }>(before: T[], after: T[]) => {
-      const remaining = new Set(after.map(item => item.id));
-      return before.filter(item => !remaining.has(item.id)).map(item => item.id);
-    };
     await collect('node', 'SELECT id::text entity_id,content_ref FROM rhiza_nodes WHERE project_id=$1 AND id=$2 AND content_ref IS NOT NULL', [workspace.projectId, purge.nodeId]);
     await collect('message', 'SELECT m.id::text entity_id,m.content_ref FROM rhiza_messages m JOIN rhiza_nodes n ON n.id=m.node_id WHERE n.project_id=$1 AND m.id=ANY($2::uuid[]) AND m.content_ref IS NOT NULL',
-      [workspace.projectId, removed(previous.messages, workspace.messages)]);
+      [workspace.projectId, removedIds(previous.messages, workspace.messages)]);
     await collect('manifest', 'SELECT id::text entity_id,content_ref FROM rhiza_context_manifests WHERE project_id=$1 AND id=ANY($2::uuid[]) AND content_ref IS NOT NULL',
-      [workspace.projectId, removed(previous.manifests, workspace.manifests)]);
+      [workspace.projectId, removedIds(previous.manifests, workspace.manifests)]);
     await collect('segment', 'SELECT s.id::text entity_id,s.content_ref FROM rhiza_segments s JOIN rhiza_nodes n ON n.id=s.node_id WHERE n.project_id=$1 AND s.id=ANY($2::uuid[]) AND s.content_ref IS NOT NULL',
-      [workspace.projectId, removed(previous.segments, workspace.segments)]);
+      [workspace.projectId, removedIds(previous.segments, workspace.segments)]);
     await collect('anchor', 'SELECT id::text entity_id,content_ref FROM rhiza_anchors WHERE project_id=$1 AND id=ANY($2::uuid[]) AND content_ref IS NOT NULL',
-      [workspace.projectId, removed(previous.anchors, workspace.anchors)]);
+      [workspace.projectId, removedIds(previous.anchors, workspace.anchors)]);
     await collect('edge', 'SELECT id::text entity_id,content_ref FROM rhiza_edges WHERE project_id=$1 AND id=ANY($2::uuid[]) AND content_ref IS NOT NULL',
-      [workspace.projectId, removed(previous.discussionEdges, workspace.discussionEdges)]);
+      [workspace.projectId, removedIds(previous.discussionEdges, workspace.discussionEdges)]);
 
     const stored = (await database.query<{ items: unknown }>("SELECT state->'contextItems' AS items FROM rhiza_projects WHERE id=$1", [workspace.projectId])).rows[0];
-    const currentIds = new Set(workspace.contextItems.map(item => item.id));
-    const removedIds = new Set(previous.contextItems.filter(item => !currentIds.has(item.id)).map(item => item.id));
+    const removedContextIds = new Set(removedIds(previous.contextItems, workspace.contextItems));
     for (const item of asJson<Array<{ id: string; contentRef?: SealedContextItemRef }>>(stored?.items || [])) {
-      if (removedIds.has(item.id) && item.contentRef) references.push({ family: 'context-item', entityId: item.id, reference: item.contentRef });
+      if (removedContextIds.has(item.id) && item.contentRef) references.push({ family: 'context-item', entityId: item.id, reference: item.contentRef });
     }
 
     const receipts = await database.query<{ command_id: string; status: string; result: unknown; error: unknown; result_content_ref: unknown; error_content_ref: unknown }>(
@@ -1826,23 +1825,27 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
   private async persist(database: SqlQueryable, workspace: WorkspaceData, previous?: WorkspaceData, options?: WorkspaceUpdateOptions): Promise<void> {
     if (options?.purge) {
       const nodeId = options.purge.nodeId;
-      const sealedRuns = await database.query<{ record: ExecutionRun; input_content_ref: unknown }>('SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1 AND input_content_ref IS NOT NULL', [workspace.projectId]);
-      let sealedReference = false;
-      for (const row of sealedRuns.rows) {
+      if (!previous) throw new Error('PURGE_PREVIOUS_STATE_REQUIRED');
+      const affectedIds = new Set([nodeId, ...[
+        removedIds(previous.messages, workspace.messages), removedIds(previous.segments, workspace.segments),
+        removedIds(previous.manifests, workspace.manifests), removedIds(previous.anchors, workspace.anchors),
+        removedIds(previous.contextItems, workspace.contextItems),
+      ].flat()]);
+      // ponytail: Purge is rare; scan frozen Runs until a persisted reference index is justified by volume.
+      const runs = await database.query<{ record: ExecutionRun; input_content_ref: unknown }>('SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1', [workspace.projectId]);
+      for (const row of runs.rows) {
         const run = await this.decodeRun(row);
-        if (run.nodeId === nodeId || run.nodeId === `temp:${nodeId}`
-          || run.input.request.history.some(item => item.nodeId === nodeId)
-          || run.input.request.contextItems.some(item => item.sourceNodeId === nodeId || (item.sourceType === 'node' && item.sourceId === nodeId))) {
-          sealedReference = true;
-          break;
+        const request = run.input.request;
+        if (run.nodeId === nodeId || run.nodeId === `temp:${nodeId}` || request.nodeId === nodeId
+          || affectedIds.has(request.manifestId) || (request.sourceMessageId && affectedIds.has(request.sourceMessageId))
+          || (run.input.replay?.sourceManifestRef && affectedIds.has(run.input.replay.sourceManifestRef))
+          || request.history.some(item => [item.id, item.nodeId, item.manifestId, item.segmentId, item.sourceMessageId, item.replyToMessageId]
+            .some(ref => ref && affectedIds.has(ref)))
+          || request.contextItems.some(item => [item.id, item.sourceNodeId, item.sourceId]
+            .some(ref => ref && affectedIds.has(ref)))) {
+          throw Object.assign(new Error('该节点仍被不可变执行历史引用，请使用归档；物理删除需要统一的执行历史清理策略。'), { code: 'PURGE_HAS_EXECUTION_HISTORY', status: 409 });
         }
       }
-      const retained = await database.query(`SELECT run_id FROM execution_runs WHERE workspace_id=$1 AND (
-        node_id=$2 OR node_id='temp:' || $2 OR input_envelope->'request'->'history' @> $3::jsonb
-        OR input_envelope->'request'->'contextItems' @> $4::jsonb OR input_envelope->'request'->'contextItems' @> $5::jsonb) LIMIT 1`,
-        [workspace.projectId, nodeId, JSON.stringify([{ nodeId }]), JSON.stringify([{ sourceNodeId: nodeId }]), JSON.stringify([{ sourceType: 'node', sourceId: nodeId }])]);
-      if (sealedReference || retained.rows.length) throw Object.assign(new Error('该节点仍被不可变执行历史引用，请使用归档；物理删除需要统一的执行历史清理策略。'), { code: 'PURGE_HAS_EXECUTION_HISTORY', status: 409 });
-      if (!previous) throw new Error('PURGE_PREVIOUS_STATE_REQUIRED');
       await this.stagePurgeCheckpoint(database, workspace, previous, options.purge);
     }
     const nodes = changedItems(workspace.discussionNodes, previous?.discussionNodes);

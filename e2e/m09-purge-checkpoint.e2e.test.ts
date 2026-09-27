@@ -14,6 +14,7 @@ import { SealedJournalContent, type SealedJournalRef } from '../server/infrastru
 import { SealedReceiptContent, type SealedReceiptRef } from '../server/infrastructure/sealed-receipt-content';
 import { SealedContextItemContent, type SealedContextItemRef } from '../server/infrastructure/sealed-context-item-content';
 import { SealedRunContent } from '../server/infrastructure/sealed-run-content';
+import type { ContextEnvelope, ExecutionRun } from '../server/execution-runtime/run';
 import { SealedResourceContent } from '../server/infrastructure/sealed-resource-content';
 import { SealedAttachmentContent } from '../server/infrastructure/sealed-attachment-content';
 import { SealedFileChunkContent } from '../server/infrastructure/sealed-file-chunk-content';
@@ -489,6 +490,51 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       expect(retained.discussionNodes).toContainEqual(expect.objectContaining({ id: nodeId }));
       expect(retained.attachments).toContainEqual(expect.objectContaining({ id: attachmentId, resourceVersionId: versionId }));
       expect((await database.query<{ count: number }>('SELECT count(*)::int count FROM rhiza_resource_versions WHERE resource_version_id=$1', [versionId])).rows[0]?.count).toBe(1);
+      expect((await database.query<{ count: number }>('SELECT count(*)::int count FROM purge_checkpoints')).rows[0]?.count).toBe(0);
+    } finally { await database.close(); }
+  }, 30_000);
+
+  it.each(['legacy', 'sealed'] as const)('rejects Purge when another node\'s %s Run references a removed Message', async kind => {
+    const database = await migratedDatabase(backend);
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-purge-cross-run-'));
+    directories.push(directory);
+    const runContent = kind === 'sealed' ? SealedRunContent.atDirectory(directory) : undefined;
+    const workspaceId = randomUUID(), nodeId = randomUUID(), messageId = randomUUID(), runId = randomUUID(), purgeId = randomUUID();
+    const store = new PostgresWorkspaceStore(database, workspaceId, undefined, runContent);
+    try {
+      const current = await store.read();
+      await store.workspaceDirectory.ensureWorkspace({ workspaceId, name: 'Purge Run reference', status: 'active', createdBy: randomUUID(), revision: 1 });
+      const createdAt = new Date().toISOString();
+      await store.update(workspace => ({ ...workspace,
+        discussionNodes: [...workspace.discussionNodes, { id: nodeId, title: 'archived secret', summary: '',
+          status: 'archived' as const, kind: 'branch' as const, sourceNodeId: current.activeNodeId,
+          x: 0, y: 0, createdAt, updatedAt: createdAt }],
+        messages: [...workspace.messages, { id: messageId, nodeId, kind: 'user' as const, text: 'Run source secret', createdAt }],
+      }));
+      const input: ContextEnvelope = { schemaVersion: '1.0.0', request: {
+        requestId: runId, manifestId: randomUUID(), projectId: workspaceId, nodeId: current.activeNodeId,
+        modelId: 'test-model', prompt: 'unrelated prompt', history: [], mode: 'Assisted',
+        contextItems: kind === 'sealed' ? [{ id: randomUUID(), title: 'source', detail: 'Run source secret',
+          role: 'Reference', status: 'active', tokens: 1, sourceType: 'reference', sourceId: messageId }] : [],
+        ...(kind === 'legacy' ? { sourceMessageId: messageId } : {}),
+      }, executor: { runtime: 'provider-adapter', modelSpecRef: 'model', providerEndpointRef: 'endpoint', model: 'test', provider: 'test' } };
+      const inputHash = semanticStateChecksum(input as unknown as Record<string, unknown>);
+      const run: ExecutionRun = { id: runId, workspaceId, nodeId: current.activeNodeId, commandId: randomUUID(),
+        status: 'completed', attempt: 1, input, inputHash, createdAt, telemetry: { traceCount: 0 } };
+      const storedInput = runContent ? { sealed: true } : input;
+      const reference = runContent ? await runContent.seal(workspaceId, runId, input, inputHash) : null;
+      await database.query(`INSERT INTO execution_runs
+        (run_id,workspace_id,command_id,node_id,status,attempt,input_envelope,input_hash,model_spec_ref,provider_endpoint_ref,record,input_content_ref)
+        VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11::jsonb,$12::jsonb)`,
+      [run.id, workspaceId, run.commandId, run.nodeId, run.status, run.attempt, JSON.stringify(storedInput), inputHash,
+        'model', 'endpoint', JSON.stringify({ ...run, input: storedInput }), reference ? JSON.stringify(reference) : null]);
+      await expect(store.update(workspace => ({ ...workspace,
+        discussionNodes: workspace.discussionNodes.filter(node => node.id !== nodeId),
+        messages: workspace.messages.filter(message => message.id !== messageId),
+        auditEvents: [...workspace.auditEvents, { id: purgeId, projectId: workspaceId, nodeId,
+          action: 'node.purged', entityType: 'node', entityId: nodeId, metadata: { reason: 'test' }, createdAt }],
+      }), { purge: { nodeId, auditReceiptId: purgeId } })).rejects.toMatchObject({ code: 'PURGE_HAS_EXECUTION_HISTORY', status: 409 });
+      expect((await store.read()).messages.some(message => message.id === messageId)).toBe(true);
       expect((await database.query<{ count: number }>('SELECT count(*)::int count FROM purge_checkpoints')).rows[0]?.count).toBe(0);
     } finally { await database.close(); }
   }, 30_000);
