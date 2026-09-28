@@ -21,6 +21,8 @@ import { SealedFileChunkContent } from '../server/infrastructure/sealed-file-chu
 import { NodeEncryptedBlobStore } from '../server/infrastructure/node-encrypted-blob-store';
 import { NodeFilesystemBlobStore } from '../server/infrastructure/node-host-runtime';
 import { NodeImportArchiveStore } from '../server/infrastructure/portable-content';
+import { NodeContentKeys } from '../server/infrastructure/node-content-keys';
+import { SqlBundleImportCheckpoints } from '../server/infrastructure/bundle-import-checkpoints';
 import { validatePortableHistory } from '../server/application/portable-history';
 import { semanticStateChecksum } from '../server/infrastructure/workspace-semantic-checksum';
 import { workspaceSemanticSnapshot } from '../server/domain-journal';
@@ -111,11 +113,21 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
         .toEqual({ phase: 'pending', last_error: 'INJECTED_REVOCATION_FAILURE' });
       expect((await database.query<{ content_family: string; entity_id: string }>('SELECT content_family,entity_id FROM purge_key_references WHERE purge_id=$1', [purgeId])).rows)
         .toContainEqual({ content_family: 'import-archive', entity_id: digest });
+      const otherWorkspace = storeWithArchive(database, randomUUID(), archive);
+      const otherIdentity = { importId: randomUUID(), ownerId: 'other', workspaceId: otherWorkspace.defaultWorkspaceId,
+        archiveDigest: digest, stateDigest: 'c'.repeat(64) };
+      await expect(otherWorkspace.bundleImportCheckpoints.begin(otherIdentity)).rejects.toMatchObject({ code: 'BUNDLE_ARCHIVE_PURGE_PENDING', status: 409 });
       revoke.mockRestore();
       expect(await store.resumePendingPurges()).toEqual({ completed: 1, pending: 0 });
       await expect(archive.stage(digest)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
       expect(await store.retainedImportArchivePins()).toEqual(new Set());
       await expect(store.bundleImportCheckpoints.begin(identity)).rejects.toMatchObject({ code: 'BUNDLE_TARGET_PURGED', status: 409 });
+      await otherWorkspace.bundleImportCheckpoints.begin(otherIdentity);
+      await archive.retain(source, digest);
+      const descriptor = JSON.parse(await readFile(join(directory, 'imports', 'retained', `${digest}.json`), 'utf8')) as { contentId: string };
+      expect((await new NodeContentKeys(join(directory, 'imports', 'keys')).audit([
+        { workspaceId: 'rhiza-bundle-import', contentId: descriptor.contentId },
+      ])).find(item => item.referenced)?.state).toBe('active');
       expect((await store.read()).discussionNodes.some(node => node.id === nodeId)).toBe(false);
     } finally { await database.close(); }
   });
@@ -205,6 +217,66 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
     } finally {
       release();
       await retention?.catch(() => undefined);
+      await database.close();
+    }
+  }, 30_000);
+
+  it.skipIf(backend !== 'postgres')('does not revoke an archive while another Workspace begins importing the same digest', async () => {
+    const database = await migratedDatabase(backend);
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-purge-shared-archive-race-'));
+    directories.push(directory);
+    const archive = new NodeImportArchiveStore(join(directory, 'imports'));
+    const workspaceId = randomUUID(), otherWorkspaceId = randomUUID(), nodeId = randomUUID(), purgeId = randomUUID();
+    const bytes = Buffer.from('portable archive reused across two Workspaces');
+    const digest = createHash('sha256').update(bytes).digest('hex');
+    const source = join(directory, 'source.rhiza');
+    await writeFile(source, bytes);
+    const purging = storeWithArchive(database, workspaceId, archive);
+    const importing = storeWithArchive(database, otherWorkspaceId, archive);
+    const otherIdentity = { importId: randomUUID(), ownerId: 'other', workspaceId: otherWorkspaceId, archiveDigest: digest, stateDigest: 'b'.repeat(64) };
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let entered!: () => void;
+    const inside = new Promise<void>(resolve => { entered = resolve; });
+    const begin = SqlBundleImportCheckpoints.prototype.begin;
+    const paused = vi.spyOn(SqlBundleImportCheckpoints.prototype, 'begin').mockImplementation(async function (this: SqlBundleImportCheckpoints, identity) {
+      const checkpoint = await begin.call(this, identity);
+      if (identity.importId === otherIdentity.importId) { entered(); await gate; }
+      return checkpoint;
+    });
+    let importWork: Promise<unknown> | undefined;
+    try {
+      const createdAt = new Date().toISOString();
+      await purging.update(current => ({ ...current, discussionNodes: [...current.discussionNodes, {
+        id: nodeId, title: 'shared archive content', summary: '', status: 'archived' as const,
+        kind: 'branch' as const, sourceNodeId: current.activeNodeId, x: 0, y: 0, createdAt, updatedAt: createdAt,
+      }] }));
+      await archive.retain(source, digest);
+      await database.query(`INSERT INTO bundle_imports(import_id,owner_id,workspace_id,archive_digest,state_digest,phase)
+        VALUES ($1,'owner',$2,$3,$4,'activated')`, [randomUUID(), workspaceId, digest, 'a'.repeat(64)]);
+      importWork = importing.bundleImportCheckpoints.begin(otherIdentity);
+      await inside;
+      let purgeSettled = false;
+      const purge = purging.update(current => ({ ...current,
+        discussionNodes: current.discussionNodes.filter(node => node.id !== nodeId),
+        auditEvents: [...current.auditEvents, { id: purgeId, projectId: workspaceId, nodeId, action: 'node.purged',
+          entityType: 'node', entityId: nodeId, metadata: { reason: 'shared archive race' }, createdAt }],
+      }), { purge: { nodeId, auditReceiptId: purgeId } }).finally(() => { purgeSettled = true; });
+      const purgeAssertion = expect(purge).rejects.toMatchObject({ code: 'PURGE_ARCHIVE_SHARED', status: 409 });
+      await new Promise(resolve => setTimeout(resolve, 100));
+      expect(purgeSettled).toBe(false);
+      release();
+      await importWork;
+      await purgeAssertion;
+      expect((await purging.read()).discussionNodes.some(node => node.id === nodeId)).toBe(true);
+      const descriptor = JSON.parse(await readFile(join(directory, 'imports', 'retained', `${digest}.json`), 'utf8')) as { contentId: string };
+      expect((await new NodeContentKeys(join(directory, 'imports', 'keys')).audit([
+        { workspaceId: 'rhiza-bundle-import', contentId: descriptor.contentId },
+      ])).find(item => item.referenced)?.state).toBe('active');
+    } finally {
+      release();
+      paused.mockRestore();
+      await importWork?.catch(() => undefined);
       await database.close();
     }
   }, 30_000);

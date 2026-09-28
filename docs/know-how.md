@@ -133,6 +133,7 @@
 - Journal Purge 不更新 append-only 事件行；在同一事务发布脱敏 baseline/tail 覆盖层并登记原有效载荷密钥，所有历史读取与密钥对账只认覆盖层。无已加密且可重放的 baseline 时拒绝 Purge；仅删除 Current State 会让旧 Journal snapshot 泄露正文。
 - Purge 的幂等回执读取也属于历史正文边界：同事务标记旧密文回执不可读并登记 result/error 密钥，重试旧 command id 必须返回 `RECEIPT_PURGED` 而非重放旧结果；旧明文回执先迁移，否则拒绝 Purge。
 - 任意阶段的导入 checkpoint 都可能有加密恢复 ZIP 持有现有 Workspace 的旧正文。先写身份 checkpoint，再在 Workspace/内容生命周期锁下保留 ZIP；Purge 必须在同事务登记所有关联摘要，提交后逐项幂等撤销密钥。Purge 后的新导入或旧 checkpoint 重试要在保留前拒绝；已 Purge 的摘要不能再作为恢复窗口 pin。旧明文 ZIP 必须先迁移并清除，否则 Purge 提交前失败。描述符发布失败须撤销未发布密钥，进程死于发布前的孤儿 key 在启动 reclaim 时撤销；不能凭 phase 或 `updated_at` 推断已擦除。
+- 同一恢复 ZIP 摘要可被不同 Workspace 的 checkpoint 引用。导入 begin/retain 与 Purge 收集引用须按 Workspace→摘要顺序取事务级锁；否则另一 Workspace 未提交的 checkpoint 对 Purge 查询不可见，Purge 会误撤销共享归档密钥。待撤销 checkpoint 阻断同摘要新导入；撤销完成后先清理旧密钥的描述符，再允许相同 ZIP 重新导入并获得新密钥。
 - M09 不能仅凭密钥引用健康宣称历史迁移完成；Gate 还须对全库历史正文列、嵌套 Context/FileChunk 与 ResourceVersion Blob 引用做同一时点的明文计数审计，并分别核对旧文件和备份保留边界。
 - Provenance 回填成功数不等于全库覆盖率；`m09:provenance:audit` 要扫描所有仍存在的 Assistant 输出，并区分缺失、broken-reference 与无效/悬空记录，不能把 pre-run 当成缺失。recorded 关系的直接回复输入、Manifest、Run、model、endpoint 和 runtime snapshot 必须与持久事实对账；仅存在一条链接不等于来源完整。
 - `m09:files:audit` 只能在停服且 `RHIZA_UPLOAD_DIR` 指向被测数据库的实际上传目录时运行；它通过历史逻辑 digest/key/checkpoint 检查已知原明文路径，零结果不代表任意孤儿文件、WAL 或备份已过期，更不授权删除。

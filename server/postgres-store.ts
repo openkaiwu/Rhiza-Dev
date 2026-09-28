@@ -167,9 +167,14 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     return {
       begin: (identity: BundleImportIdentity) => this.inTransaction(async database => {
         await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [identity.workspaceId]);
+        await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:import-archive:' || $1))", [identity.archiveDigest]);
         if ((await database.query('SELECT 1 FROM purge_checkpoints WHERE workspace_id=$1 LIMIT 1', [identity.workspaceId])).rows.length) {
           throw Object.assign(new Error('BUNDLE_TARGET_PURGED'), { code: 'BUNDLE_TARGET_PURGED', status: 409 });
         }
+        const pendingPurge = await database.query(`SELECT 1 FROM purge_key_references k JOIN purge_checkpoints p ON p.purge_id=k.purge_id
+          WHERE k.content_family='import-archive' AND k.entity_id=$1 AND p.phase='pending' LIMIT 1`, [identity.archiveDigest]);
+        if (pendingPurge.rows.length) throw Object.assign(new Error('BUNDLE_ARCHIVE_PURGE_PENDING'), { code: 'BUNDLE_ARCHIVE_PURGE_PENDING', status: 409 });
+        await this.importArchives?.releaseRevoked(identity.archiveDigest);
         const checkpoint = await new SqlBundleImportCheckpoints(database).begin(identity);
         if (checkpoint.phase !== 'activated' && (await database.query('SELECT 1 FROM rhiza_projects WHERE id=$1', [identity.workspaceId])).rows.length) {
           throw Object.assign(new Error('BUNDLE_TARGET_EXISTS'), { code: 'BUNDLE_TARGET_EXISTS', status: 409 });
@@ -178,6 +183,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
       }),
       retainArchive: (identity: BundleImportIdentity, retain: () => Promise<void>) => this.inTransaction(async database => {
         await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [identity.workspaceId]);
+        await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:import-archive:' || $1))", [identity.archiveDigest]);
         const checkpoint = await new SqlBundleImportCheckpoints(database).read(identity.importId, identity.ownerId);
         if (!checkpoint || checkpoint.workspaceId !== identity.workspaceId || checkpoint.archiveDigest !== identity.archiveDigest
           || checkpoint.stateDigest !== identity.stateDigest) throw Object.assign(new Error('BUNDLE_IMPORT_CONFLICT'), { code: 'BUNDLE_IMPORT_CONFLICT', status: 409 });
@@ -1801,8 +1807,9 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     }
 
     const references: Array<{ family: PurgeContentFamily; entityId: string; reference: unknown }> = [];
-    const archives = await database.query<{ archive_digest: string }>('SELECT DISTINCT archive_digest FROM bundle_imports WHERE workspace_id=$1', [workspace.projectId]);
+    const archives = await database.query<{ archive_digest: string }>('SELECT DISTINCT archive_digest FROM bundle_imports WHERE workspace_id=$1 ORDER BY archive_digest', [workspace.projectId]);
     for (const archive of archives.rows) {
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:import-archive:' || $1))", [archive.archive_digest]);
       await this.importArchives?.assertNoLegacyPlaintext(archive.archive_digest);
       const shared = await database.query('SELECT 1 FROM bundle_imports WHERE archive_digest=$1 AND workspace_id<>$2 LIMIT 1', [archive.archive_digest, workspace.projectId]);
       if (shared.rows.length) throw Object.assign(new Error('PURGE_ARCHIVE_SHARED'), { code: 'PURGE_ARCHIVE_SHARED', status: 409 });

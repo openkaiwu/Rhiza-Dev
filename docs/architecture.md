@@ -12,7 +12,7 @@ Bundle staging 已接通归档文件、固定 schema 解码、引用/内容/历�
 
 M09 的标准 Embedded/PostgreSQL factory 已默认配置成功回执密文存储。迁移 0015 的 `result_content_ref` 与明文 `result` 互斥；三条成功回执写入和三条幂等读取路径统一处理，确认事务回滚时销毁新建密钥，COMMIT 响应不确定时保留。Embedded 配套目录为 `<dataDirectory>.content`，PostgreSQL factory 默认 `var/receipt-content`；这些目录需随数据库共同备份。旧回执、拒绝回执的 error、Run/Journal/其他正文迁移及完整 Purge 尚未完成。
 
-Bundle 导入先在 Workspace 写锁下检查目标并写身份绑定的 validated checkpoint，再在同一 Workspace/内容生命周期锁保护下保留独立密钥加密的恢复 ZIP；激活时仍复查目标占用。Purge 事务把所有关联导入摘要登记为待撤销引用，提交后幂等销毁归档密钥；恢复窗口内的归档 pin 不覆盖已提交 Purge，已撤销描述符由维护回收。缺少归档适配器或检测到旧明文 ZIP 时，Purge 在提交前失败关闭；Purge 后的重试导入在保留归档前失败。已验证 validated、blobs-ready、activated 的旧记录不能仅按七天时间放行。外部用户控制的导出依 ADR-009 仍不可召回；Run/资源等其他副本及备份边界仍阻断完整 Purge 验收。
+Bundle 导入先在 Workspace 写锁下检查目标并写身份绑定的 validated checkpoint，再在同一 Workspace/内容生命周期锁保护下保留独立密钥加密的恢复 ZIP；激活时仍复查目标占用。导入与 Purge 同时锁定归档摘要，Purge 因此能发现另一 Workspace 尚未提交的同摘要导入，拒绝撤销共享密钥；旧 Purge 撤销未完成时的新导入失败关闭，完成后可释放已撤销描述符并以新密钥导入。Purge 事务把所有关联导入摘要登记为待撤销引用，提交后幂等销毁归档密钥；恢复窗口内的归档 pin 不覆盖已提交 Purge，已撤销描述符由维护回收。缺少归档适配器或检测到旧明文 ZIP 时，Purge 在提交前失败关闭；Purge 后的同目标重试导入在保留归档前失败。已验证 validated、blobs-ready、activated 的旧记录不能仅按七天时间放行。外部用户控制的导出依 ADR-009 仍不可召回；Run/资源等其他副本及备份边界仍阻断完整 Purge 验收。
 
 服务在取得运行时独占权后先初始化默认 Workspace 并幂等补齐 Journal baseline，再开放 Bundle 导出；新库首轮导出不依赖手工 backfill。已有 Journal tail 却缺失首事件 baseline 时仍由 `JOURNAL_BASELINE_ORDER_CONFLICT` 阻止启动，不重排历史。
 

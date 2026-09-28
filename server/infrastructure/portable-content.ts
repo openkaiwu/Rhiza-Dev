@@ -146,6 +146,19 @@ export class NodeImportArchiveStore {
     if (retained) await this.content.destroy(this.identity(retained.contentId));
   }
 
+  /** Under the import-digest lock, free a descriptor whose old Purge key is already revoked. */
+  async releaseRevoked(digest: string): Promise<void> {
+    if (!/^[a-f0-9]{64}$/.test(digest)) throw bundleError('BUNDLE_INVALID_ARCHIVE_DIGEST');
+    const retained = await this.descriptor(digest);
+    if (!retained) return;
+    const state = (await this.content.auditKeys([this.identity(retained.contentId)])).find(item => item.referenced)?.state;
+    if (state === 'active') return;
+    if (state !== 'revoked') throw bundleError('BUNDLE_RETAINED_ARCHIVE_INVALID');
+    await rm(this.descriptorPath(digest));
+    const directory = await open(join(this.root, 'retained'), 'r');
+    try { await directory.sync(); } finally { await directory.close(); }
+  }
+
   async assertNoLegacyPlaintext(digest: string): Promise<void> {
     if (!/^[a-f0-9]{64}$/.test(digest)) throw bundleError('BUNDLE_INVALID_ARCHIVE_DIGEST');
     try { await lstat(this.legacyPath(digest)); }
