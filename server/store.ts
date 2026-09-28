@@ -182,9 +182,14 @@ export function validateWorkspaceHistoryUpdate(previous: WorkspaceData, next: Wo
       && !isDeepStrictEqual(nextMessages.get(message.id)?.attachmentIds ?? [], message.attachmentIds ?? []));
   const resourceManifest = removedManifestIds.some(id => {
     const manifest = priorManifests.get(id)!;
-    return manifest.attachmentIds.length > 0 || manifest.contextItems.some(item => item.resourceId || item.resourceVersionId
-      || item.originResourceVersionId || item.sourceType === 'file' || item.sourceType === 'chunk'
-      || attachmentIds.has(item.sourceId) || chunkIds.has(item.sourceId));
+    return manifest.attachmentIds.some(attachmentId => !affectedAttachments.has(attachmentId))
+      || manifest.contextItems.some(item => (item.resourceId && !resourcesToPurge.has(item.resourceId))
+        || (item.resourceVersionId && !affectedVersions.has(item.resourceVersionId))
+        || (item.originResourceVersionId && !affectedVersions.has(item.originResourceVersionId))
+        || ((item.sourceType === 'file' || item.sourceType === 'chunk')
+          && !(affectedAttachments.has(item.sourceId) || affectedChunks.has(item.sourceId)))
+        || ((attachmentIds.has(item.sourceId) || chunkIds.has(item.sourceId))
+          && !(affectedAttachments.has(item.sourceId) || affectedChunks.has(item.sourceId))));
   });
   const resourceContext = previous.contextItems.some(item => (item.sourceNodeId === purge.nodeId || !retainedContextIds.has(item.id))
     && (item.sourceType === 'file' || item.sourceType === 'chunk'

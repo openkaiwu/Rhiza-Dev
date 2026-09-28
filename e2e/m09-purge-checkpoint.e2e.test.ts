@@ -11,6 +11,7 @@ import { loadMigrations } from '../scripts/migrate';
 import { PostgresWorkspaceStore, type SqlQueryable } from '../server/postgres-store';
 import { SealedNodeContent, type SealedNodeRef } from '../server/infrastructure/sealed-node-content';
 import { SealedMessageContent } from '../server/infrastructure/sealed-message-content';
+import { SealedManifestContent, type SealedManifestRef } from '../server/infrastructure/sealed-manifest-content';
 import { SealedJournalContent, type SealedJournalRef } from '../server/infrastructure/sealed-journal-content';
 import { SealedReceiptContent, type SealedReceiptRef } from '../server/infrastructure/sealed-receipt-content';
 import { SealedContextItemContent, type SealedContextItemRef } from '../server/infrastructure/sealed-context-item-content';
@@ -773,12 +774,13 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
     } finally { await database.close(); }
   }, 30_000);
 
-  it.each(['none', 'file-context', 'chunk-context', 'legacy-context', 'retained-context', 'shared-context', 'shared-message', 'foreign-run', 'legacy-file', 'revoke-interrupt'] as const)('checkpoints exclusive sealed attachments; fault=%s', async blocker => {
+  it.each(['none', 'file-context', 'chunk-context', 'legacy-context', 'retained-context', 'shared-context', 'legacy-manifest', 'unsealed-manifest', 'shared-message', 'foreign-run', 'legacy-file', 'revoke-interrupt'] as const)('checkpoints exclusive sealed attachments; fault=%s', async blocker => {
     const database = await migratedDatabase(backend);
     const directory = await mkdtemp(join(tmpdir(), 'rhiza-purge-attached-resource-'));
     directories.push(directory);
     const nodes = SealedNodeContent.atDirectory(join(directory, 'nodes'));
     const messages = SealedMessageContent.atDirectory(join(directory, 'messages'));
+    const manifests = SealedManifestContent.atDirectory(join(directory, 'manifests'));
     const receipts = SealedReceiptContent.atDirectory(join(directory, 'receipts'));
     const journal = SealedJournalContent.atDirectory(join(directory, 'journal'));
     const resources = SealedResourceContent.atDirectory(join(directory, 'resources'));
@@ -788,8 +790,9 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
     const uploadDirectory = join(directory, 'uploads');
     const blobs = NodeEncryptedBlobStore.atDirectory(uploadDirectory);
     const workspaceId = randomUUID(), nodeId = randomUUID(), messageId = randomUUID();
-    const attachmentId = randomUUID(), resourceId = randomUUID(), versionId = randomUUID(), chunkId = randomUUID(), contextId = randomUUID(), purgeId = randomUUID();
-    const store = new PostgresWorkspaceStore(database, workspaceId, receipts, undefined, journal, messages, undefined,
+    const attachmentId = randomUUID(), resourceId = randomUUID(), versionId = randomUUID(), chunkId = randomUUID(), contextId = randomUUID(), manifestId = randomUUID(), purgeId = randomUUID();
+    const store = new PostgresWorkspaceStore(database, workspaceId, receipts, undefined, journal, messages,
+      blocker === 'legacy-manifest' ? manifests : undefined,
       nodes, undefined, undefined, undefined, blocker === 'legacy-context' ? undefined : contexts, chunks, attachments, resources, blobs);
     try {
       await store.read();
@@ -815,6 +818,14 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
         ...(blocker === 'shared-context' ? [{ id: randomUUID(), title: 'retained pointer', detail: 'derived pointer',
           role: 'Reference' as const, status: 'active' as const, tokens: 1, sourceType: 'reference' as const,
           sourceId: contextId, sourceNodeId: current.activeNodeId }] : [])] : current.contextItems,
+        manifests: blocker.endsWith('manifest') ? [...current.manifests, { id: manifestId, projectId: workspaceId,
+          nodeId, requestId: randomUUID(), createdAt, mode: 'Assisted' as const, provider: 'test', model: 'test',
+          runtime: 'provider-adapter' as const, contextItemIds: [], excludedItemIds: [], contextItems: [{
+            sourceType: 'file' as const, sourceId: attachmentId, title: 'private attachment', detail: 'private frozen detail',
+            role: 'Reference' as const, selectionMode: 'CURRENT' as const, pinned: false, reason: '', tokenCount: 2,
+            contentVersion: 1, resourceId, resourceVersionId: versionId, digest: blob.digest,
+          }], estimatedTokens: 2, generation: { temperature: 0.4, topP: 1, maxTokens: 100 },
+          operation: 'send' as const, attachmentIds: [attachmentId] }] : current.manifests,
       }));
       const resourceRef = (await database.query<{ content_ref: unknown }>('SELECT content_ref FROM rhiza_resources WHERE resource_id=$1', [resourceId])).rows[0]!.content_ref;
       const attachmentRef = (await database.query<{ content_ref: unknown }>('SELECT content_ref FROM rhiza_attachments WHERE id=$1', [attachmentId])).rows[0]!.content_ref;
@@ -822,6 +833,9 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       const contextRef = blocker.endsWith('context')
         ? (await database.query<{ state: { contextItems: Array<{ id: string; contentRef: SealedContextItemRef }> } }>('SELECT state FROM rhiza_projects WHERE id=$1', [workspaceId]))
           .rows[0]!.state.contextItems.find(item => item.id === contextId)!.contentRef : undefined;
+      const manifestRef = blocker === 'legacy-manifest'
+        ? (await database.query<{ content_ref: SealedManifestRef }>('SELECT content_ref FROM rhiza_context_manifests WHERE id=$1', [manifestId]))
+          .rows[0]!.content_ref : undefined;
       await store.workspaceDirectory.ensureWorkspace({ workspaceId, name: 'Resource Purge', status: 'active', createdBy: randomUUID(), revision: 1 });
       await store.backfillJournal();
       await store.rebuildGraphProjection();
@@ -833,6 +847,7 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
         attachments: current.attachments.filter(attachment => attachment.id !== attachmentId),
         fileChunks: current.fileChunks.filter(chunk => chunk.id !== chunkId),
         contextItems: current.contextItems.filter(item => item.id !== contextId || item.sourceNodeId === current.activeNodeId),
+        manifests: current.manifests.filter(manifest => manifest.id !== manifestId),
         auditEvents: [...current.auditEvents, { id: purgeId, projectId: workspaceId, nodeId,
           action: 'node.purged', entityType: 'node' as const, entityId: nodeId, metadata: { reason: 'provided-redacted' }, createdAt }],
       });
@@ -845,6 +860,12 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       if (blocker === 'legacy-context') {
         await expect(store.update(purge, { purge: { nodeId, auditReceiptId: purgeId } }))
           .rejects.toMatchObject({ code: 'PURGE_CONTEXT_MIGRATION_REQUIRED', status: 409 });
+        expect((await database.query<{ count: number }>('SELECT count(*)::int count FROM purge_checkpoints')).rows[0]?.count).toBe(0);
+        return;
+      }
+      if (blocker === 'unsealed-manifest') {
+        await expect(store.update(purge, { purge: { nodeId, auditReceiptId: purgeId } }))
+          .rejects.toMatchObject({ code: 'PURGE_MANIFEST_MIGRATION_REQUIRED', status: 409 });
         expect((await database.query<{ count: number }>('SELECT count(*)::int count FROM purge_checkpoints')).rows[0]?.count).toBe(0);
         return;
       }
@@ -908,6 +929,10 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
           .rows.map(row => row.content_family)).toContain('context-item');
         await expect(contexts.read(workspaceId, contextId, contextRef!)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
       }
+      if (blocker === 'legacy-manifest') {
+        expect(purged.manifests.find(item => item.id === manifestId)).toBeUndefined();
+        await expect(manifests.read(workspaceId, manifestId, manifestRef!, {})).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+      }
       expect((await database.query<{ count: number }>(
         "SELECT count(*)::int count FROM context_candidate_index WHERE workspace_id=$1 AND source_id=ANY($2::text[])",
         [workspaceId, [attachmentId, chunkId]])).rows[0]?.count).toBe(0);
@@ -922,6 +947,7 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       expect(JSON.stringify(portable)).not.toContain('private.txt');
       expect(JSON.stringify(portable)).not.toContain('private chunk');
       expect(JSON.stringify(portable)).not.toContain('private derived text');
+      expect(JSON.stringify(portable)).not.toContain('private frozen detail');
       expect((await database.query<{ content_family: string }>('SELECT content_family FROM purge_key_references WHERE purge_id=$1', [purgeId])).rows.map(row => row.content_family))
         .toEqual(expect.arrayContaining(['resource', 'resource-version', 'attachment', 'file-chunk', 'journal', 'receipt-result']));
       expect((await database.query<{ phase: string }>('SELECT phase FROM purge_checkpoints WHERE purge_id=$1', [purgeId])).rows[0]?.phase).toBe('revoked');

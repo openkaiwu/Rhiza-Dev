@@ -9,13 +9,14 @@ import { PGlite } from '@electric-sql/pglite';
 import { Pool } from 'pg';
 import { afterEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
-import type { ContextManifest } from '../server/domain';
+import type { ContextManifest, WorkspaceData } from '../server/domain';
 import { createRhizaApplication } from '../server/application/create-application';
 import { createHttpApp } from '../server/http/app';
 import { WorkspaceDirectory } from '../server/identity/workspace-directory';
 import { PostgresWorkspaceStore } from '../server/postgres-store';
 import { SealedJournalContent } from '../server/infrastructure/sealed-journal-content';
 import { SealedReceiptContent } from '../server/infrastructure/sealed-receipt-content';
+import { SealedManifestContent } from '../server/infrastructure/sealed-manifest-content';
 import { RepositoryWorkspaceUnitOfWork } from '../server/infrastructure/workspace-repository-unit-of-work';
 import { PostgresGraphProjectionAdapter } from '../server/graph-projection/postgres-adapter';
 import { buildWorkspaceGraphProjection } from '../server/graph-projection/model';
@@ -393,6 +394,7 @@ describe('PostgreSQL workspace persistence', () => {
 
   it('purges only an archived leaf with a retained node.purged receipt', async () => {
     const database = await migratedDatabase();
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-purge-manifest-migration-'));
     try {
       const projectId = randomUUID();
       const store = new PostgresWorkspaceStore(database, projectId);
@@ -425,7 +427,7 @@ describe('PostgreSQL workspace persistence', () => {
         manifests: current.manifests.filter(item => item.nodeId !== nodeId),
       }))).rejects.toThrow('explicit purge capability');
 
-      await store.update(current => ({
+      const purge = (current: WorkspaceData): WorkspaceData => ({
         ...current,
         discussionNodes: current.discussionNodes.filter(node => node.id !== nodeId),
         messages: current.messages.filter(message => message.nodeId !== nodeId),
@@ -434,9 +436,15 @@ describe('PostgreSQL workspace persistence', () => {
           id: receiptId, projectId, nodeId, action: 'node.purged', entityType: 'node', entityId: nodeId,
           metadata: { reason: 'provided-redacted' }, createdAt,
         }],
-      }), { purge: { nodeId, auditReceiptId: receiptId } });
+      });
+      await expect(store.update(purge, { purge: { nodeId, auditReceiptId: receiptId } }))
+        .rejects.toMatchObject({ code: 'PURGE_MANIFEST_MIGRATION_REQUIRED', status: 409 });
+      const sealedStore = new PostgresWorkspaceStore(database, projectId, undefined, undefined, undefined, undefined,
+        SealedManifestContent.atDirectory(directory));
+      expect(await sealedStore.sealLegacyManifestContent()).toBe(1);
+      await sealedStore.update(purge, { purge: { nodeId, auditReceiptId: receiptId } });
 
-      const recovered = await new PostgresWorkspaceStore(database, projectId).read();
+      const recovered = await sealedStore.read();
       expect(recovered.discussionNodes).not.toContainEqual(expect.objectContaining({ id: nodeId }));
       expect(recovered.messages).not.toContainEqual(expect.objectContaining({ id: messageId }));
       expect(recovered.manifests).not.toContainEqual(expect.objectContaining({ id: manifestId }));
@@ -444,8 +452,6 @@ describe('PostgreSQL workspace persistence', () => {
         id: receiptId, action: 'node.purged', entityId: nodeId, nodeId: undefined,
       }));
       expect(await store.readProvenance(messageId)).toMatchObject({ outputRef: messageId, status: 'purged', missingRefs: [] });
-    } finally {
-      await database.close();
-    }
+    } finally { await database.close(); await rm(directory, { recursive: true, force: true }); }
   }, 30_000);
 });

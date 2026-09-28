@@ -1888,8 +1888,15 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     await collect('node', 'SELECT id::text entity_id,content_ref FROM rhiza_nodes WHERE project_id=$1 AND id=$2 AND content_ref IS NOT NULL', [workspace.projectId, purge.nodeId]);
     await collect('message', 'SELECT m.id::text entity_id,m.content_ref FROM rhiza_messages m JOIN rhiza_nodes n ON n.id=m.node_id WHERE n.project_id=$1 AND m.id=ANY($2::uuid[]) AND m.content_ref IS NOT NULL',
       [workspace.projectId, removedIds(previous.messages, workspace.messages)]);
-    await collect('manifest', 'SELECT id::text entity_id,content_ref FROM rhiza_context_manifests WHERE project_id=$1 AND id=ANY($2::uuid[]) AND content_ref IS NOT NULL',
-      [workspace.projectId, removedIds(previous.manifests, workspace.manifests)]);
+    const removedManifestIds = removedIds(previous.manifests, workspace.manifests);
+    if (removedManifestIds.length) {
+      const rows = await database.query<{ entity_id: string; content_ref: unknown }>(
+        'SELECT id::text entity_id,content_ref FROM rhiza_context_manifests WHERE project_id=$1 AND id=ANY($2::uuid[]) FOR UPDATE',
+        [workspace.projectId, removedManifestIds]);
+      if (!this.manifestContent || rows.rows.length !== removedManifestIds.length || rows.rows.some(row => row.content_ref == null))
+        throw Object.assign(new Error('Purge requires sealed Manifest content'), { code: 'PURGE_MANIFEST_MIGRATION_REQUIRED', status: 409 });
+      for (const row of rows.rows) references.push({ family: 'manifest', entityId: row.entity_id, reference: asJson(row.content_ref) });
+    }
     await collect('segment', 'SELECT s.id::text entity_id,s.content_ref FROM rhiza_segments s JOIN rhiza_nodes n ON n.id=s.node_id WHERE n.project_id=$1 AND s.id=ANY($2::uuid[]) AND s.content_ref IS NOT NULL',
       [workspace.projectId, removedIds(previous.segments, workspace.segments)]);
     await collect('anchor', 'SELECT id::text entity_id,content_ref FROM rhiza_anchors WHERE project_id=$1 AND id=ANY($2::uuid[]) AND content_ref IS NOT NULL',
