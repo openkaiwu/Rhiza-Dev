@@ -560,9 +560,13 @@ export const M09_PATHS = [...new Set([...M08_PATHS, ...M09_DELIVERY_PATHS,
   'docs/architecture-gates/M09/clean-import-replay-desktop.png', 'docs/architecture-gates/M09/clean-import-replay-narrow.png',
   'docs/architecture-gates/M09/plaintext-audit-check.md',
   'docs/architecture-gates/M09/provenance-audit-check.md',
+  'docs/architecture-gates/M09/provenance-replay-check.md',
   'docs/architecture-gates/M09/legacy-file-audit-check.md',
   'docs/architecture-gates/M09/trace-sanitization-check.md',
   'docs/architecture-gates/M09/purge-projection-check.md',
+  'docs/architecture-gates/M09/purge-replica-erasure-check.md',
+  'docs/architecture-gates/M09/postgres-staging-check.md',
+  'docs/architecture-gates/M09/backup-retention-check.md',
   'docs/architecture-gates/M09/bundle-security-check.md',
   'docs/architecture-gates/M09/import-recovery-check.md',
   'db/migrations/0013_provenance_links.up.sql', 'db/migrations/0014_bundle_imports.up.sql',
@@ -597,14 +601,27 @@ export const M09_FIXTURES = [...M08_FIXTURES,
 export const M09_ACCEPTANCE_CHECKS = [
   'provenance_replay', 'bundle_security', 'import_recovery_round_trip', 'purge_replica_erasure',
   'postgres_staging', 'browser_acceptance', 'backup_retention',
-];
+] as const;
+export const M09_REQUIRED_EVIDENCE = {
+  provenance_replay: ['docs/architecture-gates/M09/provenance-replay-check.md', 'docs/architecture-gates/M09/provenance-audit-check.md'],
+  bundle_security: ['docs/architecture-gates/M09/bundle-security-check.md'],
+  import_recovery_round_trip: ['docs/architecture-gates/M09/import-recovery-check.md', 'docs/architecture-gates/M09/clean-import-replay-desktop.png'],
+  purge_replica_erasure: ['docs/architecture-gates/M09/purge-replica-erasure-check.md', 'docs/architecture-gates/M09/plaintext-audit-check.md'],
+  postgres_staging: ['docs/architecture-gates/M09/postgres-staging-check.md'],
+  browser_acceptance: ['docs/architecture-gates/M09/bundle-browser-check.md', 'docs/architecture-gates/M09/replay-browser-check.md',
+    'docs/architecture-gates/M09/provenance-run-backed-desktop.png', 'docs/architecture-gates/M09/provenance-run-backed-narrow.png',
+    'docs/architecture-gates/M09/clean-import-replay-desktop.png', 'docs/architecture-gates/M09/clean-import-replay-narrow.png'],
+  backup_retention: ['docs/architecture-gates/M09/backup-retention-check.md'],
+} satisfies Record<(typeof M09_ACCEPTANCE_CHECKS)[number], readonly string[]>;
 export function validateM09Acceptance(value: unknown, checksummedPaths: ReadonlySet<string>): void {
   const audit = value as { schemaVersion?: unknown; checks?: Record<string, { status?: unknown; evidencePaths?: unknown }> } | undefined;
   if (!audit || audit.schemaVersion !== '1.0.0' || !audit.checks || Object.keys(audit.checks).sort().join(',') !== [...M09_ACCEPTANCE_CHECKS].sort().join(',')) return fail('M09 acceptance checklist is incomplete');
   for (const id of M09_ACCEPTANCE_CHECKS) {
     const check = audit.checks[id];
-    if (check?.status !== 'pass' || !Array.isArray(check.evidencePaths) || !check.evidencePaths.length
-      || check.evidencePaths.some(path => typeof path !== 'string' || !checksummedPaths.has(path))) fail(`M09 acceptance ${id} lacks commit-bound passing evidence`);
+    const evidencePaths = check?.evidencePaths;
+    if (check?.status !== 'pass' || !Array.isArray(evidencePaths) || !evidencePaths.length
+      || evidencePaths.some(path => typeof path !== 'string' || !checksummedPaths.has(path))) fail(`M09 acceptance ${id} lacks commit-bound passing evidence`);
+    if (M09_REQUIRED_EVIDENCE[id].some(path => !(evidencePaths as string[]).includes(path))) fail(`M09 acceptance ${id} lacks its required evidence`);
   }
 }
 export function validateM09StrictDiff(paths: string[]): void {
