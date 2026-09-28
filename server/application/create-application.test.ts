@@ -5,7 +5,7 @@ import { createRhizaApplication } from './create-application';
 import { WorkspaceDirectory } from '../identity/workspace-directory';
 import { DEFAULT_WORKSPACE_ID, LOCAL_USER_ID } from '../identity/workspace-scope';
 
-function fixture(options: { indexedPlanning?: boolean; failMutation?: boolean; committedRun?: import('../contracts/application').CreateConversationRunResult; ensureWorkspaceInitialized?: (workspaceId: string, name: string) => Promise<import('../domain').WorkspaceData>; blobPut?: (bytes: Uint8Array) => Promise<{ digestAlgorithm: 'sha256'; digest: string; blobRef: string; size: number }>; blobRead?: (blobRef: string, digest: string) => Promise<Uint8Array>; workspaceDirectory?: WorkspaceDirectory; defaultWorkspaceId?: string; initialWorkspace?: import('../domain').WorkspaceData } = {}) {
+function fixture(options: { indexedPlanning?: boolean; failMutation?: boolean; committedRun?: import('../contracts/application').CreateConversationRunResult; ensureWorkspaceInitialized?: (workspaceId: string, name: string) => Promise<import('../domain').WorkspaceData>; blobPut?: (bytes: Uint8Array) => Promise<{ digestAlgorithm: 'sha256'; digest: string; blobRef: string; size: number }>; blobRead?: (blobRef: string, digest: string) => Promise<Uint8Array>; workspaceDirectory?: WorkspaceDirectory; defaultWorkspaceId?: string; initialWorkspace?: import('../domain').WorkspaceData; getRun?: () => Promise<import('../execution-runtime/run').ExecutionRun | undefined> } = {}) {
   let workspace = options.initialWorkspace ?? createSeedWorkspace();
   let sequence = 0;
   const commits: string[] = [];
@@ -17,6 +17,7 @@ function fixture(options: { indexedPlanning?: boolean; failMutation?: boolean; c
       readConversationPreparation: async attachmentIds => ({ projectId: workspace.projectId, activeNodeId: workspace.activeNodeId, node: workspace.discussionNodes.find(node => node.id === workspace.activeNodeId), mode: workspace.mode, contextItems: workspace.contextItems, messages: workspace.messages.filter(message => message.nodeId === workspace.activeNodeId), attachments: workspace.attachments.filter(item => attachmentIds.includes(item.id)) }),
       execute: async mutation => { commits.push(mutation.policy.kind); if (options.failMutation) throw new Error('workspace write failed'); const result = await mutation.apply(workspace); workspace = result.next; return { workspace, value: result.value }; },
       readCommittedResult: async <T,>() => options.committedRun ? { found: true as const, value: options.committedRun as unknown as T } : { found: false as const },
+      getRun: options.getRun,
       ensureWorkspaceInitialized: options.ensureWorkspaceInitialized,
     },
     runtime: {
@@ -55,6 +56,15 @@ function fixture(options: { indexedPlanning?: boolean; failMutation?: boolean; c
 }
 
 describe('Rhiza Application', () => {
+  it('reports a purged Replay source as missing content without dispatching', async () => {
+    const { application, runtimeCalls } = fixture({ getRun: async () => {
+      throw Object.assign(new Error('ExecutionRun content was purged'), { code: 'RUN_PURGED', status: 410 });
+    } });
+    await expect(application.execute(createLegacyCommandEnvelope('replay-purged', 'ReplayExecutionRun',
+      { runId: 'purged-run', policy: 'exact' }))).rejects.toMatchObject({ details: { code: 'REPLAY_MISSING_RESOURCE', status: 409 } });
+    expect(runtimeCalls).toEqual([]);
+  });
+
   it('moves an attached ResourceVersion to a tombstone with the Purge audit fact', async () => {
     const seeded = createSeedWorkspace();
     const createdAt = '2026-08-22T00:00:00.000Z';
