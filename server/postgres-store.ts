@@ -1942,9 +1942,12 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
 
     const stored = (await database.query<{ items: unknown }>("SELECT state->'contextItems' AS items FROM rhiza_projects WHERE id=$1", [workspace.projectId])).rows[0];
     const removedContextIds = new Set(removedIds(previous.contextItems, workspace.contextItems));
-    for (const item of asJson<Array<{ id: string; contentRef?: SealedContextItemRef }>>(stored?.items || [])) {
-      if (removedContextIds.has(item.id) && item.contentRef) references.push({ family: 'context-item', entityId: item.id, reference: item.contentRef });
-    }
+    const removedContexts = asJson<Array<{ id: string; contentRef?: SealedContextItemRef }>>(stored?.items || [])
+      .filter(item => removedContextIds.has(item.id));
+    if (removedContextIds.size && (!this.contextItemContent || removedContexts.length !== removedContextIds.size
+      || removedContexts.some(item => !item.contentRef)))
+      throw Object.assign(new Error('Purge requires sealed ContextItem content'), { code: 'PURGE_CONTEXT_MIGRATION_REQUIRED', status: 409 });
+    for (const item of removedContexts) references.push({ family: 'context-item', entityId: item.id, reference: item.contentRef! });
 
     const receipts = await database.query<{ command_id: string; status: string; result: unknown; error: unknown; result_content_ref: unknown; error_content_ref: unknown }>(
       'SELECT command_id,status,result,error,result_content_ref,error_content_ref FROM command_receipts WHERE workspace_id=$1 AND purged_at IS NULL ORDER BY command_id FOR UPDATE',

@@ -135,12 +135,17 @@ export function validateWorkspaceHistoryUpdate(previous: WorkspaceData, next: Wo
   const affectedAttachments = new Set(previous.attachments.filter(item => item.resourceId && resourcesToPurge.has(item.resourceId)).map(item => item.id));
   const affectedVersions = new Set(previous.resourceVersions.filter(item => resourcesToPurge.has(item.resourceId)).map(item => item.id));
   const affectedChunks = new Set(previous.fileChunks.filter(item => affectedAttachments.has(item.attachmentId)).map(item => item.id));
+  const affectedContextIds = new Set(previous.contextItems.filter(item => item.sourceId
+    && (affectedAttachments.has(item.sourceId) || affectedChunks.has(item.sourceId))).map(item => item.id));
   const sharedResource = next.messages.some(message => message.attachmentIds?.some(id => affectedAttachments.has(id)))
     || next.manifests.some(manifest => manifest.attachmentIds.some(id => affectedAttachments.has(id))
+      || manifest.contextItemIds.some(id => affectedContextIds.has(id))
+      || manifest.excludedItemIds.some(id => affectedContextIds.has(id))
       || manifest.contextItems.some(item => [item.resourceId, item.resourceVersionId, item.originResourceVersionId, item.sourceId]
-        .some(id => id && (resourcesToPurge.has(id) || affectedVersions.has(id) || affectedAttachments.has(id) || affectedChunks.has(id)))))
+        .some(id => id && (resourcesToPurge.has(id) || affectedVersions.has(id) || affectedAttachments.has(id)
+          || affectedChunks.has(id) || affectedContextIds.has(id)))))
     || next.contextItems.some(item => item.sourceId && (resourcesToPurge.has(item.sourceId) || affectedVersions.has(item.sourceId)
-      || affectedAttachments.has(item.sourceId) || affectedChunks.has(item.sourceId)));
+      || affectedAttachments.has(item.sourceId) || affectedChunks.has(item.sourceId) || affectedContextIds.has(item.sourceId)));
   const safeAttachedResources = [...attachedToRemovedMessages].every(id => {
     const attachment = previous.attachments.find(item => item.id === id);
     return attachment?.resourceId && attachment.resourceVersionId && removedAttachmentIds.has(id)
@@ -183,7 +188,9 @@ export function validateWorkspaceHistoryUpdate(previous: WorkspaceData, next: Wo
   });
   const resourceContext = previous.contextItems.some(item => (item.sourceNodeId === purge.nodeId || !retainedContextIds.has(item.id))
     && (item.sourceType === 'file' || item.sourceType === 'chunk'
-      || (item.sourceId && (attachmentIds.has(item.sourceId) || chunkIds.has(item.sourceId)))));
+      || (item.sourceId && (attachmentIds.has(item.sourceId) || chunkIds.has(item.sourceId))))
+    && (!item.sourceId || !(affectedAttachments.has(item.sourceId) || affectedChunks.has(item.sourceId))
+      || retainedContextIds.has(item.id) || (!!item.sourceNodeId && item.sourceNodeId !== purge.nodeId)));
   if ((attachedToRemovedMessages.size && !safeAttachedResources) || unauthorizedResourceChange || resourceManifest || resourceContext) {
     throw Object.assign(new Error('该节点的历史内容仍引用文件资源，请使用归档；Purge 需要先覆盖资源密钥撤销。'), { code: 'PURGE_HAS_RESOURCE_HISTORY', status: 409 });
   }

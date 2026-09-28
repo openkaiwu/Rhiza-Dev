@@ -582,6 +582,7 @@ function currentPurge(nodeId: string, confirmation: string, reason: string, rece
     const attachedIds = new Set(current.messages.filter(message => messageIds.has(message.id)).flatMap(message => message.attachmentIds ?? []));
     const resourceIds = new Set(current.attachments.filter(attachment => attachedIds.has(attachment.id)).flatMap(attachment => attachment.resourceId ? [attachment.resourceId] : []));
     const removedAttachmentIds = new Set(current.attachments.filter(attachment => attachment.resourceId && resourceIds.has(attachment.resourceId)).map(attachment => attachment.id));
+    const removedChunkIds = new Set(current.fileChunks.filter(chunk => removedAttachmentIds.has(chunk.attachmentId)).map(chunk => chunk.id));
     const fallback = current.discussionNodes.find(item => item.id !== node.id && item.status !== 'archived');
     if (!fallback) throw legacyError('至少需要保留一个未归档节点。', 409, 'CANNOT_PURGE_LAST_NODE');
     const purgedAt = now();
@@ -589,7 +590,8 @@ function currentPurge(nodeId: string, confirmation: string, reason: string, rece
     const workspace = {
       ...current, activeNodeId: current.activeNodeId === node.id ? fallback.id : current.activeNodeId, nodeId: current.nodeId === node.id ? fallback.id : current.nodeId,
       discussionNodes: current.discussionNodes.filter(item => item.id !== node.id),
-      contextItems: current.contextItems.filter(item => item.sourceNodeId !== node.id && (!item.sourceId || !removedSourceIds.has(item.sourceId))),
+      contextItems: current.contextItems.filter(item => item.sourceNodeId !== node.id && (!item.sourceId || !removedSourceIds.has(item.sourceId))
+        && (!item.sourceId || !(removedAttachmentIds.has(item.sourceId) || removedChunkIds.has(item.sourceId)) || !!item.sourceNodeId)),
       messages: current.messages.filter(message => message.nodeId !== node.id).map(message => ({ ...message, sourceMessageId: message.sourceMessageId && messageIds.has(message.sourceMessageId) ? undefined : message.sourceMessageId, replyToMessageId: message.replyToMessageId && messageIds.has(message.replyToMessageId) ? undefined : message.replyToMessageId })),
       resources: current.resources.map(resource => resourceIds.has(resource.id) ? { ...resource, logicalName: '[purged]' } : resource),
       resourceVersions: current.resourceVersions.map(version => resourceIds.has(version.resourceId) && !version.purgedAt ? { ...version, blobRef: 'purged-v1', purgedAt } : version),

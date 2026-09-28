@@ -24,7 +24,7 @@ M09 当前实现：新 Assistant output 在原事务内写入 `provenance_links`
 
 迁移 0032 将 Purge 前已密封的 CommandReceipt result/error 纳入同一 checkpoint；SQL 标记后，重复命令只返回 `RECEIPT_PURGED`，审计读取只保留回执身份和序列。旧明文回执阻断 Purge，必须先完成既有分批密封迁移。此策略会同时撤销该 Workspace 中与目标节点无关的旧回执正文；新 Purge 命令回执不在旧密钥清单内。Run、trace、资源与备份边界尚未闭合，执行历史保护继续生效。
 
-仅当待删消息的附件资源无保留 Message/Manifest/Context/Run 引用、所有版本已密封、附件/Resource/FileChunk 正文已密封且已知原明文文件不存在时，Purge 才在同一事务移除附件与派生块、脱敏资源及 Graph、写入 ResourceVersion 墓碑覆盖层，并将四类旧密钥加入持久 checkpoint；提交后逐项幂等撤钥。撤钥中断时数据库仍只暴露墓碑，恢复器继续处理。待删旧 Manifest 的附件/冻结资源、待删 file/chunk ContextItem 等尚未纳入该资源身份判定的情况仍返回 `PURGE_HAS_RESOURCE_HISTORY`，不可把拒绝保护视为完整资源擦除。
+仅当待删消息的附件资源无保留 Message/Manifest/Context/Run 引用、所有版本已密封、附件/Resource/FileChunk 正文已密封且已知原明文文件不存在时，Purge 才在同一事务移除附件与派生块、脱敏资源及 Graph、写入 ResourceVersion 墓碑覆盖层，并将四类旧密钥加入持久 checkpoint；提交后逐项幂等撤钥。直接指向这些附件或文件块的 file/chunk ContextItem 也须无其他节点/Manifest 引用，随事务移除并登记其密钥；任何待移除 ContextItem 若尚无密文引用，整个 Purge 在提交前以 `PURGE_CONTEXT_MIGRATION_REQUIRED` 拒绝。撤钥中断时数据库仍只暴露墓碑，恢复器继续处理。待删旧 Manifest 的附件/冻结资源，以及无法归属到这些独占附件的 file/chunk ContextItem 仍返回 `PURGE_HAS_RESOURCE_HISTORY`，不可把拒绝保护视为完整资源擦除。
 
 Purge 事务还会清空被删 Node/Message 在所有已保存 Graph projection namespace 中的 title、summary、metadata，并清空其关系标签；同事务清理对应 Context candidate index 行。Graph 查询随后按当前状态重新物化 active namespace。旧 projection version 不能作为可保留的正文副本；此处理不替代 Run/资源/备份边界的剩余 Purge 工作。
 
@@ -48,11 +48,11 @@ M09 Gate 另运行 `m09:plaintext:audit`：停服取得 runtime ownership 后，
 
 `m09:files:audit` 需停服并显式指向同一部署的 `DATABASE_URL` 与 `RHIZA_UPLOAD_DIR`：在持有运行时及内容生命周期锁时，只读核对现存 ResourceVersion 逻辑 digest、旧附件存储键、导入 checkpoint 摘要所对应的原明文路径，以及遗留导入工作目录；任何副本非零即阻断 Gate。停服维护命令 `RHIZA_OFFLINE_FILE_RECLAMATION=1 pnpm run m09:files:reclaim` 只移除有数据库来源的旧 ResourceVersion/附件原文件：全库锁定引用，每批读回所有仍可用版本的 scoped 密文；已标记 `purged-v1` 的版本不再要求可读密钥，但旧附件不得引用它。原文件的类型、大小、摘要及 inode 均须校验后才 unlink；失败可重跑。归档旧 ZIP 仍使用既有 `bundle:reclaim-imports` 完整校验/密封/保留期流程。上述操作均不扫描任意无引用文件、WAL、备份或用户已导出的 Bundle，不能单凭回收命令宣称完整擦除。
 
-ResourceVersion 清除后仍保留不可变 ID、摘要和大小；读取层以已提交 Purge checkpoint 覆盖原始 sealed 引用，返回 `blobRef: "purged-v1"` 与 `purgedAt`。Bundle v1 的该版本不携带 Blob 条目，clean-store 导入只恢复墓碑身份而不重新发布字节。迁移 0033 允许导入端保存这种墓碑，同时禁止墓碑引用与正常可读引用混用。当前仅支持上述独占已密封附件路径；带冻结 Manifest/file-chunk Context 的复杂资源历史与任何执行历史仍受拒绝保护，备份和外部导出边界亦未闭合。
+ResourceVersion 清除后仍保留不可变 ID、摘要和大小；读取层以已提交 Purge checkpoint 覆盖原始 sealed 引用，返回 `blobRef: "purged-v1"` 与 `purgedAt`。Bundle v1 的该版本不携带 Blob 条目，clean-store 导入只恢复墓碑身份而不重新发布字节。迁移 0033 允许导入端保存这种墓碑，同时禁止墓碑引用与正常可读引用混用。当前仅支持上述独占已密封附件及其可归属的 file/chunk ContextItem；带冻结 Manifest 或无法归属 Context 的复杂资源历史与任何执行历史仍受拒绝保护，备份和外部导出边界亦未闭合。
 
 Node 启动组合根在 Purge 恢复前创建唯一的 ResourceVersion 加密 Blob 适配器，并把它同时交给 Repository 恢复器与 HTTP Host；`resource-version` checkpoint 引用以 Workspace/版本/摘要/大小验证后幂等撤销对应密钥。缺失适配器会使该 checkpoint 保持 pending，启动拒绝对外服务。此接线不放宽上述资源历史 Purge 保护。
 
-迁移 0033 允许 `resource`、`attachment`、`file-chunk` checkpoint 引用；恢复器现在也能按 Workspace 与实体身份幂等撤销这三类正文密钥，缺少对应存储时保持 pending。Application 目前仍拒绝带资源历史的 Purge，尚未在业务事务中登记这些引用或处置所有派生副本；恢复能力不等于资源 Purge 已开放。
+迁移 0033 允许 `resource`、`attachment`、`file-chunk` checkpoint 引用；恢复器按 Workspace 与实体身份幂等撤销这些正文密钥，缺少对应存储时保持 pending。Application 仅允许已密封且无共享引用的消息附件资源及其直接 file/chunk Context 来源进入这一事务；其余资源历史仍失败关闭。
 
 迁移 0034 允许 `run-input` checkpoint 引用；恢复器按 Workspace/Run 身份撤销已登记的加密输入密钥，缺少 Run 内容存储则保持 pending。执行历史仍由 `PURGE_HAS_EXECUTION_HISTORY` 拒绝，直到 Run 关联的其他正文副本与事务登记全部覆盖。
 

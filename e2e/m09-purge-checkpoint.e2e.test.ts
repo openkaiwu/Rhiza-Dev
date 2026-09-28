@@ -773,7 +773,7 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
     } finally { await database.close(); }
   }, 30_000);
 
-  it.each(['none', 'shared-message', 'foreign-run', 'legacy-file', 'revoke-interrupt'] as const)('checkpoints exclusive sealed attachments; fault=%s', async blocker => {
+  it.each(['none', 'file-context', 'chunk-context', 'legacy-context', 'retained-context', 'shared-context', 'shared-message', 'foreign-run', 'legacy-file', 'revoke-interrupt'] as const)('checkpoints exclusive sealed attachments; fault=%s', async blocker => {
     const database = await migratedDatabase(backend);
     const directory = await mkdtemp(join(tmpdir(), 'rhiza-purge-attached-resource-'));
     directories.push(directory);
@@ -784,12 +784,13 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
     const resources = SealedResourceContent.atDirectory(join(directory, 'resources'));
     const attachments = SealedAttachmentContent.atDirectory(join(directory, 'attachments'));
     const chunks = SealedFileChunkContent.atDirectory(join(directory, 'file-chunks'));
+    const contexts = SealedContextItemContent.atDirectory(join(directory, 'context-items'));
     const uploadDirectory = join(directory, 'uploads');
     const blobs = NodeEncryptedBlobStore.atDirectory(uploadDirectory);
     const workspaceId = randomUUID(), nodeId = randomUUID(), messageId = randomUUID();
-    const attachmentId = randomUUID(), resourceId = randomUUID(), versionId = randomUUID(), chunkId = randomUUID(), purgeId = randomUUID();
+    const attachmentId = randomUUID(), resourceId = randomUUID(), versionId = randomUUID(), chunkId = randomUUID(), contextId = randomUUID(), purgeId = randomUUID();
     const store = new PostgresWorkspaceStore(database, workspaceId, receipts, undefined, journal, messages, undefined,
-      nodes, undefined, undefined, undefined, undefined, chunks, attachments, resources, blobs);
+      nodes, undefined, undefined, undefined, blocker === 'legacy-context' ? undefined : contexts, chunks, attachments, resources, blobs);
     try {
       await store.read();
       const createdAt = new Date().toISOString();
@@ -806,10 +807,21 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
           kind: 'file' as const, resourceId, resourceVersionId: versionId, digest: blob.digest, blobRef: blob.blobRef, createdAt }],
         fileChunks: [...current.fileChunks, { id: chunkId, attachmentId, ordinal: 0, text: 'private chunk',
           startOffset: 0, endOffset: 13, tokens: 2, terms: ['private'], embedding: [], resourceVersionId: versionId }],
+        contextItems: blocker.endsWith('context') ? [...current.contextItems, { id: contextId, title: 'private context',
+          detail: 'private derived text', role: 'Reference' as const, status: 'active' as const, tokens: 3,
+          sourceType: blocker === 'chunk-context' ? 'chunk' as const : 'file' as const,
+          sourceId: blocker === 'chunk-context' ? chunkId : attachmentId,
+          ...(blocker === 'retained-context' ? { sourceNodeId: current.activeNodeId } : {}) },
+        ...(blocker === 'shared-context' ? [{ id: randomUUID(), title: 'retained pointer', detail: 'derived pointer',
+          role: 'Reference' as const, status: 'active' as const, tokens: 1, sourceType: 'reference' as const,
+          sourceId: contextId, sourceNodeId: current.activeNodeId }] : [])] : current.contextItems,
       }));
       const resourceRef = (await database.query<{ content_ref: unknown }>('SELECT content_ref FROM rhiza_resources WHERE resource_id=$1', [resourceId])).rows[0]!.content_ref;
       const attachmentRef = (await database.query<{ content_ref: unknown }>('SELECT content_ref FROM rhiza_attachments WHERE id=$1', [attachmentId])).rows[0]!.content_ref;
       const fileChunkRef = (await database.query<{ state: { fileChunks: Array<{ contentRef: unknown }> } }>('SELECT state FROM rhiza_projects WHERE id=$1', [workspaceId])).rows[0]!.state.fileChunks[0]!.contentRef;
+      const contextRef = blocker.endsWith('context')
+        ? (await database.query<{ state: { contextItems: Array<{ id: string; contentRef: SealedContextItemRef }> } }>('SELECT state FROM rhiza_projects WHERE id=$1', [workspaceId]))
+          .rows[0]!.state.contextItems.find(item => item.id === contextId)!.contentRef : undefined;
       await store.workspaceDirectory.ensureWorkspace({ workspaceId, name: 'Resource Purge', status: 'active', createdBy: randomUUID(), revision: 1 });
       await store.backfillJournal();
       await store.rebuildGraphProjection();
@@ -820,9 +832,22 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
         resourceVersions: current.resourceVersions.map(version => version.id === versionId ? { ...version, blobRef: 'purged-v1', purgedAt: createdAt } : version),
         attachments: current.attachments.filter(attachment => attachment.id !== attachmentId),
         fileChunks: current.fileChunks.filter(chunk => chunk.id !== chunkId),
+        contextItems: current.contextItems.filter(item => item.id !== contextId || item.sourceNodeId === current.activeNodeId),
         auditEvents: [...current.auditEvents, { id: purgeId, projectId: workspaceId, nodeId,
           action: 'node.purged', entityType: 'node' as const, entityId: nodeId, metadata: { reason: 'provided-redacted' }, createdAt }],
       });
+      if (blocker === 'retained-context' || blocker === 'shared-context') {
+        await expect(store.update(purge, { purge: { nodeId, auditReceiptId: purgeId } }))
+          .rejects.toMatchObject({ code: 'PURGE_HAS_RESOURCE_HISTORY', status: 409 });
+        expect(Buffer.from(await blobs.read(blob.blobRef, blob.digest))).toEqual(Buffer.from(bytes));
+        return;
+      }
+      if (blocker === 'legacy-context') {
+        await expect(store.update(purge, { purge: { nodeId, auditReceiptId: purgeId } }))
+          .rejects.toMatchObject({ code: 'PURGE_CONTEXT_MIGRATION_REQUIRED', status: 409 });
+        expect((await database.query<{ count: number }>('SELECT count(*)::int count FROM purge_checkpoints')).rows[0]?.count).toBe(0);
+        return;
+      }
       if (blocker === 'shared-message') {
         await store.update(current => ({ ...current, messages: [...current.messages, { id: randomUUID(), nodeId: current.activeNodeId,
           kind: 'user' as const, text: 'shared reference', attachmentIds: [attachmentId], createdAt }] }));
@@ -877,6 +902,12 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       expect(purged.resourceVersions.find(version => version.id === versionId)).toMatchObject({ blobRef: 'purged-v1', purgedAt: expect.any(String) });
       expect(purged.attachments).toEqual([]);
       expect(purged.fileChunks).toEqual([]);
+      if (blocker === 'file-context' || blocker === 'chunk-context') {
+        expect(purged.contextItems.find(item => item.id === contextId)).toBeUndefined();
+        expect((await database.query<{ content_family: string }>('SELECT content_family FROM purge_key_references WHERE purge_id=$1', [purgeId]))
+          .rows.map(row => row.content_family)).toContain('context-item');
+        await expect(contexts.read(workspaceId, contextId, contextRef!)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+      }
       expect((await database.query<{ count: number }>(
         "SELECT count(*)::int count FROM context_candidate_index WHERE workspace_id=$1 AND source_id=ANY($2::text[])",
         [workspaceId, [attachmentId, chunkId]])).rows[0]?.count).toBe(0);
@@ -890,6 +921,7 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
         .toBe(semanticStateChecksum(workspaceSemanticSnapshot(portable.workspace)));
       expect(JSON.stringify(portable)).not.toContain('private.txt');
       expect(JSON.stringify(portable)).not.toContain('private chunk');
+      expect(JSON.stringify(portable)).not.toContain('private derived text');
       expect((await database.query<{ content_family: string }>('SELECT content_family FROM purge_key_references WHERE purge_id=$1', [purgeId])).rows.map(row => row.content_family))
         .toEqual(expect.arrayContaining(['resource', 'resource-version', 'attachment', 'file-chunk', 'journal', 'receipt-result']));
       expect((await database.query<{ phase: string }>('SELECT phase FROM purge_checkpoints WHERE purge_id=$1', [purgeId])).rows[0]?.phase).toBe('revoked');

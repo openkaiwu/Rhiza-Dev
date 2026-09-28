@@ -72,6 +72,9 @@ describe('Rhiza Application', () => {
         kind: 'file' as const, resourceId: 'private-resource', resourceVersionId: 'private-version', digest, createdAt }],
       fileChunks: [...seeded.fileChunks, { id: 'private-chunk', attachmentId: 'private-attachment', ordinal: 0,
         text: 'private', startOffset: 0, endOffset: 7, tokens: 1, terms: ['private'], embedding: [], resourceVersionId: 'private-version' }],
+      contextItems: [...seeded.contextItems, { id: 'private-context', title: 'private', detail: 'private bytes',
+        role: 'Reference' as const, status: 'active' as const, tokens: 2, sourceType: 'chunk' as const,
+        sourceId: 'private-chunk' }],
     };
     const { application, workspace, commits } = fixture({ initialWorkspace });
     const result = await application.execute(createLegacyCommandEnvelope('purge-resource', 'PurgeObject',
@@ -82,6 +85,7 @@ describe('Rhiza Application', () => {
     expect(workspace().resources.find(resource => resource.id === 'private-resource')?.logicalName).toBe('[purged]');
     expect(workspace().attachments).toEqual([]);
     expect(workspace().fileChunks).toEqual([]);
+    expect(workspace().contextItems.find(item => item.id === 'private-context')).toBeUndefined();
   });
   it.each([false, undefined])('denies Purge before mutation when owner capability returns %s', async owner => {
     const record = { workspaceId: '00000000-0000-4000-8000-000000000001', name: 'Shared', status: 'active' as const, createdBy: LOCAL_USER_ID, revision: 1 };
