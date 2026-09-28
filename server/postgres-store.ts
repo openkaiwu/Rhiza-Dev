@@ -7,7 +7,7 @@ import { projectRunTrace, RUN_TRACE_TYPES, type ExecutionRun, type RunMutation, 
 import { semanticStateChecksum } from './infrastructure/workspace-semantic-checksum';
 import type { Anchor, AuditEvent, ContextManifest, DiscussionEdge, DiscussionNode, FileChunk, Resource, ResourceMaterialization, ResourceVersion, Segment, StoredAttachment, StoredMessage, WorkspaceData } from './domain';
 import { createSeedWorkspace } from './seed';
-import { validateWorkspaceHistoryUpdate, type WorkspaceRepository, type WorkspaceUpdateOptions } from './store';
+import { isRedactedPurgeAuditMetadata, validateWorkspaceHistoryUpdate, type WorkspaceRepository, type WorkspaceUpdateOptions } from './store';
 import type { WorkspaceDirectoryPort } from './identity/workspace-directory';
 import { DOMAIN_EVENT_SCHEMA_VERSION, workspaceSemanticChanges, workspaceSemanticSnapshot, type CommandFactContext, type CommandReceipt, type DomainEventEnvelope } from './domain-journal';
 import { semanticChecksum } from './infrastructure/workspace-semantic-checksum';
@@ -424,6 +424,26 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       (SELECT count(*)::int FROM rhiza_projects p, jsonb_array_elements(coalesce(p.state->'fileChunks','[]'::jsonb)) item
         WHERE jsonb_typeof(item->'contentRef') IS DISTINCT FROM 'object') AS file_chunks`);
     return result.rows[0]!;
+  }
+
+  /** Reads every live committed receipt; an old Purge audit can survive inside later encrypted command results. */
+  async auditPurgeReceiptReasons(): Promise<{ checked: number; unsafe: number }> {
+    const rows = await this.database.query<Record<string, unknown>>(`SELECT workspace_id,command_id,result,result_content_ref,purged_at
+      FROM command_receipts WHERE status='committed' AND purged_at IS NULL ORDER BY workspace_id,command_id`);
+    let unsafe = 0;
+    for (const row of rows.rows) {
+      const pending: unknown[] = [await this.readReceiptResult(row)];
+      let found = false;
+      while (pending.length && !found) {
+        const value = pending.pop();
+        if (!value || typeof value !== 'object') continue;
+        if (!Array.isArray(value) && (value as Record<string, unknown>).action === 'node.purged'
+          && !isRedactedPurgeAuditMetadata((value as Record<string, unknown>).metadata)) found = true;
+        else pending.push(...Object.values(value));
+      }
+      if (found) unsafe += 1;
+    }
+    return { checked: rows.rows.length, unsafe };
   }
 
   /** Offline maintenance only; all users of the content directories must be stopped. */

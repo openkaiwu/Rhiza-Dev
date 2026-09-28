@@ -489,6 +489,41 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
     } finally { await database.close(); }
   });
 
+  it('detects old purge reasons retained inside sealed command receipts', async () => {
+    const database = await migratedDatabase(backend);
+    const workspaceId = randomUUID();
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-m09-receipt-audit-'));
+    directories.push(directory);
+    const content = SealedReceiptContent.atDirectory(directory);
+    const store = new PostgresWorkspaceStore(database, workspaceId, content);
+    try {
+      await store.read();
+      const commandId = randomUUID();
+      const reference = await content.seal(workspaceId, commandId, { workspace: { auditEvents: [
+        { action: 'node.purged', metadata: { reason: 'old secret reason' } },
+      ] } });
+      await database.query(`INSERT INTO command_receipts
+        (workspace_id,command_id,command_type,status,result_content_ref)
+        VALUES ($1,$2,'CreateGraphNode','committed',$3::jsonb)`, [workspaceId, commandId, JSON.stringify(reference)]);
+      const extraId = randomUUID();
+      const extra = await content.seal(workspaceId, extraId, { purgeReceipt: {
+        action: 'node.purged', metadata: { reason: 'provided-redacted', note: 'old secret note' },
+      } });
+      await database.query(`INSERT INTO command_receipts
+        (workspace_id,command_id,command_type,status,result_content_ref)
+        VALUES ($1,$2,'PurgeObject','committed',$3::jsonb)`, [workspaceId, extraId, JSON.stringify(extra)]);
+      const safeId = randomUUID();
+      const safe = await content.seal(workspaceId, safeId, { purgeReceipt: {
+        action: 'node.purged', metadata: { reason: 'provided-redacted', confirmation: 'explicit-id-phrase', removed: { nodes: 1 } },
+      } });
+      await database.query(`INSERT INTO command_receipts
+        (workspace_id,command_id,command_type,status,result_content_ref)
+        VALUES ($1,$2,'PurgeObject','committed',$3::jsonb)`, [workspaceId, safeId, JSON.stringify(safe)]);
+      expect((await store.auditLegacyPlaintextReplicas()).purge_audit_reasons).toBe(0);
+      expect(await store.auditPurgeReceiptReasons()).toEqual({ checked: 3, unsafe: 2 });
+    } finally { await database.close(); }
+  });
+
   it('redacts every saved Graph namespace and candidate index in the Purge transaction', async () => {
     const database = await migratedDatabase(backend);
     const workspaceId = randomUUID();

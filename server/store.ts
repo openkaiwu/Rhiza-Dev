@@ -158,15 +158,21 @@ export function validateWorkspaceHistoryUpdate(previous: WorkspaceData, next: Wo
     throw new Error('Purge requires a new node.purged audit receipt for the specified node');
   }
   if (receipt.metadata.reason !== 'provided-redacted') throw new Error('Purge audit reason must be redacted');
-  const metadata = receipt.metadata;
+  if (!isRedactedPurgeAuditMetadata(receipt.metadata)) throw new Error('Purge audit metadata must be redacted');
+}
+
+export function isRedactedPurgeAuditMetadata(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
+  const metadata = value as Record<string, unknown>;
   const counts = metadata.removed;
-  if (Object.keys(metadata).some(key => !['reason', 'confirmation', 'removed'].includes(key))
-    || (metadata.confirmation !== undefined && metadata.confirmation !== 'explicit-id-phrase')
-    || (counts !== undefined && (!counts || typeof counts !== 'object' || Array.isArray(counts)
-      || Object.entries(counts).some(([key, value]) => !['nodes', 'messages', 'segments', 'manifests', 'anchors'].includes(key)
-        || typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)))) {
-    throw new Error('Purge audit metadata must be redacted');
-  }
+  return metadata.reason === 'provided-redacted'
+    && Object.keys(metadata).every(key => ['reason', 'confirmation', 'removed'].includes(key))
+    && (metadata.confirmation === undefined || metadata.confirmation === 'explicit-id-phrase')
+    && (counts === undefined || (counts !== null && typeof counts === 'object' && !Array.isArray(counts)
+      && [Object.prototype, null].includes(Object.getPrototypeOf(counts))
+      && Object.entries(counts).every(([key, count]) => ['nodes', 'messages', 'segments', 'manifests', 'anchors'].includes(key)
+        && typeof count === 'number' && Number.isSafeInteger(count) && count >= 0)));
 }
 
 export class WorkspaceStore implements WorkspaceRepository {
