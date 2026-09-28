@@ -465,6 +465,11 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     return (await this.inspectResourceBlobKeys(blobs, false)).audit;
   }
 
+  /** Offline M09 audit: authenticate every live ResourceVersion ciphertext, not just its key metadata. */
+  async auditResourceBlobIntegrity(blobs: NodeEncryptedBlobStore): Promise<number> {
+    return (await this.inspectResourceBlobKeys(blobs, false, true)).verified;
+  }
+
   /** Offline only; the upload/key directory must belong solely to this database. */
   async reclaimResourceBlobKeys(blobs: NodeEncryptedBlobStore) {
     await this.acquireRuntimeOwnership();
@@ -489,7 +494,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     }, true);
   }
 
-  private async inspectResourceBlobKeys(blobs: NodeEncryptedBlobStore, reclaim: boolean) {
+  private async inspectResourceBlobKeys(blobs: NodeEncryptedBlobStore, reclaim: boolean, verifyContent = false) {
     return this.inTransaction(async database => {
       if (reclaim) await database.query('LOCK TABLE rhiza_resources,rhiza_resource_versions IN SHARE MODE');
       const { rows } = await database.query<{ workspace_id: string; resource_version_id: string; digest: string; size_bytes: number; blob_ref: string }>(`
@@ -500,9 +505,19 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       const references = rows.map(row => ({ workspaceId: row.workspace_id, resourceVersionId: row.resource_version_id,
         digest: row.digest, size: Number(row.size_bytes), blobRef: row.blob_ref }));
       const audit = await blobs.auditKeys(references);
-      if (reclaim && audit.some(record => record.referenced && record.state !== 'active')) throw new Error('RESOURCE_BLOB_KEYS_UNHEALTHY');
+      if ((reclaim || verifyContent) && audit.some(record => record.referenced && record.state !== 'active')) throw new Error('RESOURCE_BLOB_KEYS_UNHEALTHY');
+      let verified = 0;
+      if (verifyContent) {
+        for (const reference of references) {
+          if (!reference.blobRef.startsWith('sealed-v1/')) throw new Error('RESOURCE_BLOB_NOT_SEALED');
+          let size = 0;
+          for await (const chunk of blobs.readStream(reference.blobRef, reference.digest)) size += chunk.byteLength;
+          if (size !== reference.size) throw new Error('RESOURCE_BLOB_SIZE_MISMATCH');
+          verified += 1;
+        }
+      }
       const revoked = reclaim ? await blobs.revokeUnreferencedKeys(references) : 0;
-      return { audit, revoked };
+      return { audit, revoked, verified };
     }, reclaim);
   }
 

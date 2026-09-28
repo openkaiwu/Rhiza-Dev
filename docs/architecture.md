@@ -42,7 +42,7 @@ Bundle 导出通过 `/api/v1/workspaces/:workspaceId/bundle` 读取同一事务�
 
 `reclaimHistoricalKeys` 是停服维护专用 Repository 操作：获取运行时独占权、内容独占事务锁和全部引用表的 SHARE 锁，在同一连接读取所有工作区引用。全部类别的已引用密钥元数据健康后才开始撤销未引用 active key；永久保留空 tombstone，失败后的重复执行跳过已撤销项。文件撤销不随 SQL 回滚恢复。内容目录必须仅属于当前数据库，调用前须停止所有目录使用者（包括直接文件发布者）；数据库锁无法保护其他数据库或进程直接访问同一目录。真实 PostgreSQL 并发行为尚待验收，此操作不等同于对象 Purge。
 
-`pnpm run m09:keys:audit` 对全部 Workspace 的历史正文与 ResourceVersion Blob 密钥做只读引用审计；`RHIZA_OFFLINE_KEY_RECONCILIATION=1 pnpm run m09:keys:reclaim` 仅用于停服后、数据库及上传目录独占的维护窗口。资源引用会核验 scoped blobRef 中的 Workspace/ResourceVersion 身份、摘要及大小；任何已引用密钥缺失或失效都阻止撤销。回收在独占内容锁及 ResourceVersion 表锁下重新读全库引用，先撤销孤儿密钥，再另行按完整保留集合清理不可读密文；当前尚无自动加密 Blob GC。普通业务请求不得调用此维护入口。
+`pnpm run m09:keys:audit` 对全部 Workspace 的历史正文与 ResourceVersion Blob 密钥做只读引用审计，并流式认证、核对每个仍可用 ResourceVersion 密文的摘要与大小；`RHIZA_OFFLINE_KEY_RECONCILIATION=1 pnpm run m09:keys:reclaim` 仅用于停服后、数据库及上传目录独占的维护窗口。资源引用会核验 scoped blobRef 中的 Workspace/ResourceVersion 身份、摘要及大小；任何已引用密钥缺失或失效都阻止撤销。回收在独占内容锁及 ResourceVersion 表锁下重新读全库引用，先撤销孤儿密钥，再另行按完整保留集合清理不可读密文；当前尚无自动加密 Blob GC。普通业务请求不得调用此维护入口。
 
 M09 Gate 另运行 `m09:plaintext:audit`：停服取得 runtime ownership 后，用单条数据库快照查询计数所有历史正文族、未密封 ResourceVersion Blob 与旧版 Purge 审计自由文本；再逐条解密仍可读的已提交回执，发现嵌套旧 Purge 审计说明同样阻断。两次读取不是同一事务，须保证无直接数据库/密钥写入者；只输出计数，不输出正文。该审计不能替代旧明文 Blob 文件、WAL/备份或已导出 Bundle 的保留期检查。
 

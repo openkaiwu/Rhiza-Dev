@@ -130,6 +130,7 @@
 - Purge 目标 Node（含 `temp:<nodeId>`）的终态 Run，须先证明输入已密封、trace 仅含允许的元数据、无跨节点 Run/谱系引用；事务内登记输入密钥并把 Run 行的输入与错误详情改成最小脱敏事实。Run 读取须在待撤销阶段失败关闭，Bundle 省略已清除 Run；旧明文、活跃 Run 或跨节点引用仍拒绝。跨节点 Run 可能通过 `sourceMessageId`、Manifest、history、Context `sourceId`、`parentRunRef` 或 Replay source 引用待删内容，不能只比对 Run 节点 ID。
 - `run-input` 密钥从持久 Purge checkpoint 按 Workspace/Run 身份幂等撤销。缺失 Run 内容适配器时 checkpoint 必须维持 pending；迁移工具和明文审计须跳过已清除的 Run，不能把墓碑误判为待迁移明文。
 - ResourceVersion Blob 密钥对账必须读取全部 Workspace 的版本引用，并校验 `sealed-v1` 的 Workspace/版本身份、digest 与 size；只读审计不授权回收。停服回收须同时独占数据库和上传目录，先对历史正文与资源密钥全量预检，再分别在锁内重读引用并撤销孤儿密钥；缺失的已引用密钥应阻断，不能误清理其他 Workspace 的同摘要内容。
+- ResourceVersion 的密钥元数据健康不等于密文文件可读；M09 离线密钥审计还须流式认证全部仍可用版本并核对解密后的摘要和大小。旧明文引用与丢失/损坏的密文都应使该审计失败，不能把孤儿密钥回收当作内容完整性验证。
 - Purge 的 SQL 删除、redacted provenance、审计事实与待撤销 scoped key 清单必须同事务提交；提交后 key destroy 可中断且不可回滚，因此逐项 acknowledgement 与 checkpoint 必须允许重复撤销。启动取得 runtime ownership 后先分批排空 pending checkpoint，再读 Workspace、回填 Journal 或开放 HTTP；某一批无法推进则拒绝启动，不能只记录警告。执行历史保护只能在 Run、Journal、receipt/trace 等每一份正文副本均进入该流程后移除。
 - Purge 的自由文本确认说明可能包含待清除秘密；Application 只将固定 `provided-redacted` 标记写入 AuditEvent，共享 Workspace 历史校验还限制审计 metadata 的字段与计数，拒绝其他写入者夹带正文。旧审计行的自由文本仍须单独迁移/审查，不能据新写入行为宣称历史副本已清除。
 - Journal Purge 不更新 append-only 事件行；在同一事务发布脱敏 baseline/tail 覆盖层并登记原有效载荷密钥，所有历史读取与密钥对账只认覆盖层。无已加密且可重放的 baseline 时拒绝 Purge；仅删除 Current State 会让旧 Journal snapshot 泄露正文。

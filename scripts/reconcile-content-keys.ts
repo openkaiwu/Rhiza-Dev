@@ -24,10 +24,11 @@ try {
   const resourceKeys = await store.auditResourceBlobKeys(blobs);
   const records = [...Object.values(documentKeys).flat(), ...resourceKeys];
   if (records.some(record => record.referenced && record.state !== 'active')) throw new Error('CONTENT_KEY_REFERENCES_UNHEALTHY');
+  const resourceBlobsVerified = await store.auditResourceBlobIntegrity(blobs);
   const revoked = reclaim
     ? { documents: await store.reclaimHistoricalKeys(), resourceVersions: await store.reclaimResourceBlobKeys(blobs) }
     : undefined;
   console.info(JSON.stringify({ scope: 'all-workspaces', referenced: records.filter(record => record.referenced).length,
-    unreferencedActive: records.filter(record => !record.referenced && record.state === 'active').length,
+    unreferencedActive: records.filter(record => !record.referenced && record.state === 'active').length, resourceBlobsVerified,
     ...(revoked ? { revoked } : { mode: 'audit-only' }) }));
 } finally { await store.close(); }

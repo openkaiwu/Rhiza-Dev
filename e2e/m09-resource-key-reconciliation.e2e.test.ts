@@ -40,10 +40,14 @@ it('reconciles ResourceVersion keys across every Workspace before offline revoca
     const audit = await store.auditResourceBlobKeys(blobs);
     expect(audit.filter(item => item.referenced && item.state === 'active')).toHaveLength(2);
     expect(audit.filter(item => !item.referenced && item.state === 'active')).toHaveLength(1);
+    expect(await store.auditResourceBlobIntegrity(blobs)).toBe(2);
     expect(await store.reclaimResourceBlobKeys(blobs)).toBe(1);
     await expect(blobs.read(orphan.blobRef, orphan.digest)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     for (const version of versions) expect(Array.from(await blobs.read(version.blobRef, version.digest))).toEqual(Array.from(bytes));
     expect(await store.reclaimResourceBlobKeys(blobs)).toBe(0);
+    const ciphertextDigest = versions[1].blobRef.split('/')[3]!;
+    await rm(join(root, 'uploads', 'blobs', 'sha256', ciphertextDigest.slice(0, 2), ciphertextDigest));
+    await expect(store.auditResourceBlobIntegrity(blobs)).rejects.toThrow('Referenced blob is missing');
     await content.destroy({ workspaceId: workspaces[0], contentId: 'version-0' });
     const nextOrphan = await blobs.put(bytes, { workspaceId: workspaces[1], contentId: 'another-uncommitted-version' });
     await expect(store.reclaimResourceBlobKeys(blobs)).rejects.toThrow('RESOURCE_BLOB_KEYS_UNHEALTHY');
