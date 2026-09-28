@@ -1122,8 +1122,28 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     const [run] = await store.listRuns();
     expect(run.status).toBe('failed');
     expect(run.error?.class).toBe('commit');
+    expect(run.error?.code).toBe('RUN_COMMIT_FAILED');
     expect((await store.read()).messages).toEqual(before);
     expect((await store.readJournal()).some(event => event.eventType === 'conversation.run.committed')).toBe(false);
+  });
+
+  it('does not persist arbitrary Runtime error codes or provider detail text', async () => {
+    const secret = 'private provider failure detail';
+    const { app, store, database } = await setup(async function* (input) {
+      yield { type: 'RUN_ERROR', requestId: input.requestId, code: `UPSTREAM_${secret}`, message: secret, status: 502 };
+    });
+    const response = await request(app).post('/api/chat').send({ message: 'trigger provider failure' }).expect(502);
+    expect(response.body.error.code).toBe('RUNTIME_ERROR');
+    const [run] = await store.listRuns();
+    expect(run.error).toMatchObject({ code: 'RUNTIME_ERROR', class: 'provider' });
+    const row = (await database.query<{ record: unknown }>('SELECT record FROM execution_runs WHERE run_id=$1', [run.id])).rows[0];
+    expect(JSON.stringify(row)).not.toContain(secret);
+    const facts = await store.readPortableWorkspace();
+    facts.runs[0]!.error!.code = `UPSTREAM_${secret}`;
+    facts.runs[0]!.error!.class = secret as NonNullable<ExecutionRun['error']>['class'];
+    const portable = portableWorkspaceFacts(facts, input => semanticStateChecksum(input as Record<string, unknown>));
+    expect(portable.runs[0]!.error).toEqual({ code: 'RUNTIME_ERROR', class: 'commit', message: 'Historical execution failure' });
+    expect(JSON.stringify(portable)).not.toContain(secret);
   });
 
   it('keeps archive available when historical Run resources cannot be purged', async () => {

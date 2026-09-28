@@ -58,6 +58,8 @@ Node 启动组合根在 Purge 恢复前创建唯一的 ResourceVersion 加密 Bl
 
 迁移 0036 将目标 Node（含其临时支线）的终态密封 Run 纳入 Purge checkpoint：同一事务登记输入密钥、将 Run SQL 输入与错误详情改成最小脱敏事实，并允许删除对应已密封 Manifest v1；提交后 Run 读取与 Replay 失败关闭，Bundle 省略该 Run，密钥撤销可中断恢复。旧明文或非终态 Run、含额外字段的 trace、跨节点 Run/谱系引用、未密封 Manifest 和未覆盖的资源历史仍阻断 Purge。原始 Run 的 ID、状态、输入摘要与最小创建事实保留在 SQL；WAL/备份与外部导出仍按独立保留边界处理。
 
+Run 错误只持久化稳定 code/class 与固定描述，不保存 Provider 原始错误文本；Bundle DTO 同样归一错误码并替换错误描述。全库历史明文审计另外计数非白名单 `record.error`；停服独占的 `m09:run-errors:sanitize` 分批将旧自由文本和扩展字段替换为固定脱敏事实。此操作不会清除已存在的 WAL/备份副本。
+
 - React + TypeScript：界面与本地交互状态
 - Vite：开发服务器与生产构建
 - Express：Workspace、Context 与 Chat API

@@ -3,7 +3,7 @@ import type { ContextPlanningInput } from './context-runtime/contracts';
 import { createHash, randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { resolve } from 'node:path';
-import { projectRunTrace, RUN_TRACE_TYPES, type ExecutionRun, type RunMutation, type RunTrace } from './execution-runtime/run';
+import { projectRunTrace, redactedLegacyRunError, RUN_ERROR_CLASSES, RUN_ERROR_CODES, RUN_ERROR_MESSAGES, RUN_TRACE_TYPES, type ExecutionRun, type RunMutation, type RunTrace } from './execution-runtime/run';
 import { semanticStateChecksum } from './infrastructure/workspace-semantic-checksum';
 import type { Anchor, AuditEvent, ContextManifest, DiscussionEdge, DiscussionNode, FileChunk, Resource, ResourceMaterialization, ResourceVersion, Segment, StoredAttachment, StoredMessage, WorkspaceData } from './domain';
 import { createSeedWorkspace } from './seed';
@@ -75,6 +75,12 @@ interface TransactionalSql extends SqlQueryable {
 }
 
 const DEFAULT_PROJECT_ID = '00000000-0000-4000-8000-000000000001';
+const unsafeRunErrorSql = `record ? 'error' AND record->'error'<>'null'::jsonb AND (
+  jsonb_typeof(record->'error')='object'
+  AND (record->'error') - ARRAY['code','class','message']='{}'::jsonb
+  AND record->'error'->>'code'=ANY($1::text[])
+  AND record->'error'->>'class'=ANY($2::text[])
+  AND record->'error'->>'message'=ANY($3::text[])) IS NOT TRUE`;
 const asIso = (value: unknown) => value instanceof Date ? value.toISOString() : new Date(String(value)).toISOString();
 const asJson = <T>(value: unknown): T => typeof value === 'string' ? JSON.parse(value) as T : value as T;
 function storedJournalEvent(row: Record<string, unknown>): DomainEventEnvelope {
@@ -403,6 +409,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       (SELECT count(*)::int FROM command_receipts WHERE purged_at IS NULL AND status='committed' AND result_content_ref IS NULL) AS receipt_results,
       (SELECT count(*)::int FROM command_receipts WHERE purged_at IS NULL AND status='rejected' AND error_content_ref IS NULL) AS receipt_errors,
       (SELECT count(*)::int FROM execution_runs WHERE input_content_ref IS NULL AND purged_at IS NULL) AS run_inputs,
+      (SELECT count(*)::int FROM execution_runs WHERE purged_at IS NULL AND ${unsafeRunErrorSql}) AS run_error_details,
       (SELECT count(*)::int FROM workspace_events WHERE payload_content_ref IS NULL) AS journal_payloads,
       (SELECT count(*)::int FROM rhiza_messages WHERE content_ref IS NULL) AS messages,
       (SELECT count(*)::int FROM rhiza_context_manifests WHERE content_ref IS NULL) AS manifests,
@@ -423,7 +430,8 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       (SELECT count(*)::int FROM rhiza_projects p, jsonb_array_elements(coalesce(p.state->'contextItems','[]'::jsonb)) item
         WHERE jsonb_typeof(item->'contentRef') IS DISTINCT FROM 'object') AS context_items,
       (SELECT count(*)::int FROM rhiza_projects p, jsonb_array_elements(coalesce(p.state->'fileChunks','[]'::jsonb)) item
-        WHERE jsonb_typeof(item->'contentRef') IS DISTINCT FROM 'object') AS file_chunks`);
+        WHERE jsonb_typeof(item->'contentRef') IS DISTINCT FROM 'object') AS file_chunks`,
+    [[...RUN_ERROR_CODES], [...RUN_ERROR_CLASSES], [...RUN_ERROR_MESSAGES]]);
     return result.rows[0]!;
   }
 
@@ -1438,6 +1446,33 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         ELSE false END) IS NOT TRUE)::int AS invalid
       FROM execution_run_traces`, [[...RUN_TRACE_TYPES]]);
     return { total: Number(result.rows[0]?.total ?? 0), invalid: Number(result.rows[0]?.invalid ?? 0) };
+  }
+
+  /** Offline migration: retain only stable Run error facts, never old provider detail text. */
+  async sanitizeLegacyRunErrors(limit = 100): Promise<number> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error('INVALID_RUN_ERROR_MIGRATION_LIMIT');
+    return this.inTransaction(async database => {
+      await database.query("SET LOCAL lock_timeout = '5s'");
+      await database.query('LOCK TABLE execution_runs IN ACCESS EXCLUSIVE MODE');
+      const { rows } = await database.query<{ run_id: string; workspace_id: string; status: string; record: unknown }>(
+        `SELECT run_id,workspace_id,status,record FROM execution_runs WHERE purged_at IS NULL AND ${unsafeRunErrorSql}
+          ORDER BY run_id LIMIT $4 FOR UPDATE`, [[...RUN_ERROR_CODES], [...RUN_ERROR_CLASSES], [...RUN_ERROR_MESSAGES], limit]);
+      if (!rows.length) return 0;
+      for (const row of rows) {
+        const record = asJson<Record<string, unknown>>(row.record);
+        if (!record || typeof record !== 'object' || Array.isArray(record)
+          || record.id !== row.run_id || record.workspaceId !== row.workspace_id || record.status !== row.status)
+          throw new Error('RUN_ERROR_MIGRATION_UNSAFE');
+      }
+      await database.query('ALTER TABLE execution_runs DISABLE TRIGGER execution_run_history');
+      for (const row of rows) {
+        const record = asJson<Record<string, unknown>>(row.record);
+        await database.query("UPDATE execution_runs SET record=jsonb_set(record,'{error}',$2::jsonb) WHERE run_id=$1",
+          [row.run_id, JSON.stringify(redactedLegacyRunError(record.error))]);
+      }
+      await database.query('ALTER TABLE execution_runs ENABLE TRIGGER execution_run_history');
+      return rows.length;
+    });
   }
 
   /** Offline migration: remove legacy trace extras without inventing invalid history. */

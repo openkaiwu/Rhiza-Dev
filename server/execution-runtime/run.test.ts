@@ -1,5 +1,12 @@
 import { expect, it } from 'vitest';
-import { RunTraceBuffer, TransientStreamSink } from './run';
+import { redactedLegacyRunError, RunTraceBuffer, safeRunErrorCode, TransientStreamSink } from './run';
+
+it('keeps only stable Run error facts at the persistence boundary', () => {
+  expect(safeRunErrorCode('PROVIDER_TIMEOUT')).toBe('PROVIDER_TIMEOUT');
+  expect(safeRunErrorCode('secret-provider-response')).toBe('RUNTIME_ERROR');
+  expect(redactedLegacyRunError({ code: 'secret-provider-response', class: 'network', message: 'private body', detail: 'private path' }))
+    .toEqual({ code: 'LEGACY_RUN_ERROR_REDACTED', class: 'network', message: '历史执行错误详情已清理。' });
+});
 
 it('backpressures trace writes and bounds the transient ring at 256 events', async () => {
   let release!: () => void;

@@ -211,6 +211,8 @@ Rhiza 默认把工作空间数据保存在本机。Provider API Key 使用本机
 
 旧 Run 输入可在停服、完整备份后执行 `pnpm exec tsx scripts/seal-legacy-run-inputs.ts` 迁移。PostgreSQL 模式会先获取运行时独占权，并需要表所有者权限。每批在 Run 表独占锁下加密和校验，在同一事务内临时停用两项不可变触发器以替换输入，提交前恢复；失败时数据与触发器状态一起回滚，可重跑续迁。此工具不清理旧备份、WAL、Journal 等其他输入副本，不等于完整 Purge。
 
+旧 Run 错误详情可先用 `pnpm run m09:plaintext:audit` 查看 `run_error_details` 计数；停服并完成备份后，以 `RHIZA_OFFLINE_RUN_ERROR_SANITIZATION=1 pnpm run m09:run-errors:sanitize` 分批脱敏。它保留稳定错误类别，但旧 Provider 原文和不受信任的错误码会丢弃；需要数据库表所有者权限，且不会清除旧 WAL/备份。不要在服务在线写入时运行。
+
 当前 Preview 尚未提供登录和多用户权限隔离，请勿把它作为开放公网的多人服务直接部署。
 
 ## 继续了解 Rhiza

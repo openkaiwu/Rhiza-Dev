@@ -1,6 +1,7 @@
 import type { PortableWorkspaceFacts } from './ports/portable-workspace';
 import type { StoredAttachment, StoredMessage, ContextManifest, WorkspaceData } from '../domain';
 import { bundleError } from '../domain/portable-bundle';
+import { safeRunErrorClass, safeRunErrorCode } from '../execution-runtime/run';
 
 function select<T extends object>(value: T, keys: readonly (keyof T)[]): T {
   return portableBlobReference(Object.fromEntries(keys.filter(key => value[key] !== undefined).map(key => [key, value[key]]))) as T;
@@ -64,7 +65,7 @@ export function portableWorkspaceFacts(source: PortableWorkspaceFacts, hash: (in
     return { ...select(run, ['id', 'workspaceId', 'nodeId', 'commandId', 'status', 'attempt', 'parentRunRef', 'createdAt', 'dispatchingAt', 'runningAt', 'terminalAt', 'cancelRequestedAt']),
       input, inputHash: hash(input), originInputHash: run.originInputHash ?? run.inputHash,
       telemetry: { traceCount: 0, ...(run.telemetry.usage ? { usage: select(run.telemetry.usage, ['promptTokens', 'completionTokens', 'totalTokens', 'estimated']) } : {}) },
-      ...(run.error ? { error: { ...select(run.error, ['code', 'class']), message: 'Historical execution failure' } } : {}) };
+      ...(run.error ? { error: { code: safeRunErrorCode(run.error.code), class: safeRunErrorClass(run.error.class), message: 'Historical execution failure' } } : {}) };
   });
   const result = structuredClone({ workspace, runs,
     directory: select(source.directory, ['workspaceId', 'name', 'status', 'createdBy', 'revision']),

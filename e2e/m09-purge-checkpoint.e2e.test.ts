@@ -63,6 +63,48 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
   const directories: string[] = [];
   afterEach(async () => Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))));
 
+  it('audits and redacts historical Run errors in restartable batches', async () => {
+    const database = await migratedDatabase(backend);
+    const workspaceId = randomUUID(), runId = randomUUID();
+    const store = new PostgresWorkspaceStore(database, workspaceId);
+    try {
+      const workspace = await store.read();
+      await store.workspaceDirectory.ensureWorkspace({ workspaceId, name: 'Run error audit', status: 'active', createdBy: randomUUID(), revision: 1 });
+      const input: ContextEnvelope = { schemaVersion: '1.0.0', request: {
+        requestId: runId, manifestId: randomUUID(), projectId: workspaceId, nodeId: workspace.activeNodeId,
+        modelId: 'model', prompt: 'prompt', history: [], contextItems: [], mode: 'Assisted',
+      }, executor: { runtime: 'provider-adapter', modelSpecRef: 'model', providerEndpointRef: 'endpoint', model: 'model', provider: 'test' } };
+      const run: ExecutionRun = { id: runId, workspaceId, nodeId: workspace.activeNodeId, commandId: randomUUID(), status: 'failed',
+        attempt: 1, input, inputHash: semanticStateChecksum(input as unknown as Record<string, unknown>),
+        createdAt: new Date().toISOString(), telemetry: { traceCount: 0 },
+        error: { code: 'secret-code', class: 'network', message: 'private provider response', detail: 'private path' } as ExecutionRun['error'] };
+      const insert = (item: ExecutionRun) => database.query(`INSERT INTO execution_runs
+        (run_id,workspace_id,command_id,node_id,status,attempt,input_envelope,input_hash,model_spec_ref,provider_endpoint_ref,record)
+        VALUES ($1,$2,$3,$4,$5,1,$6::jsonb,$7,$8,$9,$10::jsonb)`,
+      [item.id, workspaceId, item.commandId, item.nodeId, item.status, JSON.stringify(item.input), item.inputHash,
+        'model', 'endpoint', JSON.stringify(item)]);
+      await insert(run);
+      const secondId = randomUUID();
+      const secondInput = { ...input, request: { ...input.request, requestId: secondId } };
+      await insert({ ...run, id: secondId, commandId: randomUUID(), input: secondInput,
+        inputHash: semanticStateChecksum(secondInput as unknown as Record<string, unknown>),
+        error: { message: 'private missing-code detail' } as ExecutionRun['error'] });
+      expect((await store.auditLegacyPlaintextReplicas()).run_error_details).toBe(2);
+      expect(await store.sanitizeLegacyRunErrors(1)).toBe(1);
+      expect((await store.auditLegacyPlaintextReplicas()).run_error_details).toBe(1);
+      expect(await store.sanitizeLegacyRunErrors(1)).toBe(1);
+      expect(await store.sanitizeLegacyRunErrors(1)).toBe(0);
+      const stored = (await database.query<{ record: ExecutionRun }>('SELECT record FROM execution_runs WHERE run_id=$1', [runId])).rows[0]!.record;
+      expect(stored.error).toEqual({ code: 'LEGACY_RUN_ERROR_REDACTED', class: 'network', message: '历史执行错误详情已清理。' });
+      expect(JSON.stringify(stored)).not.toContain('private');
+      expect((await database.query<{ record: ExecutionRun }>('SELECT record FROM execution_runs WHERE run_id=$1', [secondId])).rows[0]!.record.error)
+        .toEqual({ code: 'LEGACY_RUN_ERROR_REDACTED', class: 'commit', message: '历史执行错误详情已清理。' });
+      expect((await store.auditLegacyPlaintextReplicas()).run_error_details).toBe(0);
+      await expect(database.query("UPDATE execution_runs SET record=jsonb_set(record,'{error,message}','\"new detail\"'::jsonb) WHERE run_id=$1", [runId]))
+        .rejects.toThrow('ExecutionRun terminal state is immutable');
+    } finally { await database.close(); }
+  });
+
   it('refuses Purge while any import checkpoint can retain the original Workspace', async () => {
     const database = await migratedDatabase(backend);
     const workspaceId = randomUUID(), nodeId = randomUUID(), purgeId = randomUUID();

@@ -24,6 +24,7 @@
     "m09:keys:reclaim": "tsx scripts/reconcile-content-keys.ts --reclaim",
     "m09:traces:audit": "tsx scripts/audit-run-traces.ts",
     "m09:traces:sanitize": "tsx scripts/sanitize-legacy-run-traces.ts",
+    "m09:run-errors:sanitize": "tsx scripts/sanitize-legacy-run-errors.ts",
     "m09:plaintext:audit": "tsx scripts/audit-legacy-plaintext.ts",
     "m09:provenance:audit": "tsx scripts/audit-provenance.ts",
     "m09:files:audit": "tsx scripts/audit-legacy-files.ts",
