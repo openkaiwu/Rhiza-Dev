@@ -4,6 +4,24 @@ import { createSeedWorkspace } from './seed';
 import { validateWorkspaceHistoryUpdate } from './store';
 
 describe('Purge history boundary', () => {
+  it('rejects free-text purge audit metadata from a direct repository write', () => {
+    const current = createSeedWorkspace();
+    const nodeId = randomUUID();
+    const receiptId = randomUUID();
+    const createdAt = new Date().toISOString();
+    const previous = { ...current,
+      discussionNodes: [...current.discussionNodes, { id: nodeId, title: 'secret', summary: '', status: 'archived' as const,
+        kind: 'branch' as const, sourceNodeId: current.activeNodeId, x: 0, y: 0, createdAt, updatedAt: createdAt }],
+    };
+    const next = { ...previous,
+      discussionNodes: previous.discussionNodes.filter(node => node.id !== nodeId),
+      auditEvents: [...previous.auditEvents, { id: receiptId, projectId: previous.projectId, nodeId,
+        action: 'node.purged', entityType: 'node' as const, entityId: nodeId, metadata: { reason: 'secret to erase' }, createdAt }],
+    };
+    expect(() => validateWorkspaceHistoryUpdate(previous, next, { purge: { nodeId, auditReceiptId: receiptId } }))
+      .toThrow('Purge audit reason must be redacted');
+  });
+
   it('rejects a node removal that leaves an attached ResourceVersion readable', () => {
     const current = createSeedWorkspace();
     const nodeId = randomUUID();
@@ -24,7 +42,7 @@ describe('Purge history boundary', () => {
       discussionNodes: previous.discussionNodes.filter(node => node.id !== nodeId),
       messages: previous.messages.filter(message => message.id !== messageId),
       auditEvents: [...previous.auditEvents, { id: receiptId, projectId: previous.projectId, nodeId,
-        action: 'node.purged', entityType: 'node' as const, entityId: nodeId, metadata: { reason: 'test' }, createdAt }],
+        action: 'node.purged', entityType: 'node' as const, entityId: nodeId, metadata: { reason: 'provided-redacted' }, createdAt }],
     };
     try {
       validateWorkspaceHistoryUpdate(previous, next, { purge: { nodeId, auditReceiptId: receiptId } });
@@ -52,7 +70,7 @@ describe('Purge history boundary', () => {
       discussionNodes: previous.discussionNodes.filter(node => node.id !== nodeId),
       contextItems: previous.contextItems.filter(item => item.sourceNodeId !== nodeId),
       auditEvents: [...previous.auditEvents, { id: receiptId, projectId: previous.projectId, nodeId,
-        action: 'node.purged', entityType: 'node' as const, entityId: nodeId, metadata: { reason: 'test' }, createdAt }],
+        action: 'node.purged', entityType: 'node' as const, entityId: nodeId, metadata: { reason: 'provided-redacted' }, createdAt }],
     };
     expect(() => validateWorkspaceHistoryUpdate(previous, next, { purge: { nodeId, auditReceiptId: receiptId } }))
       .toThrowError(expect.objectContaining({ code: 'PURGE_HAS_RESOURCE_HISTORY', status: 409 }));
@@ -77,7 +95,7 @@ describe('Purge history boundary', () => {
       messages: previous.messages.filter(message => message.id !== messageId),
       contextItems: previous.contextItems.filter(item => item.id !== contextId),
       auditEvents: [...previous.auditEvents, { id: receiptId, projectId: previous.projectId, nodeId,
-        action: 'node.purged', entityType: 'node' as const, entityId: nodeId, metadata: { reason: 'test' }, createdAt }],
+        action: 'node.purged', entityType: 'node' as const, entityId: nodeId, metadata: { reason: 'provided-redacted' }, createdAt }],
     };
     expect(() => validateWorkspaceHistoryUpdate(previous, next, { purge: { nodeId, auditReceiptId: receiptId } }))
       .toThrowError(expect.objectContaining({ code: 'PURGE_HAS_RESOURCE_HISTORY', status: 409 }));

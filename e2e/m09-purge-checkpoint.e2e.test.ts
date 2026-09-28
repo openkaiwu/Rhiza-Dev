@@ -73,7 +73,7 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
         await expect(store.update(current => ({ ...current,
           discussionNodes: current.discussionNodes.filter(node => node.id !== nodeId),
           auditEvents: [...current.auditEvents, { id: purgeId, projectId: workspaceId, nodeId, action: 'node.purged',
-            entityType: 'node', entityId: nodeId, metadata: { reason: 'test' }, createdAt }],
+            entityType: 'node', entityId: nodeId, metadata: { reason: 'provided-redacted' }, createdAt }],
         }), { purge: { nodeId, auditReceiptId: purgeId } })).rejects.toMatchObject({ code: 'PURGE_HAS_RETAINED_ARCHIVE', status: 409 });
         await database.query('DELETE FROM bundle_imports WHERE import_id=$1', [importId]);
       }
@@ -107,7 +107,7 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       await store.update(current => ({ ...current,
         discussionNodes: current.discussionNodes.filter(node => node.id !== nodeId),
         auditEvents: [...current.auditEvents, { id: purgeId, projectId: workspaceId, nodeId, action: 'node.purged',
-          entityType: 'node', entityId: nodeId, metadata: { reason: 'test' }, createdAt }],
+          entityType: 'node', entityId: nodeId, metadata: { reason: 'provided-redacted' }, createdAt }],
       }), { purge: { nodeId, auditReceiptId: purgeId } });
       expect((await database.query<{ phase: string; last_error: string }>('SELECT phase,last_error FROM purge_checkpoints WHERE purge_id=$1', [purgeId])).rows[0])
         .toEqual({ phase: 'pending', last_error: 'INJECTED_REVOCATION_FAILURE' });
@@ -153,14 +153,14 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       await expect(store.update(current => ({ ...current,
         discussionNodes: current.discussionNodes.filter(node => node.id !== nodeId),
         auditEvents: [...current.auditEvents, { id: purgeId, projectId: workspaceId, nodeId, action: 'node.purged',
-          entityType: 'node', entityId: nodeId, metadata: { reason: 'test' }, createdAt }],
+          entityType: 'node', entityId: nodeId, metadata: { reason: 'provided-redacted' }, createdAt }],
       }), { purge: { nodeId, auditReceiptId: purgeId } })).rejects.toThrow('BUNDLE_LEGACY_ARCHIVE_PRESENT');
       expect((await database.query('SELECT purge_id FROM purge_checkpoints WHERE purge_id=$1', [purgeId])).rows).toHaveLength(0);
       await rm(legacyPath);
       await store.update(current => ({ ...current,
         discussionNodes: current.discussionNodes.filter(node => node.id !== nodeId),
         auditEvents: [...current.auditEvents, { id: purgeId, projectId: workspaceId, nodeId, action: 'node.purged',
-          entityType: 'node', entityId: nodeId, metadata: { reason: 'test' }, createdAt }],
+          entityType: 'node', entityId: nodeId, metadata: { reason: 'provided-redacted' }, createdAt }],
       }), { purge: { nodeId, auditReceiptId: purgeId } });
       const retain = vi.fn(async () => {});
       await expect(store.bundleImportCheckpoints.retainArchive!(identity, retain)).rejects.toMatchObject({ code: 'BUNDLE_TARGET_PURGED', status: 409 });
@@ -205,7 +205,7 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       const purge = purging.update(current => ({ ...current,
         discussionNodes: current.discussionNodes.filter(node => node.id !== nodeId),
         auditEvents: [...current.auditEvents, { id: purgeId, projectId: workspaceId, nodeId, action: 'node.purged',
-          entityType: 'node', entityId: nodeId, metadata: { reason: 'test' }, createdAt }],
+          entityType: 'node', entityId: nodeId, metadata: { reason: 'provided-redacted' }, createdAt }],
       }), { purge: { nodeId, auditReceiptId: purgeId } }).finally(() => { purgeSettled = true; });
       await new Promise(resolve => setTimeout(resolve, 100));
       const settledBeforeRetention = purgeSettled;
@@ -260,7 +260,7 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       const purge = purging.update(current => ({ ...current,
         discussionNodes: current.discussionNodes.filter(node => node.id !== nodeId),
         auditEvents: [...current.auditEvents, { id: purgeId, projectId: workspaceId, nodeId, action: 'node.purged',
-          entityType: 'node', entityId: nodeId, metadata: { reason: 'shared archive race' }, createdAt }],
+          entityType: 'node', entityId: nodeId, metadata: { reason: 'provided-redacted' }, createdAt }],
       }), { purge: { nodeId, auditReceiptId: purgeId } }).finally(() => { purgeSettled = true; });
       const purgeAssertion = expect(purge).rejects.toMatchObject({ code: 'PURGE_ARCHIVE_SHARED', status: 409 });
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -452,7 +452,7 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
         messages: current.messages.filter(message => message.id !== messageId),
         contextItems: current.contextItems.filter(item => item.id !== itemId),
         auditEvents: [...current.auditEvents, { id: purgeId, projectId: workspaceId, nodeId, action: 'node.purged',
-          entityType: 'node', entityId: nodeId, metadata: { reason: 'test' }, createdAt }],
+          entityType: 'node', entityId: nodeId, metadata: { reason: 'provided-redacted' }, createdAt }],
       }), { purge: { nodeId, auditReceiptId: purgeId } });
       expect((await database.query<{ content_family: string; entity_id: string }>(
         'SELECT content_family,entity_id FROM purge_key_references WHERE purge_id=$1', [purgeId])).rows)
@@ -518,7 +518,7 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
         messages: workspace.messages.filter(message => message.id !== messageId),
         discussionEdges: workspace.discussionEdges.filter(edge => edge.id !== edgeId),
         auditEvents: [...workspace.auditEvents, { id: purgeId, projectId: workspaceId, nodeId, action: 'node.purged',
-          entityType: 'node', entityId: nodeId, metadata: { reason: 'test' }, createdAt }],
+          entityType: 'node', entityId: nodeId, metadata: { reason: 'provided-redacted' }, createdAt }],
       }), { purge: { nodeId, auditReceiptId: purgeId } });
       await database.exec(`CREATE FUNCTION fail_projection_redaction() RETURNS trigger LANGUAGE plpgsql AS $$
         BEGIN RAISE EXCEPTION 'injected graph redaction failure'; END $$`);
@@ -573,7 +573,7 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
         discussionNodes: current.discussionNodes.filter(node => node.id !== nodeId),
         auditEvents: [...current.auditEvents, {
           id: purgeId, projectId: workspaceId, nodeId, action: 'node.purged', entityType: 'node', entityId: nodeId,
-          metadata: { reason: 'checkpoint recovery test' }, createdAt: new Date().toISOString(),
+          metadata: { reason: 'provided-redacted' }, createdAt: new Date().toISOString(),
         }],
       }), { purge: { nodeId, auditReceiptId: purgeId } });
 
@@ -632,7 +632,7 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
         messages: current.messages.filter(message => message.id !== removedMessageId)
           .map(message => message.id === retainedMessageId ? { ...message, sourceMessageId: undefined } : message),
         auditEvents: [...current.auditEvents, { id: purgeId, projectId: workspaceId, nodeId, action: 'node.purged', entityType: 'node', entityId: nodeId,
-          metadata: { reason: 'journal redaction test' }, createdAt }],
+          metadata: { reason: 'provided-redacted' }, createdAt }],
       }), { purge: { nodeId, auditReceiptId: purgeId } });
 
       expect((await database.query<{ phase: string }>('SELECT phase FROM purge_checkpoints WHERE purge_id=$1', [purgeId])).rows[0]?.phase).toBe('pending');
@@ -666,7 +666,7 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       const secondPurgeId = randomUUID();
       await reopened.update(current => ({ ...current, discussionNodes: current.discussionNodes.filter(node => node.id !== secondNodeId),
         auditEvents: [...current.auditEvents, { id: secondPurgeId, projectId: workspaceId, nodeId: secondNodeId,
-          action: 'node.purged', entityType: 'node', entityId: secondNodeId, metadata: { reason: 'second purge' }, createdAt }],
+          action: 'node.purged', entityType: 'node', entityId: secondNodeId, metadata: { reason: 'provided-redacted' }, createdAt }],
       }), { purge: { nodeId: secondNodeId, auditReceiptId: secondPurgeId } });
       const twiceRedacted = await reopened.readPortableWorkspace();
       expect(JSON.stringify(twiceRedacted)).not.toContain('second journal secret');
@@ -691,7 +691,7 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       await expect(store.update(current => ({ ...current,
         discussionNodes: current.discussionNodes.filter(node => node.id !== nodeId),
         auditEvents: [...current.auditEvents, { id: purgeId, projectId: workspaceId, nodeId,
-          action: 'node.purged', entityType: 'node', entityId: nodeId, metadata: { reason: 'test' }, createdAt }],
+          action: 'node.purged', entityType: 'node', entityId: nodeId, metadata: { reason: 'provided-redacted' }, createdAt }],
       }), { purge: { nodeId, auditReceiptId: purgeId } })).rejects.toMatchObject({ code: 'PURGE_RECEIPT_MIGRATION_REQUIRED', status: 409 });
       expect((await store.read()).discussionNodes.some(node => node.id === nodeId)).toBe(true);
       expect((await database.query<{ count: number }>('SELECT count(*)::int count FROM purge_checkpoints')).rows[0]?.count).toBe(0);
@@ -726,7 +726,7 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
         discussionNodes: current.discussionNodes.filter(node => node.id !== nodeId),
         messages: current.messages.filter(message => message.id !== messageId),
         auditEvents: [...current.auditEvents, { id: purgeId, projectId: workspaceId, nodeId, action: 'node.purged',
-          entityType: 'node', entityId: nodeId, metadata: { reason: 'test' }, createdAt }],
+          entityType: 'node', entityId: nodeId, metadata: { reason: 'provided-redacted' }, createdAt }],
       }), { purge: { nodeId, auditReceiptId: purgeId } })).rejects.toMatchObject({ code: 'PURGE_HAS_RESOURCE_HISTORY', status: 409 });
       const retained = await store.read();
       expect(retained.discussionNodes).toContainEqual(expect.objectContaining({ id: nodeId }));
@@ -774,7 +774,7 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
         discussionNodes: workspace.discussionNodes.filter(node => node.id !== nodeId),
         messages: workspace.messages.filter(message => message.id !== messageId),
         auditEvents: [...workspace.auditEvents, { id: purgeId, projectId: workspaceId, nodeId,
-          action: 'node.purged', entityType: 'node', entityId: nodeId, metadata: { reason: 'test' }, createdAt }],
+          action: 'node.purged', entityType: 'node', entityId: nodeId, metadata: { reason: 'provided-redacted' }, createdAt }],
       }), { purge: { nodeId, auditReceiptId: purgeId } })).rejects.toMatchObject({ code: 'PURGE_HAS_EXECUTION_HISTORY', status: 409 });
       expect((await store.read()).messages.some(message => message.id === messageId)).toBe(true);
       expect((await database.query<{ count: number }>('SELECT count(*)::int count FROM purge_checkpoints')).rows[0]?.count).toBe(0);
@@ -802,7 +802,7 @@ describe.skipIf(!process.env.DATABASE_URL)('M09 PostgreSQL Purge process interru
       await store.update(workspace => ({ ...workspace,
         discussionNodes: workspace.discussionNodes.filter(node => node.id !== nodeId),
         auditEvents: [...workspace.auditEvents, { id: purgeId, projectId: workspaceId, nodeId, action: 'node.purged',
-          entityType: 'node', entityId: nodeId, metadata: { reason: 'process interruption test' }, createdAt }],
+          entityType: 'node', entityId: nodeId, metadata: { reason: 'provided-redacted' }, createdAt }],
       }), { purge: { nodeId, auditReceiptId: purgeId } });
       const schema = (await database.query<{ name: string }>('SELECT current_schema() name')).rows[0]!.name;
       const child = spawnSync(process.execPath, ['--import', 'tsx', resolve('e2e/fixtures/m09-purge-crash-child.ts'), schema,

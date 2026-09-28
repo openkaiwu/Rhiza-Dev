@@ -157,6 +157,7 @@ export function validateWorkspaceHistoryUpdate(previous: WorkspaceData, next: Wo
     || previous.auditEvents.some(event => event.id === receipt.id)) {
     throw new Error('Purge requires a new node.purged audit receipt for the specified node');
   }
+  if (receipt.metadata.reason !== 'provided-redacted') throw new Error('Purge audit reason must be redacted');
 }
 
 export class WorkspaceStore implements WorkspaceRepository {

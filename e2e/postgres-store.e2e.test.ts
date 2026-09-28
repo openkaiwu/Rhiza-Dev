@@ -432,7 +432,7 @@ describe('PostgreSQL workspace persistence', () => {
         manifests: current.manifests.filter(item => item.nodeId !== nodeId),
         auditEvents: [...current.auditEvents, {
           id: receiptId, projectId, nodeId, action: 'node.purged', entityType: 'node', entityId: nodeId,
-          metadata: { reason: 'M01 controlled purge test' }, createdAt,
+          metadata: { reason: 'provided-redacted' }, createdAt,
         }],
       }), { purge: { nodeId, auditReceiptId: receiptId } });
 

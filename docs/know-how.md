@@ -130,7 +130,7 @@
 - `run-input` 密钥可从持久 Purge checkpoint 幂等撤销，但只有恢复器能力，Application 尚不登记真实 Run 引用；不能因此解除执行历史拒绝保护。缺失 Run 内容适配器时 checkpoint 必须维持 pending。
 - ResourceVersion Blob 密钥对账必须读取全部 Workspace 的版本引用，并校验 `sealed-v1` 的 Workspace/版本身份、digest 与 size；只读审计不授权回收。停服回收须同时独占数据库和上传目录，先对历史正文与资源密钥全量预检，再分别在锁内重读引用并撤销孤儿密钥；缺失的已引用密钥应阻断，不能误清理其他 Workspace 的同摘要内容。
 - Purge 的 SQL 删除、redacted provenance、审计事实与待撤销 scoped key 清单必须同事务提交；提交后 key destroy 可中断且不可回滚，因此逐项 acknowledgement 与 checkpoint 必须允许重复撤销。启动取得 runtime ownership 后先分批排空 pending checkpoint，再读 Workspace、回填 Journal 或开放 HTTP；某一批无法推进则拒绝启动，不能只记录警告。执行历史保护只能在 Run、Journal、receipt/trace 等每一份正文副本均进入该流程后移除。
-- Purge 的自由文本确认说明可能包含待清除秘密；Application 只将固定 `provided-redacted` 标记写入 AuditEvent，不能把说明原文复制到回执、Journal 或数据库审计 metadata。旧审计行的自由文本仍须单独迁移/审查，不能据新写入行为宣称历史副本已清除。
+- Purge 的自由文本确认说明可能包含待清除秘密；Application 只将固定 `provided-redacted` 标记写入 AuditEvent，共享 Workspace 历史校验也拒绝其他写入者提交原文，不能把说明复制到回执、Journal 或数据库审计 metadata。旧审计行的自由文本仍须单独迁移/审查，不能据新写入行为宣称历史副本已清除。
 - Journal Purge 不更新 append-only 事件行；在同一事务发布脱敏 baseline/tail 覆盖层并登记原有效载荷密钥，所有历史读取与密钥对账只认覆盖层。无已加密且可重放的 baseline 时拒绝 Purge；仅删除 Current State 会让旧 Journal snapshot 泄露正文。
 - Purge 的幂等回执读取也属于历史正文边界：同事务标记旧密文回执不可读并登记 result/error 密钥，重试旧 command id 必须返回 `RECEIPT_PURGED` 而非重放旧结果；旧明文回执先迁移，否则拒绝 Purge。
 - 任意阶段的导入 checkpoint 都可能有加密恢复 ZIP 持有现有 Workspace 的旧正文。先写身份 checkpoint，再在 Workspace/内容生命周期锁下保留 ZIP；Purge 必须在同事务登记所有关联摘要，提交后逐项幂等撤销密钥。Purge 后的新导入或旧 checkpoint 重试要在保留前拒绝；已 Purge 的摘要不能再作为恢复窗口 pin。旧明文 ZIP 必须先迁移并清除，否则 Purge 提交前失败。描述符发布失败须撤销未发布密钥，进程死于发布前的孤儿 key 在启动 reclaim 时撤销；不能凭 phase 或 `updated_at` 推断已擦除。
