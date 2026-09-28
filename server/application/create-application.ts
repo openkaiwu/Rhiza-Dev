@@ -296,7 +296,8 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
           const identity = { importId: envelope.commandId, ownerId: envelope.actor.actorId, workspaceId: staged.facts.workspace.projectId,
             archiveDigest: staged.archiveDigest, stateDigest: dependencies.hashPortableFacts(staged.facts) };
           await dependencies.bundleImportCheckpoints.begin(identity);
-          await staged.retain();
+          if (dependencies.bundleImportCheckpoints.retainArchive) await dependencies.bundleImportCheckpoints.retainArchive(identity, () => staged.retain());
+          else await staged.retain();
           await completeBundleImport(identity, staged.facts, dependencies.bundleImportCheckpoints, staged.ingest, unitOfWork);
           return { workspaceId: identity.workspaceId, importId: identity.importId };
         } finally { await staged.dispose(); }

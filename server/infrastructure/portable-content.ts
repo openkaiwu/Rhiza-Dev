@@ -47,6 +47,7 @@ export class NodeImportArchiveStore {
   }
   private descriptorPath(digest: string) { return join(this.root, 'retained', `${digest}.json`); }
   private transientRoot() { return join(this.root, 'transient'); }
+  private legacyPath(digest: string) { return join(this.root, 'blobs', 'sha256', digest.slice(0, 2), digest); }
   private identity(contentId: string) { return { workspaceId: 'rhiza-bundle-import', contentId }; }
   private async descriptor(digest: string): Promise<RetainedArchiveRef | undefined> {
     const path = this.descriptorPath(digest);
@@ -97,12 +98,13 @@ export class NodeImportArchiveStore {
     }
     const directory = join(this.root, 'retained');
     const temporary = join(directory, `${randomUUID()}.tmp`);
-    await mkdir(directory, { recursive: true, mode: 0o700 });
+    let published = false;
     try {
+      await mkdir(directory, { recursive: true, mode: 0o700 });
       const handle = await open(temporary, 'wx', 0o600);
       try { await handle.writeFile(JSON.stringify({ version: 1, contentId, reference })); await handle.sync(); }
       finally { await handle.close(); }
-      try { await link(temporary, this.descriptorPath(expectedDigest)); }
+      try { await link(temporary, this.descriptorPath(expectedDigest)); published = true; }
       catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
         const winner = await this.descriptor(expectedDigest);
@@ -112,6 +114,12 @@ export class NodeImportArchiveStore {
       }
       const parent = await open(directory, 'r');
       try { await parent.sync(); } finally { await parent.close(); }
+    } catch (error) {
+      if (!published) {
+        try { await this.content.destroy(this.identity(contentId)); }
+        catch (cleanup) { throw new AggregateError([error, cleanup], 'BUNDLE_ARCHIVE_PUBLICATION_CLEANUP_FAILED', { cause: cleanup }); }
+      }
+      throw error;
     } finally { await rm(temporary, { force: true }); }
   }
   async stage(digest: string): Promise<StagedPortableWorkspace> {
@@ -131,10 +139,24 @@ export class NodeImportArchiveStore {
     } catch (error) { try { await staged?.dispose(); } finally { await rm(directory, { recursive: true, force: true }); } throw error; }
   }
 
+  /** Idempotent crypto-shred; descriptor removal is left to reclaim after the key tombstone is durable. */
+  async revoke(digest: string): Promise<void> {
+    if (!/^[a-f0-9]{64}$/.test(digest)) throw bundleError('BUNDLE_INVALID_ARCHIVE_DIGEST');
+    const retained = await this.descriptor(digest);
+    if (retained) await this.content.destroy(this.identity(retained.contentId));
+  }
+
+  async assertNoLegacyPlaintext(digest: string): Promise<void> {
+    if (!/^[a-f0-9]{64}$/.test(digest)) throw bundleError('BUNDLE_INVALID_ARCHIVE_DIGEST');
+    try { await lstat(this.legacyPath(digest)); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
+    throw bundleError('BUNDLE_LEGACY_ARCHIVE_PRESENT');
+  }
+
   /** Convert a pre-encryption retained ZIP before orphan collection can remove it. */
   async migrateLegacy(digest: string): Promise<boolean> {
     if (!/^[a-f0-9]{64}$/.test(digest)) throw bundleError('BUNDLE_INVALID_ARCHIVE_DIGEST');
-    const path = join(this.root, 'blobs', 'sha256', digest.slice(0, 2), digest);
+    const path = this.legacyPath(digest);
     let file: Awaited<ReturnType<typeof lstat>>;
     try { file = await lstat(path); }
     catch (error) {
@@ -182,6 +204,12 @@ export class NodeImportArchiveStore {
       if (!file.isFile()) throw bundleError('BUNDLE_RETAINED_ARCHIVE_INVALID');
       const retained = await this.descriptor(digest);
       if (!retained) throw bundleError('BUNDLE_RETAINED_ARCHIVE_INVALID');
+      const keyState = (await this.content.auditKeys([this.identity(retained.contentId)])).find(item => item.referenced)?.state;
+      if (keyState === 'revoked') {
+        await rm(this.descriptorPath(digest));
+        released += 1;
+        continue;
+      }
       if (pinnedDigests.has(digest) || now - file.mtimeMs < recoveryWindowMs) {
         live.add(digest);
         continue;

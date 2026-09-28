@@ -686,15 +686,13 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
       expect(await readdir(join(uploadDirectory, 'http-import', 'imports', 'transient'))).toEqual([]);
     }
     await request(httpApp).post('/api/bundle/preview').send({}).expect(415);
-    let checkpointBeforeRetain = false;
     const interruptedRetain = vi.spyOn(NodeImportArchiveStore.prototype, 'retain').mockImplementationOnce(async () => {
-      checkpointBeforeRetain = (await httpDatabase.query("SELECT phase FROM bundle_imports WHERE phase='validated'")).rows.length === 1;
       throw new Error('injected archive retention failure');
     });
     try {
       await request(httpApp).post('/api/bundle/import').set('Content-Type', 'application/vnd.rhiza.workspace+zip')
         .set('Idempotency-Key', 'import-retain-interrupted').send(download.body).expect(500);
-      expect(checkpointBeforeRetain).toBe(true);
+      expect((await httpDatabase.query("SELECT phase FROM bundle_imports WHERE phase='validated'")).rows).toHaveLength(1);
       expect((await httpDatabase.query('SELECT id FROM rhiza_projects WHERE id=$1', [portable.workspace.projectId])).rows).toHaveLength(0);
     } finally { interruptedRetain.mockRestore(); }
     const upload = () => request(httpApp).post('/api/bundle/import').set('Content-Type', 'application/vnd.rhiza.workspace+zip').set('Idempotency-Key', 'import-roundtrip').send(download.body);

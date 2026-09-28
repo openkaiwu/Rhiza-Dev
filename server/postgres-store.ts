@@ -38,6 +38,7 @@ import { SealedAttachmentContent, type SealedAttachmentRef } from './infrastruct
 import { SealedResourceContent, type SealedResourceRef } from './infrastructure/sealed-resource-content';
 import type { BlobStorePort } from './application/ports/host-runtime';
 import type { NodeEncryptedBlobStore } from './infrastructure/node-encrypted-blob-store';
+import type { NodeImportArchiveStore } from './infrastructure/portable-content';
 import { reclaimKnownLegacyResourceFiles } from './infrastructure/legacy-file-audit';
 import { manifestReferenceProjection, SealedManifestContent, type SealedManifestRef } from './infrastructure/sealed-manifest-content';
 
@@ -55,7 +56,7 @@ type PendingContent = { workspaceId: string; commandId: string; reference: Seale
   | { workspaceId: string; fileChunkId: string; reference: SealedFileChunkRef }
   | { workspaceId: string; attachmentId: string; reference: SealedAttachmentRef }
   | { workspaceId: string; resourceId: string; reference: SealedResourceRef };
-type PurgeContentFamily = 'node' | 'message' | 'manifest' | 'segment' | 'anchor' | 'edge' | 'context-item' | 'journal' | 'receipt-result' | 'receipt-error' | 'resource-version' | 'resource' | 'attachment' | 'file-chunk' | 'run-input';
+type PurgeContentFamily = 'node' | 'message' | 'manifest' | 'segment' | 'anchor' | 'edge' | 'context-item' | 'journal' | 'receipt-result' | 'receipt-error' | 'resource-version' | 'resource' | 'attachment' | 'file-chunk' | 'run-input' | 'import-archive';
 interface PurgeKeyReference {
   workspaceId: string;
   family: PurgeContentFamily;
@@ -166,11 +167,27 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
     return {
       begin: (identity: BundleImportIdentity) => this.inTransaction(async database => {
         await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [identity.workspaceId]);
+        if ((await database.query('SELECT 1 FROM purge_checkpoints WHERE workspace_id=$1 LIMIT 1', [identity.workspaceId])).rows.length) {
+          throw Object.assign(new Error('BUNDLE_TARGET_PURGED'), { code: 'BUNDLE_TARGET_PURGED', status: 409 });
+        }
         const checkpoint = await new SqlBundleImportCheckpoints(database).begin(identity);
         if (checkpoint.phase !== 'activated' && (await database.query('SELECT 1 FROM rhiza_projects WHERE id=$1', [identity.workspaceId])).rows.length) {
           throw Object.assign(new Error('BUNDLE_TARGET_EXISTS'), { code: 'BUNDLE_TARGET_EXISTS', status: 409 });
         }
         return checkpoint;
+      }),
+      retainArchive: (identity: BundleImportIdentity, retain: () => Promise<void>) => this.inTransaction(async database => {
+        await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [identity.workspaceId]);
+        const checkpoint = await new SqlBundleImportCheckpoints(database).read(identity.importId, identity.ownerId);
+        if (!checkpoint || checkpoint.workspaceId !== identity.workspaceId || checkpoint.archiveDigest !== identity.archiveDigest
+          || checkpoint.stateDigest !== identity.stateDigest) throw Object.assign(new Error('BUNDLE_IMPORT_CONFLICT'), { code: 'BUNDLE_IMPORT_CONFLICT', status: 409 });
+        if ((await database.query('SELECT 1 FROM purge_checkpoints WHERE workspace_id=$1 LIMIT 1', [identity.workspaceId])).rows.length) {
+          throw Object.assign(new Error('BUNDLE_TARGET_PURGED'), { code: 'BUNDLE_TARGET_PURGED', status: 409 });
+        }
+        if (checkpoint.phase !== 'activated' && (await database.query('SELECT 1 FROM rhiza_projects WHERE id=$1', [identity.workspaceId])).rows.length) {
+          throw Object.assign(new Error('BUNDLE_TARGET_EXISTS'), { code: 'BUNDLE_TARGET_EXISTS', status: 409 });
+        }
+        await retain();
       }),
       read: checkpoints.read.bind(checkpoints),
       markBlobsReady: checkpoints.markBlobsReady.bind(checkpoints),
@@ -181,7 +198,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   private readonly scoped = new Map<string, PostgresWorkspaceStore>();
   readonly defaultWorkspaceId: string;
 
-constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: string, private readonly receiptContent?: SealedReceiptContent, private readonly runContent?: SealedRunContent, private readonly journalContent?: SealedJournalContent, private readonly messageContent?: SealedMessageContent, private readonly manifestContent?: SealedManifestContent, private readonly nodeContent?: SealedNodeContent, private readonly anchorContent?: SealedAnchorContent, private readonly segmentContent?: SealedSegmentContent, private readonly edgeContent?: SealedEdgeContent, private readonly contextItemContent?: SealedContextItemContent, private readonly fileChunkContent?: SealedFileChunkContent, private readonly attachmentContent?: SealedAttachmentContent, private readonly resourceContent?: SealedResourceContent, private readonly resourceBlobs?: NodeEncryptedBlobStore) {
+constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: string, private readonly receiptContent?: SealedReceiptContent, private readonly runContent?: SealedRunContent, private readonly journalContent?: SealedJournalContent, private readonly messageContent?: SealedMessageContent, private readonly manifestContent?: SealedManifestContent, private readonly nodeContent?: SealedNodeContent, private readonly anchorContent?: SealedAnchorContent, private readonly segmentContent?: SealedSegmentContent, private readonly edgeContent?: SealedEdgeContent, private readonly contextItemContent?: SealedContextItemContent, private readonly fileChunkContent?: SealedFileChunkContent, private readonly attachmentContent?: SealedAttachmentContent, private readonly resourceContent?: SealedResourceContent, private readonly resourceBlobs?: NodeEncryptedBlobStore, private readonly importArchives?: NodeImportArchiveStore) {
     const configuredWorkspaceId = defaultWorkspaceId?.trim();
     if (configuredWorkspaceId && !uuidPattern.test(configuredWorkspaceId)) throw new Error('RHIZA_PROJECT_ID must be a UUID when set');
     this.defaultWorkspaceId = configuredWorkspaceId || DEFAULT_PROJECT_ID;
@@ -190,7 +207,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
   forWorkspace(workspaceId: string): WorkspaceRepository {
     if (workspaceId === this.defaultWorkspaceId) return this;
     let scoped = this.scoped.get(workspaceId);
-    if (!scoped) { scoped = new PostgresWorkspaceStore(this.database, workspaceId, this.receiptContent, this.runContent, this.journalContent, this.messageContent, this.manifestContent, this.nodeContent, this.anchorContent, this.segmentContent, this.edgeContent, this.contextItemContent, this.fileChunkContent, this.attachmentContent, this.resourceContent, this.resourceBlobs); this.scoped.set(workspaceId, scoped); }
+    if (!scoped) { scoped = new PostgresWorkspaceStore(this.database, workspaceId, this.receiptContent, this.runContent, this.journalContent, this.messageContent, this.manifestContent, this.nodeContent, this.anchorContent, this.segmentContent, this.edgeContent, this.contextItemContent, this.fileChunkContent, this.attachmentContent, this.resourceContent, this.resourceBlobs, this.importArchives); this.scoped.set(workspaceId, scoped); }
     return scoped;
   }
 
@@ -237,8 +254,8 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     }),
   };
 
-  static fromConnectionString(connectionString: string, projectId?: string, contentDirectory = resolve('var/receipt-content'), resourceBlobs?: NodeEncryptedBlobStore) {
-    return new PostgresWorkspaceStore(new Pool({ connectionString, max: 10, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 5_000 }), projectId, SealedReceiptContent.atDirectory(contentDirectory), SealedRunContent.atDirectory(resolve(contentDirectory, 'runs')), SealedJournalContent.atDirectory(resolve(contentDirectory, 'journal')), SealedMessageContent.atDirectory(resolve(contentDirectory, 'messages')), SealedManifestContent.atDirectory(resolve(contentDirectory, 'manifests')), SealedNodeContent.atDirectory(resolve(contentDirectory, 'nodes')), SealedAnchorContent.atDirectory(resolve(contentDirectory, 'anchors')), SealedSegmentContent.atDirectory(resolve(contentDirectory, 'segments')), SealedEdgeContent.atDirectory(resolve(contentDirectory, 'edges')), SealedContextItemContent.atDirectory(resolve(contentDirectory, 'context-items')), SealedFileChunkContent.atDirectory(resolve(contentDirectory, 'file-chunks')), SealedAttachmentContent.atDirectory(resolve(contentDirectory, 'attachments')), SealedResourceContent.atDirectory(resolve(contentDirectory, 'resources')), resourceBlobs);
+  static fromConnectionString(connectionString: string, projectId?: string, contentDirectory = resolve('var/receipt-content'), resourceBlobs?: NodeEncryptedBlobStore, importArchives?: NodeImportArchiveStore) {
+    return new PostgresWorkspaceStore(new Pool({ connectionString, max: 10, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 5_000 }), projectId, SealedReceiptContent.atDirectory(contentDirectory), SealedRunContent.atDirectory(resolve(contentDirectory, 'runs')), SealedJournalContent.atDirectory(resolve(contentDirectory, 'journal')), SealedMessageContent.atDirectory(resolve(contentDirectory, 'messages')), SealedManifestContent.atDirectory(resolve(contentDirectory, 'manifests')), SealedNodeContent.atDirectory(resolve(contentDirectory, 'nodes')), SealedAnchorContent.atDirectory(resolve(contentDirectory, 'anchors')), SealedSegmentContent.atDirectory(resolve(contentDirectory, 'segments')), SealedEdgeContent.atDirectory(resolve(contentDirectory, 'edges')), SealedContextItemContent.atDirectory(resolve(contentDirectory, 'context-items')), SealedFileChunkContent.atDirectory(resolve(contentDirectory, 'file-chunks')), SealedAttachmentContent.atDirectory(resolve(contentDirectory, 'attachments')), SealedResourceContent.atDirectory(resolve(contentDirectory, 'resources')), resourceBlobs, importArchives);
   }
 
   /** PostgreSQL hosts admit one Chat runtime per database; a second host must not reconcile live work. */
@@ -260,8 +277,9 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
 
   /** Runtime-owner maintenance: active and recent import checkpoints pin their archive digest. */
   async retainedImportArchivePins(): Promise<ReadonlySet<string>> {
-    const result = await this.database.query<{ archive_digest: string }>(`SELECT DISTINCT archive_digest FROM bundle_imports
-      WHERE updated_at >= now() - ($1::double precision * interval '1 millisecond')`, [BUNDLE_IMPORT_RECOVERY_WINDOW_MS]);
+    const result = await this.database.query<{ archive_digest: string }>(`SELECT DISTINCT b.archive_digest FROM bundle_imports b
+      WHERE b.updated_at >= now() - ($1::double precision * interval '1 millisecond')
+        AND NOT EXISTS (SELECT 1 FROM purge_checkpoints p WHERE p.workspace_id=b.workspace_id)`, [BUNDLE_IMPORT_RECOVERY_WINDOW_MS]);
     return new Set(result.rows.map(row => row.archive_digest));
   }
 
@@ -1055,6 +1073,12 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         if (reference.workspaceId !== item.workspaceId || reference.resourceVersionId !== item.entityId) throw new Error('PURGE_RESOURCE_IDENTITY_MISMATCH');
         return this.resourceBlobs.revokeResourceVersion(reference);
       }
+      case 'import-archive': {
+        if (!this.importArchives) throw new Error('IMPORT_ARCHIVE_STORE_UNAVAILABLE');
+        const digest = (item.reference as { digest?: string })?.digest;
+        if (digest !== item.entityId || !/^[a-f0-9]{64}$/.test(digest)) throw new Error('PURGE_ARCHIVE_IDENTITY_MISMATCH');
+        return this.importArchives.revoke(digest);
+      }
     }
   }
 
@@ -1777,6 +1801,13 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     }
 
     const references: Array<{ family: PurgeContentFamily; entityId: string; reference: unknown }> = [];
+    const archives = await database.query<{ archive_digest: string }>('SELECT DISTINCT archive_digest FROM bundle_imports WHERE workspace_id=$1', [workspace.projectId]);
+    for (const archive of archives.rows) {
+      await this.importArchives?.assertNoLegacyPlaintext(archive.archive_digest);
+      const shared = await database.query('SELECT 1 FROM bundle_imports WHERE archive_digest=$1 AND workspace_id<>$2 LIMIT 1', [archive.archive_digest, workspace.projectId]);
+      if (shared.rows.length) throw Object.assign(new Error('PURGE_ARCHIVE_SHARED'), { code: 'PURGE_ARCHIVE_SHARED', status: 409 });
+      references.push({ family: 'import-archive', entityId: archive.archive_digest, reference: { digest: archive.archive_digest } });
+    }
     const collect = async (family: PurgeContentFamily, sql: string, values: unknown[]) => {
       const rows = await database.query<{ entity_id: string; content_ref: unknown }>(sql, values);
       for (const row of rows.rows) references.push({ family, entityId: String(row.entity_id), reference: asJson(row.content_ref) });
@@ -1847,7 +1878,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       if (!previous) throw new Error('PURGE_PREVIOUS_STATE_REQUIRED');
       // Expired checkpoint time does not prove the retained ZIP key was destroyed.
       const retainedImport = await database.query('SELECT 1 FROM bundle_imports WHERE workspace_id=$1 LIMIT 1', [workspace.projectId]);
-      if (retainedImport.rows.length) throw Object.assign(new Error('该 Workspace 的导入恢复归档可能仍保留原始内容，当前不能执行 Purge。'),
+      if (retainedImport.rows.length && !this.importArchives) throw Object.assign(new Error('该 Workspace 的导入恢复归档可能仍保留原始内容，当前不能执行 Purge。'),
         { code: 'PURGE_HAS_RETAINED_ARCHIVE', status: 409 });
       const affectedIds = new Set([nodeId, ...[
         removedIds(previous.messages, workspace.messages), removedIds(previous.segments, workspace.segments),

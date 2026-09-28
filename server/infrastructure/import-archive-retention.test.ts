@@ -8,8 +8,82 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { NodeImportArchiveStore } from './portable-content';
+import { NodeContentKeys } from './node-content-keys';
+import { NodeSealedContentStore } from './node-sealed-content-store';
 
 describe('retained import archive encryption and recovery window', () => {
+  it('revokes a checkpoint archive even while the recovery window is pinned', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-retained-purge-'));
+    try {
+      const bytes = Buffer.from('old imported content must not survive purge');
+      const digest = createHash('sha256').update(bytes).digest('hex');
+      const source = join(directory, 'source.rhiza');
+      const root = join(directory, 'imports');
+      await writeFile(source, bytes);
+      const store = new NodeImportArchiveStore(root);
+      await store.retain(source, digest);
+      await store.revoke(digest);
+      await store.revoke(digest);
+      await expect(store.stage(digest)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+      expect(await store.reclaim(new Set([digest]), 0, Date.now() + 1000)).toMatchObject({ released: 1, retained: 0 });
+      await expect(stat(join(root, 'retained', `${digest}.json`))).rejects.toMatchObject({ code: 'ENOENT' });
+      await store.revoke('a'.repeat(64));
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it('revokes an unpublished archive key when descriptor publication fails', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-retained-publish-failure-'));
+    try {
+      const bytes = Buffer.from('private archive whose descriptor cannot be published');
+      const digest = createHash('sha256').update(bytes).digest('hex');
+      const source = join(directory, 'source.rhiza');
+      const root = join(directory, 'imports');
+      await writeFile(source, bytes);
+      const originalPut = NodeSealedContentStore.prototype.putStream;
+      const publish = vi.spyOn(NodeSealedContentStore.prototype, 'putStream').mockImplementationOnce(async function (this: NodeSealedContentStore, identity, plaintext, size, expectedDigest) {
+        const reference = await originalPut.call(this, identity, plaintext, size, expectedDigest);
+        await mkdir(join(root, 'retained', `${digest}.json`), { recursive: true });
+        return reference;
+      });
+      try { await expect(new NodeImportArchiveStore(root).retain(source, digest)).rejects.toThrow('BUNDLE_RETAINED_ARCHIVE_INVALID'); }
+      finally { publish.mockRestore(); }
+      const keys = await new NodeContentKeys(join(root, 'keys')).audit([]);
+      expect(keys).toHaveLength(1);
+      expect(keys[0]?.state).toBe('revoked');
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it('recovers an orphan key after SIGKILL before descriptor publication', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-retained-publish-crash-'));
+    let child: ReturnType<typeof spawn> | undefined;
+    try {
+      const bytes = Buffer.from('private archive interrupted before descriptor publication');
+      const digest = createHash('sha256').update(bytes).digest('hex');
+      const source = join(directory, 'source.rhiza');
+      const root = join(directory, 'imports');
+      await writeFile(source, bytes);
+      const archiveModule = pathToFileURL(join(import.meta.dirname, 'portable-content.ts')).href;
+      const sealedModule = pathToFileURL(join(import.meta.dirname, 'node-sealed-content-store.ts')).href;
+      child = spawn(process.execPath, ['--import', 'tsx', '--input-type=module', '-e',
+        `import { NodeImportArchiveStore } from ${JSON.stringify(archiveModule)};
+         import { NodeSealedContentStore } from ${JSON.stringify(sealedModule)};
+         const put = NodeSealedContentStore.prototype.putStream;
+         NodeSealedContentStore.prototype.putStream = async function (...args) {
+           const reference = await put.apply(this, args);
+           process.kill(process.pid, 'SIGKILL');
+           return reference;
+         };
+         await new NodeImportArchiveStore(process.argv[1]).retain(process.argv[2], process.argv[3]);`, root, source, digest],
+      { cwd: resolve(import.meta.dirname, '../..'), stdio: 'ignore' });
+      expect(await once(child, 'exit')).toEqual([null, 'SIGKILL']);
+      const keys = new NodeContentKeys(join(root, 'keys'));
+      expect((await keys.audit([])).map(item => item.state)).toEqual(['active']);
+      await expect(stat(join(root, 'retained', `${digest}.json`))).rejects.toMatchObject({ code: 'ENOENT' });
+      await new NodeImportArchiveStore(root).reclaim(new Set([digest]), 0, Date.now() + 1000);
+      expect((await keys.audit([])).map(item => item.state)).toEqual(['revoked']);
+    } finally { child?.kill('SIGKILL'); await rm(directory, { recursive: true, force: true }); }
+  }, 15_000);
+
   it('retains only ciphertext, honors a checkpoint pin, then destroys the key and reclaims the archive', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'rhiza-retained-archive-'));
     try {

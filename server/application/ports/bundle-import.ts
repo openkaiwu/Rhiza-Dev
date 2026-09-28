@@ -11,6 +11,8 @@ export interface BundleImportCheckpoint extends BundleImportIdentity {
 }
 export interface BundleImportCheckpointPort {
   begin(identity: BundleImportIdentity): Promise<BundleImportCheckpoint>;
+  /** Production adapter holds the Workspace/content lifecycle locks during archive publication. */
+  retainArchive?(identity: BundleImportIdentity, retain: () => Promise<void>): Promise<void>;
   read(importId: string, ownerId: string): Promise<BundleImportCheckpoint | undefined>;
   markBlobsReady(importId: string, ownerId: string, expectedRevision: number): Promise<BundleImportCheckpoint>;
 }

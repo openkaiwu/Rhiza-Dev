@@ -1,7 +1,7 @@
 // @vitest-environment node
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
@@ -20,6 +20,7 @@ import { SealedAttachmentContent } from '../server/infrastructure/sealed-attachm
 import { SealedFileChunkContent } from '../server/infrastructure/sealed-file-chunk-content';
 import { NodeEncryptedBlobStore } from '../server/infrastructure/node-encrypted-blob-store';
 import { NodeFilesystemBlobStore } from '../server/infrastructure/node-host-runtime';
+import { NodeImportArchiveStore } from '../server/infrastructure/portable-content';
 import { validatePortableHistory } from '../server/application/portable-history';
 import { semanticStateChecksum } from '../server/infrastructure/workspace-semantic-checksum';
 import { workspaceSemanticSnapshot } from '../server/domain-journal';
@@ -42,6 +43,11 @@ async function migratedDatabase(backend: 'embedded' | 'postgres'): Promise<TestD
   })();
   for (const migration of await loadMigrations()) await database.exec(migration.sql);
   return database;
+}
+
+function storeWithArchive(database: TestDatabase, workspaceId: string, archive: NodeImportArchiveStore) {
+  return new PostgresWorkspaceStore(database, workspaceId, undefined, undefined, undefined, undefined, undefined,
+    undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, archive);
 }
 
 for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M09 durable Purge checkpoint (${backend})`, () => {
@@ -73,6 +79,135 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       expect((await database.query('SELECT purge_id FROM purge_checkpoints WHERE purge_id=$1', [purgeId])).rows).toHaveLength(0);
     } finally { await database.close(); }
   });
+
+  it('checkpoints and revokes the retained import archive before permitting a retry', async () => {
+    const database = await migratedDatabase(backend);
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-purge-import-archive-'));
+    directories.push(directory);
+    const archive = new NodeImportArchiveStore(join(directory, 'imports'));
+    const workspaceId = randomUUID(), nodeId = randomUUID(), purgeId = randomUUID(), importId = randomUUID();
+    const bytes = Buffer.from('import archive containing content to purge');
+    const digest = createHash('sha256').update(bytes).digest('hex');
+    const source = join(directory, 'source.rhiza');
+    await writeFile(source, bytes);
+    const store = storeWithArchive(database, workspaceId, archive);
+    try {
+      const createdAt = new Date().toISOString();
+      await store.update(current => ({ ...current, discussionNodes: [...current.discussionNodes, {
+        id: nodeId, title: 'imported private copy', summary: '', status: 'archived' as const,
+        kind: 'branch' as const, sourceNodeId: current.activeNodeId, x: 0, y: 0, createdAt, updatedAt: createdAt,
+      }] }));
+      await archive.retain(source, digest);
+      const identity = { importId, ownerId: 'owner', workspaceId, archiveDigest: digest, stateDigest: 'b'.repeat(64) };
+      await database.query(`INSERT INTO bundle_imports(import_id,owner_id,workspace_id,archive_digest,state_digest,phase)
+        VALUES ($1,$2,$3,$4,$5,'activated')`, [importId, identity.ownerId, workspaceId, digest, identity.stateDigest]);
+      const revoke = vi.spyOn(archive, 'revoke').mockRejectedValueOnce(Object.assign(new Error('injected revocation failure'), { code: 'INJECTED_REVOCATION_FAILURE' }));
+      await store.update(current => ({ ...current,
+        discussionNodes: current.discussionNodes.filter(node => node.id !== nodeId),
+        auditEvents: [...current.auditEvents, { id: purgeId, projectId: workspaceId, nodeId, action: 'node.purged',
+          entityType: 'node', entityId: nodeId, metadata: { reason: 'test' }, createdAt }],
+      }), { purge: { nodeId, auditReceiptId: purgeId } });
+      expect((await database.query<{ phase: string; last_error: string }>('SELECT phase,last_error FROM purge_checkpoints WHERE purge_id=$1', [purgeId])).rows[0])
+        .toEqual({ phase: 'pending', last_error: 'INJECTED_REVOCATION_FAILURE' });
+      expect((await database.query<{ content_family: string; entity_id: string }>('SELECT content_family,entity_id FROM purge_key_references WHERE purge_id=$1', [purgeId])).rows)
+        .toContainEqual({ content_family: 'import-archive', entity_id: digest });
+      revoke.mockRestore();
+      expect(await store.resumePendingPurges()).toEqual({ completed: 1, pending: 0 });
+      await expect(archive.stage(digest)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+      expect(await store.retainedImportArchivePins()).toEqual(new Set());
+      await expect(store.bundleImportCheckpoints.begin(identity)).rejects.toMatchObject({ code: 'BUNDLE_TARGET_PURGED', status: 409 });
+      expect((await store.read()).discussionNodes.some(node => node.id === nodeId)).toBe(false);
+    } finally { await database.close(); }
+  });
+
+  it('blocks a delayed archive publication after Purge even when the validated checkpoint predates it', async () => {
+    const database = await migratedDatabase(backend);
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-purge-delayed-import-'));
+    directories.push(directory);
+    const archive = new NodeImportArchiveStore(join(directory, 'imports'));
+    const workspaceId = randomUUID(), nodeId = randomUUID(), purgeId = randomUUID();
+    const store = storeWithArchive(database, workspaceId, archive);
+    const identity = { importId: randomUUID(), ownerId: 'owner', workspaceId, archiveDigest: 'a'.repeat(64), stateDigest: 'b'.repeat(64) };
+    try {
+      await store.bundleImportCheckpoints.begin(identity);
+      const createdAt = new Date().toISOString();
+      await store.update(current => ({ ...current, discussionNodes: [...current.discussionNodes, {
+        id: nodeId, title: 'target to purge', summary: '', status: 'archived' as const,
+        kind: 'branch' as const, sourceNodeId: current.activeNodeId, x: 0, y: 0, createdAt, updatedAt: createdAt,
+      }] }));
+      const legacyPath = join(directory, 'imports', 'blobs', 'sha256', 'aa', identity.archiveDigest);
+      await mkdir(join(directory, 'imports', 'blobs', 'sha256', 'aa'), { recursive: true });
+      await writeFile(legacyPath, 'old plaintext archive copy');
+      await expect(store.update(current => ({ ...current,
+        discussionNodes: current.discussionNodes.filter(node => node.id !== nodeId),
+        auditEvents: [...current.auditEvents, { id: purgeId, projectId: workspaceId, nodeId, action: 'node.purged',
+          entityType: 'node', entityId: nodeId, metadata: { reason: 'test' }, createdAt }],
+      }), { purge: { nodeId, auditReceiptId: purgeId } })).rejects.toThrow('BUNDLE_LEGACY_ARCHIVE_PRESENT');
+      expect((await database.query('SELECT purge_id FROM purge_checkpoints WHERE purge_id=$1', [purgeId])).rows).toHaveLength(0);
+      await rm(legacyPath);
+      await store.update(current => ({ ...current,
+        discussionNodes: current.discussionNodes.filter(node => node.id !== nodeId),
+        auditEvents: [...current.auditEvents, { id: purgeId, projectId: workspaceId, nodeId, action: 'node.purged',
+          entityType: 'node', entityId: nodeId, metadata: { reason: 'test' }, createdAt }],
+      }), { purge: { nodeId, auditReceiptId: purgeId } });
+      const retain = vi.fn(async () => {});
+      await expect(store.bundleImportCheckpoints.retainArchive!(identity, retain)).rejects.toMatchObject({ code: 'BUNDLE_TARGET_PURGED', status: 409 });
+      expect(retain).not.toHaveBeenCalled();
+      expect(await store.resumePendingPurges()).toEqual({ completed: 0, pending: 0 });
+    } finally { await database.close(); }
+  });
+
+  it.skipIf(backend !== 'postgres')('serializes archive retention with Purge across PostgreSQL connections', async () => {
+    const database = await migratedDatabase(backend);
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-purge-import-race-'));
+    directories.push(directory);
+    const archive = new NodeImportArchiveStore(join(directory, 'imports'));
+    const workspaceId = randomUUID(), nodeId = randomUUID(), purgeId = randomUUID();
+    const retaining = storeWithArchive(database, workspaceId, archive);
+    const purging = storeWithArchive(database, workspaceId, archive);
+    const bytes = Buffer.from('archive content published during a competing purge');
+    const digest = createHash('sha256').update(bytes).digest('hex');
+    const source = join(directory, 'source.rhiza');
+    await writeFile(source, bytes);
+    const identity = { importId: randomUUID(), ownerId: 'owner', workspaceId, archiveDigest: digest, stateDigest: 'b'.repeat(64) };
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let retention: Promise<void> | undefined;
+    try {
+      const createdAt = new Date().toISOString();
+      await retaining.update(current => ({ ...current, discussionNodes: [...current.discussionNodes, {
+        id: nodeId, title: 'competing purge target', summary: '', status: 'archived' as const,
+        kind: 'branch' as const, sourceNodeId: current.activeNodeId, x: 0, y: 0, createdAt, updatedAt: createdAt,
+      }] }));
+      await database.query(`INSERT INTO bundle_imports(import_id,owner_id,workspace_id,archive_digest,state_digest,phase)
+        VALUES ($1,$2,$3,$4,$5,'activated')`, [identity.importId, identity.ownerId, workspaceId, digest, identity.stateDigest]);
+      let entered!: () => void;
+      const inside = new Promise<void>(resolve => { entered = resolve; });
+      retention = retaining.bundleImportCheckpoints.retainArchive!(identity, async () => {
+        entered();
+        await gate;
+        await archive.retain(source, digest);
+      });
+      await inside;
+      let purgeSettled = false;
+      const purge = purging.update(current => ({ ...current,
+        discussionNodes: current.discussionNodes.filter(node => node.id !== nodeId),
+        auditEvents: [...current.auditEvents, { id: purgeId, projectId: workspaceId, nodeId, action: 'node.purged',
+          entityType: 'node', entityId: nodeId, metadata: { reason: 'test' }, createdAt }],
+      }), { purge: { nodeId, auditReceiptId: purgeId } }).finally(() => { purgeSettled = true; });
+      await new Promise(resolve => setTimeout(resolve, 100));
+      const settledBeforeRetention = purgeSettled;
+      release();
+      await Promise.all([retention, purge]);
+      expect(settledBeforeRetention).toBe(false);
+      await expect(archive.stage(digest)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+      expect((await database.query<{ phase: string }>('SELECT phase FROM purge_checkpoints WHERE purge_id=$1', [purgeId])).rows[0]?.phase).toBe('revoked');
+    } finally {
+      release();
+      await retention?.catch(() => undefined);
+      await database.close();
+    }
+  }, 30_000);
 
   it('reopens a purged ResourceVersion identity without requiring erased Blob bytes', async () => {
     const database = await migratedDatabase(backend);
