@@ -44,7 +44,7 @@ Bundle 导出通过 `/api/v1/workspaces/:workspaceId/bundle` 读取同一事务�
 
 M09 Gate 另运行 `m09:plaintext:audit`：停服取得 runtime ownership 后，用单条数据库快照查询计数所有历史正文族、未密封 ResourceVersion Blob 与旧版 Purge 审计自由文本；再逐条解密仍可读的已提交回执，发现嵌套旧 Purge 审计说明同样阻断。两次读取不是同一事务，须保证无直接数据库/密钥写入者；只输出计数，不输出正文。该审计不能替代旧明文 Blob 文件、WAL/备份或已导出 Bundle 的保留期检查。
 
-`m09:provenance:audit` 在同一数据库快照中计数全库仍存在的 Assistant 输出、缺失的来源关系、显式 broken-reference 及无效/悬空的 recorded 关系；只输出计数，异常即阻断 Gate。这是来源覆盖检查，不替代 Replay 四分类、Blob 完整性或外部 staging 验收。
+`m09:provenance:audit` 停服并使用对应 `RHIZA_UPLOAD_DIR`：分别计数全库 Assistant 输出的来源覆盖、解密 Run 输入核对有序引用，并实际读取 recorded Manifest 的 scoped Blob 验证冻结内容；只输出计数，异常即阻断 Gate。多次读取不是同一事务，其他数据库/Blob 写入者须停用。它不替代 Replay 四分类或外部 staging 验收。
 
 `m09:files:audit` 需停服并显式指向同一部署的 `DATABASE_URL` 与 `RHIZA_UPLOAD_DIR`：在持有运行时及内容生命周期锁时，只读核对现存 ResourceVersion 逻辑 digest、旧附件存储键、导入 checkpoint 摘要所对应的原明文路径，以及遗留导入工作目录；任何副本非零即阻断 Gate。停服维护命令 `RHIZA_OFFLINE_FILE_RECLAMATION=1 pnpm run m09:files:reclaim` 只移除有数据库来源的旧 ResourceVersion/附件原文件：全库锁定引用，每批读回所有仍可用版本的 scoped 密文；已标记 `purged-v1` 的版本不再要求可读密钥，但旧附件不得引用它。原文件的类型、大小、摘要及 inode 均须校验后才 unlink；失败可重跑。归档旧 ZIP 仍使用既有 `bundle:reclaim-imports` 完整校验/密封/保留期流程。上述操作均不扫描任意无引用文件、WAL、备份或用户已导出的 Bundle，不能单凭回收命令宣称完整擦除。
 

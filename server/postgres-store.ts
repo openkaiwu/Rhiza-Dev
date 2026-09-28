@@ -23,6 +23,7 @@ import { BUNDLE_IMPORT_RECOVERY_WINDOW_MS } from './domain/portable-bundle';
 import { validatePortableReferences } from './application/portable-references';
 import { redactPortableHistory, validatePortableHistory } from './application/portable-history';
 import { portableWorkspaceFacts } from './application/portable-workspace';
+import { resolveContextHistory } from './application/context-history';
 import { SqlBundleImportCheckpoints } from './infrastructure/bundle-import-checkpoints';
 import { SealedReceiptContent, type SealedReceiptRef } from './infrastructure/sealed-receipt-content';
 import { SealedRunContent, type SealedRunInputRef } from './infrastructure/sealed-run-content';
@@ -1394,6 +1395,19 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       if (JSON.stringify(link.inputRefs) !== JSON.stringify(expected)) mismatched += 1;
     }
     return { checked: result.rows.length, mismatched };
+  }
+
+  /** Resolves each recorded Manifest against its frozen scoped Blob bytes; no content is logged. */
+  async auditProvenanceSourceIntegrity(blobs: BlobStorePort): Promise<{ checked: number; unresolved: number }> {
+    const result = await this.database.query<{ workspace_id: string; manifest_id: string | null }>(`SELECT workspace_id,
+      record->>'contextManifestRef' manifest_id FROM provenance_links WHERE record->>'status'='recorded'`);
+    let unresolved = 0;
+    for (const row of result.rows) {
+      const facts = row.manifest_id && await this.forWorkspace(row.workspace_id).readContextHistory?.({ manifestId: row.manifest_id });
+      if (!facts || facts.manifest.projectId !== row.workspace_id
+        || (await resolveContextHistory(facts, blobs)).sources.some(source => source.status !== 'resolved')) unresolved += 1;
+    }
+    return { checked: result.rows.length, unresolved };
   }
 
   async getRun(runId: string): Promise<ExecutionRun | undefined> {

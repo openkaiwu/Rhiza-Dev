@@ -1017,6 +1017,12 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
       rawBlobs,
       new NodeContentKeys(join(uploadDirectory, 'resource-keys')),
     ), rawBlobs);
+    expect(await store.auditProvenanceSourceIntegrity(blobs)).toEqual({ checked: 1, unresolved: 0 });
+    const missingSource = vi.spyOn(blobs, 'read').mockRejectedValue(Object.assign(new Error('missing'), { reason: 'missing_blob' }));
+    expect(await store.auditProvenanceSourceIntegrity(blobs)).toEqual({ checked: 1, unresolved: 1 });
+    missingSource.mockResolvedValue(new TextEncoder().encode('{}'));
+    expect(await store.auditProvenanceSourceIntegrity(blobs)).toEqual({ checked: 1, unresolved: 1 });
+    missingSource.mockRestore();
     const [run] = await store.listRuns();
     for (const [index, item] of manifest.contextItems.entries()) {
       const version = workspace.resourceVersions.find(version => version.id === item.resourceVersionId)!;
