@@ -1045,9 +1045,9 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     expect(planner).not.toHaveBeenCalled();
     planner.mockRestore();
     await expect(database.query("UPDATE rhiza_context_manifests SET manifest='{}' WHERE id=$1", [manifest.id])).rejects.toThrow(/immutable/);
-    await expect(database.query('DELETE FROM rhiza_context_manifests WHERE id=$1', [manifest.id])).rejects.toThrow(/immutable/);
+    await expect(database.query('DELETE FROM rhiza_context_manifests WHERE id=$1', [manifest.id])).rejects.toThrow(/authorized purge/);
     await database.query("SET rhiza.purge_context_manifest_delete='on'");
-    await expect(database.query('DELETE FROM rhiza_context_manifests WHERE id=$1', [manifest.id])).rejects.toThrow(/immutable/);
+    await expect(database.query('DELETE FROM rhiza_context_manifests WHERE id=$1', [manifest.id])).rejects.toThrow(/authorized purge/);
     await database.query("SET rhiza.purge_context_manifest_delete='off'");
     const forged = { ...manifest, contextItems: manifest.contextItems.map(item => ({ ...item, digest: '0'.repeat(64) })) };
     await expect(database.query('INSERT INTO rhiza_context_manifests (id,project_id,node_id,request_id,mode,provider,model,runtime,estimated_tokens,manifest,created_at) SELECT $2,project_id,node_id,$3,mode,provider,model,runtime,estimated_tokens,$4::jsonb,created_at FROM rhiza_context_manifests WHERE id=$1', [manifest.id, randomUUID(), randomUUID(), JSON.stringify(forged)])).rejects.toThrow(/ResourceVersion/);
@@ -1126,14 +1126,14 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     expect((await store.readJournal()).some(event => event.eventType === 'conversation.run.committed')).toBe(false);
   });
 
-  it('keeps archive available but rejects purge while immutable Run input retains the node', async () => {
+  it('keeps archive available when historical Run resources cannot be purged', async () => {
     const { app, store } = await setup(success);
     await request(app).post('/api/chat').send({ message: 'retain provenance' }).expect(201);
     const [run] = await store.listRuns();
     await request(app).post('/api/graph/nodes').send({ title: 'Other node' }).expect(201);
     await request(app).patch(`/api/nodes/${run.nodeId}/status`).send({ status: 'archived' }).expect(200);
     const response = await request(app).post(`/api/graph/nodes/${run.nodeId}/purge`).send({ confirmation: `PURGE ${run.nodeId}`, reason: 'remove' }).expect(409);
-    expect(response.body.error.code).toBe('PURGE_HAS_EXECUTION_HISTORY');
+    expect(response.body.error.code).toBe('PURGE_HAS_RESOURCE_HISTORY');
     expect((await store.read()).discussionNodes.some(node => node.id === run.nodeId)).toBe(true);
     expect(await store.getRun(run.id)).toEqual(run);
   });

@@ -86,7 +86,8 @@ export function validateWorkspaceHistoryUpdate(previous: WorkspaceData, next: Wo
 
   for (const [id, manifest] of priorManifests) {
     const candidate = nextManifests.get(id);
-    if (!candidate && manifest.schemaVersion === '1.0.0') throw Object.assign(new Error('该节点仍有不可变执行上下文，请使用归档。'), { code: 'PURGE_HAS_EXECUTION_HISTORY', status: 409 });
+    if (!candidate && manifest.schemaVersion === '1.0.0'
+      && (!options?.purge || manifest.nodeId !== options.purge.nodeId)) throw Object.assign(new Error('该节点仍有不可变执行上下文，请使用归档。'), { code: 'PURGE_HAS_EXECUTION_HISTORY', status: 409 });
     if (candidate && !isDeepStrictEqual(candidate, manifest)) {
       throw new Error(`Immutable Manifest ${id} cannot be rewritten`);
     }

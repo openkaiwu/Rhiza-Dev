@@ -402,7 +402,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     const result = await this.database.query<Record<string, number>>(`SELECT
       (SELECT count(*)::int FROM command_receipts WHERE purged_at IS NULL AND status='committed' AND result_content_ref IS NULL) AS receipt_results,
       (SELECT count(*)::int FROM command_receipts WHERE purged_at IS NULL AND status='rejected' AND error_content_ref IS NULL) AS receipt_errors,
-      (SELECT count(*)::int FROM execution_runs WHERE input_content_ref IS NULL) AS run_inputs,
+      (SELECT count(*)::int FROM execution_runs WHERE input_content_ref IS NULL AND purged_at IS NULL) AS run_inputs,
       (SELECT count(*)::int FROM workspace_events WHERE payload_content_ref IS NULL) AS journal_payloads,
       (SELECT count(*)::int FROM rhiza_messages WHERE content_ref IS NULL) AS messages,
       (SELECT count(*)::int FROM rhiza_context_manifests WHERE content_ref IS NULL) AS manifests,
@@ -603,7 +603,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       await database.query("SET LOCAL lock_timeout = '5s'");
       await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
       await database.query('LOCK TABLE execution_runs IN ACCESS EXCLUSIVE MODE');
-      const { rows } = await database.query<{ record: ExecutionRun }>('SELECT record FROM execution_runs WHERE workspace_id=$1 AND input_content_ref IS NULL ORDER BY run_id LIMIT $2', [this.defaultWorkspaceId, limit]);
+      const { rows } = await database.query<{ record: ExecutionRun }>('SELECT record FROM execution_runs WHERE workspace_id=$1 AND input_content_ref IS NULL AND purged_at IS NULL ORDER BY run_id LIMIT $2', [this.defaultWorkspaceId, limit]);
       if (!rows.length) return 0;
       const replacements: Array<{ run: ExecutionRun; reference: SealedRunInputRef }> = [];
       for (const row of rows) {
@@ -1239,8 +1239,10 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     return count;
   }
 
-  private async decodeRun(row: { record: ExecutionRun; input_content_ref: unknown }): Promise<ExecutionRun> {
+  private async decodeRun(row: { record: ExecutionRun; input_content_ref: unknown; purged_at?: unknown }): Promise<ExecutionRun> {
+    if (row.purged_at != null) throw Object.assign(new Error('ExecutionRun content was purged'), { code: 'RUN_PURGED', status: 410 });
     const record = asJson<ExecutionRun>(row.record);
+    if (row.input_content_ref == null && (record.input as unknown as { purged?: boolean }).purged) throw new Error('RUN_PURGED_REFERENCE_INCONSISTENT');
     if (row.input_content_ref == null) return record;
     if (!this.runContent) throw new Error('RUN_CONTENT_STORE_UNAVAILABLE');
     const input = await this.runContent.read<ExecutionRun['input']>(record.workspaceId, record.id, asJson<SealedRunInputRef>(row.input_content_ref), record.inputHash);
@@ -1248,7 +1250,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
   }
 
   async listRuns(limit = 50): Promise<ExecutionRun[]> {
-    const result = await this.database.query<{ record: ExecutionRun; input_content_ref: unknown }>(`SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1 ORDER BY record->>'createdAt' DESC, run_id LIMIT $2`, [this.defaultWorkspaceId, Math.min(10000, Math.max(1, limit))]);
+    const result = await this.database.query<{ record: ExecutionRun; input_content_ref: unknown }>(`SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1 AND purged_at IS NULL ORDER BY record->>'createdAt' DESC, run_id LIMIT $2`, [this.defaultWorkspaceId, Math.min(10000, Math.max(1, limit))]);
     return Promise.all(result.rows.map(row => this.decodeRun(row)));
   }
 
@@ -1266,7 +1268,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       const record = directory.rows[0];
       if (!record) throw Object.assign(new Error('Workspace directory missing'), { code: 'WORKSPACE_NOT_FOUND', status: 404 });
       const members = await database.query<{ user_id: string; role: 'owner' | 'member' }>('SELECT user_id,role FROM workspace_members WHERE workspace_id=$1 ORDER BY user_id', [this.defaultWorkspaceId]);
-      const runs = await database.query<{ record: ExecutionRun; input_content_ref: unknown }>('SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1 ORDER BY run_id', [this.defaultWorkspaceId]);
+      const runs = await database.query<{ record: ExecutionRun; input_content_ref: unknown }>('SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1 AND purged_at IS NULL ORDER BY run_id', [this.defaultWorkspaceId]);
       const provenance = await database.query<{ record: ProvenanceLink }>('SELECT record FROM provenance_links WHERE workspace_id=$1 ORDER BY output_ref', [this.defaultWorkspaceId]);
       const journal = await database.query<Record<string, unknown>>(`SELECT e.*,r.content_ref redacted_content_ref FROM workspace_events e
         LEFT JOIN journal_payload_redactions r ON r.event_id=e.event_id WHERE e.workspace_id=$1 ORDER BY e.sequence`, [this.defaultWorkspaceId]);
@@ -1411,7 +1413,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
   }
 
   async getRun(runId: string): Promise<ExecutionRun | undefined> {
-    const result = await this.database.query<{ record: ExecutionRun; input_content_ref: unknown }>('SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1 AND run_id=$2', [this.defaultWorkspaceId, runId]);
+    const result = await this.database.query<{ record: ExecutionRun; input_content_ref: unknown; purged_at: unknown }>('SELECT record,input_content_ref,purged_at FROM execution_runs WHERE workspace_id=$1 AND run_id=$2', [this.defaultWorkspaceId, runId]);
     return result.rows[0] ? this.decodeRun(result.rows[0]) : undefined;
   }
 
@@ -1419,7 +1421,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     const metadata = traces.map(projectRunTrace);
     await this.database.query(`INSERT INTO execution_run_traces (run_id,attempt,sequence,record)
       SELECT r.run_id,$3,(t->>'sequence')::int,t FROM execution_runs r, jsonb_array_elements($4::jsonb) t
-      WHERE r.workspace_id=$1 AND r.run_id=$2 AND r.attempt=$3
+      WHERE r.workspace_id=$1 AND r.run_id=$2 AND r.attempt=$3 AND r.purged_at IS NULL
       ON CONFLICT (run_id,attempt,sequence) DO NOTHING`, [this.defaultWorkspaceId, runId, attempt, JSON.stringify(metadata)]);
   }
 
@@ -1572,7 +1574,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
       const workspace = await this.readFrom(database, true);
       if (!workspace) throw new Error('Workspace is unavailable');
-      const runs = await database.query<{ record: ExecutionRun; input_content_ref: unknown }>('SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1', [this.defaultWorkspaceId]);
+      const runs = await database.query<{ record: ExecutionRun; input_content_ref: unknown }>('SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1 AND purged_at IS NULL', [this.defaultWorkspaceId]);
       const sequence = await database.query<{ sequence: number }>('SELECT COALESCE(MAX(sequence),0)::bigint AS sequence FROM workspace_events WHERE workspace_id=$1', [this.defaultWorkspaceId]);
       // Removal history must survive more than the activity endpoint's 10k-event window.
       const removed = await database.query<Record<string, unknown>>(`SELECT e.*,r.content_ref redacted_content_ref FROM workspace_events e
@@ -1862,7 +1864,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     return items;
   }
 
-  private async stagePurgeCheckpoint(database: SqlQueryable, workspace: WorkspaceData, previous: WorkspaceData, purge: NonNullable<WorkspaceUpdateOptions['purge']>) {
+  private async stagePurgeCheckpoint(database: SqlQueryable, workspace: WorkspaceData, previous: WorkspaceData, purge: NonNullable<WorkspaceUpdateOptions['purge']>, purgeRuns: Array<{ run: ExecutionRun; reference: SealedRunInputRef }>) {
     const purgeTime = workspace.auditEvents.find(event => event.id === purge.auditReceiptId)!.createdAt;
     const inserted = await database.query<{ purge_id: string }>(`INSERT INTO purge_checkpoints (purge_id,workspace_id,node_id,created_at,updated_at)
       VALUES ($1,$2,$3,$4,$4) ON CONFLICT (purge_id) DO NOTHING RETURNING purge_id`, [purge.auditReceiptId, workspace.projectId, purge.nodeId, purgeTime]);
@@ -1873,6 +1875,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     }
 
     const references: Array<{ family: PurgeContentFamily; entityId: string; reference: unknown }> = [];
+    for (const { run, reference } of purgeRuns) references.push({ family: 'run-input', entityId: run.id, reference });
     const archives = await database.query<{ archive_digest: string }>('SELECT DISTINCT archive_digest FROM bundle_imports WHERE workspace_id=$1 ORDER BY archive_digest', [workspace.projectId]);
     for (const archive of archives.rows) {
       await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:import-archive:' || $1))", [archive.archive_digest]);
@@ -2023,13 +2026,39 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
           && workspace.resourceVersions.some(candidate => candidate.id === version.id && candidate.purgedAt)).flatMap(version => [version.id, version.resourceId]),
       ].flat()]);
       // ponytail: Purge is rare; scan frozen Runs until a persisted reference index is justified by volume.
-      const runs = await database.query<{ record: ExecutionRun; input_content_ref: unknown }>('SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1', [workspace.projectId]);
-      for (const row of runs.rows) {
-        const run = await this.decodeRun(row);
+      const runs = await database.query<{ record: ExecutionRun; input_content_ref: unknown }>('SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1 AND purged_at IS NULL FOR UPDATE', [workspace.projectId]);
+      const decodedRuns = await Promise.all(runs.rows.map(async row => ({ run: await this.decodeRun(row), reference: row.input_content_ref })));
+      const ownRunIds = new Set(decodedRuns.filter(({ run }) => run.nodeId === nodeId || run.nodeId === `temp:${nodeId}`).map(({ run }) => run.id));
+      const purgeRuns: Array<{ run: ExecutionRun; reference: SealedRunInputRef }> = [];
+      for (const { run, reference } of decodedRuns) {
+        if (ownRunIds.has(run.id)) {
+          if (!this.runContent || reference == null || !['completed','failed','canceled','interrupted'].includes(run.status))
+            throw Object.assign(new Error('Purge requires sealed terminal Run input'), { code: 'PURGE_RUN_MIGRATION_REQUIRED', status: 409 });
+          if (run.workspaceId !== workspace.projectId || run.input.request.projectId !== workspace.projectId
+            || run.input.request.nodeId !== run.nodeId
+            || previous.manifests.some(manifest => manifest.id === run.input.request.manifestId
+              && workspace.manifests.some(candidate => candidate.id === manifest.id)))
+            throw Object.assign(new Error('Purge Run identity or Manifest is still retained'), { code: 'PURGE_HAS_EXECUTION_HISTORY', status: 409 });
+          const traces = await database.query<{ sequence: number; record: RunTrace }>('SELECT sequence,record FROM execution_run_traces WHERE run_id=$1 ORDER BY attempt,sequence FOR UPDATE', [run.id]);
+          for (const trace of traces.rows) {
+            let safe = false;
+            try {
+              const record = asJson<RunTrace>(trace.record);
+              safe = trace.sequence === record.sequence
+                && semanticStateChecksum(record as unknown as Record<string, unknown>)
+                === semanticStateChecksum(projectRunTrace(record) as unknown as Record<string, unknown>);
+            } catch { /* reject unsafe historical trace */ }
+            if (!safe) throw Object.assign(new Error('Purge requires sanitized Run traces'), { code: 'PURGE_RUN_TRACE_MIGRATION_REQUIRED', status: 409 });
+          }
+          purgeRuns.push({ run, reference: asJson<SealedRunInputRef>(reference) });
+          continue;
+        }
         const request = run.input.request;
-        if (run.nodeId === nodeId || run.nodeId === `temp:${nodeId}` || request.nodeId === nodeId
+        if (request.nodeId === nodeId
           || affectedIds.has(request.manifestId) || (request.sourceMessageId && affectedIds.has(request.sourceMessageId))
           || (run.input.replay?.sourceManifestRef && affectedIds.has(run.input.replay.sourceManifestRef))
+          || (run.parentRunRef && ownRunIds.has(run.parentRunRef))
+          || (run.input.replay?.sourceRunRef && ownRunIds.has(run.input.replay.sourceRunRef))
           || request.history.some(item => [item.id, item.nodeId, item.manifestId, item.segmentId, item.sourceMessageId, item.replyToMessageId]
             .some(ref => ref && affectedIds.has(ref)) || item.attachmentIds?.some(ref => affectedIds.has(ref)))
           || request.attachments?.some(item => [item.id, item.resourceId, item.resourceVersionId].some(ref => ref && affectedIds.has(ref)))
@@ -2038,7 +2067,25 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
           throw Object.assign(new Error('该节点仍被不可变执行历史引用，请使用归档；物理删除需要统一的执行历史清理策略。'), { code: 'PURGE_HAS_EXECUTION_HISTORY', status: 409 });
         }
       }
-      await this.stagePurgeCheckpoint(database, workspace, previous, options.purge);
+      if (ownRunIds.size) {
+        const links = await database.query<{ output_ref: string; record: ProvenanceLink }>(
+          'SELECT output_ref,record FROM provenance_links WHERE workspace_id=$1 FOR UPDATE', [workspace.projectId]);
+        if (links.rows.some(row => ownRunIds.has(asJson<ProvenanceLink>(row.record).runRef ?? '')
+          && workspace.messages.some(message => message.id === row.output_ref)))
+          throw Object.assign(new Error('Retained provenance still refers to a purged Run'), { code: 'PURGE_HAS_EXECUTION_HISTORY', status: 409 });
+      }
+      await this.stagePurgeCheckpoint(database, workspace, previous, options.purge, purgeRuns);
+      if (purgeRuns.length) {
+        await database.query("SELECT set_config('rhiza.purge_execution_run', 'on', true)");
+        for (const { run } of purgeRuns) {
+          await database.query(`UPDATE execution_runs SET purged_at=$3,purge_id=$4,input_envelope='{"purged":true}'::jsonb,
+            input_content_ref=NULL,record=jsonb_build_object('id',run_id,'workspaceId',workspace_id,'nodeId',node_id,
+            'commandId',command_id,'status',status,'attempt',attempt,'input',jsonb_build_object('purged',true),
+            'inputHash',input_hash,'createdAt',record->'createdAt','telemetry',jsonb_build_object('traceCount',0))
+            WHERE workspace_id=$1 AND run_id=$2`, [workspace.projectId, run.id,
+            workspace.auditEvents.find(event => event.id === options.purge!.auditReceiptId)!.createdAt, options.purge.auditReceiptId]);
+        }
+      }
     }
     const nodes = changedItems(workspace.discussionNodes, previous?.discussionNodes);
     const segments = changedItems(workspace.segments, previous?.segments);

@@ -28,7 +28,7 @@
 - Layout 是用户拥有的 projection 输入，写入 `graph_layout_nodes`；不得把 x/y 当作对象语义 checksum 的独立真相，也不得让 rebuild 丢失布局。
 - Provider 调用必须只发生在服务端；浏览器不得读取 API Key 或直接调用第三方模型。
 - 一次成功 Chat 写入必须同时包含用户消息、AI 消息与 Context Manifest，避免审计记录和消息历史分离。
-- Context Compiler 的 JSON snapshot 保存精确文本（包括空字符串），Blob 必须先校验再随 Run 创建登记 ResourceVersion。历史查询只沿 Manifest 冻结引用读取；不能用当前索引或来源内容填补缺失证据。Manifest v1 的 DELETE 不受 legacy purge 开关豁免。
+- Context Compiler 的 JSON snapshot 保存精确文本（包括空字符串），Blob 必须先校验再随 Run 创建登记 ResourceVersion。历史查询只沿 Manifest 冻结引用读取；不能用当前索引或来源内容填补缺失证据。Manifest v1 的 DELETE 仅在已提交 Purge checkpoint 事务内、对应 Run 与资源副本都被覆盖时允许。
 - ResourceVersion 是 append-only 历史事实：同一 Resource 的新内容只能新增版本，不得修改或删除旧版本；FileChunk 只能登记为 materialization，不能替代原始 ResourceVersion。
 - Blob 提交顺序固定为 temp write → SHA-256 verify → atomic promote → Workspace/DB commit。DB 失败后保留已 promote blob 给 grace-period GC，不能先提交引用再补文件。
 - Scoped ResourceVersion Blob 的密钥身份必须绑定 plaintext digest。同一 `{workspaceId, resourceVersionId}` 的中断重试只可复用相同 digest；不同 digest 必须报 identity conflict，已生效密钥不得因失败重试而撤销。历史 `sha256` 迁移必须先读回 scoped 密文并核对 digest/size，再更新不可变引用；在全库引用和归档 pin 未对账前不得删除明文对象。
@@ -126,8 +126,8 @@
 - 临时 Chat 不写正式消息/节点，但保留执行输入与终态。不得为了沿用“临时不落盘”概念绕过执行审计。
 - PostgreSQL 启动恢复必须在取得 runtime ownership 且尚未接受请求时运行，不能在在线查询中扫全库并中断其他活跃请求。
 - Run trace 只能保存已知事件类型与 `sequence/type/at`，存储适配器须重新投影输入而非直接 JSON 序列化调用方对象；`m09:traces:audit` 扫描全库历史行，缺表或异常字段必须阻断 Gate，不能视为零异常。旧行的额外字段可在停服独占窗口用 `m09:traces:sanitize` 分批移除；核心字段无效时不得猜补，需人工核实。
-- 有 Run 关联或输入引用的节点不能仅删除原节点后宣称物理清除；Purge 以 `PURGE_HAS_EXECUTION_HISTORY` 拒绝，使用 Archive 保留可解释历史。跨节点 Run 也可能通过 `sourceMessageId`、Manifest、history 或 Context `sourceId` 引用待删内容；须检查旧明文与密封输入，不能只比对 Run 节点 ID。
-- `run-input` 密钥可从持久 Purge checkpoint 幂等撤销，但只有恢复器能力，Application 尚不登记真实 Run 引用；不能因此解除执行历史拒绝保护。缺失 Run 内容适配器时 checkpoint 必须维持 pending。
+- Purge 目标 Node（含 `temp:<nodeId>`）的终态 Run，须先证明输入已密封、trace 仅含允许的元数据、无跨节点 Run/谱系引用；事务内登记输入密钥并把 Run 行的输入与错误详情改成最小脱敏事实。Run 读取须在待撤销阶段失败关闭，Bundle 省略已清除 Run；旧明文、活跃 Run 或跨节点引用仍拒绝。跨节点 Run 可能通过 `sourceMessageId`、Manifest、history、Context `sourceId`、`parentRunRef` 或 Replay source 引用待删内容，不能只比对 Run 节点 ID。
+- `run-input` 密钥从持久 Purge checkpoint 按 Workspace/Run 身份幂等撤销。缺失 Run 内容适配器时 checkpoint 必须维持 pending；迁移工具和明文审计须跳过已清除的 Run，不能把墓碑误判为待迁移明文。
 - ResourceVersion Blob 密钥对账必须读取全部 Workspace 的版本引用，并校验 `sealed-v1` 的 Workspace/版本身份、digest 与 size；只读审计不授权回收。停服回收须同时独占数据库和上传目录，先对历史正文与资源密钥全量预检，再分别在锁内重读引用并撤销孤儿密钥；缺失的已引用密钥应阻断，不能误清理其他 Workspace 的同摘要内容。
 - Purge 的 SQL 删除、redacted provenance、审计事实与待撤销 scoped key 清单必须同事务提交；提交后 key destroy 可中断且不可回滚，因此逐项 acknowledgement 与 checkpoint 必须允许重复撤销。启动取得 runtime ownership 后先分批排空 pending checkpoint，再读 Workspace、回填 Journal 或开放 HTTP；某一批无法推进则拒绝启动，不能只记录警告。执行历史保护只能在 Run、Journal、receipt/trace 等每一份正文副本均进入该流程后移除。
 - Purge 的自由文本确认说明可能包含待清除秘密；Application 只将固定 `provided-redacted` 标记写入 AuditEvent，共享 Workspace 历史校验还限制审计 metadata 的字段与计数，拒绝其他写入者夹带正文。旧审计行的自由文本仍须单独迁移/审查，不能据新写入行为宣称历史副本已清除。
@@ -141,7 +141,7 @@
 - `m09:files:audit` 只能在停服且 `RHIZA_UPLOAD_DIR` 指向被测数据库的实际上传目录时运行；它通过历史逻辑 digest/key/checkpoint 检查已知原明文路径，零结果不代表任意孤儿文件、WAL 或备份已过期，更不授权删除。
 - Purge 的 SQL checkpoint 不能因旧 Node/Message/Manifest/Segment/Anchor/Edge 行将在同一事务删除，就跳过其密文引用检查：先按被删 ID 对账行数与 `content_ref`，缺适配器或旧明文时拒绝提交。现有分批密封迁移后才重试；否则旧 WAL/备份仍持有正文，且没有可撤销密钥。
 - 旧原始 ResourceVersion Blob/附件文件不能与 SQL 引用更新同事务删除：先分批密封并读回，再在停服独占窗口运行 `m09:files:reclaim`，逐批验证仍可用版本的 scoped 密文及原文件摘要/身份后精确 unlink；数据库已标记 `purged-v1` 且带 `purgedAt` 的版本无可读替代密文，但旧附件（包括 `sha256/...` storage key）不能以该墓碑充当替代。旧文件的每层父目录都必须是真实目录，不能透过 symlink 越出上传根目录。重复运行安全。该命令不处理归档、无引用孤儿、WAL、备份或外部 Bundle，也不代替备份保留策略。
-- 旧消息的 `attachmentIds`、待删旧 Manifest 的附件或冻结资源引用、节点关联的 file/chunk ContextItem 都可能在没有 Run 时指向仍可读的 ResourceVersion；ContextItem 即使标成 `reference` 也可能通过 `sourceId` 指向附件或文件块。独占已密封消息附件可在 Purge 事务中将所有版本转成墓碑、移除附件/派生块，并登记 Resource/Attachment/FileChunk/Blob 密钥；直接指向这些附件/块且无保留引用的 ContextItem 同时删除并撤销密钥。任何被删除的 ContextItem/旧 Manifest 必须在旧项目状态/Manifest 行中有可撤销的密文引用，不能把旧明文字段随 SQL 删除视为 crypto-shred。旧 Manifest 的附件与冻结资源引用只有全部落在已确定的独占资源集合时才可撤销；其他节点/Manifest 的保留引用、无法归属的来源或跨节点 Run 必须先拒绝。Manifest v1 继续受不可变执行历史保护，不能因一个资源族可擦除就解除整体保护。
+- 旧消息的 `attachmentIds`、待删 Manifest 的附件或冻结资源引用、节点关联的 file/chunk ContextItem 都可能在没有 Run 时指向仍可读的 ResourceVersion；ContextItem 即使标成 `reference` 也可能通过 `sourceId` 指向附件或文件块。独占已密封消息附件可在 Purge 事务中将所有版本转成墓碑、移除附件/派生块，并登记 Resource/Attachment/FileChunk/Blob 密钥；直接指向这些附件/块且无保留引用的 ContextItem 同时删除并撤销密钥。任何被删除的 ContextItem/Manifest 必须在旧项目状态/Manifest 行中有可撤销的密文引用，不能把旧明文字段随 SQL 删除视为 crypto-shred。Manifest 的附件与冻结资源引用只有全部落在已确定的独占资源集合时才可撤销；其他节点/Manifest 的保留引用、无法归属的来源或跨节点 Run 必须先拒绝。Manifest v1 还须同时覆盖其终态 Run 输入和 trace，不能因一个资源族可擦除就解除整体保护。
 - Purged ResourceVersion 的可移植表示是保留原 ID/digest/size、置 `blobRef` 为 `purged-v1` 并带 `purgedAt`，Bundle 中不含其 Blob 条目；导入不能为它创建新密钥。来源数据库的不可变版本行保持原引用，通过已提交的 `resource-version` Purge key 清单在读取时覆盖为墓碑；目标空库可直接插入墓碑行。只有完整资源副本撤销接通后才能解除现有资源 Purge 拒绝保护。
 - 启动时 Resource Blob 适配器必须先于 Purge checkpoint 恢复构造，并由 Store 与 Host 共用同一上传目录/密钥根；恢复器按 checkpoint 的 Workspace/ResourceVersion 身份校验引用，缺少适配器保持 pending 并阻断启动。重复撤销允许；此能力不授权业务请求直接绕过 `PURGE_HAS_RESOURCE_HISTORY`。
 - Graph rebuild 会保留旧 projection namespace，其 Node title/Message summary/关系 label 是独立正文副本。Purge 必须在删除 Current State 的同一事务中脱敏所有历史 namespace 与 Context candidate index，不能只等待下次 Graph 查询重建 active alias。
@@ -153,4 +153,4 @@
 
 - Candidate rows and their revision commit with source facts. Graph-edge changes also invalidate planning even when source text is unchanged. Rebuild derived rows with `pnpm run context:rebuild`; a missing or unsupported index must not reuse stale selection text.
 - Plan caches use existing source versions/digests; new per-execution frozen ResourceVersions are created after planning. Historical lookup follows those frozen references and never reruns Planner.
-- Manifest v1 rejects deletion even under the legacy purge flag. Preserve its referenced ResourceVersions and blobs when implementing retention or cleanup.
+- Manifest v1 rejects deletion under the legacy purge flag alone; only an authorized pending checkpoint with sealed Run/Manifest content permits it. Preserve unrelated ResourceVersions and blobs during cleanup.

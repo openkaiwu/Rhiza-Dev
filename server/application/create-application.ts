@@ -372,7 +372,10 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
           if (previous?.found) return previous.value;
           const { runId, policy } = envelope.payload;
           if (!['exact', 'partial', 'current-model'].includes(policy)) throw legacyError('Replay 策略无效。', 400, 'INVALID_REPLAY_POLICY');
-          const original = await unitOfWork.getRun?.(runId);
+          const original = await unitOfWork.getRun?.(runId).catch(error => {
+            if ((error as { code?: string }).code === 'RUN_PURGED') throw legacyError('历史执行内容已清除。', 409, 'REPLAY_MISSING_RESOURCE');
+            throw error;
+          });
           if (!original) throw legacyError('执行记录不存在。', 404, 'RUN_NOT_FOUND');
           const facts = await unitOfWork.readContextHistory?.({ manifestId: original.input.request.manifestId });
           if (!facts || facts.manifest.schemaVersion !== '1.0.0') throw legacyError('历史上下文不可解析。', 409, 'REPLAY_MISSING_RESOURCE');

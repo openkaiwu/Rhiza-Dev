@@ -1028,6 +1028,80 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       expect((await database.query<{ count: number }>('SELECT count(*)::int count FROM purge_checkpoints')).rows[0]?.count).toBe(0);
     } finally { await database.close(); }
   }, 30_000);
+
+  it('redacts a sealed terminal Run in the Purge transaction and resumes its key revocation', async () => {
+    const database = await migratedDatabase(backend);
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-purge-owned-run-'));
+    directories.push(directory);
+    const runContent = SealedRunContent.atDirectory(join(directory, 'runs'));
+    const nodeContent = SealedNodeContent.atDirectory(join(directory, 'nodes'));
+    const manifestContent = SealedManifestContent.atDirectory(join(directory, 'manifests'));
+    const workspaceId = randomUUID(), nodeId = randomUUID(), runId = randomUUID(), manifestId = randomUUID(), purgeId = randomUUID();
+    const store = new PostgresWorkspaceStore(database, workspaceId, undefined, runContent, undefined, undefined, manifestContent, nodeContent);
+    try {
+      const current = await store.read();
+      await store.workspaceDirectory.ensureWorkspace({ workspaceId, name: 'Purge owned Run', status: 'active', createdBy: randomUUID(), revision: 1 });
+      const createdAt = new Date().toISOString();
+      await store.update(workspace => ({ ...workspace, discussionNodes: [...workspace.discussionNodes, {
+        id: nodeId, title: 'private node', summary: '', status: 'archived' as const, kind: 'branch' as const,
+        sourceNodeId: current.activeNodeId, x: 0, y: 0, createdAt, updatedAt: createdAt,
+      }], manifests: [...workspace.manifests, {
+        schemaVersion: '1.0.0' as const, versions: { planner: '1', compiler: '1', contributors: {}, tokenizer: '1', selectionPolicy: '1' },
+        id: manifestId, projectId: workspaceId, nodeId, requestId: runId, createdAt, mode: 'Assisted' as const,
+        model: 'model', provider: 'test', runtime: 'provider-adapter' as const, contextItemIds: [], excludedItemIds: [],
+        contextItems: [], estimatedTokens: 0, generation: { temperature: 0.4, topP: 1, maxTokens: 100 },
+        operation: 'send' as const, attachmentIds: [],
+      }] }));
+      const input: ContextEnvelope = { schemaVersion: '1.0.0', request: {
+        requestId: runId, manifestId, projectId: workspaceId, nodeId,
+        modelId: 'model', prompt: 'private frozen prompt', history: [], contextItems: [], mode: 'Assisted',
+      }, executor: { runtime: 'provider-adapter', modelSpecRef: 'model', providerEndpointRef: 'endpoint', model: 'model', provider: 'test' } };
+      const inputHash = semanticStateChecksum(input as unknown as Record<string, unknown>);
+      const run: ExecutionRun = { id: runId, workspaceId, nodeId, commandId: randomUUID(), status: 'failed',
+        attempt: 1, input, inputHash, createdAt, telemetry: { traceCount: 0 },
+        error: { code: 'FAILED', class: 'provider', message: 'private provider failure' } };
+      const reference = await runContent.seal(workspaceId, runId, input, inputHash);
+      await database.query(`INSERT INTO execution_runs
+        (run_id,workspace_id,command_id,node_id,status,attempt,input_envelope,input_hash,model_spec_ref,provider_endpoint_ref,record,input_content_ref)
+        VALUES ($1,$2,$3,$4,$5,1,'{"sealed":true}'::jsonb,$6,$7,$8,$9::jsonb,$10::jsonb)`,
+      [runId, workspaceId, run.commandId, nodeId, run.status, inputHash, 'model', 'endpoint',
+        JSON.stringify({ ...run, input: { sealed: true } }), JSON.stringify(reference)]);
+      await database.query(`INSERT INTO execution_run_traces(run_id,attempt,sequence,record)
+        VALUES ($1,1,1,$2::jsonb)`, [runId, JSON.stringify({ sequence: 1, type: 'RUN_ERROR', at: createdAt, content: 'private trace' })]);
+      const purge = () => store.update(workspace => ({ ...workspace,
+        discussionNodes: workspace.discussionNodes.filter(node => node.id !== nodeId),
+        manifests: workspace.manifests.filter(manifest => manifest.id !== manifestId),
+        auditEvents: [...workspace.auditEvents, { id: purgeId, projectId: workspaceId, nodeId,
+          action: 'node.purged', entityType: 'node', entityId: nodeId,
+          metadata: { reason: 'provided-redacted' }, createdAt }],
+      }), { purge: { nodeId, auditReceiptId: purgeId } });
+      await expect(purge()).rejects.toMatchObject({ code: 'PURGE_RUN_TRACE_MIGRATION_REQUIRED', status: 409 });
+      expect((await database.query<{ count: number }>('SELECT count(*)::int count FROM purge_checkpoints')).rows[0]?.count).toBe(0);
+      expect(await store.sanitizeLegacyRunTraces()).toBe(1);
+      const interrupted = vi.spyOn(runContent, 'destroy').mockRejectedValueOnce(new Error('injected run key interruption'));
+      await purge();
+      expect((await database.query<{ input_envelope: unknown; input_content_ref: unknown; record: unknown; purged_at: unknown }>(
+        'SELECT input_envelope,input_content_ref,record,purged_at FROM execution_runs WHERE run_id=$1', [runId])).rows[0])
+        .toMatchObject({ input_envelope: { purged: true }, input_content_ref: null, purged_at: expect.anything() });
+      expect(JSON.stringify((await database.query<{ record: unknown }>('SELECT record FROM execution_runs WHERE run_id=$1', [runId])).rows[0]?.record))
+        .not.toContain('private');
+      expect((await store.listRuns()).map(item => item.id)).not.toContain(runId);
+      expect((await store.read()).manifests.map(item => item.id)).not.toContain(manifestId);
+      expect(JSON.stringify(await store.readPortableWorkspace())).not.toContain('private');
+      await expect(database.query(`INSERT INTO execution_run_traces(run_id,attempt,sequence,record)
+        VALUES ($1,1,1,$2::jsonb)`, [runId, JSON.stringify({ sequence: 1, type: 'RUN_END', at: createdAt })]))
+        .rejects.toThrow('Purged ExecutionRun trace is immutable');
+      await expect(database.query("UPDATE execution_runs SET record='{}'::jsonb WHERE run_id=$1", [runId]))
+        .rejects.toThrow();
+      await expect(database.exec(await readFile(resolve('db/migrations/0036_purged_execution_runs.down.sql'), 'utf8')))
+        .rejects.toThrow('Purged ExecutionRun input cannot be restored');
+      await expect(store.getRun(runId)).rejects.toMatchObject({ code: 'RUN_PURGED', status: 410 });
+      expect((await database.query<{ phase: string }>('SELECT phase FROM purge_checkpoints WHERE purge_id=$1', [purgeId])).rows[0]?.phase).toBe('pending');
+      interrupted.mockRestore();
+      expect(await store.resumePendingPurges()).toEqual({ completed: 1, pending: 0 });
+      await expect(runContent.read(workspaceId, runId, reference, inputHash)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    } finally { await database.close(); }
+  }, 30_000);
 });
 
 describe.skipIf(!process.env.DATABASE_URL)('M09 PostgreSQL Purge process interruption', () => {
