@@ -158,6 +158,15 @@ export function validateWorkspaceHistoryUpdate(previous: WorkspaceData, next: Wo
     throw new Error('Purge requires a new node.purged audit receipt for the specified node');
   }
   if (receipt.metadata.reason !== 'provided-redacted') throw new Error('Purge audit reason must be redacted');
+  const metadata = receipt.metadata;
+  const counts = metadata.removed;
+  if (Object.keys(metadata).some(key => !['reason', 'confirmation', 'removed'].includes(key))
+    || (metadata.confirmation !== undefined && metadata.confirmation !== 'explicit-id-phrase')
+    || (counts !== undefined && (!counts || typeof counts !== 'object' || Array.isArray(counts)
+      || Object.entries(counts).some(([key, value]) => !['nodes', 'messages', 'segments', 'manifests', 'anchors'].includes(key)
+        || typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)))) {
+    throw new Error('Purge audit metadata must be redacted');
+  }
 }
 
 export class WorkspaceStore implements WorkspaceRepository {

@@ -20,6 +20,9 @@ describe('Purge history boundary', () => {
     };
     expect(() => validateWorkspaceHistoryUpdate(previous, next, { purge: { nodeId, auditReceiptId: receiptId } }))
       .toThrow('Purge audit reason must be redacted');
+    next.auditEvents[next.auditEvents.length - 1]!.metadata = { reason: 'provided-redacted', removed: { secret: 'secret to erase' } };
+    expect(() => validateWorkspaceHistoryUpdate(previous, next, { purge: { nodeId, auditReceiptId: receiptId } }))
+      .toThrow('Purge audit metadata must be redacted');
   });
 
   it('rejects a node removal that leaves an attached ResourceVersion readable', () => {
