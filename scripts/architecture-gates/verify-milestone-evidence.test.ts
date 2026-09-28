@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import {
   M01_COMMANDS,
   M01_PATHS,
@@ -286,6 +286,11 @@ describe('M09 strict closure evidence', () => {
     expect(paths.has('docs/architecture-gates/M09/provenance-audit-check.md')).toBe(true);
     expect(paths.has('docs/architecture-gates/M09/legacy-file-audit-check.md')).toBe(true);
     expect(paths.has('docs/architecture-gates/M09/trace-sanitization-check.md')).toBe(true);
+    expect(paths.has('scripts/sanitize-legacy-run-errors.ts')).toBe(true);
+    for (const file of readdirSync('db/migrations').filter(name => {
+      const version = Number(name.slice(0, 4));
+      return version >= 13 && version <= 36;
+    })) expect(paths.has(`db/migrations/${file}`), file).toBe(true);
     expect(paths.has('docs/architecture-gates/M09/purge-projection-check.md')).toBe(true);
     expect(M09_FIXTURES.every(fixture => paths.has(fixture.path))).toBe(true);
     expect(m09ObservedMetrics('')).toMatchObject({ real_postgres_e2e: { status: 'skipped' } });
