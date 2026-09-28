@@ -120,10 +120,16 @@ export function validateWorkspaceHistoryUpdate(previous: WorkspaceData, next: Wo
   const attachmentIds = new Set(previous.attachments.map(item => item.id));
   const chunkIds = new Set(previous.fileChunks.map(item => item.id));
   const retainedContextIds = new Set(next.contextItems.map(item => item.id));
+  const resourceManifest = removedManifestIds.some(id => {
+    const manifest = priorManifests.get(id)!;
+    return manifest.attachmentIds.length > 0 || manifest.contextItems.some(item => item.resourceId || item.resourceVersionId
+      || item.originResourceVersionId || item.sourceType === 'file' || item.sourceType === 'chunk'
+      || attachmentIds.has(item.sourceId) || chunkIds.has(item.sourceId));
+  });
   const resourceContext = previous.contextItems.some(item => (item.sourceNodeId === purge.nodeId || !retainedContextIds.has(item.id))
     && (item.sourceType === 'file' || item.sourceType === 'chunk'
       || (item.sourceId && (attachmentIds.has(item.sourceId) || chunkIds.has(item.sourceId)))));
-  if (removedMessageIds.some(id => priorMessages.get(id)?.attachmentIds?.length) || resourceContext) {
+  if (removedMessageIds.some(id => priorMessages.get(id)?.attachmentIds?.length) || resourceManifest || resourceContext) {
     throw Object.assign(new Error('该节点的历史内容仍引用文件资源，请使用归档；Purge 需要先覆盖资源密钥撤销。'), { code: 'PURGE_HAS_RESOURCE_HISTORY', status: 409 });
   }
   const removedSegments = previous.segments.filter(item => !next.segments.some(candidate => candidate.id === item.id));

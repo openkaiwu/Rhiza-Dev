@@ -24,7 +24,7 @@ M09 当前实现：新 Assistant output 在原事务内写入 `provenance_links`
 
 迁移 0032 将 Purge 前已密封的 CommandReceipt result/error 纳入同一 checkpoint；SQL 标记后，重复命令只返回 `RECEIPT_PURGED`，审计读取只保留回执身份和序列。旧明文回执阻断 Purge，必须先完成既有分批密封迁移。此策略会同时撤销该 Workspace 中与目标节点无关的旧回执正文；新 Purge 命令回执不在旧密钥清单内。Run、trace、资源与备份边界尚未闭合，执行历史保护继续生效。
 
-历史消息若持有附件 ID，或待删节点的 ContextItem 以 file/chunk 来源（包括通过 `sourceId` 指向附件/文件块的旧 reference）引用资源，共享历史校验返回 `PURGE_HAS_RESOURCE_HISTORY`，避免删除节点后仍由 ResourceVersion/Blob 路径读到原始附件。该拒绝仅是完整资源撤销前的安全边界，不代表附件、派生文件块和外部 Bundle 已进入 Purge checkpoint。
+历史消息若持有附件 ID、待删的旧 Manifest 含附件或冻结资源引用，或待删节点的 ContextItem 以 file/chunk 来源（包括通过 `sourceId` 指向附件/文件块的旧 reference）引用资源，共享历史校验返回 `PURGE_HAS_RESOURCE_HISTORY`，避免删除节点后仍由 ResourceVersion/Blob 路径读到原始附件。该拒绝仅是完整资源撤销前的安全边界，不代表附件、派生文件块和外部 Bundle 已进入 Purge checkpoint。
 
 Purge 事务还会清空被删 Node/Message 在所有已保存 Graph projection namespace 中的 title、summary、metadata，并清空其关系标签；同事务清理对应 Context candidate index 行。Graph 查询随后按当前状态重新物化 active namespace。旧 projection version 不能作为可保留的正文副本；此处理不替代 Run/资源/备份边界的剩余 Purge 工作。
 
