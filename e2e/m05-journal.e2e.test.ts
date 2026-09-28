@@ -146,7 +146,7 @@ for (const backend of ['embedded', 'postgres'] as const) {
         expect(validate({ ...event, eventType: 'token.delta' })).toBe(false);
         await expect(database.query("UPDATE workspace_events SET payload='{}'::jsonb")).rejects.toThrow('workspace_events are append-only');
         await expect(database.query('DELETE FROM workspace_events')).rejects.toThrow('workspace_events are append-only');
-        await expect(database.query('TRUNCATE workspace_events')).rejects.toThrow('workspace_events are append-only');
+        await expect(database.query('TRUNCATE workspace_events CASCADE')).rejects.toThrow('workspace_events are append-only');
       } finally { await database.close(); }
     });
 

@@ -3,7 +3,7 @@ import { CONTEXT_VERSIONS, IndexedContextPlanner } from '../context-runtime/inde
 import { semanticStateChecksum } from '../infrastructure/workspace-semantic-checksum';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { AIRuntime } from '../ai-runtime';
 import { createRhizaApplication } from '../application/create-application';
 import { LegacyContextPlanner } from '../context-runtime/legacy-planner';
@@ -11,6 +11,9 @@ import { loadFeatureFlags, type FeatureFlags } from '../feature-flags';
 import { createHttpApp } from '../http/app';
 import { NodeFilesystemLegacyUpload } from '../infrastructure/node-filesystem-legacy-upload';
 import { NodeHostRuntimeAdapter } from '../infrastructure/node-host-runtime';
+import { NodeEncryptedBlobStore } from '../infrastructure/node-encrypted-blob-store';
+import { NodePortableBundle } from '../infrastructure/portable-bundle';
+import { NodeBundleImport } from '../infrastructure/node-bundle-import';
 import { RepositoryWorkspaceUnitOfWork } from '../infrastructure/workspace-repository-unit-of-work';
 import { WorkspaceDirectory } from '../identity/workspace-directory';
 import { DEFAULT_WORKSPACE_ID } from '../identity/workspace-scope';
@@ -26,16 +29,21 @@ export function createApp(
   runtime: AIRuntime = new ProviderRuntime(provider),
   featureFlags: FeatureFlags = loadFeatureFlags(),
   uploadDirectory = resolve('var/uploads'),
+  encryptedBlobs = NodeEncryptedBlobStore.atDirectory(uploadDirectory),
 ) {
   const defaultWorkspaceId = store.defaultWorkspaceId ?? DEFAULT_WORKSPACE_ID;
   const upload = new NodeFilesystemLegacyUpload(uploadDirectory);
-  const host = new NodeHostRuntimeAdapter(uploadDirectory);
+  const host = new NodeHostRuntimeAdapter(uploadDirectory, { blobs: encryptedBlobs });
   const application = createRhizaApplication({
     unitOfWork: new RepositoryWorkspaceUnitOfWork(store),
     runtime,
     hashRunInput: input => semanticStateChecksum(input as unknown as Record<string, unknown>),
     providers: provider,
     host,
+    portableBundle: new NodePortableBundle(host.blobs, join(uploadDirectory, 'imports', 'transient')),
+    bundleImport: new NodeBundleImport(resolve(uploadDirectory, 'imports'), host.blobs),
+    bundleImportCheckpoints: store.bundleImportCheckpoints,
+    hashPortableFacts: facts => semanticStateChecksum({ facts }),
     textExtraction: upload,
     planner: new LegacyContextPlanner(randomUUID),
     contextCompiler: store.queryContextCandidates ? new BlobContextCompiler(host.blobs, randomUUID, () => new Date().toISOString()) : undefined,

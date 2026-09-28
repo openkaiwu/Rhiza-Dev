@@ -22,9 +22,13 @@ export interface BlobGcResult {
   retained: string[];
 }
 
+export interface BlobContentIdentity { workspaceId: string; contentId: string }
+
 export interface BlobStorePort {
-  put(bytes: Uint8Array): Promise<BlobPutResult>;
+  put(bytes: Uint8Array, identity?: BlobContentIdentity): Promise<BlobPutResult>;
+  putStream?(bytes: AsyncIterable<Uint8Array>, expectedDigest: string, expectedSize: number, identity?: BlobContentIdentity): Promise<BlobPutResult>;
   read(blobRef: string, expectedDigest: string): Promise<Uint8Array>;
+  readStream?(blobRef: string, expectedDigest: string): AsyncIterable<Uint8Array>;
   collectOrphans(referencedBlobRefs: ReadonlySet<string>, gracePeriodMs: number, now?: number): Promise<BlobGcResult>;
 }
 

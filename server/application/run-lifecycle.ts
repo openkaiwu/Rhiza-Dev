@@ -1,7 +1,7 @@
 import type { CommandEnvelope, CommandExecutionOptions, CommandType } from '../contracts/application';
 import { applicationError } from '../contracts/application-error';
 import type { CommandFactContext } from '../domain-journal';
-import { activeRunStatuses, RunTraceBuffer, TransientStreamSink, type ContextEnvelope, type ExecutionRun, type RunMutation } from '../execution-runtime/run';
+import { activeRunStatuses, RunTraceBuffer, safeRunErrorCode, TransientStreamSink, type ContextEnvelope, type ExecutionRun, type RunMutation } from '../execution-runtime/run';
 import type { RuntimeEvent, RuntimePort, RuntimeRequest } from './ports/runtime';
 import type { WorkspaceUnitOfWork } from './ports/workspace-unit-of-work';
 import type { FrozenContextItem } from '../context-runtime/contracts';
@@ -46,7 +46,7 @@ export class RunLifecycle {
       request.signal = options?.signal;
       await options?.onReady?.();
       for await (const event of this.runtime.generate(request)) {
-        if (event.type === 'RUN_ERROR') throw applicationError('AI Runtime 执行失败，请稍后重试。', event.code, 'infrastructure', 'retry', true, event.status);
+        if (event.type === 'RUN_ERROR') throw applicationError('AI Runtime 执行失败，请稍后重试。', safeRunErrorCode(event.code), 'infrastructure', 'retry', true, event.status);
         await options?.onRuntimeEvent?.(event);
         if (event.type === 'RUN_END') return complete(event);
       }
@@ -101,7 +101,7 @@ export class RunLifecycle {
         await trace.push(event.type, this.now());
         if (event.type === 'CONTENT_DELTA' && ttftMs === undefined) ttftMs = Date.now() - started;
         if (event.type === 'USAGE' || event.type === 'RUN_END') usage = event.usage ?? usage;
-        if (event.type === 'RUN_ERROR') throw applicationError('AI Runtime 执行失败，请稍后重试。', event.code, 'infrastructure', 'retry', true, event.status);
+        if (event.type === 'RUN_ERROR') throw applicationError('AI Runtime 执行失败，请稍后重试。', safeRunErrorCode(event.code), 'infrastructure', 'retry', true, event.status);
         if (event.type === 'RUN_END') {
           await trace.flush();
           // Tx C guards the attempt and commits messages + terminal + facts + receipt together.
@@ -117,7 +117,8 @@ export class RunLifecycle {
       const current = await this.uow.getRun!(run.id);
       if (current && activeRunStatuses.includes(current.status)) {
         const candidate = error as { code?: string; details?: { code?: string } };
-        const code = timeout ? 'PROVIDER_TIMEOUT' : controller.signal.aborted ? 'GENERATION_STOPPED' : candidate.details?.code ?? candidate.code ?? (committing ? 'RUN_COMMIT_FAILED' : 'RUNTIME_ERROR');
+        const code = timeout ? 'PROVIDER_TIMEOUT' : controller.signal.aborted ? 'GENERATION_STOPPED'
+          : committing ? 'RUN_COMMIT_FAILED' : safeRunErrorCode(candidate.details?.code ?? candidate.code);
         const errorClass = code === 'GENERATION_STOPPED' ? 'canceled' : code.includes('TIMEOUT') ? 'timeout' : code === 'INCOMPLETE_RUNTIME_STREAM' ? 'interrupted' : code.includes('NETWORK') || code === 'PROVIDER_UNREACHABLE' ? 'network' : code.includes('PROVIDER') || code === 'MODEL_NOT_FOUND' || code === 'RUNTIME_ERROR' ? 'provider' : 'commit';
         await this.change(envelope, { kind: 'transition', runId: run.id, attempt: 1, from: activeRunStatuses,
           patch: { status: errorClass === 'canceled' ? 'canceled' : errorClass === 'interrupted' ? 'interrupted' : 'failed', terminalAt: this.now(),

@@ -4,7 +4,7 @@
   "gate_id": "G0",
   "severity": "blocking",
   "architecture_version": "0818-v3.0",
-  "commit": "12d836fb28c3f026af6382541defd770f9ac4dd5",
+  "commit": "f0be426616df577c9f974893d2c0b110ff35d941",
   "baseline": {
     "commit": "b29d94fb034678e0c9d5660848e92e995311d4da",
     "tag": "pre-0815-engineering-baseline",
@@ -28,7 +28,7 @@
     },
     "actual": {
       "node": "v26.7.0",
-      "os": "darwin 25.5.0",
+      "os": "darwin 25.6.0",
       "cpu": "Apple A18 Pro",
       "memory_bytes": 8589934592,
       "store_adapter": "json"
@@ -52,10 +52,10 @@
       "failures": 0,
       "timeouts": 0,
       "drops": 0,
-      "p50": 2.43,
-      "p95": 3.888,
-      "p99": 4.655,
-      "max": 11.331
+      "p50": 1.855,
+      "p95": 2.694,
+      "p99": 2.771,
+      "max": 3.301
     },
     "workspace_command_latency_ms": {
       "metric": "workspace_command_latency_ms",
@@ -66,10 +66,10 @@
       "failures": 0,
       "timeouts": 0,
       "drops": 0,
-      "p50": 2.489,
-      "p95": 3.434,
-      "p99": 3.89,
-      "max": 9.262
+      "p50": 2.019,
+      "p95": 2.706,
+      "p99": 3.094,
+      "max": 8.325
     },
     "legacy_graph_workspace_read_latency_ms": {
       "metric": "legacy_graph_workspace_read_latency_ms",
@@ -80,10 +80,10 @@
       "failures": 0,
       "timeouts": 0,
       "drops": 0,
-      "p50": 2.221,
-      "p95": 3.116,
-      "p99": 3.767,
-      "max": 11.218
+      "p50": 1.804,
+      "p95": 2.605,
+      "p99": 3.103,
+      "max": 6.46
     },
     "context_plan_latency_ms": {
       "metric": "context_plan_latency_ms",
@@ -94,10 +94,10 @@
       "failures": 0,
       "timeouts": 0,
       "drops": 0,
-      "p50": 2.943,
-      "p95": 5.163,
-      "p99": 6.061,
-      "max": 6.507
+      "p50": 2.439,
+      "p95": 4.346,
+      "p99": 5.142,
+      "max": 5.351
     },
     "stream_chat_commit_latency_ms": {
       "metric": "stream_chat_commit_latency_ms",
@@ -108,42 +108,42 @@
       "failures": 0,
       "timeouts": 0,
       "drops": 0,
-      "p50": 6.786,
-      "p95": 8.833,
-      "p99": 9.681,
-      "max": 74.877
+      "p50": 5.547,
+      "p95": 6.981,
+      "p99": 7.293,
+      "max": 7.795
     }
   },
   "absolute_metrics": {
     "workspace_query_latency_ms": {
-      "p50": 2.43,
-      "p95": 3.888,
-      "p99": 4.655,
-      "max": 11.331
+      "p50": 1.855,
+      "p95": 2.694,
+      "p99": 2.771,
+      "max": 3.301
     },
     "workspace_command_latency_ms": {
-      "p50": 2.489,
-      "p95": 3.434,
-      "p99": 3.89,
-      "max": 9.262
+      "p50": 2.019,
+      "p95": 2.706,
+      "p99": 3.094,
+      "max": 8.325
     },
     "legacy_graph_workspace_read_latency_ms": {
-      "p50": 2.221,
-      "p95": 3.116,
-      "p99": 3.767,
-      "max": 11.218
+      "p50": 1.804,
+      "p95": 2.605,
+      "p99": 3.103,
+      "max": 6.46
     },
     "context_plan_latency_ms": {
-      "p50": 2.943,
-      "p95": 5.163,
-      "p99": 6.061,
-      "max": 6.507
+      "p50": 2.439,
+      "p95": 4.346,
+      "p99": 5.142,
+      "max": 5.351
     },
     "stream_chat_commit_latency_ms": {
-      "p50": 6.786,
-      "p95": 8.833,
-      "p99": 9.681,
-      "max": 74.877
+      "p50": 5.547,
+      "p95": 6.981,
+      "p99": 7.293,
+      "max": 7.795
     }
   },
   "regression_vs_g0": {
@@ -159,15 +159,15 @@
   "checksums": {
     "G0/snapshots/api.json": {
       "algorithm": "sha256",
-      "value": "177b1d610f9183b219646418b579304f56423ff1b8ff4013b7cca952450f46f4"
+      "value": "cbac68c840afc5356f38a23aa29e76ea0f21c3568ae602dad61b44b2a35b4088"
     },
     "G0/snapshots/db.json": {
       "algorithm": "sha256",
-      "value": "5cb9cbf3cfbb074f4ad47dc782058fc53a1f82fba8bd72ee0c4ea594b82af928"
+      "value": "20a874d7da847b877b3ab85660e6710c8f9861972f451d4373627e2793b4a1ba"
     },
     "G0/snapshots/schema-index.json": {
       "algorithm": "sha256",
-      "value": "dfc58193a3b8d7a7b88e85f98301494383e362f890cf800a55121c98a09227df"
+      "value": "137c074be822bcd503550fa31d23a12e0f95ab8991880a321858e3d520ed391d"
     },
     "fixture-registry.json": {
       "algorithm": "sha256",
@@ -237,7 +237,7 @@
     }
   ],
   "known_exceptions": [],
-  "started_at": "2026-09-05T19:08:51.404Z",
-  "completed_at": "2026-09-05T19:09:04.009Z",
+  "started_at": "2026-09-28T04:01:36.523Z",
+  "completed_at": "2026-09-28T04:01:46.622Z",
   "result": "pass"
 }

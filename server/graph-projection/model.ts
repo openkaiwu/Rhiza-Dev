@@ -17,13 +17,19 @@ const byRef = (left: ProjectedObject, right: ProjectedObject) => refKey(left.ref
 const byRelation = (left: ProjectedRelation, right: ProjectedRelation) => left.id.localeCompare(right.id);
 
 export function buildWorkspaceGraphProjection(workspace: WorkspaceData, runs: readonly ExecutionRun[] = [], checkpoint = 0, events: readonly Pick<DomainEventEnvelope, 'eventType' | 'sequence' | 'aggregateRevision' | 'occurredAt' | 'payload'>[] = []): WorkspaceGraphProjection {
-  const removedObjects = new Map<string, { object: WorkspaceData['discussionNodes'][number]; event: Pick<DomainEventEnvelope, 'aggregateRevision' | 'occurredAt'> }>();
+  type RemovedObject = Pick<WorkspaceData['discussionNodes'][number], 'id' | 'kind' | 'createdAt' | 'x' | 'y'>;
+  const removedObjects = new Map<string, { object: RemovedObject; event: Pick<DomainEventEnvelope, 'aggregateRevision' | 'occurredAt'> }>();
   const removedRelations = new Map<string, WorkspaceData['discussionEdges'][number]>();
   for (const event of [...events].sort((left, right) => right.sequence - left.sequence)) {
-    const removedObject = event.eventType === 'object.purged' ? event.payload.removedObject as WorkspaceData['discussionNodes'][number] | undefined : undefined;
+    const removedObject = event.eventType === 'object.purged' ? event.payload.removedObject as RemovedObject | undefined : undefined;
     if (removedObject && !removedObjects.has(removedObject.id)) removedObjects.set(removedObject.id, { object: removedObject, event });
     const removedRelation = event.eventType === 'graph.relation.removed' ? event.payload.removedRelation as WorkspaceData['discussionEdges'][number] | undefined : undefined;
     if (removedRelation && !removedRelations.has(removedRelation.id)) removedRelations.set(removedRelation.id, removedRelation);
+    if (event.eventType === 'object.purged' && Array.isArray(event.payload.removedRelations)) {
+      for (const relation of event.payload.removedRelations as WorkspaceData['discussionEdges']) {
+        if (!removedRelations.has(relation.id)) removedRelations.set(relation.id, { ...relation, label: '' });
+      }
+    }
   }
   const objects: ProjectedObject[] = [
     ...workspace.discussionNodes.map(node => ({
@@ -39,12 +45,17 @@ export function buildWorkspaceGraphProjection(workspace: WorkspaceData, runs: re
       summary: message.text.slice(0, 240), kind: message.kind, createdAt: message.createdAt, updatedAt: message.createdAt,
       status: 'active',
     })),
-    ...workspace.resources.map(resource => ({
-      ref: ref(workspace.projectId, 'resource', resource.id), revision: Math.max(1, ...workspace.resourceVersions.filter(version => version.resourceId === resource.id).map(version => version.version)),
-      lifecycle: 'active' as const, title: resource.logicalName, summary: '', kind: resource.kind,
-      status: 'active',
-      createdAt: resource.createdAt, updatedAt: resource.createdAt,
-    })),
+    ...workspace.resources.map(resource => {
+      const versions = workspace.resourceVersions.filter(version => version.resourceId === resource.id);
+      const purged = versions.length > 0 && versions.every(version => version.purgedAt);
+      return {
+        ref: ref(workspace.projectId, 'resource', resource.id), revision: Math.max(1, ...versions.map(version => version.version)),
+        lifecycle: purged ? 'tombstoned' as const : 'active' as const,
+        title: purged ? '[purged]' : resource.logicalName, summary: '', kind: resource.kind,
+        status: purged ? 'tombstoned' : 'active',
+        createdAt: resource.createdAt, updatedAt: resource.createdAt,
+      };
+    }),
     ...runs.map(run => ({
       ref: ref(workspace.projectId, 'run', run.id), revision: run.attempt,
       lifecycle: 'active' as const, title: `${run.input.executor.model} run`, summary: run.status, kind: 'execution',
@@ -55,11 +66,12 @@ export function buildWorkspaceGraphProjection(workspace: WorkspaceData, runs: re
       if (workspace.discussionNodes.some(node => node.id === removed.id)) return [];
       return [{
         ref: ref(workspace.projectId, 'conversation', removed.id), revision: event.aggregateRevision,
-        lifecycle: 'tombstoned' as const, title: removed.title, summary: removed.summary, kind: removed.kind, status: 'tombstoned',
+        lifecycle: 'tombstoned' as const, title: '[purged]', summary: '', kind: removed.kind, status: 'tombstoned',
         createdAt: removed.createdAt, updatedAt: event.occurredAt, layout: { x: removed.x, y: removed.y },
       }];
     }),
   ].sort(byRef);
+  const purgedIds = new Set(objects.filter(object => object.lifecycle === 'tombstoned').map(object => object.ref.objectId));
   const relations: ProjectedRelation[] = [...workspace.discussionEdges.map(edge => ({
     id: edge.id,
     source: ref(workspace.projectId, 'conversation', edge.source),
@@ -70,7 +82,7 @@ export function buildWorkspaceGraphProjection(workspace: WorkspaceData, runs: re
     if (workspace.discussionEdges.some(edge => edge.id === removed.id)) return [];
     return [{
       id: removed.id, source: ref(workspace.projectId, 'conversation', removed.source), target: ref(workspace.projectId, 'conversation', removed.target),
-      relationType: legacyRelationCatalog[removed.relation] ?? removed.relation, lifecycle: 'retracted' as const, label: removed.label, createdAt: removed.createdAt,
+      relationType: legacyRelationCatalog[removed.relation] ?? removed.relation, lifecycle: 'retracted' as const, label: purgedIds.has(removed.source) || purgedIds.has(removed.target) ? '' : removed.label, createdAt: removed.createdAt,
     }];
   })].sort(byRelation);
   const semantic = { objects, relations };

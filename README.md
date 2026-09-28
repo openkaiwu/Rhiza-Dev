@@ -171,7 +171,47 @@ AI_PROVIDER_NAME=Your Provider
 
 ### 数据与隐私
 
+M09 开发版的 Bundle 导入会验证历史记录结构、集合身份和基线重放结果。新导出还包含脱敏后每条事件的状态校验和；一旦使用该字段，整份历史必须完整提供。旧 Bundle 未包含该字段时仍使用最终重放校验。校验和用于检查内容一致性，不是来源签名；请只导入可信来源的 Bundle。此能力仍在开发验收中。
+
+导入恢复所需的 ZIP 保存在 `var/uploads/imports`（或 `RHIZA_UPLOAD_DIR/imports`）下的独立密文存储。导入 checkpoint 最新更新后保留七天；服务启动时会迁移旧版明文恢复归档，并清理过期且未被其他 checkpoint 引用的归档。停服维护也可运行 `pnpm run bundle:reclaim-imports`。导出到用户设备的 Bundle 不受这项清理控制，无法从 Rhiza 撤回。
+
+M09 开发版默认加密新写入的成功回执、拒绝回执错误正文、消息正文（含 reasoning 与 tool calls）、Manifest 完整内容、Journal 正文及 ExecutionRun 输入快照（包括 Bundle 导入的 Run）。Embedded 数据库的配套内容目录为 `<数据库目录>.content`（默认 `var/rhiza.pglite.content`）；PostgreSQL 模式默认为 `var/receipt-content`，其中 `runs`、`journal`、`messages` 与 `manifests` 子目录分别保存 Run 输入、Journal 正文、消息正文和 Manifest的密文及独立密钥。备份与迁移需同时保存数据库和完整内容目录，包括其中的密钥；丢失密钥将无法读取对应历史内容。旧 Journal 和其他历史字段尚未完成加密迁移，不能视为全量数据已加密或已支持完整 Purge。保留旧密钥的备份仍可能恢复相应内容。
+
 Rhiza 默认把工作空间数据保存在本机。Provider API Key 使用本机生成的 AES-256-GCM 密钥加密后保存，不通过 API 回显，也不会提交到 Git。发送消息时，被选中的 Context 会交给你配置的模型服务处理，因此仍需遵守对应 Provider 的数据政策。
+
+旧成功回执和拒绝回执可在备份后执行 `pnpm exec tsx scripts/seal-legacy-receipts.ts` 迁移。它使用当前数据库配置，逐条校验并提交，可中断后重跑；Embedded 模式只打开已存在且迁移版本齐全的数据库。该操作只替换当前回执字段，不清除旧备份、WAL 或存储快照中的历史明文，也不迁移其他正文。
+
+`pnpm exec tsx scripts/audit-receipt-keys.ts` 只读对照所有工作区的回执引用与密钥文件元数据，报告缺失、撤销或异常状态。未引用项只是候选，可能属于进行中或提交结果不确定的事务；工具不会删除它们。此检查不验证密文可解密性，也不是完整 Purge 验收。
+
+节点的标题、摘要与引用文本也默认加密，新内容存储在配套内容目录的 `nodes` 子目录；备份必须一并包含该目录。旧节点尚未迁移，其他当前状态和资源副本仍需覆盖。
+
+当前上下文项的标题、详情、理由和正文默认按项加密，存储于 `context-items` 子目录，须一起备份；来源、选择状态与版本仍保留。旧项可在停服并完整备份后运行 `pnpm exec tsx scripts/seal-legacy-context-items.ts` 分批校验迁移。此迁移不擦除旧备份/WAL/快照，也不覆盖文件块及其他资源副本。
+
+文件块正文、分词和向量默认共同加密，密文与密钥位于 `file-chunks` 子目录，须一起备份；文件关联、偏移、排序和版本仍保留。旧文件块可在停服并完整备份后运行 `pnpm exec tsx scripts/seal-legacy-file-chunks.ts`，工具获取运行时独占权并分批校验迁移，可中断重跑。此操作不擦除旧备份/WAL/快照，也不处理原始附件及其他资源副本，不等于完整 Purge。
+
+附件文件名、提取正文和摘要默认加密，密文与密钥位于 `attachments` 子目录，须一起备份。旧附件字段可在停服并完整备份后运行 `pnpm exec tsx scripts/seal-legacy-attachment-content.ts` 分批校验迁移；失败回滚，可重跑续迁，附件身份和资源关联不变。此工具不加密或擦除原始附件 Blob，也不清除资源名称、旧备份、WAL 或快照中的副本。
+
+资源名称默认加密，密文与密钥位于 `resources` 子目录，须一起备份。旧名称可在停服并完整备份后运行 `pnpm exec tsx scripts/seal-legacy-resource-content.ts` 分批校验迁移。工具先获取运行时独占权；失败回滚，可重跑续迁，资源身份、版本和 Blob 引用不变。此迁移不处理原始 Blob 或旧备份/WAL/快照中的名称副本。
+
+关系标签默认加密，密文与密钥位于 `edges` 子目录，须一起备份。旧标签可在停服并完整备份后运行 `pnpm exec tsx scripts/seal-legacy-edge-content.ts` 分批校验迁移；关系身份、端点和类型不变。旧备份、WAL 和快照中的明文不受此迁移影响。
+
+段落标题默认加密，密文与密钥位于 `segments` 子目录，须一起备份。旧段落可在停服并完整备份后运行 `pnpm exec tsx scripts/seal-legacy-segment-content.ts` 分批校验迁移；段落身份、节点关联和排序不变。旧备份、WAL 和快照中的明文不受此迁移影响。
+
+锚点引用文本默认加密，密文与密钥位于 `anchors` 子目录，也需纳入备份。旧锚点可在停服并完整备份后运行 `pnpm exec tsx scripts/seal-legacy-anchor-content.ts`，按工作区分批校验迁移；无正文记录不创建密钥，消息/段落关联与偏移量保持不变。旧备份、WAL 和快照中的明文不受此迁移影响。
+
+旧节点可在停服并完整备份后运行 `pnpm exec tsx scripts/seal-legacy-node-content.ts` 分批迁移。工具获取运行时独占权，逐批锁定记录并核对解密内容后替换三个正文属性；失败回滚并撤销新密钥，重复执行跳过已迁移节点。该操作不会擦除旧备份、WAL 或快照中的明文，也不处理其他内容副本。
+
+`pnpm exec tsx scripts/audit-history-keys.ts` 将同类只读检查扩展到回执、Run、Journal、消息、Manifest、节点、锚点、段落和关系的全部工作区引用。结果按内容类别分组；它不是停写后的回收证明，不会删除未引用密钥。
+
+旧消息可在停服、完整备份后执行 `pnpm exec tsx scripts/seal-legacy-message-content.ts` 迁移。工具分批锁定消息，校验解密内容后替换正文、reasoning 与 tool calls；失败回滚，可重跑续迁，消息身份和关联字段不变。它不清除旧备份、WAL 或其他表中的消息副本。
+
+旧 Manifest 可在停服、完整备份后执行 `pnpm exec tsx scripts/seal-legacy-manifest-content.ts` 迁移，需要表所有者权限。每批独占锁定 Manifest 表，校验完整内容与身份后在事务内替换为引用投影和密文引用，并在提交前恢复不可变触发器；失败整体回滚，重跑跳过已迁移记录。历史资源引用不变，其他副本及旧备份不会被此工具清理。
+
+旧 Journal 正文可在停服、完整备份后执行 `pnpm exec tsx scripts/seal-legacy-journal-payloads.ts` 迁移。它需要表所有者权限，分批锁定事件表，加密校验后在事务内替换正文并恢复 append-only 触发器；失败整体回滚，重跑跳过已迁移事件。事件 ID、序号、时间和其他信封字段不变。此操作不清除其他表、旧备份或 WAL 中的正文副本。
+
+旧 Run 输入可在停服、完整备份后执行 `pnpm exec tsx scripts/seal-legacy-run-inputs.ts` 迁移。PostgreSQL 模式会先获取运行时独占权，并需要表所有者权限。每批在 Run 表独占锁下加密和校验，在同一事务内临时停用两项不可变触发器以替换输入，提交前恢复；失败时数据与触发器状态一起回滚，可重跑续迁。此工具不清理旧备份、WAL、Journal 等其他输入副本，不等于完整 Purge。
+
+旧 Run 错误详情可先用 `pnpm run m09:plaintext:audit` 查看 `run_error_details` 计数；停服并完成备份后，以 `RHIZA_OFFLINE_RUN_ERROR_SANITIZATION=1 pnpm run m09:run-errors:sanitize` 分批脱敏。它保留稳定错误类别，但旧 Provider 原文和不受信任的错误码会丢弃；需要数据库表所有者权限，且不会清除旧 WAL/备份。不要在服务在线写入时运行。
 
 当前 Preview 尚未提供登录和多用户权限隔离，请勿把它作为开放公网的多人服务直接部署。
 

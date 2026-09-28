@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rhiza.dev/schemas/bundle-index/v1",
+  "title": "Rhiza portable Workspace Bundle index v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["mediaType", "formatVersion", "workspaceId", "root", "entries"],
+  "properties": {
+    "mediaType": { "const": "application/vnd.rhiza.workspace.manifest.v1+json" },
+    "formatVersion": { "const": "1.0.0" },
+    "workspaceId": { "type": "string", "format": "uuid" },
+    "root": { "type": "string", "minLength": 1 },
+    "entries": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 99999,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "mediaType", "digest", "size"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "mediaType": { "type": "string", "minLength": 1 },
+          "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "size": { "type": "integer", "minimum": 0, "maximum": 2147483648 }
+        }
+      }
+    }
+  }
+}

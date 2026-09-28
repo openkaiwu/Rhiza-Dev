@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -9,6 +10,40 @@ async function directory() { const path = await mkdtemp(join(tmpdir(), 'rhiza-bl
 afterEach(async () => { await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
 
 describe('NodeFilesystemBlobStore', () => {
+  it('computes generated stream identity before publication and cleans failed generators', async () => {
+    const root = await directory();
+    const store = new NodeFilesystemBlobStore(root);
+    const bytes = Buffer.from('generated ciphertext');
+    async function* chunks() { yield bytes.subarray(0, 4); yield bytes.subarray(4); }
+    const result = await store.putStream(chunks(), undefined, bytes.length);
+    expect(result.digest).toBe(createHash('sha256').update(bytes).digest('hex'));
+    expect(await store.read(result.blobRef, result.digest)).toEqual(bytes);
+    expect(await store.putStream(chunks(), undefined, bytes.length)).toEqual(result);
+    await expect(store.putStream(chunks(), undefined, bytes.length - 1)).rejects.toThrow('size exceeds');
+    await expect(store.putStream(chunks(), undefined, bytes.length + 1)).rejects.toThrow('size does not match');
+    async function* failed() { yield bytes.subarray(0, 4); throw new Error('encryption failed'); }
+    await expect(store.putStream(failed(), undefined, bytes.length)).rejects.toThrow('encryption failed');
+    expect(await readdir(join(root, 'tmp'))).toEqual([]);
+  });
+  it('streams declared bytes, rejects mismatch and cleans partial writes', async () => {
+    const root = await directory();
+    const store = new NodeFilesystemBlobStore(root);
+    const bytes = Buffer.from('streamed blob');
+    const digest = createHash('sha256').update(bytes).digest('hex');
+    async function* chunks() { yield bytes.subarray(0, 3); yield bytes.subarray(3); }
+    const result = await store.putStream(chunks(), digest, bytes.length);
+    const emptyDigest = createHash('sha256').update('').digest('hex');
+    const empty = await store.putStream((async function* () { yield new Uint8Array(); })(), emptyDigest, 0);
+    expect(await store.read(empty.blobRef, emptyDigest)).toHaveLength(0);
+    expect(Buffer.from(await store.read(result.blobRef, digest))).toEqual(bytes);
+    await expect(store.putStream(chunks(), digest, bytes.length - 1)).rejects.toThrow('size exceeds');
+    await expect(store.putStream(chunks(), digest, bytes.length + 1)).rejects.toThrow('size does not match');
+    await expect(store.putStream(chunks(), 'a'.repeat(64), bytes.length)).rejects.toThrow('digest mismatch');
+    expect(await readdir(join(root, 'tmp'))).toEqual([]);
+    await writeFile(join(root, 'blobs', ...result.blobRef.split('/')), 'corrupt');
+    await expect(store.putStream(chunks(), digest, bytes.length)).rejects.toThrow('digest mismatch');
+    expect(await readFile(join(root, 'blobs', ...result.blobRef.split('/')), 'utf8')).toBe('corrupt');
+  });
   it('deduplicates concurrent content and verifies every read', async () => {
     const root = await directory();
     const store = new NodeFilesystemBlobStore(root);

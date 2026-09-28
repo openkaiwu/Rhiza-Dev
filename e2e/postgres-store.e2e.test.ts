@@ -1,16 +1,24 @@
 // @vitest-environment node
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import type { Server } from 'node:http';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { loadMigrations } from '../scripts/migrate';
 import { PGlite } from '@electric-sql/pglite';
 import { Pool } from 'pg';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
-import type { ContextManifest } from '../server/domain';
+import type { ContextManifest, WorkspaceData } from '../server/domain';
 import { createRhizaApplication } from '../server/application/create-application';
 import { createHttpApp } from '../server/http/app';
 import { WorkspaceDirectory } from '../server/identity/workspace-directory';
 import { PostgresWorkspaceStore } from '../server/postgres-store';
+import { SealedJournalContent } from '../server/infrastructure/sealed-journal-content';
+import { SealedReceiptContent } from '../server/infrastructure/sealed-receipt-content';
+import { SealedManifestContent } from '../server/infrastructure/sealed-manifest-content';
+import { SealedNodeContent } from '../server/infrastructure/sealed-node-content';
+import { SealedMessageContent } from '../server/infrastructure/sealed-message-content';
 import { RepositoryWorkspaceUnitOfWork } from '../server/infrastructure/workspace-repository-unit-of-work';
 import { PostgresGraphProjectionAdapter } from '../server/graph-projection/postgres-adapter';
 import { buildWorkspaceGraphProjection } from '../server/graph-projection/model';
@@ -22,6 +30,12 @@ interface TestDatabase extends SqlQueryable {
   close(): Promise<void>;
   transaction<T>(work: (database: SqlQueryable) => Promise<T>): Promise<T>;
 }
+const activeServers: Server[] = [];
+afterEach(async () => {
+  await Promise.all(activeServers.splice(0).map(server => new Promise<void>((resolve, reject) => {
+    server.close(error => error && (!('code' in error) || error.code !== 'ERR_SERVER_NOT_RUNNING') ? reject(error) : resolve());
+  })));
+});
 async function migratedDatabase(backend: 'embedded' | 'postgres' = 'embedded') {
   let database: TestDatabase;
   if (backend === 'embedded') database = new PGlite();
@@ -41,22 +55,14 @@ async function migratedDatabase(backend: 'embedded' | 'postgres' = 'embedded') {
       close: async () => { await pool.end(); await admin.query(`DROP SCHEMA ${schema} CASCADE`); await admin.end(); },
     };
   }
-  for (const migration of ['0001_rhiza_core', '0002_chat_parity', '0003_domain_persistence', '0004_immutable_manifest_history']) {
-    await database.exec(await readFile(resolve(`db/migrations/${migration}.up.sql`), 'utf8'));
-  }
-  await database.exec(await readFile(resolve('db/migrations/0005_identity_workspace_scope.up.sql'), 'utf8'));
-  await database.exec(await readFile(resolve('db/migrations/0006_resource_blob_host.up.sql'), 'utf8'));
-  await database.exec(await readFile(resolve('db/migrations/0007_domain_journal_facts.up.sql'), 'utf8'));
-  await database.exec(await readFile(resolve('db/migrations/0008_execution_runs.up.sql'), 'utf8'));
-  await database.exec(await readFile(resolve('db/migrations/0009_graph_projection.up.sql'), 'utf8'));
-  await database.exec(await readFile(resolve('db/migrations/0010_graph_object_metadata.up.sql'), 'utf8'));
-  await database.exec(await readFile(resolve('db/migrations/0011_context_candidate_index.up.sql'), 'utf8'));
-  await database.exec(await readFile(resolve('db/migrations/0012_frozen_context.up.sql'), 'utf8'));
+  for (const migration of await loadMigrations()) await database.exec(migration.sql);
   return database;
 }
 
-function legacyApp(database: TestDatabase, defaultWorkspaceId: string) {
-  const store = new PostgresWorkspaceStore(database, defaultWorkspaceId);
+function legacyApp(database: TestDatabase, defaultWorkspaceId: string, journalContent?: SealedJournalContent,
+  receiptContent?: SealedReceiptContent, contentDirectory?: string) {
+  const store = new PostgresWorkspaceStore(database, defaultWorkspaceId, receiptContent, undefined, journalContent,
+    undefined, undefined, contentDirectory ? SealedNodeContent.atDirectory(join(contentDirectory, 'nodes')) : undefined);
   const application = createRhizaApplication({
     unitOfWork: new RepositoryWorkspaceUnitOfWork(store), workspaceDirectory: new WorkspaceDirectory(store.workspaceDirectory), defaultWorkspaceId,
     runtime: { kind: 'provider-adapter', listModels: async () => [{ id: 'model', provider: 'test', model: 'test', displayName: 'test', active: true }], async *generate() { yield { type: 'RUN_END', requestId: 'run', text: 'unused', model: 'test', provider: 'test' } as const; } },
@@ -70,7 +76,10 @@ function legacyApp(database: TestDatabase, defaultWorkspaceId: string) {
     planner: { plan: workspace => ({ items: workspace.contextItems, diagnostics: { candidateCount: 0, selectedCount: 0, elapsedMs: 0, fallback: false, budget: 1, usedTokens: 0 } }), sourceItem: (_workspace, _sourceType, sourceId) => ({ id: sourceId, title: sourceId, detail: sourceId, role: 'Reference', status: 'active', tokens: 1 }), processAttachment: () => ({ chunks: [], summary: '' }) },
     id: randomUUID, now: () => new Date().toISOString(),
   });
-  return { app: createHttpApp(application, { id: randomUUID, runtimeKind: 'provider-adapter', featureFlags: {}, providerPresets: {}, defaultWorkspaceId }), store };
+  const app = createHttpApp(application, { id: randomUUID, runtimeKind: 'provider-adapter', featureFlags: {}, providerPresets: {}, defaultWorkspaceId });
+  const server = app.listen(0, '127.0.0.1');
+  activeServers.push(server);
+  return { app: server, store };
 }
 
 for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M07 projection contract (${backend})`, () => {
@@ -118,9 +127,13 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
 
   it('serves a bounded, rebuildable graph projection through the scoped v1 endpoint', async () => {
     const database = await migratedDatabase(backend); const workspaceId = randomUUID();
+    const contentDirectory = await mkdtemp(join(tmpdir(), 'rhiza-m07-journal-'));
     try {
-      const { app } = legacyApp(database, workspaceId);
+      const { app, store } = legacyApp(database, workspaceId,
+        SealedJournalContent.atDirectory(join(contentDirectory, 'journal')),
+        SealedReceiptContent.atDirectory(join(contentDirectory, 'receipts')), contentDirectory);
       await request(app).get('/api/workspace').expect(200);
+      await store.backfillJournal();
       await request(app).post('/api/graph/nodes').send({ title: 'Projected', x: 120, y: 80 }).expect(201);
       const first = await request(app).get(`/api/v1/workspaces/${workspaceId}/graph/neighborhood?objectTypes=conversation&depth=3&nodeLimit=500&edgeLimit=2000`).expect(200);
       await request(app).get(`/api/v1/workspaces/${workspaceId}/graph/neighborhood?cursor=invalid`).expect(400);
@@ -144,7 +157,8 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       expect((await database.query<{ count: number }>('SELECT count(*)::int count FROM projection_checkpoints WHERE workspace_id=$1', [workspaceId])).rows[0]?.count).toBe(2);
       const removedId = first.body.graph.objects.find((item: { title: string }) => item.title === 'Projected').ref.objectId;
       await request(app).delete(`/api/graph/nodes/${removedId}`).expect(200);
-      await request(app).post(`/api/graph/nodes/${removedId}/purge`).send({ confirmation: `PURGE ${removedId}`, reason: 'M07 disposable fixture' }).expect(200);
+      const purged = await request(app).post(`/api/graph/nodes/${removedId}/purge`).send({ confirmation: `PURGE ${removedId}`, reason: 'M07 disposable fixture' });
+      expect(purged.status, JSON.stringify(purged.body)).toBe(200);
       // Age the removal beyond the bounded activity feed, without mutating any existing event.
       await database.query(`INSERT INTO workspace_events
         (event_id,workspace_id,sequence,rhiza_envelope_version,event_type,event_source,subject,data_schema,aggregate_type,aggregate_id,aggregate_revision,actor_ref,scope_ref,command_id,event_index,payload,occurred_at)
@@ -153,7 +167,7 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       await request(app).post(`/api/v1/workspaces/${workspaceId}/graph/rebuild`).expect(200);
       const recovered = await request(app).get(`/api/v1/workspaces/${workspaceId}/graph/neighborhood?objectTypes=conversation`).expect(200);
       expect(recovered.body.graph.objects).toContainEqual(expect.objectContaining({ ref: expect.objectContaining({ objectId: removedId }), lifecycle: 'tombstoned' }));
-    } finally { await database.close(); }
+    } finally { await database.close(); await rm(contentDirectory, { recursive: true, force: true }); }
   });
 
 });
@@ -384,6 +398,7 @@ describe('PostgreSQL workspace persistence', () => {
 
   it('purges only an archived leaf with a retained node.purged receipt', async () => {
     const database = await migratedDatabase();
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-purge-manifest-migration-'));
     try {
       const projectId = randomUUID();
       const store = new PostgresWorkspaceStore(database, projectId);
@@ -416,26 +431,39 @@ describe('PostgreSQL workspace persistence', () => {
         manifests: current.manifests.filter(item => item.nodeId !== nodeId),
       }))).rejects.toThrow('explicit purge capability');
 
-      await store.update(current => ({
+      const purge = (current: WorkspaceData): WorkspaceData => ({
         ...current,
         discussionNodes: current.discussionNodes.filter(node => node.id !== nodeId),
         messages: current.messages.filter(message => message.nodeId !== nodeId),
         manifests: current.manifests.filter(item => item.nodeId !== nodeId),
         auditEvents: [...current.auditEvents, {
           id: receiptId, projectId, nodeId, action: 'node.purged', entityType: 'node', entityId: nodeId,
-          metadata: { reason: 'M01 controlled purge test' }, createdAt,
+          metadata: { reason: 'provided-redacted' }, createdAt,
         }],
-      }), { purge: { nodeId, auditReceiptId: receiptId } });
+      });
+      await expect(store.update(purge, { purge: { nodeId, auditReceiptId: receiptId } }))
+        .rejects.toMatchObject({ code: 'PURGE_CONTENT_MIGRATION_REQUIRED', status: 409 });
+      const nodeMessageStore = new PostgresWorkspaceStore(database, projectId, undefined, undefined, undefined,
+        SealedMessageContent.atDirectory(join(directory, 'messages')), undefined,
+        SealedNodeContent.atDirectory(join(directory, 'nodes')));
+      expect(await nodeMessageStore.sealLegacyMessageContent()).toBeGreaterThan(0);
+      expect(await nodeMessageStore.sealLegacyNodeContent()).toBeGreaterThan(0);
+      await expect(nodeMessageStore.update(purge, { purge: { nodeId, auditReceiptId: receiptId } }))
+        .rejects.toMatchObject({ code: 'PURGE_MANIFEST_MIGRATION_REQUIRED', status: 409 });
+      const migratedStore = new PostgresWorkspaceStore(database, projectId, undefined, undefined, undefined,
+        SealedMessageContent.atDirectory(join(directory, 'messages')), SealedManifestContent.atDirectory(directory),
+        SealedNodeContent.atDirectory(join(directory, 'nodes')));
+      expect(await migratedStore.sealLegacyManifestContent()).toBe(1);
+      await migratedStore.update(purge, { purge: { nodeId, auditReceiptId: receiptId } });
 
-      const recovered = await new PostgresWorkspaceStore(database, projectId).read();
+      const recovered = await migratedStore.read();
       expect(recovered.discussionNodes).not.toContainEqual(expect.objectContaining({ id: nodeId }));
       expect(recovered.messages).not.toContainEqual(expect.objectContaining({ id: messageId }));
       expect(recovered.manifests).not.toContainEqual(expect.objectContaining({ id: manifestId }));
       expect(recovered.auditEvents).toContainEqual(expect.objectContaining({
         id: receiptId, action: 'node.purged', entityId: nodeId, nodeId: undefined,
       }));
-    } finally {
-      await database.close();
-    }
+      expect(await store.readProvenance(messageId)).toMatchObject({ outputRef: messageId, status: 'purged', missingRefs: [] });
+    } finally { await database.close(); await rm(directory, { recursive: true, force: true }); }
   }, 30_000);
 });

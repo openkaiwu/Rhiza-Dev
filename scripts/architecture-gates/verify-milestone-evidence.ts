@@ -421,6 +421,224 @@ const M08_CONFIG: MilestoneConfig = {
   failureInjectionCheckpoint: { checkpoint: 'candidate checkpoint, Planner ranking, immutable Manifest and historical blobs', injection_command: 'pnpm exec vitest run e2e/m08-context-index.e2e.test.ts e2e/m06-runs.e2e.test.ts server/context-runtime/indexed-planner.test.ts server/infrastructure/context-history.test.ts --maxWorkers=1 --testTimeout=30000', expected: 'source/index rollback, resolved explicit fallback, rejected Manifest mutation, classified missing evidence and no historical replanning' },
   recoveryCommand: 'pnpm run context:rebuild',
 };
+
+export const M09_COMMANDS = [
+  'pnpm run m09:plaintext:audit', 'pnpm run m09:provenance:audit', 'pnpm run m09:files:audit', 'pnpm run m09:traces:audit', 'pnpm run m09:keys:audit', 'pnpm run lint', 'pnpm run typecheck', 'pnpm run test:unit', 'pnpm run test:e2e',
+  'pnpm run licenses:verify', 'pnpm run verify:g0', 'pnpm run verify:m02:boundaries', 'pnpm run verify:m04:host-boundary', 'pnpm run build',
+];
+const M09_DELIVERY_PATHS = [
+  'app/static/css/activity.css',
+  'app/static/css/chat.css',
+  'db/migrations/0013_provenance_links.down.sql',
+  'db/migrations/0014_bundle_imports.down.sql',
+  'db/migrations/0015_sealed_receipt_results.down.sql',
+  'db/migrations/0015_sealed_receipt_results.up.sql',
+  'db/migrations/0016_sealed_receipt_errors.down.sql',
+  'db/migrations/0016_sealed_receipt_errors.up.sql',
+  'db/migrations/0017_sealed_run_inputs.down.sql',
+  'db/migrations/0017_sealed_run_inputs.up.sql',
+  'db/migrations/0018_sealed_journal_payloads.down.sql',
+  'db/migrations/0018_sealed_journal_payloads.up.sql',
+  'db/migrations/0019_sealed_message_content.down.sql',
+  'db/migrations/0019_sealed_message_content.up.sql',
+  'db/migrations/0020_sealed_manifest_content.down.sql',
+  'db/migrations/0020_sealed_manifest_content.up.sql',
+  'db/migrations/0021_sealed_node_content.down.sql',
+  'db/migrations/0021_sealed_node_content.up.sql',
+  'db/migrations/0022_sealed_anchor_content.down.sql',
+  'db/migrations/0022_sealed_anchor_content.up.sql',
+  'db/migrations/0023_sealed_segment_content.down.sql',
+  'db/migrations/0023_sealed_segment_content.up.sql',
+  'db/migrations/0024_sealed_edge_content.down.sql',
+  'db/migrations/0024_sealed_edge_content.up.sql',
+  'db/migrations/0025_sealed_context_items.down.sql',
+  'db/migrations/0025_sealed_context_items.up.sql',
+  'db/migrations/0026_sealed_file_chunks.down.sql',
+  'db/migrations/0026_sealed_file_chunks.up.sql',
+  'db/migrations/0027_sealed_attachment_content.down.sql',
+  'db/migrations/0027_sealed_attachment_content.up.sql',
+  'db/migrations/0028_sealed_resource_content.down.sql',
+  'db/migrations/0028_sealed_resource_content.up.sql',
+  'db/migrations/0029_scoped_resource_blobs.down.sql',
+  'db/migrations/0030_purge_checkpoints.down.sql',
+  'db/migrations/0031_journal_purge_redactions.down.sql',
+  'db/migrations/0032_purged_receipts.down.sql',
+  'db/migrations/0033_purged_resource_versions.down.sql',
+  'db/migrations/0033_purged_resource_versions.up.sql',
+  'db/migrations/0034_run_input_purge_refs.down.sql',
+  'db/migrations/0034_run_input_purge_refs.up.sql',
+  'db/migrations/0035_purge_import_archives.down.sql',
+  'e2e/fixtures/m09-purge-crash-child.ts',
+  'e2e/m09-legacy-migration.e2e.test.ts',
+  'e2e/m09-resource-key-reconciliation.e2e.test.ts',
+  'pnpm-lock.yaml',
+  'reports/third-party-licenses.json',
+  'scripts/audit-history-keys.ts',
+  'scripts/audit-receipt-keys.ts',
+  'scripts/backfill-provenance.ts',
+  'scripts/seal-legacy-anchor-content.ts',
+  'scripts/seal-legacy-attachment-content.test.ts',
+  'scripts/seal-legacy-attachment-content.ts',
+  'scripts/seal-legacy-context-items.ts',
+  'scripts/seal-legacy-edge-content.ts',
+  'scripts/seal-legacy-file-chunks.test.ts',
+  'scripts/seal-legacy-file-chunks.ts',
+  'scripts/seal-legacy-journal-payloads.ts',
+  'scripts/seal-legacy-manifest-content.ts',
+  'scripts/seal-legacy-message-content.ts',
+  'scripts/seal-legacy-node-content.ts',
+  'scripts/seal-legacy-receipts.test.ts',
+  'scripts/seal-legacy-receipts.ts',
+  'scripts/seal-legacy-resource-blobs.test.ts',
+  'scripts/seal-legacy-resource-blobs.ts',
+  'scripts/seal-legacy-resource-content.test.ts',
+  'scripts/seal-legacy-resource-content.ts',
+  'scripts/seal-legacy-run-inputs.ts',
+  'scripts/seal-legacy-segment-content.ts',
+  'scripts/sealed-anchor-migration.test.ts',
+  'scripts/sealed-attachment-migration.test.ts',
+  'scripts/sealed-context-items-migration.test.ts',
+  'scripts/sealed-edge-migration.test.ts',
+  'scripts/sealed-file-chunks-migration.test.ts',
+  'scripts/sealed-node-migration.test.ts',
+  'scripts/sealed-resource-migration.test.ts',
+  'scripts/sealed-segment-migration.test.ts',
+  'server/application/ports/bundle-import.ts',
+  'server/application/ports/portable-workspace.ts',
+  'server/contracts/bundle-index.schema.json',
+  'server/contracts/purge-event-schema.test.ts',
+  'server/domain/portable-bundle.ts',
+  'server/domain/portable-workspace-schema.ts',
+  'server/infrastructure/bundle-import-checkpoints.ts',
+  'server/infrastructure/node-content-keys.test.ts',
+  'server/infrastructure/node-content-keys.ts',
+  'server/infrastructure/node-encrypted-blob-store.test.ts',
+  'server/infrastructure/node-sealed-content-store.test.ts',
+  'server/infrastructure/node-sealed-content-store.ts',
+  'server/infrastructure/portable-semantic-schema.test.ts',
+  'server/infrastructure/sealed-anchor-content.test.ts',
+  'server/infrastructure/sealed-anchor-content.ts',
+  'server/infrastructure/sealed-attachment-content.test.ts',
+  'server/infrastructure/sealed-attachment-content.ts',
+  'server/infrastructure/sealed-content.test.ts',
+  'server/infrastructure/sealed-content.ts',
+  'server/infrastructure/sealed-context-item-content.test.ts',
+  'server/infrastructure/sealed-context-item-content.ts',
+  'server/infrastructure/sealed-edge-content.test.ts',
+  'server/infrastructure/sealed-edge-content.ts',
+  'server/infrastructure/sealed-file-chunk-content.test.ts',
+  'server/infrastructure/sealed-file-chunk-content.ts',
+  'server/infrastructure/sealed-journal-content.test.ts',
+  'server/infrastructure/sealed-journal-content.ts',
+  'server/infrastructure/sealed-key-reclamation.test.ts',
+  'server/infrastructure/sealed-manifest-content.test.ts',
+  'server/infrastructure/sealed-manifest-content.ts',
+  'server/infrastructure/sealed-message-content.test.ts',
+  'server/infrastructure/sealed-message-content.ts',
+  'server/infrastructure/sealed-node-content.test.ts',
+  'server/infrastructure/sealed-node-content.ts',
+  'server/infrastructure/sealed-node-read.test.ts',
+  'server/infrastructure/sealed-receipt-content.ts',
+  'server/infrastructure/sealed-resource-content.test.ts',
+  'server/infrastructure/sealed-resource-content.ts',
+  'server/infrastructure/sealed-run-content.test.ts',
+  'server/infrastructure/sealed-run-content.ts',
+  'server/infrastructure/sealed-segment-content.test.ts',
+  'server/infrastructure/sealed-segment-content.ts',
+  'server/provenance/model.test.ts',
+  'server/provenance/model.ts',
+  'src/components/BundleControls.test.tsx',
+  'src/components/BundleControls.tsx',
+  'src/components/MessageProvenance.test.tsx',
+  'src/components/MessageProvenance.tsx',
+];
+export const M09_PATHS = [...new Set([...M08_PATHS, ...M09_DELIVERY_PATHS,
+  'docs/adr/ADR-009-portable-history.md', 'docs/architecture-gates/M09/acceptance.json',
+  'docs/architecture-gates/M09/replay-browser-check.md', 'docs/architecture-gates/M09/replay-desktop.jpg', 'docs/architecture-gates/M09/replay-narrow.jpg',
+  'docs/architecture-gates/M09/bundle-browser-check.md', 'docs/architecture-gates/M09/bundle-desktop.jpg', 'docs/architecture-gates/M09/provenance-narrow.jpg',
+  'docs/architecture-gates/M09/provenance-run-backed-desktop.png', 'docs/architecture-gates/M09/provenance-run-backed-narrow.png',
+  'docs/architecture-gates/M09/clean-import-replay-desktop.png', 'docs/architecture-gates/M09/clean-import-replay-narrow.png',
+  'docs/architecture-gates/M09/plaintext-audit-check.md',
+  'docs/architecture-gates/M09/provenance-audit-check.md',
+  'docs/architecture-gates/M09/provenance-replay-check.md',
+  'docs/architecture-gates/M09/legacy-file-audit-check.md',
+  'docs/architecture-gates/M09/trace-sanitization-check.md',
+  'docs/architecture-gates/M09/purge-projection-check.md',
+  'docs/architecture-gates/M09/purge-replica-erasure-check.md',
+  'docs/architecture-gates/M09/postgres-staging-check.md',
+  'docs/architecture-gates/M09/backup-retention-check.md',
+  'docs/architecture-gates/M09/bundle-security-check.md',
+  'docs/architecture-gates/M09/import-recovery-check.md',
+  'db/migrations/0013_provenance_links.up.sql', 'db/migrations/0014_bundle_imports.up.sql',
+  'db/migrations/0029_scoped_resource_blobs.up.sql', 'db/migrations/0030_purge_checkpoints.up.sql',
+  'db/migrations/0031_journal_purge_redactions.up.sql', 'db/migrations/0032_purged_receipts.up.sql',
+  'db/migrations/0035_purge_import_archives.up.sql',
+  'db/migrations/0036_purged_execution_runs.up.sql', 'db/migrations/0036_purged_execution_runs.down.sql',
+  'server/application/portable-history.ts', 'server/application/portable-references.ts', 'server/application/portable-workspace.ts',
+  'server/application/prepare-bundle-import.ts', 'server/infrastructure/bundle-archive.ts', 'server/infrastructure/bundle-archive.test.ts', 'server/domain/portable-bundle.test.ts', 'server/infrastructure/portable-workspace.test.ts', 'server/infrastructure/node-bundle-import.ts',
+  'server/infrastructure/node-encrypted-blob-store.ts', 'server/infrastructure/portable-bundle.ts', 'server/infrastructure/portable-content.ts', 'server/infrastructure/import-archive-retention.test.ts',
+  'server/store-purge.test.ts',
+  'e2e/m09-default-bundle.e2e.test.ts', 'e2e/m09-import-sigkill.e2e.test.ts', 'e2e/fixtures/m09-import-crash-child.ts', 'e2e/m09-provenance.e2e.test.ts', 'e2e/m09-purge-checkpoint.e2e.test.ts',
+  'scripts/audit-legacy-plaintext.ts', 'scripts/audit-provenance.ts', 'scripts/audit-legacy-files.ts', 'scripts/reclaim-legacy-files.ts', 'scripts/audit-run-traces.ts', 'scripts/sanitize-legacy-run-traces.ts', 'scripts/sanitize-legacy-run-errors.ts', 'scripts/reconcile-content-keys.ts', 'scripts/reclaim-bundle-import-archives.ts',
+  'server/infrastructure/legacy-file-audit.ts', 'server/infrastructure/legacy-file-audit.test.ts',
+])];
+export const M09_FIXTURES = [...M08_FIXTURES,
+  { id: 'm09-acceptance-v1', path: 'docs/architecture-gates/M09/acceptance.json', role: 'acceptance_fixture' },
+  { id: 'm09-replay-browser-check-v1', path: 'docs/architecture-gates/M09/replay-browser-check.md', role: 'acceptance_fixture' },
+  { id: 'm09-bundle-browser-check-v1', path: 'docs/architecture-gates/M09/bundle-browser-check.md', role: 'acceptance_fixture' },
+  { id: 'm09-provenance-run-backed-desktop-v1', path: 'docs/architecture-gates/M09/provenance-run-backed-desktop.png', role: 'acceptance_fixture' },
+  { id: 'm09-provenance-run-backed-narrow-v1', path: 'docs/architecture-gates/M09/provenance-run-backed-narrow.png', role: 'acceptance_fixture' },
+  { id: 'm09-clean-import-replay-desktop-v1', path: 'docs/architecture-gates/M09/clean-import-replay-desktop.png', role: 'acceptance_fixture' },
+  { id: 'm09-clean-import-replay-narrow-v1', path: 'docs/architecture-gates/M09/clean-import-replay-narrow.png', role: 'acceptance_fixture' },
+  { id: 'm09-plaintext-audit-check-v1', path: 'docs/architecture-gates/M09/plaintext-audit-check.md', role: 'acceptance_fixture' },
+  { id: 'm09-provenance-audit-check-v1', path: 'docs/architecture-gates/M09/provenance-audit-check.md', role: 'acceptance_fixture' },
+  { id: 'm09-legacy-file-audit-check-v1', path: 'docs/architecture-gates/M09/legacy-file-audit-check.md', role: 'acceptance_fixture' },
+  { id: 'm09-trace-sanitization-check-v1', path: 'docs/architecture-gates/M09/trace-sanitization-check.md', role: 'acceptance_fixture' },
+  { id: 'm09-purge-projection-check-v1', path: 'docs/architecture-gates/M09/purge-projection-check.md', role: 'acceptance_fixture' },
+  { id: 'm09-bundle-security-check-v1', path: 'docs/architecture-gates/M09/bundle-security-check.md', role: 'acceptance_fixture' },
+  { id: 'm09-import-recovery-check-v1', path: 'docs/architecture-gates/M09/import-recovery-check.md', role: 'acceptance_fixture' },
+];
+export const M09_ACCEPTANCE_CHECKS = [
+  'provenance_replay', 'bundle_security', 'import_recovery_round_trip', 'purge_replica_erasure',
+  'postgres_staging', 'browser_acceptance', 'backup_retention',
+] as const;
+export const M09_REQUIRED_EVIDENCE = {
+  provenance_replay: ['docs/architecture-gates/M09/provenance-replay-check.md', 'docs/architecture-gates/M09/provenance-audit-check.md'],
+  bundle_security: ['docs/architecture-gates/M09/bundle-security-check.md'],
+  import_recovery_round_trip: ['docs/architecture-gates/M09/import-recovery-check.md', 'docs/architecture-gates/M09/clean-import-replay-desktop.png'],
+  purge_replica_erasure: ['docs/architecture-gates/M09/purge-replica-erasure-check.md', 'docs/architecture-gates/M09/plaintext-audit-check.md'],
+  postgres_staging: ['docs/architecture-gates/M09/postgres-staging-check.md'],
+  browser_acceptance: ['docs/architecture-gates/M09/bundle-browser-check.md', 'docs/architecture-gates/M09/replay-browser-check.md',
+    'docs/architecture-gates/M09/provenance-run-backed-desktop.png', 'docs/architecture-gates/M09/provenance-run-backed-narrow.png',
+    'docs/architecture-gates/M09/clean-import-replay-desktop.png', 'docs/architecture-gates/M09/clean-import-replay-narrow.png'],
+  backup_retention: ['docs/architecture-gates/M09/backup-retention-check.md'],
+} satisfies Record<(typeof M09_ACCEPTANCE_CHECKS)[number], readonly string[]>;
+export function validateM09Acceptance(value: unknown, checksummedPaths: ReadonlySet<string>): void {
+  const audit = value as { schemaVersion?: unknown; checks?: Record<string, { status?: unknown; evidencePaths?: unknown }> } | undefined;
+  if (!audit || audit.schemaVersion !== '1.0.0' || !audit.checks || Object.keys(audit.checks).sort().join(',') !== [...M09_ACCEPTANCE_CHECKS].sort().join(',')) return fail('M09 acceptance checklist is incomplete');
+  for (const id of M09_ACCEPTANCE_CHECKS) {
+    const check = audit.checks[id];
+    const evidencePaths = check?.evidencePaths;
+    if (check?.status !== 'pass' || !Array.isArray(evidencePaths) || !evidencePaths.length
+      || evidencePaths.some(path => typeof path !== 'string' || !checksummedPaths.has(path))) fail(`M09 acceptance ${id} lacks commit-bound passing evidence`);
+    if (M09_REQUIRED_EVIDENCE[id].some(path => !(evidencePaths as string[]).includes(path))) fail(`M09 acceptance ${id} lacks its required evidence`);
+  }
+}
+export function validateM09StrictDiff(paths: string[]): void {
+  const unexpected = paths.filter(path => path && path !== 'docs/architecture-gates/M09/evidence.json');
+  if (unexpected.length) fail(`M09 implementation tree changed after evidence commit: ${unexpected.join(', ')}`);
+}
+const M09_CONFIG: MilestoneConfig = {
+  architectureVersion: 'V4.2', commands: M09_COMMANDS, paths: M09_PATHS, fixtures: M09_FIXTURES,
+  failureClassification: { classification: 'none', rationale: 'All M09 acceptance checks, PostgreSQL staging tests and blocking commands passed with commit-bound evidence.' },
+  knownExceptions: [], severity: 'blocking',
+  thresholds: { required_acceptance_checks: M09_ACCEPTANCE_CHECKS.length, real_postgres_e2e: 'pass' },
+  failureInjectionCheckpoint: { checkpoint: 'Bundle staging, Purge SQL commit and post-commit key revocation', injection_command: 'pnpm vitest run e2e/m09-default-bundle.e2e.test.ts e2e/m09-purge-checkpoint.e2e.test.ts --maxWorkers=1 --testTimeout=30000', expected: 'failed imports are hidden or resumable; committed tombstones stay unreadable and key revocation resumes after interruption' },
+  recoveryCommand: 'pnpm run bundle:reclaim-imports',
+};
+export function m09ObservedMetrics(databaseUrl = process.env.DATABASE_URL): Record<string, unknown> {
+  return { required_acceptance_checks: M09_ACCEPTANCE_CHECKS.length, real_postgres_e2e: databaseUrl ? { status: 'pass' } : { status: 'skipped', reason: 'DATABASE_URL is not configured' } };
+}
 export function validateM08Performance(value: unknown, commit: string): void {
   const report = value as { schemaVersion?: string; commit?: string; backend?: string; observations?: Array<Record<string, unknown>> } | undefined;
   if (!report || report.schemaVersion !== '1.0.0' || report.commit !== commit || report.backend !== 'PGlite') return fail('M08 performance report must bind PGlite measurements to the evidence commit');
@@ -447,6 +665,7 @@ const milestoneConfig = (milestone: string): MilestoneConfig => {
   if (milestone === 'M06') return M06_CONFIG;
   if (milestone === 'M07') return M07_CONFIG;
   if (milestone === 'M08') return M08_CONFIG;
+  if (milestone === 'M09') return M09_CONFIG;
   return fail(`no verifier is configured for ${milestone}`);
 };
 
@@ -530,11 +749,23 @@ export function validateEvidence(
     if (!postgres || !['pass', 'skipped'].includes(String(postgres.status))) fail('M08 PostgreSQL status must be pass or skipped');
     if (postgres?.status === 'skipped' && !postgres.reason?.includes('DATABASE_URL')) fail('M08 skipped PostgreSQL must explain DATABASE_URL');
   }
+  if (evidence.milestone === 'M09') {
+    if (evidence.observed_metrics?.required_acceptance_checks !== M09_ACCEPTANCE_CHECKS.length
+      || (evidence.observed_metrics?.real_postgres_e2e as { status?: unknown } | undefined)?.status !== 'pass') fail('M09 requires passing PostgreSQL staging and all acceptance checks');
+  }
   for (const fixture of evidence.fixtures) {
     if (!(fixture.path in evidence.checksums)) fail(`fixture is not checksummed: ${fixture.path}`);
   }
   if (spawnSync('git', ['cat-file', '-e', `${evidence.commit}^{commit}`], { cwd: root }).status !== 0) fail(`recorded commit does not exist: ${evidence.commit}`);
   if (!isCommitAncestor(evidence.commit, head)) fail(`recorded commit is not an ancestor of HEAD: ${evidence.commit}`);
+  if (options.strictCurrent && evidence.milestone === 'M09') {
+    validateM09StrictDiff(git(['diff', '--name-only', evidence.commit, head, '--']).split('\n'));
+    if (git(['status', '--porcelain'])) fail('M09 strict closure requires a clean worktree');
+  }
+  if (evidence.milestone === 'M09') validateM09Acceptance(
+    JSON.parse(gitObject(evidence.commit, 'docs/architecture-gates/M09/acceptance.json').toString('utf8')),
+    new Set(Object.keys(evidence.checksums)),
+  );
   for (const [path, checksum] of Object.entries(evidence.checksums)) {
     if (path.startsWith('/') || path.split('/').includes('..')) fail(`unsafe checksum path: ${path}`);
     const recorded = sha256(gitObject(evidence.commit, path));
@@ -558,6 +789,10 @@ function runGate(commands: string[]): CommandResult[] {
 
 function writeEvidence(milestone: string): void {
   const config = milestoneConfig(milestone);
+  if (milestone === 'M09') {
+    if (!process.env.DATABASE_URL) fail('M09 evidence requires a configured PostgreSQL staging DATABASE_URL');
+    validateM09Acceptance(JSON.parse(readFileSync(resolve(root, 'docs/architecture-gates/M09/acceptance.json'), 'utf8')), new Set(config.paths));
+  }
   const started_at = new Date().toISOString();
   const commands = runGate(config.commands);
   const commit = git(['rev-parse', 'HEAD']);
@@ -572,7 +807,7 @@ function writeEvidence(milestone: string): void {
     })),
     failure_classification: config.failureClassification,
     known_exceptions: config.knownExceptions,
-    ...(config.severity ? { severity: config.severity, thresholds: config.thresholds!, observed_metrics: milestone === 'M03' ? m03ObservedMetrics() : milestone === 'M04' ? m04ObservedMetrics() : milestone === 'M06' ? m06ObservedMetrics() : milestone === 'M07' ? m07ObservedMetrics() : milestone === 'M08' ? { performance: JSON.parse(readFileSync(resolve(root, 'reports/m08-performance.tmp'), 'utf8')), real_postgres_e2e: m06ObservedMetrics().real_postgres_e2e } : m05ObservedMetrics(), failure_injection_checkpoint: config.failureInjectionCheckpoint!, recovery_command: config.recoveryCommand! } : {}),
+    ...(config.severity ? { severity: config.severity, thresholds: config.thresholds!, observed_metrics: milestone === 'M03' ? m03ObservedMetrics() : milestone === 'M04' ? m04ObservedMetrics() : milestone === 'M06' ? m06ObservedMetrics() : milestone === 'M07' ? m07ObservedMetrics() : milestone === 'M08' ? { performance: JSON.parse(readFileSync(resolve(root, 'reports/m08-performance.tmp'), 'utf8')), real_postgres_e2e: m06ObservedMetrics().real_postgres_e2e } : milestone === 'M09' ? m09ObservedMetrics() : m05ObservedMetrics(), failure_injection_checkpoint: config.failureInjectionCheckpoint!, recovery_command: config.recoveryCommand! } : {}),
     environment: { node: process.version, os: `${platform()} ${release()}`, cpu: cpus()[0]?.model ?? 'unknown', memory_bytes: totalmem() },
     started_at, completed_at: new Date().toISOString(), result: 'pass',
   };
@@ -586,7 +821,7 @@ function writeEvidence(milestone: string): void {
 function main(): void {
   const milestoneIndex = process.argv.indexOf('--milestone');
   const milestone = milestoneIndex >= 0 ? (process.argv[milestoneIndex + 1] ?? '') : '';
-  if (milestone.length === 0) fail('pass --milestone M01, M02, M03, M04, M05, M06, M07, or M08 and optionally --write');
+  if (milestone.length === 0) fail('pass --milestone M01, M02, M03, M04, M05, M06, M07, M08, or M09 and optionally --write');
   if (process.argv.includes('--write')) return writeEvidence(milestone);
   const path = resolve(root, `docs/architecture-gates/${milestone}/evidence.json`);
   if (!existsSync(path)) fail(`evidence file is missing: ${path}`);

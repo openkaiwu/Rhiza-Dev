@@ -1,0 +1,150 @@
+import { randomUUID } from 'node:crypto';
+import { describe, expect, it } from 'vitest';
+import { createSeedWorkspace } from './seed';
+import { validateWorkspaceHistoryUpdate } from './store';
+
+describe('Purge history boundary', () => {
+  it('rejects a ResourceVersion tombstone without removing the authorized node', () => {
+    const current = createSeedWorkspace();
+    const resourceId = randomUUID(), versionId = randomUUID(), createdAt = new Date().toISOString();
+    const version = { id: versionId, resourceId, version: 1, digestAlgorithm: 'sha256' as const,
+      digest: 'a'.repeat(64), canonicalization: 'raw-v1' as const, mediaType: 'text/plain', size: 1,
+      blobRef: 'sealed-v1/private', createdAt };
+    const previous = { ...current, resourceVersions: [...current.resourceVersions, version] };
+    const next = { ...previous, resourceVersions: [...current.resourceVersions,
+      { ...version, blobRef: 'purged-v1', purgedAt: createdAt }] };
+    expect(() => validateWorkspaceHistoryUpdate(previous, next, { purge: {
+      nodeId: current.activeNodeId, auditReceiptId: randomUUID(),
+    } })).toThrow('Immutable ResourceVersion');
+  });
+
+  it('rejects free-text purge audit metadata from a direct repository write', () => {
+    const current = createSeedWorkspace();
+    const nodeId = randomUUID();
+    const receiptId = randomUUID();
+    const createdAt = new Date().toISOString();
+    const previous = { ...current,
+      discussionNodes: [...current.discussionNodes, { id: nodeId, title: 'secret', summary: '', status: 'archived' as const,
+        kind: 'branch' as const, sourceNodeId: current.activeNodeId, x: 0, y: 0, createdAt, updatedAt: createdAt }],
+    };
+    const next = { ...previous,
+      discussionNodes: previous.discussionNodes.filter(node => node.id !== nodeId),
+      auditEvents: [...previous.auditEvents, { id: receiptId, projectId: previous.projectId, nodeId,
+        action: 'node.purged', entityType: 'node' as const, entityId: nodeId, metadata: { reason: 'secret to erase' }, createdAt }],
+    };
+    expect(() => validateWorkspaceHistoryUpdate(previous, next, { purge: { nodeId, auditReceiptId: receiptId } }))
+      .toThrow('Purge audit reason must be redacted');
+    next.auditEvents[next.auditEvents.length - 1]!.metadata = { reason: 'provided-redacted', removed: { secret: 'secret to erase' } };
+    expect(() => validateWorkspaceHistoryUpdate(previous, next, { purge: { nodeId, auditReceiptId: receiptId } }))
+      .toThrow('Purge audit metadata must be redacted');
+  });
+
+  it('rejects a node removal that leaves an attached ResourceVersion readable', () => {
+    const current = createSeedWorkspace();
+    const nodeId = randomUUID();
+    const messageId = randomUUID();
+    const attachmentId = randomUUID();
+    const receiptId = randomUUID();
+    const createdAt = new Date().toISOString();
+    const previous = {
+      ...current,
+      discussionNodes: [...current.discussionNodes, { id: nodeId, title: 'secret', summary: '', status: 'archived' as const,
+        kind: 'branch' as const, sourceNodeId: current.activeNodeId, x: 0, y: 0, createdAt, updatedAt: createdAt }],
+      messages: [...current.messages, { id: messageId, nodeId, kind: 'user' as const, text: 'secret', attachmentIds: [attachmentId], createdAt }],
+      attachments: [...current.attachments, { id: attachmentId, name: 'secret.txt', mimeType: 'text/plain', size: 6,
+        kind: 'file' as const, createdAt }],
+    };
+    const next = {
+      ...previous,
+      discussionNodes: previous.discussionNodes.filter(node => node.id !== nodeId),
+      messages: previous.messages.filter(message => message.id !== messageId),
+      auditEvents: [...previous.auditEvents, { id: receiptId, projectId: previous.projectId, nodeId,
+        action: 'node.purged', entityType: 'node' as const, entityId: nodeId, metadata: { reason: 'provided-redacted' }, createdAt }],
+    };
+    try {
+      validateWorkspaceHistoryUpdate(previous, next, { purge: { nodeId, auditReceiptId: receiptId } });
+      throw new Error('Purge unexpectedly succeeded');
+    } catch (error) {
+      expect(error).toMatchObject({ code: 'PURGE_HAS_RESOURCE_HISTORY', status: 409 });
+    }
+  });
+
+  it.each(['attachment', 'frozen-source'] as const)('rejects Purge of a legacy Manifest retaining a %s resource reference', reference => {
+    const current = createSeedWorkspace();
+    const nodeId = randomUUID(), manifestId = randomUUID(), attachmentId = randomUUID(), resourceId = randomUUID();
+    const receiptId = randomUUID(), createdAt = new Date().toISOString();
+    const manifest = {
+      id: manifestId, projectId: current.projectId, nodeId, requestId: randomUUID(), createdAt,
+      mode: 'Assisted' as const, provider: 'Test', model: 'legacy-model', runtime: 'provider-adapter' as const,
+      contextItemIds: [], excludedItemIds: [], contextItems: reference === 'frozen-source' ? [{
+        sourceType: 'file' as const, sourceId: attachmentId, title: 'source', detail: 'secret', role: 'Reference' as const,
+        selectionMode: 'CURRENT' as const, pinned: false, reason: '', tokenCount: 1, contentVersion: 1,
+        resourceId, resourceVersionId: randomUUID(), digest: 'a'.repeat(64),
+      }] : [], estimatedTokens: 0,
+      generation: { temperature: 0.4, topP: 1, maxTokens: 1024 }, operation: 'send' as const,
+      attachmentIds: reference === 'attachment' ? [attachmentId] : [],
+    };
+    const previous = { ...current,
+      discussionNodes: [...current.discussionNodes, { id: nodeId, title: 'secret', summary: '', status: 'archived' as const,
+        kind: 'branch' as const, sourceNodeId: current.activeNodeId, x: 0, y: 0, createdAt, updatedAt: createdAt }],
+      manifests: [...current.manifests, manifest],
+    };
+    const next = { ...previous,
+      discussionNodes: previous.discussionNodes.filter(node => node.id !== nodeId),
+      manifests: previous.manifests.filter(item => item.id !== manifestId),
+      auditEvents: [...previous.auditEvents, { id: receiptId, projectId: previous.projectId, nodeId,
+        action: 'node.purged', entityType: 'node' as const, entityId: nodeId, metadata: { reason: 'provided-redacted' }, createdAt }],
+    };
+    expect(() => validateWorkspaceHistoryUpdate(previous, next, { purge: { nodeId, auditReceiptId: receiptId } }))
+      .toThrowError(expect.objectContaining({ code: 'PURGE_HAS_RESOURCE_HISTORY', status: 409 }));
+  });
+
+  it.each(['file', 'chunk', 'reference'] as const)('rejects a node removal whose %s ContextItem still points at retained resource bytes', sourceType => {
+    const current = createSeedWorkspace();
+    const nodeId = randomUUID();
+    const attachmentId = randomUUID();
+    const receiptId = randomUUID();
+    const createdAt = new Date().toISOString();
+    const previous = { ...current,
+      discussionNodes: [...current.discussionNodes, { id: nodeId, title: 'secret', summary: '', status: 'archived' as const,
+        kind: 'branch' as const, sourceNodeId: current.activeNodeId, x: 0, y: 0, createdAt, updatedAt: createdAt }],
+      contextItems: [...current.contextItems, { id: randomUUID(), title: 'file context', detail: 'derived text', role: 'Reference' as const,
+        status: 'active' as const, tokens: 2, sourceType, sourceId: attachmentId, sourceNodeId: nodeId }],
+      attachments: [...current.attachments, { id: attachmentId, name: 'secret.txt', mimeType: 'text/plain', size: 6,
+        kind: 'file' as const, createdAt }],
+    };
+    const next = { ...previous,
+      discussionNodes: previous.discussionNodes.filter(node => node.id !== nodeId),
+      contextItems: previous.contextItems.filter(item => item.sourceNodeId !== nodeId),
+      auditEvents: [...previous.auditEvents, { id: receiptId, projectId: previous.projectId, nodeId,
+        action: 'node.purged', entityType: 'node' as const, entityId: nodeId, metadata: { reason: 'provided-redacted' }, createdAt }],
+    };
+    expect(() => validateWorkspaceHistoryUpdate(previous, next, { purge: { nodeId, auditReceiptId: receiptId } }))
+      .toThrowError(expect.objectContaining({ code: 'PURGE_HAS_RESOURCE_HISTORY', status: 409 }));
+  });
+
+  it('rejects removed file context linked by message ID without a sourceNodeId', () => {
+    const current = createSeedWorkspace();
+    const nodeId = randomUUID();
+    const messageId = randomUUID();
+    const contextId = randomUUID();
+    const receiptId = randomUUID();
+    const createdAt = new Date().toISOString();
+    const previous = { ...current,
+      discussionNodes: [...current.discussionNodes, { id: nodeId, title: 'secret', summary: '', status: 'archived' as const,
+        kind: 'branch' as const, sourceNodeId: current.activeNodeId, x: 0, y: 0, createdAt, updatedAt: createdAt }],
+      messages: [...current.messages, { id: messageId, nodeId, kind: 'user' as const, text: 'secret', createdAt }],
+      contextItems: [...current.contextItems, { id: contextId, title: 'file context', detail: 'derived text', role: 'Reference' as const,
+        status: 'active' as const, tokens: 2, sourceType: 'file' as const, sourceId: messageId }],
+    };
+    const next = { ...previous,
+      discussionNodes: previous.discussionNodes.filter(node => node.id !== nodeId),
+      messages: previous.messages.filter(message => message.id !== messageId),
+      contextItems: previous.contextItems.filter(item => item.id !== contextId),
+      auditEvents: [...previous.auditEvents, { id: receiptId, projectId: previous.projectId, nodeId,
+        action: 'node.purged', entityType: 'node' as const, entityId: nodeId, metadata: { reason: 'provided-redacted' }, createdAt }],
+    };
+    expect(() => validateWorkspaceHistoryUpdate(previous, next, { purge: { nodeId, auditReceiptId: receiptId } }))
+      .toThrowError(expect.objectContaining({ code: 'PURGE_HAS_RESOURCE_HISTORY', status: 409 }));
+  });
+});

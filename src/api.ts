@@ -20,7 +20,7 @@ export class ApiError extends Error {
 
 type ErrorPayload = { code?: string; message?: string; category?: ApiErrorCategory; retryable?: boolean; correlationId?: string };
 let currentWorkspaceId: string | undefined;
-const scopedPath = (path: string) => currentWorkspaceId && /^\/api\/(?!v1\/workspaces(?:\/|\?|$)|health$|providers|models)/.test(path) ? `/api/v1/workspaces/${encodeURIComponent(currentWorkspaceId)}${path.slice(4)}` : path;
+const scopedPath = (path: string) => currentWorkspaceId && /^\/api\/(?!v1\/workspaces(?:\/|\?|$)|bundle\/(?:import|preview)$|health$|providers|models)/.test(path) ? `/api/v1/workspaces/${encodeURIComponent(currentWorkspaceId)}${path.slice(4)}` : path;
 
 function apiError(payload: ErrorPayload | undefined, status: number) {
   return new ApiError(payload?.message || `请求失败（${status}）`, payload?.code, status, {
@@ -125,6 +125,16 @@ async function uploadAttachment(file: File): Promise<Attachment> {
 }
 
 export const api = {
+  previewWorkspaceBundle: (file: File) => request<{ workspaceId: string; name: string; archiveDigest: string; messages: number; runs: number; resourceVersions: number }>('/api/bundle/preview', {
+    method: 'POST', headers: { 'Content-Type': 'application/vnd.rhiza.workspace+zip' }, body: file,
+  }),
+  replayRun: (runId: string, policy: 'exact' | 'partial' | 'current-model', idempotencyKey: string) => request<{ replay: { classification: 'exact' | 'partial' | 'current-model' } }>(`/api/runs/${encodeURIComponent(runId)}/replay`, {
+    method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ policy }),
+  }),
+  getProvenance: (outputId: string) => request<import('./types').ProvenanceLink>(`/api/objects/${encodeURIComponent(outputId)}/provenance`),
+  importWorkspaceBundle: (file: File, idempotencyKey: string) => request<{ workspaceId: string; importId: string }>('/api/bundle/import', {
+    method: 'POST', headers: { 'Content-Type': 'application/vnd.rhiza.workspace+zip', 'Idempotency-Key': idempotencyKey }, body: file,
+  }),
   listRuns: () => request<{ runs: import('./types').ExecutionRun[] }>('/api/runs'),
   getRun: (runId: string) => request<{ run: import('./types').ExecutionRun }>(`/api/runs/${encodeURIComponent(runId)}`),
   cancelRun: (runId: string) => request<{ run: import('./types').ExecutionRun }>(`/api/runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST' }),

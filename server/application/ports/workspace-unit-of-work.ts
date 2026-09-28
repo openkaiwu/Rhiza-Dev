@@ -50,6 +50,9 @@ export interface WorkspaceExecutionResult<T> {
  * enforce history rules; commands supply the next aggregate and explicit policy.
  */
 export interface WorkspaceUnitOfWork {
+  activatePortableImport?(importId: string, ownerId: string, facts: import('./portable-workspace').PortableWorkspaceFacts): Promise<void>;
+  readPortableWorkspace?(): Promise<import('./portable-workspace').PortableWorkspaceFacts>;
+  readProvenance?(outputId: string): Promise<import('../../domain').ProvenanceLink | undefined>;
   readContextHistory?(input: { manifestId: string } | { messageId: string }): Promise<ContextHistoryFacts | undefined>;
   readConversationPreparation?(attachmentIds: string[], sourceMessageId?: string): Promise<ConversationPreparation>;
   readonly tracksRuns?: boolean;

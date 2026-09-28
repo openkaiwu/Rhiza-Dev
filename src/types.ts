@@ -194,3 +194,17 @@ export interface GraphProjectedRelation {
 export interface GraphProjectionResult {
   version: string; checkpoint: number; objects: GraphProjectedObject[]; relations: GraphProjectedRelation[]; nextCursor?: string;
 }
+export interface ProvenanceLink {
+  id: string;
+  outputRef: string;
+  inputRefs: string[];
+  contextManifestRef?: string;
+  runRef?: string;
+  parentRevisionRef?: string;
+  branchSourceRef?: string;
+  modelSpecRef?: string;
+  providerEndpointRef?: string;
+  runtimeSnapshotRef?: string;
+  status: 'recorded' | 'pre-run' | 'broken-reference';
+  missingRefs: string[];
+}

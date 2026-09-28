@@ -1,12 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createLegacyCommandEnvelope, createLegacyQueryEnvelope } from '../contracts/application';
 import { createSeedWorkspace } from '../seed';
 import { createRhizaApplication } from './create-application';
 import { WorkspaceDirectory } from '../identity/workspace-directory';
-import { LOCAL_USER_ID } from '../identity/workspace-scope';
+import { DEFAULT_WORKSPACE_ID, LOCAL_USER_ID } from '../identity/workspace-scope';
 
-function fixture(options: { indexedPlanning?: boolean; failMutation?: boolean; committedRun?: import('../contracts/application').CreateConversationRunResult; ensureWorkspaceInitialized?: (workspaceId: string, name: string) => Promise<import('../domain').WorkspaceData>; blobPut?: (bytes: Uint8Array) => Promise<{ digestAlgorithm: 'sha256'; digest: string; blobRef: string; size: number }>; blobRead?: (blobRef: string, digest: string) => Promise<Uint8Array>; workspaceDirectory?: WorkspaceDirectory; defaultWorkspaceId?: string } = {}) {
-  let workspace = createSeedWorkspace();
+function fixture(options: { indexedPlanning?: boolean; failMutation?: boolean; committedRun?: import('../contracts/application').CreateConversationRunResult; ensureWorkspaceInitialized?: (workspaceId: string, name: string) => Promise<import('../domain').WorkspaceData>; blobPut?: (bytes: Uint8Array) => Promise<{ digestAlgorithm: 'sha256'; digest: string; blobRef: string; size: number }>; blobRead?: (blobRef: string, digest: string) => Promise<Uint8Array>; workspaceDirectory?: WorkspaceDirectory; defaultWorkspaceId?: string; initialWorkspace?: import('../domain').WorkspaceData; getRun?: () => Promise<import('../execution-runtime/run').ExecutionRun | undefined> } = {}) {
+  let workspace = options.initialWorkspace ?? createSeedWorkspace();
   let sequence = 0;
   const commits: string[] = [];
   const runtimeCalls: string[] = [];
@@ -17,6 +17,7 @@ function fixture(options: { indexedPlanning?: boolean; failMutation?: boolean; c
       readConversationPreparation: async attachmentIds => ({ projectId: workspace.projectId, activeNodeId: workspace.activeNodeId, node: workspace.discussionNodes.find(node => node.id === workspace.activeNodeId), mode: workspace.mode, contextItems: workspace.contextItems, messages: workspace.messages.filter(message => message.nodeId === workspace.activeNodeId), attachments: workspace.attachments.filter(item => attachmentIds.includes(item.id)) }),
       execute: async mutation => { commits.push(mutation.policy.kind); if (options.failMutation) throw new Error('workspace write failed'); const result = await mutation.apply(workspace); workspace = result.next; return { workspace, value: result.value }; },
       readCommittedResult: async <T,>() => options.committedRun ? { found: true as const, value: options.committedRun as unknown as T } : { found: false as const },
+      getRun: options.getRun,
       ensureWorkspaceInitialized: options.ensureWorkspaceInitialized,
     },
     runtime: {
@@ -55,6 +56,68 @@ function fixture(options: { indexedPlanning?: boolean; failMutation?: boolean; c
 }
 
 describe('Rhiza Application', () => {
+  it('reports a purged Replay source as missing content without dispatching', async () => {
+    const { application, runtimeCalls } = fixture({ getRun: async () => {
+      throw Object.assign(new Error('ExecutionRun content was purged'), { code: 'RUN_PURGED', status: 410 });
+    } });
+    await expect(application.execute(createLegacyCommandEnvelope('replay-purged', 'ReplayExecutionRun',
+      { runId: 'purged-run', policy: 'exact' }))).rejects.toMatchObject({ details: { code: 'REPLAY_MISSING_RESOURCE', status: 409 } });
+    expect(runtimeCalls).toEqual([]);
+  });
+
+  it('moves an attached ResourceVersion to a tombstone with the Purge audit fact', async () => {
+    const seeded = createSeedWorkspace();
+    const createdAt = '2026-08-22T00:00:00.000Z';
+    const digest = 'a'.repeat(64);
+    const initialWorkspace = { ...seeded,
+      discussionNodes: [...seeded.discussionNodes, { id: 'private-node', title: 'private', summary: '', status: 'archived' as const,
+        kind: 'branch' as const, sourceNodeId: seeded.activeNodeId, x: 0, y: 0, createdAt, updatedAt: createdAt }],
+      messages: [...seeded.messages, { id: 'private-message', nodeId: 'private-node', kind: 'user' as const,
+        text: 'private', attachmentIds: ['private-attachment'], createdAt }],
+      resources: [...seeded.resources, { id: 'private-resource', workspaceId: seeded.projectId, kind: 'attachment' as const, logicalName: 'private.txt', createdAt }],
+      resourceVersions: [...seeded.resourceVersions, { id: 'private-version', resourceId: 'private-resource', version: 1,
+        digestAlgorithm: 'sha256' as const, digest, canonicalization: 'raw-v1' as const, mediaType: 'text/plain', size: 7,
+        blobRef: `sealed-v1/${seeded.projectId}/private-version/${digest}/${digest}/7`, createdAt }],
+      attachments: [...seeded.attachments, { id: 'private-attachment', name: 'private.txt', mimeType: 'text/plain', size: 7,
+        kind: 'file' as const, resourceId: 'private-resource', resourceVersionId: 'private-version', digest, createdAt }],
+      fileChunks: [...seeded.fileChunks, { id: 'private-chunk', attachmentId: 'private-attachment', ordinal: 0,
+        text: 'private', startOffset: 0, endOffset: 7, tokens: 1, terms: ['private'], embedding: [], resourceVersionId: 'private-version' }],
+      contextItems: [...seeded.contextItems, { id: 'private-context', title: 'private', detail: 'private bytes',
+        role: 'Reference' as const, status: 'active' as const, tokens: 2, sourceType: 'chunk' as const,
+        sourceId: 'private-chunk' }],
+      manifests: [...seeded.manifests, { id: 'private-manifest', projectId: seeded.projectId, nodeId: 'private-node',
+        requestId: 'private-request', createdAt, mode: 'Assisted' as const, provider: 'test', model: 'test',
+        runtime: 'provider-adapter' as const, contextItemIds: [], excludedItemIds: [], contextItems: [{
+          sourceType: 'file' as const, sourceId: 'private-attachment', title: 'private source', detail: 'private frozen detail',
+          role: 'Reference' as const, selectionMode: 'CURRENT' as const, pinned: false, reason: '', tokenCount: 2,
+          contentVersion: 1, resourceId: 'private-resource', resourceVersionId: 'private-version', digest,
+        }], estimatedTokens: 2, generation: { temperature: 0.4, topP: 1, maxTokens: 100 },
+        operation: 'send' as const, attachmentIds: ['private-attachment'] }],
+    };
+    const { application, workspace, commits } = fixture({ initialWorkspace });
+    const result = await application.execute(createLegacyCommandEnvelope('purge-resource', 'PurgeObject',
+      { nodeId: 'private-node', confirmation: 'PURGE private-node', reason: 'remove' }));
+    expect(commits).toContain('purge');
+    expect(result.purgeReceipt.createdAt).toBe('2026-08-23T00:00:00.000Z');
+    expect(workspace().resourceVersions.find(version => version.id === 'private-version')).toMatchObject({ blobRef: 'purged-v1', purgedAt: result.purgeReceipt.createdAt });
+    expect(workspace().resources.find(resource => resource.id === 'private-resource')?.logicalName).toBe('[purged]');
+    expect(workspace().attachments).toEqual([]);
+    expect(workspace().fileChunks).toEqual([]);
+    expect(workspace().contextItems.find(item => item.id === 'private-context')).toBeUndefined();
+    expect(workspace().manifests.find(item => item.id === 'private-manifest')).toBeUndefined();
+  });
+  it.each([false, undefined])('denies Purge before mutation when owner capability returns %s', async owner => {
+    const record = { workspaceId: '00000000-0000-4000-8000-000000000001', name: 'Shared', status: 'active' as const, createdBy: LOCAL_USER_ID, revision: 1 };
+    const directory = new WorkspaceDirectory({
+      isOwner: owner === undefined ? undefined : async () => owner,
+      listWorkspaces: async () => [record], createWorkspace: async () => ({ record, created: false }),
+      updateWorkspace: async () => record, ensureWorkspace: async () => record,
+    });
+    const { application, commits } = fixture({ workspaceDirectory: directory });
+    await expect(application.execute(createLegacyCommandEnvelope('purge-member', 'PurgeObject', { nodeId: 'node', confirmation: 'PURGE node', reason: 'test' })))
+      .rejects.toMatchObject({ details: { code: 'WORKSPACE_OWNER_REQUIRED', status: 403 } });
+    expect(commits).toEqual([]);
+  });
   it('executes a conversation run with readiness, runtime observation, and one atomic commit', async () => {
     const { application, commits, workspace } = fixture(); const events: string[] = []; let ready = false;
     const result = await application.execute(createLegacyCommandEnvelope('command-1', 'CreateConversationRun', { prompt: 'hello', operation: 'send', attachmentIds: [], generation: { temperature: 0.4, topP: 1, maxTokens: 50 } }), { onReady: () => { ready = true; }, onRuntimeEvent: event => { events.push(event.type); } });
@@ -160,12 +223,16 @@ describe('Rhiza Application', () => {
 
   it('creates immutable ResourceVersions and validates the current digest before a run', async () => {
     const reads: string[] = [];
-    const { application, workspace } = fixture({ blobRead: async (blobRef, digest) => { reads.push(`${blobRef}:${digest}`); return new Uint8Array(); } });
+    const put = vi.fn(async (bytes: Uint8Array) => ({ digestAlgorithm: 'sha256' as const, digest: 'a'.repeat(64), blobRef: `sha256/aa/${'a'.repeat(64)}`, size: bytes.length }));
+    const { application, workspace } = fixture({ blobPut: put, blobRead: async (blobRef, digest) => { reads.push(`${blobRef}:${digest}`); return new Uint8Array(); } });
     const first = await application.execute(createLegacyCommandEnvelope('resource-1', 'RegisterResource', { name: 'brief.txt', mimeType: 'text/plain', bytes: new TextEncoder().encode('v1') }));
     const second = await application.execute(createLegacyCommandEnvelope('resource-2', 'CreateResourceVersion', { attachmentId: first.attachment.id, bytes: new TextEncoder().encode('v2') }));
     expect(second.attachment.id).toBe(first.attachment.id);
     expect(workspace().resources).toHaveLength(1);
     expect(workspace().resourceVersions.map(item => item.version)).toEqual([1, 2]);
+    expect(put.mock.calls).toEqual(workspace().resourceVersions.map((version, index) => [new TextEncoder().encode(`v${index + 1}`), {
+      workspaceId: DEFAULT_WORKSPACE_ID, contentId: version.id,
+    }]));
     expect(workspace().materializations).toHaveLength(2);
     await application.execute(createLegacyCommandEnvelope('resource-run', 'CreateConversationRun', { prompt: 'use it', operation: 'send', attachmentIds: [first.attachment.id], generation: { temperature: 0.4, topP: 1, maxTokens: 50 } }));
     expect(reads).toEqual([`${second.attachment.blobRef}:${second.attachment.digest}`]);

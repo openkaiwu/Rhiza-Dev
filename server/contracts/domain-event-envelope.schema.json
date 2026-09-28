@@ -25,8 +25,58 @@
     "payload": {
       "type": "object",
       "properties": {
+        "removedObject": {
+          "type": "object",
+          "required": ["id", "kind", "createdAt", "x", "y"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "kind": { "enum": ["main", "branch"] },
+            "createdAt": { "type": "string", "format": "date-time" },
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "title": { "type": "string" },
+            "summary": { "type": "string" },
+            "status": { "type": "string" },
+            "updatedAt": { "type": "string", "format": "date-time" },
+            "sourceNodeId": { "type": "string" },
+            "sourceMessageId": { "type": "string" },
+            "anchorText": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "removedRelation": {
+          "type": "object",
+          "required": ["id", "source", "target", "relation", "createdAt", "label"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "source": { "type": "string", "minLength": 1 },
+            "target": { "type": "string", "minLength": 1 },
+            "relation": { "type": "string", "minLength": 1 },
+            "createdAt": { "type": "string", "format": "date-time" },
+            "label": { "type": "string" },
+            "anchorId": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        "removedRelations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "source", "target", "relation", "createdAt", "label"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "source": { "type": "string", "minLength": 1 },
+              "target": { "type": "string", "minLength": 1 },
+              "relation": { "type": "string", "minLength": 1 },
+              "createdAt": { "type": "string", "format": "date-time" },
+              "label": { "const": "" }
+            },
+            "additionalProperties": false
+          }
+        },
         "stateSchema": { "const": "rhiza.workspace-semantic.v1" },
         "reconcileChecksum": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "portableStateChecksum": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
         "stateChanges": { "type": "object" },
         "snapshot": { "type": "object", "required": ["stateSchema", "sourceSequence", "state"], "properties": { "stateSchema": { "const": "rhiza.workspace-semantic.v1" }, "sourceSequence": { "type": "integer", "minimum": 0 }, "state": { "type": "object" } }, "additionalProperties": false }
       }

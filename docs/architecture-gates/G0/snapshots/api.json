@@ -3,6 +3,7 @@
   "routes": [
     "DELETE /api/graph/edges/:id",
     "DELETE /api/graph/nodes/:id",
+    "GET /api/bundle",
     "GET /api/context/manifests/:manifestId",
     "GET /api/graph/changes",
     "GET /api/graph/neighborhood",
@@ -24,6 +25,8 @@
     "PATCH /api/workspace/context/:id",
     "PATCH /api/workspace/mode",
     "POST /api/attachments",
+    "POST /api/bundle/import",
+    "POST /api/bundle/preview",
     "POST /api/chat",
     "POST /api/chat/stream",
     "POST /api/graph/edges",

@@ -40,6 +40,12 @@ describe('Workspace Graph Projection', () => {
     expect(projection.relations).toContainEqual(expect.objectContaining({ id: 'edge', relationType: 'derived_from', lifecycle: 'active' }));
     expect(projection.checkpoint).toBe(7);
     expect(projection.checksum).toMatch(/^[a-f0-9]{64}$/);
+    workspace.resources[0]!.logicalName = '[purged]';
+    workspace.resourceVersions.push({ id: 'version', resourceId: 'resource', version: 1, digestAlgorithm: 'sha256',
+      digest: 'a'.repeat(64), canonicalization: 'raw-v1', mediaType: 'text/plain', size: 1, blobRef: 'purged-v1',
+      createdAt: branch.createdAt, purgedAt: branch.createdAt });
+    expect(buildWorkspaceGraphProjection(workspace, [], 8).objects.find(item => item.ref.objectId === 'resource'))
+      .toMatchObject({ lifecycle: 'tombstoned', title: '[purged]', status: 'tombstoned' });
   });
 
   it('keeps generic object types additive and bounds neighborhood, path, tree and changes queries', () => {
@@ -73,7 +79,12 @@ describe('Workspace Graph Projection', () => {
     const projection = buildWorkspaceGraphProjection(workspace, [], 9, events);
 
     expect(projection.objects).toContainEqual(expect.objectContaining({ ref: expect.objectContaining({ objectId: 'removed' }), lifecycle: 'tombstoned' }));
-    expect(projection.relations).toContainEqual(expect.objectContaining({ id: 'removed-edge', lifecycle: 'retracted' }));
+    const tombstone = projection.objects.find(item => item.ref.objectId === 'removed');
+    expect(tombstone).toMatchObject({ title: '[purged]', summary: '', kind: removed.kind, createdAt: removed.createdAt });
+    expect(JSON.stringify(tombstone)).not.toContain(removed.title);
+    expect(projection.relations).toContainEqual(expect.objectContaining({ id: 'removed-edge', lifecycle: 'retracted', label: '' }));
+    const ordinary = buildWorkspaceGraphProjection(workspace, [], 9, [events[1]!]);
+    expect(ordinary.relations).toContainEqual(expect.objectContaining({ id: 'removed-edge', label: 'historical' }));
     expect(graphNeighborhood(projection, { root: projection.objects[0]!.ref, depth: 3 }).relations).not.toContainEqual(expect.objectContaining({ id: 'removed-edge' }));
   });
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import {
   M01_COMMANDS,
   M01_PATHS,
@@ -21,6 +21,7 @@ import {
   m05ObservedMetrics,
   m06ObservedMetrics,
   M08_COMMANDS, M08_PATHS, M08_FIXTURES, validateM08Performance,
+  M09_COMMANDS, M09_PATHS, M09_FIXTURES, M09_ACCEPTANCE_CHECKS, M09_REQUIRED_EVIDENCE, m09ObservedMetrics, validateM09Acceptance, validateM09StrictDiff,
   M07_COMMANDS,
   M07_FIXTURES,
   M07_PATHS,
@@ -261,5 +262,53 @@ describe('M08 measured performance evidence', () => {
     expect(() => validateM08Performance(p95, 'test-commit')).toThrow('raw samples');
     const audit = report(); audit.observations[0].queryAudit.push({ statement: 'SELECT * FROM rhiza_messages', maxRows: 5 });
     expect(() => validateM08Performance(audit, 'test-commit')).toThrow('SQL query audit');
+  });
+});
+
+describe('M09 strict closure evidence', () => {
+  const passed = () => ({ schemaVersion: '1.0.0', checks: Object.fromEntries(M09_ACCEPTANCE_CHECKS.map(id => [id, { status: 'pass', evidencePaths: [...M09_REQUIRED_EVIDENCE[id]] }])) });
+  const paths = new Set(M09_PATHS);
+  it('binds the acceptance checklist and PostgreSQL staging to the milestone gate', () => {
+    const checks = (JSON.parse(readFileSync('package.json', 'utf8')) as { scripts: Record<string, string> }).scripts['m09:checks'];
+    for (const command of M09_COMMANDS) expect(checks).toContain(command);
+    expect(M09_COMMANDS).toContain('pnpm run test:e2e');
+    expect(M09_COMMANDS).toContain('pnpm run m09:traces:audit');
+    expect(M09_COMMANDS).toContain('pnpm run m09:plaintext:audit');
+    expect(M09_COMMANDS).toContain('pnpm run m09:provenance:audit');
+    expect(M09_COMMANDS).toContain('pnpm run m09:files:audit');
+    expect(M09_COMMANDS).toContain('pnpm run m09:keys:audit');
+    expect(paths.has('docs/architecture-gates/M09/bundle-browser-check.md')).toBe(true);
+    expect(paths.has('docs/architecture-gates/M09/bundle-desktop.jpg')).toBe(true);
+    expect(paths.has('docs/architecture-gates/M09/provenance-narrow.jpg')).toBe(true);
+    expect(paths.has('docs/architecture-gates/M09/provenance-run-backed-desktop.png')).toBe(true);
+    expect(paths.has('docs/architecture-gates/M09/clean-import-replay-narrow.png')).toBe(true);
+    expect(paths.has('docs/architecture-gates/M09/plaintext-audit-check.md')).toBe(true);
+    expect(paths.has('docs/architecture-gates/M09/provenance-audit-check.md')).toBe(true);
+    expect(paths.has('docs/architecture-gates/M09/legacy-file-audit-check.md')).toBe(true);
+    expect(paths.has('docs/architecture-gates/M09/trace-sanitization-check.md')).toBe(true);
+    expect(paths.has('scripts/sanitize-legacy-run-errors.ts')).toBe(true);
+    for (const file of readdirSync('db/migrations').filter(name => {
+      const version = Number(name.slice(0, 4));
+      return version >= 13 && version <= 36;
+    })) expect(paths.has(`db/migrations/${file}`), file).toBe(true);
+    expect(paths.has('docs/architecture-gates/M09/purge-projection-check.md')).toBe(true);
+    for (const required of Object.values(M09_REQUIRED_EVIDENCE).flat()) expect(paths.has(required), required).toBe(true);
+    expect(M09_FIXTURES.every(fixture => paths.has(fixture.path))).toBe(true);
+    expect(m09ObservedMetrics('')).toMatchObject({ real_postgres_e2e: { status: 'skipped' } });
+    expect(() => validateM09Acceptance(passed(), paths)).not.toThrow();
+  });
+  it('rejects pending, missing and unbound acceptance facts', () => {
+    const pending = passed(); pending.checks.purge_replica_erasure.status = 'pending';
+    expect(() => validateM09Acceptance(pending, paths)).toThrow('purge_replica_erasure');
+    const missing = passed(); delete missing.checks.backup_retention;
+    expect(() => validateM09Acceptance(missing, paths)).toThrow('incomplete');
+    const unbound = passed(); unbound.checks.browser_acceptance.evidencePaths = ['docs/architecture-gates/M09/untracked.png'];
+    expect(() => validateM09Acceptance(unbound, paths)).toThrow('browser_acceptance');
+    const wrong = passed(); wrong.checks.backup_retention.evidencePaths = ['docs/architecture-gates/M09/replay-browser-check.md'];
+    expect(() => validateM09Acceptance(wrong, paths)).toThrow('backup_retention');
+  });
+  it('allows only the separately committed evidence file after the recorded implementation tree', () => {
+    expect(() => validateM09StrictDiff(['docs/architecture-gates/M09/evidence.json'])).not.toThrow();
+    expect(() => validateM09StrictDiff(['server/postgres-store.ts'])).toThrow('implementation tree changed');
   });
 });

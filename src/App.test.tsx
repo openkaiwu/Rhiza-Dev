@@ -378,7 +378,7 @@ describe('Rhiza MVP', () => {
     const { container } = render(<App />);
     await screen.findByText(/test-model/);
     const file = new File(['约束'], 'brief.txt', { type: 'text/plain' });
-    fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [file] } });
+    fireEvent.change(container.querySelector('.composer input[type="file"]')!, { target: { files: [file] } });
     expect(await screen.findByText('brief.txt')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '生成参数' }));
     fireEvent.change(screen.getByLabelText('Temperature'), { target: { value: '0.2' } });

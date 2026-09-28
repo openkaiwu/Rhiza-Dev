@@ -25,6 +25,17 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
     return workspaceId ? this.repository.forWorkspace?.(workspaceId) ?? this.repository : this.repository;
   }
   async listRuns(limit = 50) { return this.runRepository().listRuns?.(limit) ?? []; }
+  async readProvenance(outputId: string) { return this.runRepository().readProvenance?.(outputId); }
+  async readPortableWorkspace() {
+    const repository = this.runRepository();
+    if (!repository.readPortableWorkspace) throw new Error('PORTABLE_WORKSPACE_UNAVAILABLE');
+    return repository.readPortableWorkspace();
+  }
+  async activatePortableImport(importId: string, ownerId: string, facts: import('../application/ports/portable-workspace').PortableWorkspaceFacts) {
+    const repository = this.runRepository();
+    if (!repository.activatePortableImport) throw new Error('PORTABLE_WORKSPACE_UNAVAILABLE');
+    await repository.activatePortableImport(importId, ownerId, facts);
+  }
   async readContextHistory(input: { manifestId: string } | { messageId: string }) {
     const target = this.runRepository();
     if (target.readContextHistory) return target.readContextHistory(input);
@@ -142,7 +153,7 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
 
 function runEvents(run: RunMutation, context: CommandFactContext, previous: import('../domain').WorkspaceData, next: import('../domain').WorkspaceData, value: unknown): import('../domain-journal').DomainEventDraft[] {
   return [
-    ...(context.commandType === 'CreateConversationRun' ? eventForCommand(context, previous, next, value) : []),
+    ...(['CreateConversationRun', 'ReplayExecutionRun'].includes(context.commandType) ? eventForCommand(context, previous, next, value) : []),
     { eventType: run.kind === 'create' ? 'run.created' : 'run.status.changed', aggregateType: 'run', aggregateId: run.kind === 'create' ? run.run.id : run.runId, payload: { status: run.kind === 'create' ? 'created' : run.patch.status } },
   ];
 }

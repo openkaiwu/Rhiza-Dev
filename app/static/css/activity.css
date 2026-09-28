@@ -12,7 +12,7 @@
 .activity-empty span { grid-column: 2; color: var(--ink-3); font-size: 9px; }
 .activity-error { margin: 16px 24px; color: var(--warning); }
 @media (max-width: 1120px) { .activity-view { grid-column: auto; } }
-@media (max-width: 760px) { .activity-timeline { margin: 12px; margin-bottom: 80px; } .activity-timeline li { grid-template-columns: 44px 1fr; } .activity-timeline time { grid-column: 2; } }
+@media (max-width: 760px) { .activity-view { height: 100dvh; padding-bottom: 63px; } .activity-timeline { margin: 12px; margin-bottom: 80px; } .activity-timeline li { grid-template-columns: 44px 1fr; } .activity-timeline time { grid-column: 2; } }
 .run-history .activity-timeline li { display: block; }
 .run-history article { min-width: 0; width: 100%; }
 .run-history details { margin: 12px 0; }

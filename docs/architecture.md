@@ -1,14 +1,64 @@
 # Project Architecture
 
+> M09 开发中：Provenance 与 Replay 服务端初步实现已加入；M09/M10 尚未接受。下述 M01–M08 门禁结论仍仅覆盖原提交。
+
+Bundle staging 已接通归档文件、固定 schema 解码、引用/内容/历史最终状态对账，并在失败时清理临时目录。生产导入、解包、恢复和导出的工作文件位于项目私有 imports/transient 目录；服务启动时（取得运行时独占权后）清理遗留目录，强制中断后不长期保留明文。当前操作配额：Workspace JSON 为 64 MiB，JSON 嵌套深度最多 128，index/layout 为 16 MiB；Blob 仍按独立的流式归档配额处理。导出同样执行文档大小限制。迁移 0014 新增独立的导入 checkpoint 元数据：绑定用户、Workspace 和归档/状态摘要，幂等创建、版本化阶段推进，数据库拒绝身份修改和阶段倒退；该表不提前创建目标 Workspace。Application 经 UnitOfWork 将空目标的 Workspace、成员、Run、Provenance、Journal 和 activated checkpoint 写入同一事务；失败全部回滚。导入端把 portable `sha256` 内容按目标 `{workspaceId, resourceVersionId}` 重新封装为 `sealed-v1`，再把目标存储事实交给激活事务；portable facts 仍用于归档 identity/history/stateDigest 校验。恢复用归档按原 ZIP digest 建立独立 AES-GCM 密文与密钥，checkpoint 更新后保留七天；启动或停服维护时根据所有仍在恢复窗口内的 checkpoint pin 撤销过期归档密钥并回收密文。旧版明文保留 ZIP 经完整校验、密封与读回验证后移除。生产 composition root 的新 ResourceVersion、附件与 Context Blob 默认使用同一 scoped 加密适配器；旧 `sha256` 引用仅保留只读迁移能力。迁移 0029 允许并约束 scoped 引用，`pnpm run resources:seal-blobs` 在停服独占运行时按 Workspace 分批迁移旧 Blob，读回摘要和大小一致后才更新引用；原明文须等待全库引用与 Bundle/GC pin 审计后再清理。导入期间暂用粗粒度表锁并拒绝全局 ID 碰撞，以隔离既有 upsert 写入路径；M10 仍须清理这些旧路径。已验证新 PGlite 库的事实往返、Journal 阶段回滚、数据库重开恢复、图投影和继续对话；本地嵌入式及隔离 PostgreSQL 的进程级中断恢复亦已验证。完整里程碑验收仍待完成。
+
+进程级 SIGKILL 故障注入覆盖 validated、blobs-ready 与未提交激活事务后的重启恢复，分别在嵌入式和隔离 PostgreSQL schema 上执行；上传期间中断留下的 transient 明文由独立故障注入验证回收。用户管理的 staging 数据迁移、备份保留与 M09 Gate 仍需独立验收。
+
 > **文档地位（2026-09-06 刷新）**：本文是 **Current Implementation Snapshot**，只描述当前已落地行为；目标架构与开发顺序以 `docs/Rhiza_技术架构设计书_V4.2_20260829.md` 和 `docs/Rhiza_开发路线图_V4.2_20260829.md` 为准。M01–M08 的接受结论以 `docs/architecture-gates/` 中的 commit-bound evidence 为准；未配置 `DATABASE_URL` 时，真实 PostgreSQL 用例为 skipped，不视为通过。
 
 ## 1. Overview
 
+M09 的标准 Embedded/PostgreSQL factory 已默认配置成功回执密文存储。迁移 0015 的 `result_content_ref` 与明文 `result` 互斥；三条成功回执写入和三条幂等读取路径统一处理，确认事务回滚时销毁新建密钥，COMMIT 响应不确定时保留。Embedded 配套目录为 `<dataDirectory>.content`，PostgreSQL factory 默认 `var/receipt-content`；这些目录需随数据库共同备份。旧回执、拒绝回执的 error、Run/Journal/其他正文迁移及完整 Purge 尚未完成。
+
+Bundle 导入先在 Workspace 写锁下检查目标并写身份绑定的 validated checkpoint，再在同一 Workspace/内容生命周期锁保护下保留独立密钥加密的恢复 ZIP；激活时仍复查目标占用。导入与 Purge 同时锁定归档摘要，Purge 因此能发现另一 Workspace 尚未提交的同摘要导入，拒绝撤销共享密钥；旧 Purge 撤销未完成时的新导入失败关闭，完成后可释放已撤销描述符并以新密钥导入。Purge 事务把所有关联导入摘要登记为待撤销引用，提交后幂等销毁归档密钥；恢复窗口内的归档 pin 不覆盖已提交 Purge，已撤销描述符由维护回收。缺少归档适配器或检测到旧明文 ZIP 时，Purge 在提交前失败关闭；Purge 后的同目标重试导入在保留归档前失败。已验证 validated、blobs-ready、activated 的旧记录不能仅按七天时间放行。外部用户控制的导出依 ADR-009 仍不可召回；Run/资源等其他副本及备份边界仍阻断完整 Purge 验收。
+
+服务在取得运行时独占权后先初始化默认 Workspace 并幂等补齐 Journal baseline，再开放 Bundle 导出；新库首轮导出不依赖手工 backfill。已有 Journal tail 却缺失首事件 baseline 时仍由 `JOURNAL_BASELINE_ORDER_CONFLICT` 阻止启动，不重排历史。
+
 根系（Rhiza）是基于产品设计书构建的全栈网页端 MVP。它验证“对话网络 + 显式上下文 + 当前知识状态”的核心产品命题，并通过动态 Provider Registry 连接多个 OpenAI-compatible 模型供应商。当前实现具备确定性 local user、Workspace membership、多个 Workspace 的创建/切换/归档与路径级 scope 隔离；领域数据默认由 embedded PGlite 持久化，也可连接 PostgreSQL。成功 Application Command 通过 WorkspaceUnitOfWork 在同一事务写 Current State、append-only Domain Journal 与 CommandReceipt；模型目录仍使用原子 JSON，API Key 使用本机 AES-256-GCM 密钥加密。
+
+M09 当前实现：新 Assistant output 在原事务内写入 `provenance_links`。`GetProvenance` 通过 Workspace membership 与 scoped UnitOfWork 读取来源关系，检查 Run、Manifest 与冻结内容缺失；旧输出按实际证据标记 pre-run。Purge 删除输出或其关联输入/Manifest 时，同一事务把受影响关系改为显式 `purged`，保留逻辑身份并阻止查询层把它误报为普通 broken-reference。迁移 0030 同时持久化 Purge checkpoint 及逐项 scoped key 引用；迁移 0031 为不可变 Journal 行提供有效载荷脱敏覆盖层，同一 Purge 事务发布可重放的脱敏 baseline/tail 并登记旧密钥。无密文载荷或可重放 baseline 时拒绝 Purge。SQL 提交后在内容生命周期独占锁内幂等撤销密钥，服务启动会分批排空 pending checkpoint，撤销无法继续时不开放 HTTP 服务。撤销中断不恢复已删除正文，读取保持 fail-closed；密钥已销毁但 SQL acknowledgement 未落盘时可安全重复。当前 checkpoint 覆盖被删除的 Node、Message、Manifest、Segment、Anchor、Edge、ContextItem、Journal、CommandReceipt、终态密封 Run 和保留导入归档密钥；旧明文/活跃/跨节点 Run 及未覆盖资源历史仍拒绝，尚不能宣称完整 crypto-shred。跨节点保护会读取旧明文与密封 Run 输入，检查 `sourceMessageId`、Manifest、history、Context 来源和谱系等结构化引用，不能只比对 Run 的节点 ID。迁移后可执行 `pnpm run provenance:backfill` 幂等回填现有输出，脚本不初始化缺失的 embedded 数据库。Replay Command 直接消费历史 Run request 与冻结 Manifest，经现有 RunLifecycle 创建有 parentRunRef 的新执行，记录显式 replay policy；历史版本或内容缺失时不派发。Exact 校验 runtime/model/endpoint 配置，Partial 与 Current-model 由调用方明确选择。API 为 `/api/v1/workspaces/:workspaceId/objects/:outputId/provenance` 与 `/api/v1/workspaces/:workspaceId/runs/:runId/replay`。Purge 剩余副本迁移与里程碑全量验收仍在开发范围内。
+
+新 Run trace 写入仅接受 Runtime 协议事件类型，并将每条记录投影为 `sequence/type/at`，不持久化流式正文或调用方附带的其他字段。`pnpm run m09:traces:audit` 全库检查既有 trace 行的字段和类型；停服后可用 `RHIZA_OFFLINE_TRACE_SANITIZATION=1 pnpm run m09:traces:sanitize` 分批清除旧行的附加字段，保留可信的 sequence/type/at，格式不可信时失败关闭。正式 staging 仍需执行迁移和审计。
+
+Purge 事务在登记密钥前逐项对账被删 Node、Message、Manifest、Segment、Anchor、Edge 的 SQL 行数与密文引用；任何正文族缺适配器、缺行或仍为旧明文时先拒绝，不把删除 SQL 行当作 crypto-shred。旧内容须通过现有分批密封迁移完成后重试；该保护与 Journal/Receipt/Resource 的独立前置校验共同组成提交边界。
+
+迁移 0032 将 Purge 前已密封的 CommandReceipt result/error 纳入同一 checkpoint；SQL 标记后，重复命令只返回 `RECEIPT_PURGED`，审计读取只保留回执身份和序列。旧明文回执阻断 Purge，必须先完成既有分批密封迁移。此策略会同时撤销该 Workspace 中与目标节点无关的旧回执正文；新 Purge 命令回执不在旧密钥清单内。未密封或不归属目标 Node 的 Run、异常 trace、资源与备份边界继续受保护。
+
+仅当待删消息的附件资源无保留 Message/Manifest/Context/Run 引用、所有版本已密封、附件/Resource/FileChunk 正文已密封且已知原明文文件不存在时，Purge 才在同一事务移除附件与派生块、脱敏资源及 Graph、写入 ResourceVersion 墓碑覆盖层，并将四类旧密钥加入持久 checkpoint；提交后逐项幂等撤钥。直接指向这些附件或文件块的 file/chunk ContextItem 也须无其他节点/Manifest 引用，随事务移除并登记其密钥；任何待移除 ContextItem 若尚无密文引用，整个 Purge 在提交前以 `PURGE_CONTEXT_MIGRATION_REQUIRED` 拒绝。待删旧 Manifest 只有在附件与冻结资源引用全部属于同一待撤销资源集合、且 Manifest 正文已密封时才可一并撤钥；旧明文 Manifest 以 `PURGE_MANIFEST_MIGRATION_REQUIRED` 拒绝。撤钥中断时数据库仍只暴露墓碑，恢复器继续处理。无法归属到独占附件的 Manifest/Context 资源引用仍返回 `PURGE_HAS_RESOURCE_HISTORY`，不可把拒绝保护视为完整资源擦除。
+
+Purge 事务还会清空被删 Node/Message 在所有已保存 Graph projection namespace 中的 title、summary、metadata，并清空其关系标签；同事务清理对应 Context candidate index 行。Graph 查询随后按当前状态重新物化 active namespace。旧 projection version 不能作为可保留的正文副本；此处理不替代其他资源/备份边界的剩余 Purge 工作。
+
+Bundle 导出通过 `/api/v1/workspaces/:workspaceId/bundle` 读取同一事务中的完整 Workspace、Run、Provenance 与 Journal；Application 构造去除运行环境位置和凭据元数据的 portable DTO，Node adapter 以 ZIP 和 SHA-256 描述符输出冻结内容。去除 endpoint 配置后重新计算 portable inputHash，并用 originInputHash 保留原执行引用；该快照不能直接声明 Exact Replay。Domain 定义 portable Workspace v1 schema；Node 解码器使用本地固定 schema 校验字段、引用闭合、内容摘要与每个 Run 的描述符身份，归档携带的 schema 仅作文档。Journal payload 继续使用现有 envelope schema，逐事件历史一致性恢复仍需实现。空目标导入保留原逻辑身份，既有目标拒绝覆盖；同一已激活 checkpoint 的重复调用幂等。`POST /api/bundle/import` 接收 `application/vnd.rhiza.workspace+zip` 流，经 ImportWorkspaceBundle Command 完成导入；当前仅接受归档中的 owner 身份，不执行跨用户身份映射。`Idempotency-Key` 用于重试，归档保存在独立 imports 目录以支持恢复。
 
 当前仓库不是 LibreChat fork。按 V4.2 基线，现有 `server/provider-*` 承担当前 API 配置的 Runtime Adapter 职责；`librechat-data-provider` 提供共享 Model Spec 与文件策略，Rhiza 的 Project、Node、Edge、Context 与 State 语义保持独立。后续迁移仍应扩展 Runtime 能力，而不是让 LibreChat Conversation/Mongo schema 进入 Rhiza Domain。旧映射仅见 `docs/archive/librechat-migration.md`，不定义当前架构。
 
+`POST /api/bundle/preview` 经 `PreviewWorkspaceBundle` Command 复用导入校验并检查归档 owner，返回名称、逻辑身份、归档摘要及消息/Run/资源版本数量。预检只使用临时 staging，结束后清理，不保留归档、不创建业务回执、Journal、checkpoint 或目标 Workspace。UI 先展示预检摘要，再由用户确认导入；正式导入重新校验并在事务中检查目标冲突。预检不是目标可激活的承诺。
+
 ## 2. Tech Stack
+
+加密内容的事务写入在工作区锁之前获取 `rhiza:content-lifecycle` 共享事务锁；全历史密钥对账获取同名独占事务锁，并使用锁所属连接读取 SQL 引用，避免跨连接读到不一致状态。独占锁等待上限为 5 秒。此协议覆盖 Repository 事务路径，不授权根据返回的快照直接删除密钥；实际回收仍需在保护范围内重验，并遵守停服维护与外部写入边界。
+
+`reclaimHistoricalKeys` 是停服维护专用 Repository 操作：获取运行时独占权、内容独占事务锁和全部引用表的 SHARE 锁，在同一连接读取所有工作区引用。全部类别的已引用密钥元数据健康后才开始撤销未引用 active key；永久保留空 tombstone，失败后的重复执行跳过已撤销项。文件撤销不随 SQL 回滚恢复。内容目录必须仅属于当前数据库，调用前须停止所有目录使用者（包括直接文件发布者）；数据库锁无法保护其他数据库或进程直接访问同一目录。真实 PostgreSQL 并发行为尚待验收，此操作不等同于对象 Purge。
+
+`pnpm run m09:keys:audit` 对全部 Workspace 的历史正文与 ResourceVersion Blob 密钥做只读引用审计，并流式认证、核对每个仍可用 ResourceVersion 密文的摘要与大小；`RHIZA_OFFLINE_KEY_RECONCILIATION=1 pnpm run m09:keys:reclaim` 仅用于停服后、数据库及上传目录独占的维护窗口。资源引用会核验 scoped blobRef 中的 Workspace/ResourceVersion 身份、摘要及大小；任何已引用密钥缺失或失效都阻止撤销。回收在独占内容锁及 ResourceVersion 表锁下重新读全库引用，先撤销孤儿密钥，再另行按完整保留集合清理不可读密文；当前尚无自动加密 Blob GC。普通业务请求不得调用此维护入口。
+
+M09 Gate 另运行 `m09:plaintext:audit`：停服取得 runtime ownership 后，用单条数据库快照查询计数所有历史正文族、未密封 ResourceVersion Blob 与旧版 Purge 审计自由文本；再逐条解密仍可读的已提交回执，发现嵌套旧 Purge 审计说明同样阻断。两次读取不是同一事务，须保证无直接数据库/密钥写入者；只输出计数，不输出正文。该审计不能替代旧明文 Blob 文件、WAL/备份或已导出 Bundle 的保留期检查。
+
+`m09:provenance:audit` 停服并使用对应 `RHIZA_UPLOAD_DIR`：分别计数全库 Assistant 输出的来源覆盖、解密 Run 输入核对有序引用，并实际读取 recorded Manifest 的 scoped Blob 验证冻结内容；只输出计数，异常即阻断 Gate。多次读取不是同一事务，其他数据库/Blob 写入者须停用。它不替代 Replay 四分类或外部 staging 验收。
+
+`m09:files:audit` 需停服并显式指向同一部署的 `DATABASE_URL` 与 `RHIZA_UPLOAD_DIR`：在持有运行时及内容生命周期锁时，只读核对现存 ResourceVersion 逻辑 digest、旧附件存储键、导入 checkpoint 摘要所对应的原明文路径，以及遗留导入工作目录；任何副本非零即阻断 Gate。停服维护命令 `RHIZA_OFFLINE_FILE_RECLAMATION=1 pnpm run m09:files:reclaim` 只移除有数据库来源的旧 ResourceVersion/附件原文件：全库锁定引用，每批读回所有仍可用版本的 scoped 密文；已标记 `purged-v1` 的版本不再要求可读密钥，但旧附件不得引用它。原文件的类型、大小、摘要及 inode 均须校验后才 unlink；失败可重跑。归档旧 ZIP 仍使用既有 `bundle:reclaim-imports` 完整校验/密封/保留期流程。上述操作均不扫描任意无引用文件、WAL、备份或用户已导出的 Bundle，不能单凭回收命令宣称完整擦除。
+
+ResourceVersion 清除后仍保留不可变 ID、摘要和大小；读取层以已提交 Purge checkpoint 覆盖原始 sealed 引用，返回 `blobRef: "purged-v1"` 与 `purgedAt`。Bundle v1 的该版本不携带 Blob 条目，clean-store 导入只恢复墓碑身份而不重新发布字节。迁移 0033 允许导入端保存这种墓碑，同时禁止墓碑引用与正常可读引用混用。当前仅支持上述独占已密封附件、其可归属的 file/chunk ContextItem 与引用同一资源集合的已密封 Manifest；无法归属的复杂资源历史、旧明文/跨节点 Run、备份和外部导出边界仍受拒绝或独立保留保护。
+
+Node 启动组合根在 Purge 恢复前创建唯一的 ResourceVersion 加密 Blob 适配器，并把它同时交给 Repository 恢复器与 HTTP Host；`resource-version` checkpoint 引用以 Workspace/版本/摘要/大小验证后幂等撤销对应密钥。缺失适配器会使该 checkpoint 保持 pending，启动拒绝对外服务。此接线不放宽上述资源历史 Purge 保护。
+
+迁移 0033 允许 `resource`、`attachment`、`file-chunk` checkpoint 引用；恢复器按 Workspace 与实体身份幂等撤销这些正文密钥，缺少对应存储时保持 pending。Application 仅允许已密封且无共享引用的消息附件资源及其直接 file/chunk Context 来源进入这一事务；其余资源历史仍失败关闭。
+
+迁移 0036 将目标 Node（含其临时支线）的终态密封 Run 纳入 Purge checkpoint：同一事务登记输入密钥、将 Run SQL 输入与错误详情改成最小脱敏事实，并允许删除对应已密封 Manifest v1；提交后 Run 读取与 Replay 失败关闭，Bundle 省略该 Run，密钥撤销可中断恢复。旧明文或非终态 Run、含额外字段的 trace、跨节点 Run/谱系引用、未密封 Manifest 和未覆盖的资源历史仍阻断 Purge。原始 Run 的 ID、状态、输入摘要与最小创建事实保留在 SQL；WAL/备份与外部导出仍按独立保留边界处理。
+
+Run 错误只持久化稳定 code/class 与固定描述，不保存 Provider 原始错误文本；Bundle DTO 同样归一错误码并替换错误描述。全库历史明文审计另外计数非白名单 `record.error`；停服独占的 `m09:run-errors:sanitize` 分批将旧自由文本和扩展字段替换为固定脱敏事实。此操作不会清除已存在的 WAL/备份副本。
 
 - React + TypeScript：界面与本地交互状态
 - Vite：开发服务器与生产构建
@@ -106,7 +156,7 @@ Express 后端暴露以下边界：
 - `PATCH /api/nodes/:id/position`：持久化 Graph 节点坐标
 - `POST /api/graph/nodes`、`DELETE /api/graph/nodes/:id`：创建图谱节点；普通 DELETE 仅归档并保留 Message、Segment、Manifest 与关系
 - `PATCH /api/nodes/:id/status`：恢复已归档节点；归档期间对象和关系只读
-- `POST /api/graph/nodes/:id/purge`：仅接受 archived leaf、精确 `PURGE <id>` 确认和审计原因；若节点有不可变 Run 输入或历史引用则以 `PURGE_HAS_EXECUTION_HISTORY` 拒绝
+- `POST /api/graph/nodes/:id/purge`：仅接受 archived leaf、精确 `PURGE <id>` 确认和非空确认说明；说明原文不持久化，审计仅保留已提供标记。终态密封 Run 可随节点清除；旧明文、活跃或跨节点历史引用仍拒绝
 - `POST /api/graph/edges`、`DELETE /api/graph/edges/:id`：创建和删除语义关系
 - `POST /api/nodes/:id/merge`：选择性合并支线摘要、写入主线引用并生成 `merged-into` 关系
 - `GET/POST/PUT /api/providers`：读取、新增和更新安全裁剪后的供应商配置

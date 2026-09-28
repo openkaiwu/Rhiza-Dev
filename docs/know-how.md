@@ -28,9 +28,12 @@
 - Layout 是用户拥有的 projection 输入，写入 `graph_layout_nodes`；不得把 x/y 当作对象语义 checksum 的独立真相，也不得让 rebuild 丢失布局。
 - Provider 调用必须只发生在服务端；浏览器不得读取 API Key 或直接调用第三方模型。
 - 一次成功 Chat 写入必须同时包含用户消息、AI 消息与 Context Manifest，避免审计记录和消息历史分离。
-- Context Compiler 的 JSON snapshot 保存精确文本（包括空字符串），Blob 必须先校验再随 Run 创建登记 ResourceVersion。历史查询只沿 Manifest 冻结引用读取；不能用当前索引或来源内容填补缺失证据。Manifest v1 的 DELETE 不受 legacy purge 开关豁免。
+- Context Compiler 的 JSON snapshot 保存精确文本（包括空字符串），Blob 必须先校验再随 Run 创建登记 ResourceVersion。历史查询只沿 Manifest 冻结引用读取；不能用当前索引或来源内容填补缺失证据。Manifest v1 的 DELETE 仅在已提交 Purge checkpoint 事务内、对应 Run 与资源副本都被覆盖时允许。
 - ResourceVersion 是 append-only 历史事实：同一 Resource 的新内容只能新增版本，不得修改或删除旧版本；FileChunk 只能登记为 materialization，不能替代原始 ResourceVersion。
 - Blob 提交顺序固定为 temp write → SHA-256 verify → atomic promote → Workspace/DB commit。DB 失败后保留已 promote blob 给 grace-period GC，不能先提交引用再补文件。
+- Scoped ResourceVersion Blob 的密钥身份必须绑定 plaintext digest。同一 `{workspaceId, resourceVersionId}` 的中断重试只可复用相同 digest；不同 digest 必须报 identity conflict，已生效密钥不得因失败重试而撤销。历史 `sha256` 迁移必须先读回 scoped 密文并核对 digest/size，再更新不可变引用；在全库引用和归档 pin 未对账前不得删除明文对象。
+- Bundle 导入的目标端 Blob 重绑不止更新 Workspace 的 ResourceVersion/Attachment：终态 Run 的冻结附件也含 `blobRef`。先校验其身份与版本，再替换为目标 `sealed-v1` 引用并重算当前 `inputHash`；`originInputHash` 保留原执行证据，否则导入后附件 Replay 会因引用不一致失败。
+- Bundle 恢复用归档与 Resource Blob 分目录、分密钥；checkpoint 的七天恢复窗口按最新 updated_at 计算，同 digest 任一有效 checkpoint 都是 pin。清理时先撤销归档密钥，再删除描述符并按完整保留集合做 ciphertext GC。旧明文归档要先完整校验、加密并从密文读回通过后才能删除；导入/导出临时明文只放在项目私有 imports/transient，重启后持有运行时独占权才清理。运行清理前须独占服务，避免在途 retain 尚未发布描述符时误撤销密钥。
 - orphan GC 只能在调用方提供覆盖整个 BlobStore 的完整 active-reference set 后执行；不得用当前用户或单个 Workspace 的局部引用集合扫描全局 store。
 - versioned blob 读取失败或 digest 不匹配必须返回稳定 `BLOB_INTEGRITY_ERROR`，不能静默回退旧 UUID 附件。旧路径只服务尚未回填的 legacy attachment；运行 `pnpm run resources:backfill` 后 dangling 必须为 0 且重复运行 checksum 一致。
 - M04 的 HostRuntimePort 只包含当前 Chat 所需 file/path/blob/credential seam。spawn/PTY/process supervision 属于 M24，Desktop 与真实跨平台 host matrix 属于 M29；不要为这些延后能力在 M04 建兼容层或 fake matrix。
@@ -40,6 +43,7 @@
 - 历史 Workspace 回填写 `workspace.baseline.backfilled`、内联 versioned semantic snapshot 与 checksum，不伪造过去的细粒度行为。固定 command id `backfill:workspace-baseline:v1` 保证脚本可中断、可重跑；新建 Workspace 的 `workspace.created` 自带初始 snapshot。
 - 确定性拒绝须在命令锁内回滚 savepoint 并提交 rejected receipt；不能先释放锁再用新事务补 receipt，否则并发同 id 重试可能先提交不同结果。生命周期命令与内容命令遵守同一 Workspace 锁顺序。
 - Backfill 必须发生在业务 tail 之前；如果已有 event 却没有 sequence-1 baseline，应以 `JOURNAL_BASELINE_ORDER_CONFLICT` 停止并从启用前备份恢复，不能移动或改写既有 sequence。
+- 默认 Workspace 启动时幂等运行 Journal baseline backfill，保证全新库首次 Bundle 导出可用；中途退出重启可续跑。已有非法 tail 仍应 fail-closed，而非在导出查询中临时伪造 baseline。
 - 无 `DATABASE_URL` 时默认使用 embedded PGlite；JSON WorkspaceStore 只作为 fixture/importer。旧 JSON 数据必须通过 `pnpm run workspace:import-json` 显式导入，再运行/确认 Journal baseline。
 - 可选的 `RHIZA_PROJECT_ID` 将空字符串和纯空格视为未配置，非空值必须是 UUID；`.env.example` 中的可选持久化配置保持注释状态，确保复制后直接使用 embedded PGlite。开发环境修改 `API_PORT` 时，Vite `/api` 代理必须读取同一配置。
 - Workspace 更新通过串行队列与临时文件替换，避免多个请求交错造成 JSON 部分写入。
@@ -66,6 +70,7 @@
 - Provider 测试注入 mock `fetch`，验证 Authorization、模型、Active Context Prompt 和响应解析，不进行真实付费调用。
 - 流式测试同时覆盖 SSE 多片段拼接、最终 Commit 事件和中途 `RUN_ERROR` 不落盘，避免只验证完整 JSON 回退路径。
 - API 集成测试使用临时目录，验证磁盘持久化并在测试结束后清理。
+- macOS 上 Node 的默认 `listen(0)` 可能只监听 IPv6，而 Supertest 对 server 对象固定请求 `127.0.0.1`；IPv4 同端口可被其他服务占用并偶发返回无关 401。E2E 测试服务须显式监听 `127.0.0.1` 并在 teardown 关闭。
 - 安全测试必须证明 Provider JSON 和 HTTP 响应都不含测试用明文 Key。
 - 支线集成测试要覆盖创建、坐标持久化、合并状态、活动节点回切和语义边写入。
 - Graph 回归测试要覆盖画布缩放、节点/关系创建与删除，以及删除节点后的边和消息级联清理。
@@ -120,7 +125,29 @@
 - Retry/Regenerate 使用新 Run + parentRunRef。相同 command id 只用于幂等重放，不能用它发起新的外部调用。
 - 临时 Chat 不写正式消息/节点，但保留执行输入与终态。不得为了沿用“临时不落盘”概念绕过执行审计。
 - PostgreSQL 启动恢复必须在取得 runtime ownership 且尚未接受请求时运行，不能在在线查询中扫全库并中断其他活跃请求。
-- 有 Run 关联或输入引用的节点不能仅删除原节点后宣称物理清除；Purge 以 `PURGE_HAS_EXECUTION_HISTORY` 拒绝，使用 Archive 保留可解释历史。
+- Run trace 只能保存已知事件类型与 `sequence/type/at`，存储适配器须重新投影输入而非直接 JSON 序列化调用方对象；`m09:traces:audit` 扫描全库历史行，缺表或异常字段必须阻断 Gate，不能视为零异常。旧行的额外字段可在停服独占窗口用 `m09:traces:sanitize` 分批移除；核心字段无效时不得猜补，需人工核实。
+- Run `record.error` 的自由文本和任意 Provider code 也是 SQL 正文副本；新写入须归一到稳定 code/class 与固定描述。`m09:plaintext:audit` 要计数旧自由文本/额外字段，停服独占后用 `m09:run-errors:sanitize` 逐批替换，保留有效错误类别但不保留原始 Provider 详情；迁移失败不得让触发器保护永久关闭。
+- Purge 目标 Node（含 `temp:<nodeId>`）的终态 Run，须先证明输入已密封、trace 仅含允许的元数据、无跨节点 Run/谱系引用；事务内登记输入密钥并把 Run 行的输入与错误详情改成最小脱敏事实。Run 读取须在待撤销阶段失败关闭，Bundle 省略已清除 Run；旧明文、活跃 Run 或跨节点引用仍拒绝。跨节点 Run 可能通过 `sourceMessageId`、Manifest、history、Context `sourceId`、`parentRunRef` 或 Replay source 引用待删内容，不能只比对 Run 节点 ID。
+- `run-input` 密钥从持久 Purge checkpoint 按 Workspace/Run 身份幂等撤销。缺失 Run 内容适配器时 checkpoint 必须维持 pending；迁移工具和明文审计须跳过已清除的 Run，不能把墓碑误判为待迁移明文。
+- ResourceVersion Blob 密钥对账必须读取全部 Workspace 的版本引用，并校验 `sealed-v1` 的 Workspace/版本身份、digest 与 size；只读审计不授权回收。停服回收须同时独占数据库和上传目录，先对历史正文与资源密钥全量预检，再分别在锁内重读引用并撤销孤儿密钥；缺失的已引用密钥应阻断，不能误清理其他 Workspace 的同摘要内容。
+- ResourceVersion 的密钥元数据健康不等于密文文件可读；M09 离线密钥审计还须流式认证全部仍可用版本并核对解密后的摘要和大小。旧明文引用与丢失/损坏的密文都应使该审计失败，不能把孤儿密钥回收当作内容完整性验证。
+- Purge 的 SQL 删除、redacted provenance、审计事实与待撤销 scoped key 清单必须同事务提交；提交后 key destroy 可中断且不可回滚，因此逐项 acknowledgement 与 checkpoint 必须允许重复撤销。启动取得 runtime ownership 后先分批排空 pending checkpoint，再读 Workspace、回填 Journal 或开放 HTTP；某一批无法推进则拒绝启动，不能只记录警告。执行历史保护只能在 Run、Journal、receipt/trace 等每一份正文副本均进入该流程后移除。
+- Purge 的自由文本确认说明可能包含待清除秘密；Application 只将固定 `provided-redacted` 标记写入 AuditEvent，共享 Workspace 历史校验还限制审计 metadata 的字段与计数，拒绝其他写入者夹带正文。旧审计行的自由文本仍须单独迁移/审查，不能据新写入行为宣称历史副本已清除。
+- Journal Purge 不更新 append-only 事件行；在同一事务发布脱敏 baseline/tail 覆盖层并登记原有效载荷密钥，所有历史读取与密钥对账只认覆盖层。无已加密且可重放的 baseline 时拒绝 Purge；仅删除 Current State 会让旧 Journal snapshot 泄露正文。
+- Purge 的幂等回执读取也属于历史正文边界：同事务标记旧密文回执不可读并登记 result/error 密钥，重试旧 command id 必须返回 `RECEIPT_PURGED` 而非重放旧结果；旧明文回执先迁移，否则拒绝 Purge。
+- 任意阶段的导入 checkpoint 都可能有加密恢复 ZIP 持有现有 Workspace 的旧正文。先写身份 checkpoint，再在 Workspace/内容生命周期锁下保留 ZIP；Purge 必须在同事务登记所有关联摘要，提交后逐项幂等撤销密钥。Purge 后的新导入或旧 checkpoint 重试要在保留前拒绝；已 Purge 的摘要不能再作为恢复窗口 pin。旧明文 ZIP 必须先迁移并清除，否则 Purge 提交前失败。描述符发布失败须撤销未发布密钥，进程死于发布前的孤儿 key 在启动 reclaim 时撤销；不能凭 phase 或 `updated_at` 推断已擦除。
+- 同一恢复 ZIP 摘要可被不同 Workspace 的 checkpoint 引用。导入 begin/retain 与 Purge 收集引用须按 Workspace→摘要顺序取事务级锁；否则另一 Workspace 未提交的 checkpoint 对 Purge 查询不可见，Purge 会误撤销共享归档密钥。待撤销 checkpoint 阻断同摘要新导入；撤销完成后先清理旧密钥的描述符，再允许相同 ZIP 重新导入并获得新密钥。
+- M09 不能仅凭密钥引用健康宣称历史迁移完成；Gate 还须对全库历史正文列、嵌套 Context/FileChunk 与 ResourceVersion Blob 引用做同一时点的明文计数审计，并分别核对旧文件和备份保留边界。
+- 旧 Purge 自由文本说明可能嵌在后续命令的密封回执内，即使 `rhiza_audit_events` 已无明文。`m09:plaintext:audit` 停服独占后解密扫描所有仍可读的已提交回执，只输出异常回执数；密钥缺失/读取失败必须阻断，而不能当作零泄漏。SQL 计数与回执扫描不是同一事务，其他直接写入者须停用。
+- Provenance 回填成功数不等于全库覆盖率；`m09:provenance:audit` 要扫描所有仍存在的 Assistant 输出，并区分缺失、broken-reference 与无效/悬空记录，不能把 pre-run 当成缺失。recorded 关系的直接回复输入、Manifest、Run、model、endpoint 和 runtime snapshot 必须与持久事实对账；所有非 purged 输入引用还须在同一 Workspace 可解析，revision/branch 来源要匹配持久 Message/Node。只检查直接回复会漏报额外的悬空输入；深度审计须解密并验证冻结 Run 输入哈希，核对完整有序输入引用集合，再从对应上传目录读取所有 recorded Manifest 的冻结 Blob。各阶段不是同一 SQL 事务，Gate 应停服并取得独占 runtime ownership，禁用其他数据库/Blob 写入者，且不输出正文。
+- `m09:files:audit` 只能在停服且 `RHIZA_UPLOAD_DIR` 指向被测数据库的实际上传目录时运行；它通过历史逻辑 digest/key/checkpoint 检查已知原明文路径，零结果不代表任意孤儿文件、WAL 或备份已过期，更不授权删除。
+- Purge 的 SQL checkpoint 不能因旧 Node/Message/Manifest/Segment/Anchor/Edge 行将在同一事务删除，就跳过其密文引用检查：先按被删 ID 对账行数与 `content_ref`，缺适配器或旧明文时拒绝提交。现有分批密封迁移后才重试；否则旧 WAL/备份仍持有正文，且没有可撤销密钥。
+- 旧原始 ResourceVersion Blob/附件文件不能与 SQL 引用更新同事务删除：先分批密封并读回，再在停服独占窗口运行 `m09:files:reclaim`，逐批验证仍可用版本的 scoped 密文及原文件摘要/身份后精确 unlink；数据库已标记 `purged-v1` 且带 `purgedAt` 的版本无可读替代密文，但旧附件（包括 `sha256/...` storage key）不能以该墓碑充当替代。旧文件的每层父目录都必须是真实目录，不能透过 symlink 越出上传根目录。重复运行安全。该命令不处理归档、无引用孤儿、WAL、备份或外部 Bundle，也不代替备份保留策略。
+- 旧消息的 `attachmentIds`、待删 Manifest 的附件或冻结资源引用、节点关联的 file/chunk ContextItem 都可能在没有 Run 时指向仍可读的 ResourceVersion；ContextItem 即使标成 `reference` 也可能通过 `sourceId` 指向附件或文件块。独占已密封消息附件可在 Purge 事务中将所有版本转成墓碑、移除附件/派生块，并登记 Resource/Attachment/FileChunk/Blob 密钥；直接指向这些附件/块且无保留引用的 ContextItem 同时删除并撤销密钥。任何被删除的 ContextItem/Manifest 必须在旧项目状态/Manifest 行中有可撤销的密文引用，不能把旧明文字段随 SQL 删除视为 crypto-shred。Manifest 的附件与冻结资源引用只有全部落在已确定的独占资源集合时才可撤销；其他节点/Manifest 的保留引用、无法归属的来源或跨节点 Run 必须先拒绝。Manifest v1 还须同时覆盖其终态 Run 输入和 trace，不能因一个资源族可擦除就解除整体保护。
+- Purged ResourceVersion 的可移植表示是保留原 ID/digest/size、置 `blobRef` 为 `purged-v1` 并带 `purgedAt`，Bundle 中不含其 Blob 条目；导入不能为它创建新密钥。来源数据库的不可变版本行保持原引用，通过已提交的 `resource-version` Purge key 清单在读取时覆盖为墓碑；目标空库可直接插入墓碑行。只有完整资源副本撤销接通后才能解除现有资源 Purge 拒绝保护。
+- 启动时 Resource Blob 适配器必须先于 Purge checkpoint 恢复构造，并由 Store 与 Host 共用同一上传目录/密钥根；恢复器按 checkpoint 的 Workspace/ResourceVersion 身份校验引用，缺少适配器保持 pending 并阻断启动。重复撤销允许；此能力不授权业务请求直接绕过 `PURGE_HAS_RESOURCE_HISTORY`。
+- Graph rebuild 会保留旧 projection namespace，其 Node title/Message summary/关系 label 是独立正文副本。Purge 必须在删除 Current State 的同一事务中脱敏所有历史 namespace 与 Context candidate index，不能只等待下次 Graph 查询重建 active alias。
+- 旧 ContextItem 可能仅以 `sourceId` 指向被 Purge 的 Message/Segment/Anchor 而没有 `sourceNodeId`；不能只按来源类型或节点字段清理。Application 移除这些项后，持久化 Purge checkpoint 才能登记其内容密钥撤销。
 
 - Graph layout command 的 `nodeId` 只用于定位节点，写回领域节点时只合入 `x/y`；否则 JSON 中多出的命令字段会与 SQL 重读结果不同，触发事务语义校验回滚。
 
@@ -128,4 +155,4 @@
 
 - Candidate rows and their revision commit with source facts. Graph-edge changes also invalidate planning even when source text is unchanged. Rebuild derived rows with `pnpm run context:rebuild`; a missing or unsupported index must not reuse stale selection text.
 - Plan caches use existing source versions/digests; new per-execution frozen ResourceVersions are created after planning. Historical lookup follows those frozen references and never reruns Planner.
-- Manifest v1 rejects deletion even under the legacy purge flag. Preserve its referenced ResourceVersions and blobs when implementing retention or cleanup.
+- Manifest v1 rejects deletion under the legacy purge flag alone; only an authorized pending checkpoint with sealed Run/Manifest content permits it. Preserve unrelated ResourceVersions and blobs during cleanup.

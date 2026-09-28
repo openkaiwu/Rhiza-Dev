@@ -6,6 +6,7 @@ import { ApplicationError, applicationError } from '../contracts/application-err
 import type { Application, CommandEnvelope, CommandExecutionOptions, CommandMap, CommandResult, CommandType, QueryEnvelope, QueryMap, QueryResult, QueryType } from '../contracts/application';
 import type { AuditEvent, ChatOperation, ContextManifest, ContextMode, ContextStatus, GenerationOptions, Resource, ResourceMaterialization, ResourceVersion, StoredAttachment, StoredMessage, WorkspaceData } from '../domain';
 import { deriveVersionIdentity } from '../domain/message-version';
+import { canonicalJson } from '../domain/canonical-json';
 import type { ContextPlannerPort } from '../context-runtime/port';
 import type { LegacyTextExtractionPort } from './ports/legacy-upload';
 import type { ProviderManagementPort } from './ports/provider-management';
@@ -14,11 +15,16 @@ import type { WorkspaceUnitOfWork } from './ports/workspace-unit-of-work';
 import type { HostRuntimePort } from './ports/host-runtime';
 import { WorkspaceDirectory } from '../identity/workspace-directory';
 import { DEFAULT_WORKSPACE_ID, LOCAL_USER_ID } from '../identity/workspace-scope';
+import { completeBundleImport } from './prepare-bundle-import';
 
 const nodeStatuses = new Set(['draft', 'active', 'resolved', 'stale', 'archived']);
 const textMimeTypes = new Set(['text/plain', 'text/markdown', 'text/csv', 'application/json', 'application/xml', 'text/xml', 'application/javascript', 'text/javascript']);
 
 export interface RhizaApplicationDependencies {
+  bundleImport?: import('./ports/bundle-import').BundleImportArchivePort;
+  bundleImportCheckpoints?: import('./ports/bundle-import').BundleImportCheckpointPort;
+  hashPortableFacts?: (facts: import('./ports/portable-workspace').PortableWorkspaceFacts) => string;
+  portableBundle?: import('./ports/portable-workspace').PortableBundlePort;
   unitOfWork: WorkspaceUnitOfWork;
   hashRunInput?: (input: ContextEnvelope) => string;
   runtime: RuntimePort;
@@ -38,7 +44,7 @@ export interface RhizaApplicationDependencies {
 }
 
 type Completion = { text: string; model: string; provider: string; reasoning?: string; toolCalls?: StoredMessage['toolCalls']; usage?: StoredMessage['usage'] };
-type PreparedRun = { frozen: FrozenContextItem[]; sourceRunId?: string; manifest: ContextManifest; request: RuntimeRequest; createdAt: string; userMessageId: string; versionGroupId: string; version: number };
+type PreparedRun = { replay?: ContextEnvelope['replay']; frozen: FrozenContextItem[]; sourceRunId?: string; manifest: ContextManifest; request: RuntimeRequest; createdAt: string; userMessageId: string; versionGroupId: string; version: number };
 type AnyCommandEnvelope = { [K in CommandType]: Omit<CommandEnvelope<K>, 'commandType' | 'payload'> & { commandType: K; payload: CommandMap[K]['payload'] } }[CommandType];
 type AnyQueryEnvelope = { [K in QueryType]: Omit<QueryEnvelope<K>, 'queryType' | 'payload'> & { queryType: K; payload: QueryMap[K]['payload'] } }[QueryType];
 type DispatchPayload = {
@@ -98,6 +104,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
   const inputFor = (request: RuntimeRequest): ContextEnvelope => ({ schemaVersion: '1.0.0', request, executor: { runtime: runtime.kind ?? 'provider-adapter', modelSpecRef: request.modelId, providerEndpointRef: request.modelSnapshot?.providerEndpointRef ?? request.modelId, model: request.modelSnapshot?.model ?? request.modelId, provider: request.modelSnapshot?.provider ?? runtime.kind ?? 'unknown' } });
   const fallbackWorkspaces = new Map<string, import('../contracts/application').WorkspaceRecord>([['00000000-0000-4000-8000-000000000001', { workspaceId: '00000000-0000-4000-8000-000000000001', name: 'Rhiza 产品研究', status: 'active', createdBy: '00000000-0000-4000-8000-000000000002', revision: 1 }]]);
   const workspaceDirectory = dependencies.workspaceDirectory ?? new WorkspaceDirectory({
+    isOwner: async (userId, workspaceId) => fallbackWorkspaces.get(workspaceId)?.createdBy === userId,
     listWorkspaces: async (userId, includeArchived = false) => [...fallbackWorkspaces.values()].filter(item => item.createdBy === userId && (includeArchived || item.status === 'active')),
     createWorkspace: async record => {
       const existing = fallbackWorkspaces.get(record.workspaceId);
@@ -191,26 +198,27 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
     const operation = run.request.operation || 'send';
     const userMessage: StoredMessage = { id: run.userMessageId, nodeId: run.request.nodeId, kind: 'user', text: run.request.prompt, createdAt: run.createdAt, attachmentIds: run.manifest.attachmentIds, operation, sourceMessageId: run.request.sourceMessageId, versionGroupId: run.versionGroupId, version: run.version };
     const assistantMessage: StoredMessage = { id: id(), nodeId: run.request.nodeId, kind: 'assistant', text: completion.text, createdAt: run.createdAt, manifestId: run.manifest.id, operation, sourceMessageId: operation === 'regenerate' ? run.request.sourceMessageId : undefined, versionGroupId: run.versionGroupId, version: run.version, replyToMessageId: userMessage.id, usage: completion.usage, reasoning: completion.reasoning, toolCalls: completion.toolCalls };
+    const value = { userMessage, assistantMessage, manifest: run.manifest, ...(run.replay ? { replay: run.replay } : {}) };
     const committed = await mutate(current => {
-      if (current.manifests.some(manifest => manifest.requestId === run.request.requestId)) return { next: current, value: { userMessage, assistantMessage, manifest: run.manifest } };
+      if (current.manifests.some(manifest => manifest.requestId === run.request.requestId)) return { next: current, value };
       const target = current.discussionNodes.find(node => node.id === run.request.nodeId);
       if (!target) throw legacyError('生成期间讨论节点已被删除，结果未写入。', 409, 'NODE_REMOVED_DURING_RUN');
       if (target.status === 'archived') throw legacyError('生成期间讨论节点已归档，结果未写入。', 409, 'NODE_ARCHIVED_DURING_RUN');
-      return { next: { ...current, resources: [...current.resources, ...run.frozen.map(item => item.resource).filter(resource => !current.resources.some(item => item.id === resource.id))], resourceVersions: [...current.resourceVersions, ...run.frozen.map(item => item.resourceVersion).filter(version => !current.resourceVersions.some(item => item.id === version.id))], messages: [...current.messages, userMessage, assistantMessage], manifests: [...current.manifests, run.manifest] }, value: { userMessage, assistantMessage, manifest: run.manifest } };
+      return { next: { ...current, resources: [...current.resources, ...run.frozen.map(item => item.resource).filter(resource => !current.resources.some(item => item.id === resource.id))], resourceVersions: [...current.resourceVersions, ...run.frozen.map(item => item.resourceVersion).filter(version => !current.resourceVersions.some(item => item.id === version.id))], messages: [...current.messages, userMessage, assistantMessage], manifests: [...current.manifests, run.manifest] }, value };
     }, undefined, mutation);
     return committed.value;
   };
 
-  const registerResourceVersion = async (payload: Pick<DispatchPayload, 'name' | 'mimeType' | 'bytes' | 'attachmentId'>, existingAttachmentId?: string) => {
+  const registerResourceVersion = async (payload: Pick<DispatchPayload, 'name' | 'mimeType' | 'bytes' | 'attachmentId'>, workspaceId: string, existingAttachmentId?: string) => {
     const snapshot = await providers.snapshot();
     if (!payload.name || !payload.bytes.length) throw legacyError('附件名称或内容无效。', 400, 'INVALID_ATTACHMENT');
     if (payload.bytes.length > snapshot.filePolicy.maxFileSizeBytes) throw legacyError(`附件大小必须在 1 字节到 ${snapshot.filePolicy.maxFileSizeBytes} 字节之间。`, 413, 'ATTACHMENT_TOO_LARGE');
     if (snapshot.filePolicy.supportedMimeTypes.length && !snapshot.filePolicy.supportedMimeTypes.includes(payload.mimeType)) throw legacyError(`当前模型不支持 ${payload.mimeType}。`, 415, 'UNSUPPORTED_ATTACHMENT');
-    const stored = await host.blobs.put(payload.bytes);
-    const indexable = textMimeTypes.has(payload.mimeType) || payload.mimeType.startsWith('text/') || payload.mimeType === 'application/pdf';
-    const extracted = indexable ? await textExtraction.extractText(payload.mimeType, payload.bytes) : '';
     const attachmentId = existingAttachmentId || id();
     const resourceVersionId = id();
+    const stored = await host.blobs.put(payload.bytes, { workspaceId, contentId: resourceVersionId });
+    const indexable = textMimeTypes.has(payload.mimeType) || payload.mimeType.startsWith('text/') || payload.mimeType === 'application/pdf';
+    const extracted = indexable ? await textExtraction.extractText(payload.mimeType, payload.bytes) : '';
     const processed = planner.processAttachment(attachmentId, payload.name, payload.mimeType, extracted);
     const createdAt = now();
     const committed = await mutate(current => {
@@ -268,6 +276,32 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
         expectedRevision: envelope.expectedRevision,
         occurredAt: now(),
       };
+      if (envelope.commandType === 'PreviewWorkspaceBundle') {
+        if (!dependencies.bundleImport) throw legacyError('Bundle 导入不可用。', 503, 'BUNDLE_IMPORT_UNAVAILABLE');
+        if (envelope.actor?.actorType !== 'human') throw legacyError('导入需要用户身份。', 403, 'BUNDLE_IMPORT_FORBIDDEN');
+        const staged = await dependencies.bundleImport.receive(envelope.payload.bytes);
+        try {
+          if (!staged.facts.members.some(member => member.userId === envelope.actor.actorId && member.role === 'owner')) throw legacyError('当前用户不是归档中的 Workspace owner。', 403, 'BUNDLE_IMPORT_FORBIDDEN');
+          const { facts } = staged;
+          return { workspaceId: facts.workspace.projectId, name: facts.directory.name, archiveDigest: staged.archiveDigest,
+            messages: facts.workspace.messages.length, runs: facts.runs.length, resourceVersions: facts.workspace.resourceVersions.length };
+        } finally { await staged.dispose(); }
+      }
+      if (envelope.commandType === 'ImportWorkspaceBundle') {
+        if (!dependencies.bundleImport || !dependencies.bundleImportCheckpoints || !dependencies.hashPortableFacts) throw legacyError('Bundle 导入不可用。', 503, 'BUNDLE_IMPORT_UNAVAILABLE');
+        if (envelope.actor.actorType !== 'human') throw legacyError('导入需要用户身份。', 403, 'BUNDLE_IMPORT_FORBIDDEN');
+        const staged = await dependencies.bundleImport.receive(envelope.payload.bytes);
+        try {
+          if (!staged.facts.members.some(member => member.userId === envelope.actor.actorId && member.role === 'owner')) throw legacyError('当前用户不是归档中的 Workspace owner。', 403, 'BUNDLE_IMPORT_FORBIDDEN');
+          const identity = { importId: envelope.commandId, ownerId: envelope.actor.actorId, workspaceId: staged.facts.workspace.projectId,
+            archiveDigest: staged.archiveDigest, stateDigest: dependencies.hashPortableFacts(staged.facts) };
+          await dependencies.bundleImportCheckpoints.begin(identity);
+          if (dependencies.bundleImportCheckpoints.retainArchive) await dependencies.bundleImportCheckpoints.retainArchive(identity, () => staged.retain());
+          else await staged.retain();
+          await completeBundleImport(identity, staged.facts, dependencies.bundleImportCheckpoints, staged.ingest, unitOfWork);
+          return { workspaceId: identity.workspaceId, importId: identity.importId };
+        } finally { await staged.dispose(); }
+      }
       if (envelope.commandType === 'CreateWorkspace') {
         const name = String((envelope.payload as { name?: string }).name || '').trim();
         if (!name || name.length > 200) throw legacyError('工作区名称不能为空且不能超过 200 字符。', 400, 'INVALID_WORKSPACE_NAME');
@@ -283,6 +317,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
       }
       await ensureDefaultWorkspace(envelope.actor, envelope.workspaceId, envelope.scope);
       const record = await workspaceDirectory.require(envelope.actor, envelope.workspaceId, envelope.scope);
+      if (envelope.commandType === 'PurgeObject') await workspaceDirectory.requireOwner(envelope.actor, envelope.workspaceId, envelope.scope);
       const prior = unitOfWork.withWorkspace && unitOfWork.withCommand && unitOfWork.readCommittedResult
         ? await unitOfWork.withWorkspace(envelope.workspaceId, () => unitOfWork.withCommand!(factContext, () => unitOfWork.readCommittedResult!()))
         : undefined;
@@ -320,17 +355,59 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
         case 'UpdateModelPreference': return providers.updateModel(payload.modelId, { favorite: payload.favorite, pinned: payload.pinned });
         case 'SelectModel': return providers.selectModel(payload.modelId);
         case 'RegisterLegacyAttachment':
-        case 'RegisterResource': return await registerResourceVersion(payload);
+        case 'RegisterResource': return await registerResourceVersion(payload, envelope.workspaceId);
         case 'CreateResourceVersion': {
           const current = await unitOfWork.read(workspace => workspace);
           const existing = current.attachments.find(item => item.id === payload.attachmentId);
           if (!existing) throw legacyError('Resource 不存在。', 404, 'RESOURCE_NOT_FOUND');
-          return await registerResourceVersion({ ...payload, name: existing.name, mimeType: existing.mimeType }, existing.id);
+          return await registerResourceVersion({ ...payload, name: existing.name, mimeType: existing.mimeType }, envelope.workspaceId, existing.id);
         }
         case 'RebuildGraphProjection': {
           const projection = await unitOfWork.rebuildGraphProjection?.();
           if (!projection) throw legacyError('Graph Projection 不可用。', 503, 'GRAPH_PROJECTION_UNAVAILABLE');
           return { version: projection.version, checkpoint: projection.checkpoint, checksum: projection.checksum };
+        }
+        case 'ReplayExecutionRun': {
+          const previous = await unitOfWork.readCommittedResult?.<CommandMap['ReplayExecutionRun']['result']>();
+          if (previous?.found) return previous.value;
+          const { runId, policy } = envelope.payload;
+          if (!['exact', 'partial', 'current-model'].includes(policy)) throw legacyError('Replay 策略无效。', 400, 'INVALID_REPLAY_POLICY');
+          const original = await unitOfWork.getRun?.(runId).catch(error => {
+            if ((error as { code?: string }).code === 'RUN_PURGED') throw legacyError('历史执行内容已清除。', 409, 'REPLAY_MISSING_RESOURCE');
+            throw error;
+          });
+          if (!original) throw legacyError('执行记录不存在。', 404, 'RUN_NOT_FOUND');
+          const facts = await unitOfWork.readContextHistory?.({ manifestId: original.input.request.manifestId });
+          if (!facts || facts.manifest.schemaVersion !== '1.0.0') throw legacyError('历史上下文不可解析。', 409, 'REPLAY_MISSING_RESOURCE');
+          const history = await resolveContextHistory(facts, host.blobs);
+          if (history.sources.some(source => source.status !== 'resolved')) throw legacyError('历史资源缺失或完整性校验失败。', 409, 'REPLAY_MISSING_RESOURCE');
+          const current = await unitOfWork.read(workspace => workspace);
+          for (const attachment of original.input.request.attachments ?? []) {
+            if (!attachment.blobRef || !attachment.digest || !attachment.resourceVersionId) throw legacyError('历史附件没有版本证据。', 409, 'REPLAY_MISSING_RESOURCE');
+            const version = current.resourceVersions.find(version => version.id === attachment.resourceVersionId && version.resourceId === attachment.resourceId);
+            if (!version || version.digest !== attachment.digest || version.blobRef !== attachment.blobRef) throw legacyError('历史附件版本缺失。', 409, 'REPLAY_MISSING_RESOURCE');
+            try { await host.blobs.read(attachment.blobRef, attachment.digest); }
+            catch { throw legacyError('历史附件缺失或完整性校验失败。', 409, 'REPLAY_MISSING_RESOURCE'); }
+          }
+          const models = await runtime.listModels();
+          const model = policy === 'current-model' ? models.find(model => model.active) : models.find(model => model.id === original.input.executor.modelSpecRef);
+          if (!model) throw legacyError('历史模型不可用，请显式选择当前模型 Replay。', 409, 'REPLAY_MODEL_UNAVAILABLE');
+          const snapshot = original.input.request.modelSnapshot;
+          const exact = !original.originInputHash && model.model === original.input.executor.model && model.provider === original.input.executor.provider
+            && (model.providerEndpointRef ?? model.id) === original.input.executor.providerEndpointRef
+            && (runtime.kind ?? 'provider-adapter') === original.input.executor.runtime
+            && model.endpointVersion === snapshot?.endpointVersion
+            && canonicalJson(model.endpoint ?? null) === canonicalJson(snapshot?.endpoint ?? null);
+          if (policy === 'exact' && !exact) throw legacyError('执行配置已变化，请显式选择 Partial 或 Current-model Replay。', 409, 'REPLAY_CONTRACT_CHANGED');
+          const node = current.discussionNodes.find(node => node.id === original.nodeId);
+          if (!node || node.status === 'archived') throw legacyError('讨论已归档或不存在。', 409, 'NODE_ARCHIVED');
+          const createdAt = now(); const requestId = id(); const manifestId = id();
+          const request: RuntimeRequest = { ...structuredClone(original.input.request), requestId, manifestId, modelId: model.id, modelSnapshot: model };
+          const prepared: PreparedRun = { frozen: [], request, createdAt, userMessageId: id(), versionGroupId: id(), version: 1,
+            manifest: { ...structuredClone(facts.manifest), id: manifestId, requestId, createdAt, model: model.model, provider: model.provider, runtime: runtime.kind ?? 'provider-adapter' } };
+          const replay = { classification: policy, sourceRunRef: original.id, sourceManifestRef: facts.manifest.id };
+          prepared.replay = replay;
+          return runs.execute(envelope, request, { ...inputFor(request), replay }, (completion, mutation) => commitRun(prepared, completion, mutation), options, original.id);
         }
         case 'CreateConversationRun': {
           const previous = await unitOfWork.readCommittedResult?.<CommandMap['CreateConversationRun']['result']>();
@@ -390,6 +467,26 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
   const dispatchQueryScoped = async (envelope: AnyQueryEnvelope): Promise<unknown> => {
     try {
       switch (envelope.queryType) {
+        case 'ExportWorkspaceBundle': {
+          if (!dependencies.portableBundle || !unitOfWork.readPortableWorkspace) throw legacyError('Bundle 导出不可用。', 503, 'BUNDLE_UNAVAILABLE');
+          return dependencies.portableBundle.export(await unitOfWork.readPortableWorkspace());
+        }
+        case 'GetProvenance': {
+          const link = await unitOfWork.readProvenance?.(envelope.payload.outputId);
+          if (!link) throw legacyError('来源记录不存在。', 404, 'PROVENANCE_NOT_FOUND');
+          if (link.status === 'purged') return link;
+          const missingRefs = [...link.missingRefs];
+          if (link.runRef && !await unitOfWork.getRun?.(link.runRef)) missingRefs.push(`run:${link.runRef}`);
+          if (link.contextManifestRef) {
+            const facts = await unitOfWork.readContextHistory?.({ manifestId: link.contextManifestRef });
+            if (!facts) missingRefs.push(`manifest:${link.contextManifestRef}`);
+            else {
+              const history = await resolveContextHistory(facts, host.blobs);
+              for (const source of history.sources) if (source.status !== 'resolved' && source.status !== 'legacy_unversioned') missingRefs.push(`${source.status}:${source.sourceId}`);
+            }
+          }
+          return { ...link, missingRefs: [...new Set(missingRefs)], status: missingRefs.length ? 'broken-reference' : link.status };
+        }
         case 'GetContextHistory': {
           const facts = await unitOfWork.readContextHistory?.(envelope.payload as QueryMap['GetContextHistory']['payload']);
           if (!facts) throw legacyError('上下文记录不存在。', 404, 'CONTEXT_MANIFEST_NOT_FOUND');
@@ -474,7 +571,7 @@ async function temporaryConversation(payload: Extract<CommandEnvelope<'ExecuteTe
 }
 
 function currentPurge(nodeId: string, confirmation: string, reason: string, receiptId: string, now: () => string) {
-  if (confirmation !== `PURGE ${nodeId}`) throw legacyError(`请输入 PURGE ${nodeId} 以确认物理删除。`, 400, 'PURGE_CONFIRMATION_REQUIRED'); if (!reason || reason.length > 500) throw legacyError('Purge 必须提供不超过 500 字符的审计原因。', 400, 'PURGE_REASON_REQUIRED');
+  if (confirmation !== `PURGE ${nodeId}`) throw legacyError(`请输入 PURGE ${nodeId} 以确认物理删除。`, 400, 'PURGE_CONFIRMATION_REQUIRED'); if (!reason.trim() || reason.length > 500) throw legacyError('Purge 必须提供不超过 500 字符的确认说明；原文不会保存。', 400, 'PURGE_REASON_REQUIRED');
   return (current: WorkspaceData) => {
     const node = current.discussionNodes.find(item => item.id === nodeId);
     if (!node) throw legacyError('讨论节点不存在。', 404, 'NODE_NOT_FOUND');
@@ -484,14 +581,25 @@ function currentPurge(nodeId: string, confirmation: string, reason: string, rece
     const segmentIds = new Set(current.segments.filter(segment => segment.nodeId === node.id).map(segment => segment.id));
     const manifestIds = new Set(current.manifests.filter(manifest => manifest.nodeId === node.id).map(manifest => manifest.id));
     const anchorIds = new Set(current.anchors.filter(anchor => anchor.nodeId === node.id || (anchor.messageId && messageIds.has(anchor.messageId)) || (anchor.segmentId && segmentIds.has(anchor.segmentId))).map(anchor => anchor.id));
+    const removedSourceIds = new Set([node.id, ...messageIds, ...segmentIds, ...anchorIds]);
+    const attachedIds = new Set(current.messages.filter(message => messageIds.has(message.id)).flatMap(message => message.attachmentIds ?? []));
+    const resourceIds = new Set(current.attachments.filter(attachment => attachedIds.has(attachment.id)).flatMap(attachment => attachment.resourceId ? [attachment.resourceId] : []));
+    const removedAttachmentIds = new Set(current.attachments.filter(attachment => attachment.resourceId && resourceIds.has(attachment.resourceId)).map(attachment => attachment.id));
+    const removedChunkIds = new Set(current.fileChunks.filter(chunk => removedAttachmentIds.has(chunk.attachmentId)).map(chunk => chunk.id));
     const fallback = current.discussionNodes.find(item => item.id !== node.id && item.status !== 'archived');
     if (!fallback) throw legacyError('至少需要保留一个未归档节点。', 409, 'CANNOT_PURGE_LAST_NODE');
-    const receipt: AuditEvent = { id: receiptId, projectId: current.projectId, nodeId, action: 'node.purged', entityType: 'node', entityId: nodeId, metadata: { reason, confirmation: 'explicit-id-phrase', removed: { nodes: 1, messages: messageIds.size, segments: segmentIds.size, manifests: manifestIds.size, anchors: anchorIds.size } }, createdAt: now() };
+    const purgedAt = now();
+    const receipt: AuditEvent = { id: receiptId, projectId: current.projectId, nodeId, action: 'node.purged', entityType: 'node', entityId: nodeId, metadata: { reason: 'provided-redacted', confirmation: 'explicit-id-phrase', removed: { nodes: 1, messages: messageIds.size, segments: segmentIds.size, manifests: manifestIds.size, anchors: anchorIds.size } }, createdAt: purgedAt };
     const workspace = {
       ...current, activeNodeId: current.activeNodeId === node.id ? fallback.id : current.activeNodeId, nodeId: current.nodeId === node.id ? fallback.id : current.nodeId,
       discussionNodes: current.discussionNodes.filter(item => item.id !== node.id),
-      contextItems: current.contextItems.filter(item => item.sourceNodeId !== node.id && !(item.sourceType === 'node' && item.sourceId === node.id) && !(item.sourceType === 'segment' && item.sourceId && segmentIds.has(item.sourceId))),
+      contextItems: current.contextItems.filter(item => item.sourceNodeId !== node.id && (!item.sourceId || !removedSourceIds.has(item.sourceId))
+        && (!item.sourceId || !(removedAttachmentIds.has(item.sourceId) || removedChunkIds.has(item.sourceId)) || !!item.sourceNodeId)),
       messages: current.messages.filter(message => message.nodeId !== node.id).map(message => ({ ...message, sourceMessageId: message.sourceMessageId && messageIds.has(message.sourceMessageId) ? undefined : message.sourceMessageId, replyToMessageId: message.replyToMessageId && messageIds.has(message.replyToMessageId) ? undefined : message.replyToMessageId })),
+      resources: current.resources.map(resource => resourceIds.has(resource.id) ? { ...resource, logicalName: '[purged]' } : resource),
+      resourceVersions: current.resourceVersions.map(version => resourceIds.has(version.resourceId) && !version.purgedAt ? { ...version, blobRef: 'purged-v1', purgedAt } : version),
+      attachments: current.attachments.filter(attachment => !removedAttachmentIds.has(attachment.id)),
+      fileChunks: current.fileChunks.filter(chunk => !removedAttachmentIds.has(chunk.attachmentId)),
       segments: current.segments.filter(segment => segment.nodeId !== node.id), manifests: current.manifests.filter(manifest => !manifestIds.has(manifest.id)), anchors: current.anchors.filter(anchor => !anchorIds.has(anchor.id)),
       discussionEdges: current.discussionEdges.filter(edge => edge.source !== node.id && edge.target !== node.id && (!edge.anchorId || !anchorIds.has(edge.anchorId))), auditEvents: [...current.auditEvents, receipt],
     };
