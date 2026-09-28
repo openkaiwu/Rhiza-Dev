@@ -249,6 +249,7 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     const reader = new PostgresWorkspaceStore(database, undefined, undefined, content);
     const encryptedApp = await serve(createApp(reader, provider, false, runtime, undefined, uploadDirectory));
     await request(encryptedApp).post('/api/chat').send({ message: 'encrypted new input' }).expect(201);
+    expect(await reader.auditProvenanceInputHistory()).toMatchObject({ mismatched: 0 });
     const stored = (await database.query<{ input_envelope: unknown; record: { input: unknown }; input_content_ref: unknown }>('SELECT input_envelope,record,input_content_ref FROM execution_runs WHERE run_id<>$1 AND run_id<>$2', [source.id, run.id])).rows[0];
     expect(stored.input_envelope).toEqual({ sealed: true });
     expect(stored.record.input).toEqual({ sealed: true });
@@ -961,6 +962,13 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
       await database.query('UPDATE provenance_links SET record=$2::jsonb WHERE output_ref=$1',
         [outputId, JSON.stringify(original)]);
     }
+    const extraInput = (await store.read()).messages.find(message => !original!.inputRefs.includes(message.id))!.id;
+    await database.query('UPDATE provenance_links SET record=jsonb_set(record,\'{inputRefs}\',$2::jsonb) WHERE output_ref=$1',
+      [outputId, JSON.stringify([...original!.inputRefs, extraInput])]);
+    expect(await store.auditProvenanceCoverage()).toMatchObject({ invalid: 0 });
+    expect(await store.auditProvenanceInputHistory()).toMatchObject({ mismatched: 1 });
+    await database.query('UPDATE provenance_links SET record=$2::jsonb WHERE output_ref=$1', [outputId, JSON.stringify(original)]);
+    expect(await store.auditProvenanceInputHistory()).toMatchObject({ mismatched: 0 });
   });
   it('commits terminal, messages and immutable input together; regenerate creates a child; retries deduplicate external calls', async () => {
     let calls = 0;

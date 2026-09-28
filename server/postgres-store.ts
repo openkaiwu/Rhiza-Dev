@@ -1352,6 +1352,28 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     return { outputs: Number(row.outputs), missing: Number(row.missing), broken: Number(row.broken), invalid: Number(row.invalid) };
   }
 
+  /** One SQL snapshot of recorded links; sealed Run inputs are decoded without logging their bodies. */
+  async auditProvenanceInputHistory(): Promise<{ checked: number; mismatched: number }> {
+    const result = await this.database.query<{ workspace_id: string; reply_to_message_id: string | null; provenance: ProvenanceLink;
+      run_record: ExecutionRun | null; input_content_ref: unknown }>(`SELECT n.project_id workspace_id,m.reply_to_message_id,p.record provenance,
+        r.record run_record,r.input_content_ref
+      FROM rhiza_messages m JOIN rhiza_nodes n ON n.id=m.node_id
+      JOIN provenance_links p ON p.workspace_id=n.project_id AND p.output_ref=m.id::text
+      LEFT JOIN execution_runs r ON r.workspace_id=n.project_id AND r.run_id::text=p.record->>'runRef'
+      WHERE m.kind='assistant' AND p.record->>'status'='recorded'`);
+    let mismatched = 0;
+    for (const row of result.rows) {
+      const link = asJson<ProvenanceLink>(row.provenance);
+      if (!row.run_record || !Array.isArray(link.inputRefs)) { mismatched += 1; continue; }
+      const run = await this.decodeRun({ record: row.run_record, input_content_ref: row.input_content_ref });
+      if (semanticStateChecksum(run.input as unknown as Record<string, unknown>) !== run.inputHash) throw new Error('RUN_INPUT_HASH_MISMATCH');
+      const expected = [...new Set([...run.input.request.history.map(item => item.id),
+        ...(row.reply_to_message_id ? [row.reply_to_message_id] : [])])];
+      if (JSON.stringify(link.inputRefs) !== JSON.stringify(expected)) mismatched += 1;
+    }
+    return { checked: result.rows.length, mismatched };
+  }
+
   async getRun(runId: string): Promise<ExecutionRun | undefined> {
     const result = await this.database.query<{ record: ExecutionRun; input_content_ref: unknown }>('SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1 AND run_id=$2', [this.defaultWorkspaceId, runId]);
     return result.rows[0] ? this.decodeRun(result.rows[0]) : undefined;
