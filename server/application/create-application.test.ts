@@ -5,8 +5,8 @@ import { createRhizaApplication } from './create-application';
 import { WorkspaceDirectory } from '../identity/workspace-directory';
 import { DEFAULT_WORKSPACE_ID, LOCAL_USER_ID } from '../identity/workspace-scope';
 
-function fixture(options: { indexedPlanning?: boolean; failMutation?: boolean; committedRun?: import('../contracts/application').CreateConversationRunResult; ensureWorkspaceInitialized?: (workspaceId: string, name: string) => Promise<import('../domain').WorkspaceData>; blobPut?: (bytes: Uint8Array) => Promise<{ digestAlgorithm: 'sha256'; digest: string; blobRef: string; size: number }>; blobRead?: (blobRef: string, digest: string) => Promise<Uint8Array>; workspaceDirectory?: WorkspaceDirectory; defaultWorkspaceId?: string } = {}) {
-  let workspace = createSeedWorkspace();
+function fixture(options: { indexedPlanning?: boolean; failMutation?: boolean; committedRun?: import('../contracts/application').CreateConversationRunResult; ensureWorkspaceInitialized?: (workspaceId: string, name: string) => Promise<import('../domain').WorkspaceData>; blobPut?: (bytes: Uint8Array) => Promise<{ digestAlgorithm: 'sha256'; digest: string; blobRef: string; size: number }>; blobRead?: (blobRef: string, digest: string) => Promise<Uint8Array>; workspaceDirectory?: WorkspaceDirectory; defaultWorkspaceId?: string; initialWorkspace?: import('../domain').WorkspaceData } = {}) {
+  let workspace = options.initialWorkspace ?? createSeedWorkspace();
   let sequence = 0;
   const commits: string[] = [];
   const runtimeCalls: string[] = [];
@@ -55,6 +55,34 @@ function fixture(options: { indexedPlanning?: boolean; failMutation?: boolean; c
 }
 
 describe('Rhiza Application', () => {
+  it('moves an attached ResourceVersion to a tombstone with the Purge audit fact', async () => {
+    const seeded = createSeedWorkspace();
+    const createdAt = '2026-08-22T00:00:00.000Z';
+    const digest = 'a'.repeat(64);
+    const initialWorkspace = { ...seeded,
+      discussionNodes: [...seeded.discussionNodes, { id: 'private-node', title: 'private', summary: '', status: 'archived' as const,
+        kind: 'branch' as const, sourceNodeId: seeded.activeNodeId, x: 0, y: 0, createdAt, updatedAt: createdAt }],
+      messages: [...seeded.messages, { id: 'private-message', nodeId: 'private-node', kind: 'user' as const,
+        text: 'private', attachmentIds: ['private-attachment'], createdAt }],
+      resources: [...seeded.resources, { id: 'private-resource', workspaceId: seeded.projectId, kind: 'attachment' as const, logicalName: 'private.txt', createdAt }],
+      resourceVersions: [...seeded.resourceVersions, { id: 'private-version', resourceId: 'private-resource', version: 1,
+        digestAlgorithm: 'sha256' as const, digest, canonicalization: 'raw-v1' as const, mediaType: 'text/plain', size: 7,
+        blobRef: `sealed-v1/${seeded.projectId}/private-version/${digest}/${digest}/7`, createdAt }],
+      attachments: [...seeded.attachments, { id: 'private-attachment', name: 'private.txt', mimeType: 'text/plain', size: 7,
+        kind: 'file' as const, resourceId: 'private-resource', resourceVersionId: 'private-version', digest, createdAt }],
+      fileChunks: [...seeded.fileChunks, { id: 'private-chunk', attachmentId: 'private-attachment', ordinal: 0,
+        text: 'private', startOffset: 0, endOffset: 7, tokens: 1, terms: ['private'], embedding: [], resourceVersionId: 'private-version' }],
+    };
+    const { application, workspace, commits } = fixture({ initialWorkspace });
+    const result = await application.execute(createLegacyCommandEnvelope('purge-resource', 'PurgeObject',
+      { nodeId: 'private-node', confirmation: 'PURGE private-node', reason: 'remove' }));
+    expect(commits).toContain('purge');
+    expect(result.purgeReceipt.createdAt).toBe('2026-08-23T00:00:00.000Z');
+    expect(workspace().resourceVersions.find(version => version.id === 'private-version')).toMatchObject({ blobRef: 'purged-v1', purgedAt: result.purgeReceipt.createdAt });
+    expect(workspace().resources.find(resource => resource.id === 'private-resource')?.logicalName).toBe('[purged]');
+    expect(workspace().attachments).toEqual([]);
+    expect(workspace().fileChunks).toEqual([]);
+  });
   it.each([false, undefined])('denies Purge before mutation when owner capability returns %s', async owner => {
     const record = { workspaceId: '00000000-0000-4000-8000-000000000001', name: 'Shared', status: 'active' as const, createdBy: LOCAL_USER_ID, revision: 1 };
     const directory = new WorkspaceDirectory({

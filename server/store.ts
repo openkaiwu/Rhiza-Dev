@@ -78,6 +78,9 @@ export function validateWorkspaceHistoryUpdate(previous: WorkspaceData, next: Wo
   const removedManifestIds = [...priorManifests.keys()].filter(id => !nextManifests.has(id));
   const priorResourceVersions = itemById(previous.resourceVersions);
   const nextResourceVersions = itemById(next.resourceVersions);
+  const nextResources = itemById(next.resources);
+  const nextAttachments = itemById(next.attachments);
+  const nextFileChunks = itemById(next.fileChunks);
   const priorMaterializations = itemById(previous.materializations);
   const nextMaterializations = itemById(next.materializations);
 
@@ -90,6 +93,11 @@ export function validateWorkspaceHistoryUpdate(previous: WorkspaceData, next: Wo
   }
   for (const [id, version] of priorResourceVersions) {
     const candidate = nextResourceVersions.get(id);
+    if (candidate && !isDeepStrictEqual(candidate, version) && options?.purge
+      && removedNodeIds.length === 1 && removedNodeIds[0] === options.purge.nodeId && !version.purgedAt
+      && candidate.blobRef === 'purged-v1' && candidate.purgedAt
+      && isDeepStrictEqual(Object.fromEntries(Object.entries(candidate).filter(([key]) => key !== 'blobRef' && key !== 'purgedAt')),
+        Object.fromEntries(Object.entries(version).filter(([key]) => key !== 'blobRef' && key !== 'purgedAt')))) continue;
     if (!candidate || !isDeepStrictEqual(candidate, version)) throw new Error(`Immutable ResourceVersion ${id} cannot be rewritten or removed`);
   }
   for (const [id, materialization] of priorMaterializations) {
@@ -120,6 +128,53 @@ export function validateWorkspaceHistoryUpdate(previous: WorkspaceData, next: Wo
   const attachmentIds = new Set(previous.attachments.map(item => item.id));
   const chunkIds = new Set(previous.fileChunks.map(item => item.id));
   const retainedContextIds = new Set(next.contextItems.map(item => item.id));
+  const receiptTime = next.auditEvents.find(event => event.id === purge.auditReceiptId)?.createdAt;
+  const removedAttachmentIds = new Set(previous.attachments.filter(item => !next.attachments.some(candidate => candidate.id === item.id)).map(item => item.id));
+  const attachedToRemovedMessages = new Set(removedMessageIds.flatMap(id => priorMessages.get(id)?.attachmentIds ?? []));
+  const resourcesToPurge = new Set([...attachedToRemovedMessages].map(id => previous.attachments.find(item => item.id === id)?.resourceId).filter((id): id is string => !!id));
+  const affectedAttachments = new Set(previous.attachments.filter(item => item.resourceId && resourcesToPurge.has(item.resourceId)).map(item => item.id));
+  const affectedVersions = new Set(previous.resourceVersions.filter(item => resourcesToPurge.has(item.resourceId)).map(item => item.id));
+  const affectedChunks = new Set(previous.fileChunks.filter(item => affectedAttachments.has(item.attachmentId)).map(item => item.id));
+  const sharedResource = next.messages.some(message => message.attachmentIds?.some(id => affectedAttachments.has(id)))
+    || next.manifests.some(manifest => manifest.attachmentIds.some(id => affectedAttachments.has(id))
+      || manifest.contextItems.some(item => [item.resourceId, item.resourceVersionId, item.originResourceVersionId, item.sourceId]
+        .some(id => id && (resourcesToPurge.has(id) || affectedVersions.has(id) || affectedAttachments.has(id) || affectedChunks.has(id)))))
+    || next.contextItems.some(item => item.sourceId && (resourcesToPurge.has(item.sourceId) || affectedVersions.has(item.sourceId)
+      || affectedAttachments.has(item.sourceId) || affectedChunks.has(item.sourceId)));
+  const safeAttachedResources = [...attachedToRemovedMessages].every(id => {
+    const attachment = previous.attachments.find(item => item.id === id);
+    return attachment?.resourceId && attachment.resourceVersionId && removedAttachmentIds.has(id)
+      && previous.resourceVersions.some(version => version.id === attachment.resourceVersionId && version.resourceId === attachment.resourceId);
+  }) && [...removedAttachmentIds].every(id => affectedAttachments.has(id)) && !sharedResource
+    && [...resourcesToPurge].every(id => {
+      const resource = nextResources.get(id);
+      const versions = previous.resourceVersions.filter(version => version.resourceId === id);
+      const relatedAttachments = previous.attachments.filter(item => item.resourceId === id);
+      const relatedChunks = previous.fileChunks.filter(chunk => relatedAttachments.some(item => item.id === chunk.attachmentId));
+      return resource?.logicalName === '[purged]' && versions.length > 0
+        && versions.every(version => version.purgedAt || (version.blobRef.startsWith('sealed-v1/')
+          && nextResourceVersions.get(version.id)?.blobRef === 'purged-v1'
+          && nextResourceVersions.get(version.id)?.purgedAt === receiptTime))
+        && relatedAttachments.every(item => removedAttachmentIds.has(item.id))
+        && relatedChunks.every(chunk => !next.fileChunks.some(item => item.id === chunk.id));
+    });
+  const unauthorizedResourceChange = [...priorResourceVersions.values()].some(version =>
+    !resourcesToPurge.has(version.resourceId) && !isDeepStrictEqual(nextResourceVersions.get(version.id), version))
+    || previous.resources.some(resource => {
+      const candidate = nextResources.get(resource.id);
+      return !candidate || !isDeepStrictEqual(resourcesToPurge.has(resource.id)
+        ? { ...candidate, logicalName: resource.logicalName } : candidate, resource);
+    })
+    || previous.attachments.some(attachment => {
+      const candidate = nextAttachments.get(attachment.id);
+      return candidate ? !isDeepStrictEqual(candidate, attachment) : !affectedAttachments.has(attachment.id);
+    })
+    || previous.fileChunks.some(chunk => {
+      const candidate = nextFileChunks.get(chunk.id);
+      return candidate ? !isDeepStrictEqual(candidate, chunk) : !affectedChunks.has(chunk.id);
+    })
+    || previous.messages.some(message => nextMessages.has(message.id)
+      && !isDeepStrictEqual(nextMessages.get(message.id)?.attachmentIds ?? [], message.attachmentIds ?? []));
   const resourceManifest = removedManifestIds.some(id => {
     const manifest = priorManifests.get(id)!;
     return manifest.attachmentIds.length > 0 || manifest.contextItems.some(item => item.resourceId || item.resourceVersionId
@@ -129,7 +184,7 @@ export function validateWorkspaceHistoryUpdate(previous: WorkspaceData, next: Wo
   const resourceContext = previous.contextItems.some(item => (item.sourceNodeId === purge.nodeId || !retainedContextIds.has(item.id))
     && (item.sourceType === 'file' || item.sourceType === 'chunk'
       || (item.sourceId && (attachmentIds.has(item.sourceId) || chunkIds.has(item.sourceId)))));
-  if (removedMessageIds.some(id => priorMessages.get(id)?.attachmentIds?.length) || resourceManifest || resourceContext) {
+  if ((attachedToRemovedMessages.size && !safeAttachedResources) || unauthorizedResourceChange || resourceManifest || resourceContext) {
     throw Object.assign(new Error('该节点的历史内容仍引用文件资源，请使用归档；Purge 需要先覆盖资源密钥撤销。'), { code: 'PURGE_HAS_RESOURCE_HISTORY', status: 409 });
   }
   const removedSegments = previous.segments.filter(item => !next.segments.some(candidate => candidate.id === item.id));

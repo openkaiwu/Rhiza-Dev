@@ -1863,8 +1863,9 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
   }
 
   private async stagePurgeCheckpoint(database: SqlQueryable, workspace: WorkspaceData, previous: WorkspaceData, purge: NonNullable<WorkspaceUpdateOptions['purge']>) {
-    const inserted = await database.query<{ purge_id: string }>(`INSERT INTO purge_checkpoints (purge_id,workspace_id,node_id)
-      VALUES ($1,$2,$3) ON CONFLICT (purge_id) DO NOTHING RETURNING purge_id`, [purge.auditReceiptId, workspace.projectId, purge.nodeId]);
+    const purgeTime = workspace.auditEvents.find(event => event.id === purge.auditReceiptId)!.createdAt;
+    const inserted = await database.query<{ purge_id: string }>(`INSERT INTO purge_checkpoints (purge_id,workspace_id,node_id,created_at,updated_at)
+      VALUES ($1,$2,$3,$4,$4) ON CONFLICT (purge_id) DO NOTHING RETURNING purge_id`, [purge.auditReceiptId, workspace.projectId, purge.nodeId, purgeTime]);
     if (!inserted.rows.length) {
       const existing = await database.query<{ workspace_id: string; node_id: string }>('SELECT workspace_id,node_id FROM purge_checkpoints WHERE purge_id=$1', [purge.auditReceiptId]);
       if (existing.rows[0]?.workspace_id !== workspace.projectId || existing.rows[0]?.node_id !== purge.nodeId) throw new Error('PURGE_CHECKPOINT_IDENTITY_CONFLICT');
@@ -1895,6 +1896,49 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       [workspace.projectId, removedIds(previous.anchors, workspace.anchors)]);
     await collect('edge', 'SELECT id::text entity_id,content_ref FROM rhiza_edges WHERE project_id=$1 AND id=ANY($2::uuid[]) AND content_ref IS NOT NULL',
       [workspace.projectId, removedIds(previous.discussionEdges, workspace.discussionEdges)]);
+
+    const purgedVersions = previous.resourceVersions.filter(version => !version.purgedAt
+      && workspace.resourceVersions.some(candidate => candidate.id === version.id && candidate.purgedAt));
+    const purgedResourceIds = [...new Set(purgedVersions.map(version => version.resourceId))];
+    if (purgedVersions.length) {
+      if (!this.resourceBlobs || purgedVersions.some(version => !version.blobRef.startsWith('sealed-v1/')))
+        throw Object.assign(new Error('Purge requires migrated encrypted ResourceVersion Blobs'), { code: 'PURGE_RESOURCE_MIGRATION_REQUIRED', status: 409 });
+      for (const version of purgedVersions) references.push({ family: 'resource-version', entityId: version.id,
+        reference: { workspaceId: workspace.projectId, resourceVersionId: version.id, digest: version.digest, size: version.size, blobRef: version.blobRef } });
+      const resourceRows = await database.query<{ entity_id: string; content_ref: unknown }>(
+        'SELECT resource_id entity_id,content_ref FROM rhiza_resources WHERE workspace_id=$1 AND resource_id=ANY($2::text[]) FOR UPDATE',
+        [workspace.projectId, purgedResourceIds]);
+      if (!this.resourceContent || resourceRows.rows.length !== purgedResourceIds.length || resourceRows.rows.some(row => row.content_ref == null))
+        throw Object.assign(new Error('Purge requires sealed Resource content'), { code: 'PURGE_RESOURCE_MIGRATION_REQUIRED', status: 409 });
+      for (const row of resourceRows.rows) references.push({ family: 'resource', entityId: row.entity_id, reference: asJson(row.content_ref) });
+    }
+    const removedAttachmentIds = removedIds(previous.attachments, workspace.attachments);
+    const legacyAttachmentKeys: string[] = [];
+    if (removedAttachmentIds.length) {
+      const rows = await database.query<{ entity_id: string; content_ref: unknown; storage_key: string }>(
+        'SELECT id::text entity_id,content_ref,storage_key FROM rhiza_attachments WHERE project_id=$1 AND id=ANY($2::uuid[]) FOR UPDATE',
+        [workspace.projectId, removedAttachmentIds]);
+      if (!this.attachmentContent || rows.rows.length !== removedAttachmentIds.length || rows.rows.some(row => row.content_ref == null))
+        throw Object.assign(new Error('Purge requires sealed Attachment content'), { code: 'PURGE_RESOURCE_MIGRATION_REQUIRED', status: 409 });
+      for (const row of rows.rows) {
+        legacyAttachmentKeys.push(row.entity_id, row.storage_key);
+        references.push({ family: 'attachment', entityId: row.entity_id, reference: asJson(row.content_ref) });
+      }
+    }
+    if (purgedVersions.length || removedAttachmentIds.length) {
+      if (!this.resourceBlobs) throw Object.assign(new Error('Purge requires encrypted resource storage'),
+        { code: 'PURGE_RESOURCE_MIGRATION_REQUIRED', status: 409 });
+      await this.resourceBlobs.assertNoLegacyPlaintext(purgedVersions.map(version => version.digest), legacyAttachmentKeys);
+    }
+    const removedChunkIds = new Set(removedIds(previous.fileChunks, workspace.fileChunks));
+    if (removedChunkIds.size) {
+      const storedChunks = (await database.query<{ chunks: unknown }>("SELECT state->'fileChunks' chunks FROM rhiza_projects WHERE id=$1", [workspace.projectId])).rows[0];
+      const chunks = asJson<Array<{ id: string; contentRef?: SealedFileChunkRef }>>(storedChunks?.chunks || [])
+        .filter(chunk => removedChunkIds.has(chunk.id));
+      if (!this.fileChunkContent || chunks.length !== removedChunkIds.size || chunks.some(chunk => !chunk.contentRef))
+        throw Object.assign(new Error('Purge requires sealed FileChunk content'), { code: 'PURGE_RESOURCE_MIGRATION_REQUIRED', status: 409 });
+      for (const chunk of chunks) references.push({ family: 'file-chunk', entityId: chunk.id, reference: chunk.contentRef });
+    }
 
     const stored = (await database.query<{ items: unknown }>("SELECT state->'contextItems' AS items FROM rhiza_projects WHERE id=$1", [workspace.projectId])).rows[0];
     const removedContextIds = new Set(removedIds(previous.contextItems, workspace.contextItems));
@@ -1955,7 +1999,10 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       const affectedIds = new Set([nodeId, ...[
         removedIds(previous.messages, workspace.messages), removedIds(previous.segments, workspace.segments),
         removedIds(previous.manifests, workspace.manifests), removedIds(previous.anchors, workspace.anchors),
-        removedIds(previous.contextItems, workspace.contextItems),
+        removedIds(previous.contextItems, workspace.contextItems), removedIds(previous.attachments, workspace.attachments),
+        removedIds(previous.fileChunks, workspace.fileChunks),
+        previous.resourceVersions.filter(version => !version.purgedAt
+          && workspace.resourceVersions.some(candidate => candidate.id === version.id && candidate.purgedAt)).flatMap(version => [version.id, version.resourceId]),
       ].flat()]);
       // ponytail: Purge is rare; scan frozen Runs until a persisted reference index is justified by volume.
       const runs = await database.query<{ record: ExecutionRun; input_content_ref: unknown }>('SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1', [workspace.projectId]);
@@ -1966,7 +2013,8 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
           || affectedIds.has(request.manifestId) || (request.sourceMessageId && affectedIds.has(request.sourceMessageId))
           || (run.input.replay?.sourceManifestRef && affectedIds.has(run.input.replay.sourceManifestRef))
           || request.history.some(item => [item.id, item.nodeId, item.manifestId, item.segmentId, item.sourceMessageId, item.replyToMessageId]
-            .some(ref => ref && affectedIds.has(ref)))
+            .some(ref => ref && affectedIds.has(ref)) || item.attachmentIds?.some(ref => affectedIds.has(ref)))
+          || request.attachments?.some(item => [item.id, item.resourceId, item.resourceVersionId].some(ref => ref && affectedIds.has(ref)))
           || request.contextItems.some(item => [item.id, item.sourceNodeId, item.sourceId]
             .some(ref => ref && affectedIds.has(ref)))) {
           throw Object.assign(new Error('该节点仍被不可变执行历史引用，请使用归档；物理删除需要统一的执行历史清理策略。'), { code: 'PURGE_HAS_EXECUTION_HISTORY', status: 409 });
@@ -1991,6 +2039,17 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       const removedMessages = new Set(previous.messages.filter(item => !workspace.messages.some(candidate => candidate.id === item.id)).map(item => item.id));
       const removedManifests = new Set(previous.manifests.filter(item => !workspace.manifests.some(candidate => candidate.id === item.id)).map(item => item.id));
       const removedEdges = previous.discussionEdges.filter(item => !workspace.discussionEdges.some(candidate => candidate.id === item.id)).map(item => item.id);
+      const purgedResourceIds = workspace.resources.filter(resource => resource.logicalName === '[purged]'
+        && previous.resources.some(before => before.id === resource.id && before.logicalName !== '[purged]')).map(resource => resource.id);
+      if (purgedResourceIds.length) {
+        await database.query("UPDATE rhiza_resources SET logical_name='[purged]',content_ref=NULL WHERE workspace_id=$1 AND resource_id=ANY($2::text[])",
+          [workspace.projectId, purgedResourceIds]);
+        await database.query(`UPDATE workspace_objects SET title='[purged]',summary='',metadata='{}'::jsonb,
+          lifecycle_status='tombstoned',object_status='tombstoned' WHERE workspace_id=$1 AND object_type='resource' AND object_id=ANY($2::text[])`,
+        [workspace.projectId, purgedResourceIds]);
+        await database.query(`UPDATE graph_relations SET label='',lifecycle_status='retracted' WHERE workspace_id=$1
+          AND (source_id=ANY($2::text[]) OR target_id=ANY($2::text[]))`, [workspace.projectId, purgedResourceIds]);
+      }
       await database.query(`UPDATE workspace_objects SET title='[purged]',summary='',metadata='{}'::jsonb,
         lifecycle_status='tombstoned',object_status='tombstoned' WHERE workspace_id=$1 AND
         ((object_type='conversation' AND object_id=$2) OR (object_type='message' AND object_id=ANY($3::text[])))`,

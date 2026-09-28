@@ -45,12 +45,17 @@ export function buildWorkspaceGraphProjection(workspace: WorkspaceData, runs: re
       summary: message.text.slice(0, 240), kind: message.kind, createdAt: message.createdAt, updatedAt: message.createdAt,
       status: 'active',
     })),
-    ...workspace.resources.map(resource => ({
-      ref: ref(workspace.projectId, 'resource', resource.id), revision: Math.max(1, ...workspace.resourceVersions.filter(version => version.resourceId === resource.id).map(version => version.version)),
-      lifecycle: 'active' as const, title: resource.logicalName, summary: '', kind: resource.kind,
-      status: 'active',
-      createdAt: resource.createdAt, updatedAt: resource.createdAt,
-    })),
+    ...workspace.resources.map(resource => {
+      const versions = workspace.resourceVersions.filter(version => version.resourceId === resource.id);
+      const purged = versions.length > 0 && versions.every(version => version.purgedAt);
+      return {
+        ref: ref(workspace.projectId, 'resource', resource.id), revision: Math.max(1, ...versions.map(version => version.version)),
+        lifecycle: purged ? 'tombstoned' as const : 'active' as const,
+        title: purged ? '[purged]' : resource.logicalName, summary: '', kind: resource.kind,
+        status: purged ? 'tombstoned' : 'active',
+        createdAt: resource.createdAt, updatedAt: resource.createdAt,
+      };
+    }),
     ...runs.map(run => ({
       ref: ref(workspace.projectId, 'run', run.id), revision: run.attempt,
       lifecycle: 'active' as const, title: `${run.input.executor.model} run`, summary: run.status, kind: 'execution',

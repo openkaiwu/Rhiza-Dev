@@ -40,6 +40,12 @@ describe('Workspace Graph Projection', () => {
     expect(projection.relations).toContainEqual(expect.objectContaining({ id: 'edge', relationType: 'derived_from', lifecycle: 'active' }));
     expect(projection.checkpoint).toBe(7);
     expect(projection.checksum).toMatch(/^[a-f0-9]{64}$/);
+    workspace.resources[0]!.logicalName = '[purged]';
+    workspace.resourceVersions.push({ id: 'version', resourceId: 'resource', version: 1, digestAlgorithm: 'sha256',
+      digest: 'a'.repeat(64), canonicalization: 'raw-v1', mediaType: 'text/plain', size: 1, blobRef: 'purged-v1',
+      createdAt: branch.createdAt, purgedAt: branch.createdAt });
+    expect(buildWorkspaceGraphProjection(workspace, [], 8).objects.find(item => item.ref.objectId === 'resource'))
+      .toMatchObject({ lifecycle: 'tombstoned', title: '[purged]', status: 'tombstoned' });
   });
 
   it('keeps generic object types additive and bounds neighborhood, path, tree and changes queries', () => {

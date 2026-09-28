@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, open, readdir, unlink } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
-import type { NodeEncryptedBlobStore } from './node-encrypted-blob-store';
 
 interface LegacyFileReferences {
   resourceDigests: string[];
@@ -24,6 +23,11 @@ export interface LegacyAttachmentFileReference {
   storageKey: string;
   resourceVersionId: string | null;
   size: number;
+}
+
+interface SealedResourceReader {
+  auditKeys(references: LegacyResourceFileReference[]): Promise<Array<{ referenced: boolean; state: string }>>;
+  readStream(blobRef: string, digest: string): AsyncIterable<Uint8Array>;
 }
 
 const resourcePath = (root: string, digest: string) => {
@@ -69,7 +73,7 @@ export async function auditLegacyFileReplicas(root: string, references: LegacyFi
 
 /** Offline only: verify every selected plaintext file and its sealed replacement before unlinking. */
 export async function reclaimKnownLegacyResourceFiles(root: string, versions: LegacyResourceFileReference[],
-  attachments: LegacyAttachmentFileReference[], blobs: NodeEncryptedBlobStore, limit = 100) {
+  attachments: LegacyAttachmentFileReference[], blobs: SealedResourceReader, limit = 100) {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error('LEGACY_FILE_RECLAIM_LIMIT_INVALID');
   const directory = resolve(root);
   if (!(await lstat(directory)).isDirectory()) throw new Error('UPLOAD_DIRECTORY_INVALID');

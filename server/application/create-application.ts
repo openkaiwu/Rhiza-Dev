@@ -579,14 +579,22 @@ function currentPurge(nodeId: string, confirmation: string, reason: string, rece
     const manifestIds = new Set(current.manifests.filter(manifest => manifest.nodeId === node.id).map(manifest => manifest.id));
     const anchorIds = new Set(current.anchors.filter(anchor => anchor.nodeId === node.id || (anchor.messageId && messageIds.has(anchor.messageId)) || (anchor.segmentId && segmentIds.has(anchor.segmentId))).map(anchor => anchor.id));
     const removedSourceIds = new Set([node.id, ...messageIds, ...segmentIds, ...anchorIds]);
+    const attachedIds = new Set(current.messages.filter(message => messageIds.has(message.id)).flatMap(message => message.attachmentIds ?? []));
+    const resourceIds = new Set(current.attachments.filter(attachment => attachedIds.has(attachment.id)).flatMap(attachment => attachment.resourceId ? [attachment.resourceId] : []));
+    const removedAttachmentIds = new Set(current.attachments.filter(attachment => attachment.resourceId && resourceIds.has(attachment.resourceId)).map(attachment => attachment.id));
     const fallback = current.discussionNodes.find(item => item.id !== node.id && item.status !== 'archived');
     if (!fallback) throw legacyError('至少需要保留一个未归档节点。', 409, 'CANNOT_PURGE_LAST_NODE');
-    const receipt: AuditEvent = { id: receiptId, projectId: current.projectId, nodeId, action: 'node.purged', entityType: 'node', entityId: nodeId, metadata: { reason: 'provided-redacted', confirmation: 'explicit-id-phrase', removed: { nodes: 1, messages: messageIds.size, segments: segmentIds.size, manifests: manifestIds.size, anchors: anchorIds.size } }, createdAt: now() };
+    const purgedAt = now();
+    const receipt: AuditEvent = { id: receiptId, projectId: current.projectId, nodeId, action: 'node.purged', entityType: 'node', entityId: nodeId, metadata: { reason: 'provided-redacted', confirmation: 'explicit-id-phrase', removed: { nodes: 1, messages: messageIds.size, segments: segmentIds.size, manifests: manifestIds.size, anchors: anchorIds.size } }, createdAt: purgedAt };
     const workspace = {
       ...current, activeNodeId: current.activeNodeId === node.id ? fallback.id : current.activeNodeId, nodeId: current.nodeId === node.id ? fallback.id : current.nodeId,
       discussionNodes: current.discussionNodes.filter(item => item.id !== node.id),
       contextItems: current.contextItems.filter(item => item.sourceNodeId !== node.id && (!item.sourceId || !removedSourceIds.has(item.sourceId))),
       messages: current.messages.filter(message => message.nodeId !== node.id).map(message => ({ ...message, sourceMessageId: message.sourceMessageId && messageIds.has(message.sourceMessageId) ? undefined : message.sourceMessageId, replyToMessageId: message.replyToMessageId && messageIds.has(message.replyToMessageId) ? undefined : message.replyToMessageId })),
+      resources: current.resources.map(resource => resourceIds.has(resource.id) ? { ...resource, logicalName: '[purged]' } : resource),
+      resourceVersions: current.resourceVersions.map(version => resourceIds.has(version.resourceId) && !version.purgedAt ? { ...version, blobRef: 'purged-v1', purgedAt } : version),
+      attachments: current.attachments.filter(attachment => !removedAttachmentIds.has(attachment.id)),
+      fileChunks: current.fileChunks.filter(chunk => !removedAttachmentIds.has(chunk.attachmentId)),
       segments: current.segments.filter(segment => segment.nodeId !== node.id), manifests: current.manifests.filter(manifest => !manifestIds.has(manifest.id)), anchors: current.anchors.filter(anchor => !anchorIds.has(anchor.id)),
       discussionEdges: current.discussionEdges.filter(edge => edge.source !== node.id && edge.target !== node.id && (!edge.anchorId || !anchorIds.has(edge.anchorId))), auditEvents: [...current.auditEvents, receipt],
     };

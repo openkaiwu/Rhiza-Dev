@@ -4,14 +4,23 @@ import type { BlobContentIdentity, BlobPutResult, BlobStorePort } from '../appli
 import { NodeContentKeys } from './node-content-keys';
 import { NodeFilesystemBlobStore } from './node-host-runtime';
 import { NodeSealedContentStore, type SealedContentRef } from './node-sealed-content-store';
+import { auditLegacyFileReplicas } from './legacy-file-audit';
 
 /** Explicit encrypted composition; legacy references must be migrated before selecting this adapter. */
 export class NodeEncryptedBlobStore implements BlobStorePort {
-  constructor(private readonly content: NodeSealedContentStore, private readonly legacy?: BlobStorePort) {}
+  constructor(private readonly content: NodeSealedContentStore, private readonly legacy?: BlobStorePort, private readonly legacyRoot?: string) {}
 
   static atDirectory(root: string): NodeEncryptedBlobStore {
     const legacy = new NodeFilesystemBlobStore(root);
-    return new NodeEncryptedBlobStore(new NodeSealedContentStore(legacy, new NodeContentKeys(join(root, 'resource-keys'))), legacy);
+    return new NodeEncryptedBlobStore(new NodeSealedContentStore(legacy, new NodeContentKeys(join(root, 'resource-keys'))), legacy, root);
+  }
+
+  /** Purge must not revoke the sealed key while a known original plaintext path survives. */
+  async assertNoLegacyPlaintext(resourceDigests: string[], attachmentKeys: string[]): Promise<void> {
+    if (!this.legacyRoot) throw new Error('LEGACY_FILE_AUDIT_UNAVAILABLE');
+    const copies = await auditLegacyFileReplicas(this.legacyRoot, { resourceDigests, attachmentKeys, archiveDigests: [] });
+    if (copies.resourceBlobs || copies.attachments) throw Object.assign(new Error('Legacy plaintext resource replica remains'),
+      { code: 'PURGE_LEGACY_FILE_REPLICA', status: 409 });
   }
 
   async put(bytes: Uint8Array, identity?: BlobContentIdentity): Promise<BlobPutResult> {

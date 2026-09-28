@@ -10,11 +10,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadMigrations } from '../scripts/migrate';
 import { PostgresWorkspaceStore, type SqlQueryable } from '../server/postgres-store';
 import { SealedNodeContent, type SealedNodeRef } from '../server/infrastructure/sealed-node-content';
+import { SealedMessageContent } from '../server/infrastructure/sealed-message-content';
 import { SealedJournalContent, type SealedJournalRef } from '../server/infrastructure/sealed-journal-content';
 import { SealedReceiptContent, type SealedReceiptRef } from '../server/infrastructure/sealed-receipt-content';
 import { SealedContextItemContent, type SealedContextItemRef } from '../server/infrastructure/sealed-context-item-content';
 import { SealedRunContent } from '../server/infrastructure/sealed-run-content';
 import type { ContextEnvelope, ExecutionRun } from '../server/execution-runtime/run';
+import type { WorkspaceData } from '../server/domain';
 import { SealedResourceContent } from '../server/infrastructure/sealed-resource-content';
 import { SealedAttachmentContent } from '../server/infrastructure/sealed-attachment-content';
 import { SealedFileChunkContent } from '../server/infrastructure/sealed-file-chunk-content';
@@ -768,6 +770,133 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       expect(retained.attachments).toContainEqual(expect.objectContaining({ id: attachmentId, resourceVersionId: versionId }));
       expect((await database.query<{ count: number }>('SELECT count(*)::int count FROM rhiza_resource_versions WHERE resource_version_id=$1', [versionId])).rows[0]?.count).toBe(1);
       expect((await database.query<{ count: number }>('SELECT count(*)::int count FROM purge_checkpoints')).rows[0]?.count).toBe(0);
+    } finally { await database.close(); }
+  }, 30_000);
+
+  it.each(['none', 'shared-message', 'foreign-run', 'legacy-file', 'revoke-interrupt'] as const)('checkpoints exclusive sealed attachments; fault=%s', async blocker => {
+    const database = await migratedDatabase(backend);
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-purge-attached-resource-'));
+    directories.push(directory);
+    const nodes = SealedNodeContent.atDirectory(join(directory, 'nodes'));
+    const messages = SealedMessageContent.atDirectory(join(directory, 'messages'));
+    const receipts = SealedReceiptContent.atDirectory(join(directory, 'receipts'));
+    const journal = SealedJournalContent.atDirectory(join(directory, 'journal'));
+    const resources = SealedResourceContent.atDirectory(join(directory, 'resources'));
+    const attachments = SealedAttachmentContent.atDirectory(join(directory, 'attachments'));
+    const chunks = SealedFileChunkContent.atDirectory(join(directory, 'file-chunks'));
+    const uploadDirectory = join(directory, 'uploads');
+    const blobs = NodeEncryptedBlobStore.atDirectory(uploadDirectory);
+    const workspaceId = randomUUID(), nodeId = randomUUID(), messageId = randomUUID();
+    const attachmentId = randomUUID(), resourceId = randomUUID(), versionId = randomUUID(), chunkId = randomUUID(), purgeId = randomUUID();
+    const store = new PostgresWorkspaceStore(database, workspaceId, receipts, undefined, journal, messages, undefined,
+      nodes, undefined, undefined, undefined, undefined, chunks, attachments, resources, blobs);
+    try {
+      await store.read();
+      const createdAt = new Date().toISOString();
+      const bytes = new TextEncoder().encode('secret attachment');
+      const blob = await blobs.put(bytes, { workspaceId, contentId: versionId });
+      await store.update(current => ({ ...current,
+        discussionNodes: [...current.discussionNodes, { id: nodeId, title: 'private', summary: '', status: 'archived' as const,
+          kind: 'branch' as const, sourceNodeId: current.activeNodeId, x: 0, y: 0, createdAt, updatedAt: createdAt }],
+        messages: [...current.messages, { id: messageId, nodeId, kind: 'user' as const, text: 'private message', attachmentIds: [attachmentId], createdAt }],
+        resources: [...current.resources, { id: resourceId, workspaceId, kind: 'attachment' as const, logicalName: 'private.txt', createdAt }],
+        resourceVersions: [...current.resourceVersions, { id: versionId, resourceId, version: 1, digestAlgorithm: 'sha256' as const,
+          digest: blob.digest, canonicalization: 'raw-v1' as const, mediaType: 'text/plain', size: blob.size, blobRef: blob.blobRef, createdAt }],
+        attachments: [...current.attachments, { id: attachmentId, name: 'private.txt', mimeType: 'text/plain', size: blob.size,
+          kind: 'file' as const, resourceId, resourceVersionId: versionId, digest: blob.digest, blobRef: blob.blobRef, createdAt }],
+        fileChunks: [...current.fileChunks, { id: chunkId, attachmentId, ordinal: 0, text: 'private chunk',
+          startOffset: 0, endOffset: 13, tokens: 2, terms: ['private'], embedding: [], resourceVersionId: versionId }],
+      }));
+      const resourceRef = (await database.query<{ content_ref: unknown }>('SELECT content_ref FROM rhiza_resources WHERE resource_id=$1', [resourceId])).rows[0]!.content_ref;
+      const attachmentRef = (await database.query<{ content_ref: unknown }>('SELECT content_ref FROM rhiza_attachments WHERE id=$1', [attachmentId])).rows[0]!.content_ref;
+      const fileChunkRef = (await database.query<{ state: { fileChunks: Array<{ contentRef: unknown }> } }>('SELECT state FROM rhiza_projects WHERE id=$1', [workspaceId])).rows[0]!.state.fileChunks[0]!.contentRef;
+      await store.workspaceDirectory.ensureWorkspace({ workspaceId, name: 'Resource Purge', status: 'active', createdBy: randomUUID(), revision: 1 });
+      await store.backfillJournal();
+      await store.rebuildGraphProjection();
+      const purge = (current: WorkspaceData) => ({ ...current,
+        discussionNodes: current.discussionNodes.filter(node => node.id !== nodeId),
+        messages: current.messages.filter(message => message.id !== messageId),
+        resources: current.resources.map(resource => resource.id === resourceId ? { ...resource, logicalName: '[purged]' } : resource),
+        resourceVersions: current.resourceVersions.map(version => version.id === versionId ? { ...version, blobRef: 'purged-v1', purgedAt: createdAt } : version),
+        attachments: current.attachments.filter(attachment => attachment.id !== attachmentId),
+        fileChunks: current.fileChunks.filter(chunk => chunk.id !== chunkId),
+        auditEvents: [...current.auditEvents, { id: purgeId, projectId: workspaceId, nodeId,
+          action: 'node.purged', entityType: 'node' as const, entityId: nodeId, metadata: { reason: 'provided-redacted' }, createdAt }],
+      });
+      if (blocker === 'shared-message') {
+        await store.update(current => ({ ...current, messages: [...current.messages, { id: randomUUID(), nodeId: current.activeNodeId,
+          kind: 'user' as const, text: 'shared reference', attachmentIds: [attachmentId], createdAt }] }));
+        await expect(store.update(purge, { purge: { nodeId, auditReceiptId: purgeId } }))
+          .rejects.toMatchObject({ code: 'PURGE_HAS_RESOURCE_HISTORY', status: 409 });
+        expect((await database.query<{ count: number }>('SELECT count(*)::int count FROM purge_checkpoints')).rows[0]?.count).toBe(0);
+        expect(Buffer.from(await blobs.read(blob.blobRef, blob.digest))).toEqual(Buffer.from(bytes));
+        return;
+      }
+      if (blocker === 'legacy-file') {
+        await new NodeFilesystemBlobStore(uploadDirectory).put(bytes);
+        await expect(store.update(purge, { purge: { nodeId, auditReceiptId: purgeId } }))
+          .rejects.toMatchObject({ code: 'PURGE_LEGACY_FILE_REPLICA', status: 409 });
+        expect((await database.query<{ count: number }>('SELECT count(*)::int count FROM purge_checkpoints')).rows[0]?.count).toBe(0);
+        expect(Buffer.from(await blobs.read(blob.blobRef, blob.digest))).toEqual(Buffer.from(bytes));
+        return;
+      }
+      if (blocker === 'foreign-run') {
+        const live = await store.read();
+        const runId = randomUUID();
+        const input: ContextEnvelope = { schemaVersion: '1.0.0', request: {
+          requestId: runId, manifestId: randomUUID(), projectId: workspaceId, nodeId: live.activeNodeId,
+          modelId: 'test-model', prompt: 'other node', history: [], contextItems: [], mode: 'Assisted',
+          attachments: [live.attachments.find(item => item.id === attachmentId)!],
+        }, executor: { runtime: 'provider-adapter', modelSpecRef: 'model', providerEndpointRef: 'endpoint', model: 'test', provider: 'test' } };
+        const inputHash = semanticStateChecksum(input as unknown as Record<string, unknown>);
+        const run: ExecutionRun = { id: runId, workspaceId, nodeId: live.activeNodeId, commandId: randomUUID(),
+          status: 'failed', attempt: 1, input, inputHash, createdAt, telemetry: { traceCount: 0 } };
+        await database.query(`INSERT INTO execution_runs
+          (run_id,workspace_id,command_id,node_id,status,attempt,input_envelope,input_hash,model_spec_ref,provider_endpoint_ref,record)
+          VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11::jsonb)`,
+        [run.id, workspaceId, run.commandId, run.nodeId, run.status, run.attempt, JSON.stringify(input), inputHash,
+          'model', 'endpoint', JSON.stringify(run)]);
+        await expect(store.update(purge, { purge: { nodeId, auditReceiptId: purgeId } }))
+          .rejects.toMatchObject({ code: 'PURGE_HAS_EXECUTION_HISTORY', status: 409 });
+        expect((await database.query<{ count: number }>('SELECT count(*)::int count FROM purge_checkpoints')).rows[0]?.count).toBe(0);
+        expect(Buffer.from(await blobs.read(blob.blobRef, blob.digest))).toEqual(Buffer.from(bytes));
+        return;
+      }
+      const interrupted = blocker === 'revoke-interrupt'
+        ? vi.spyOn(blobs, 'revokeResourceVersion').mockRejectedValueOnce(new Error('simulated revocation interruption')) : undefined;
+      await store.update(purge, { purge: { nodeId, auditReceiptId: purgeId } });
+      if (interrupted) {
+        expect((await database.query<{ phase: string }>('SELECT phase FROM purge_checkpoints WHERE purge_id=$1', [purgeId])).rows[0]?.phase).toBe('pending');
+        expect((await store.read()).resourceVersions.find(version => version.id === versionId)?.blobRef).toBe('purged-v1');
+        expect(Buffer.from(await blobs.read(blob.blobRef, blob.digest))).toEqual(Buffer.from(bytes));
+        interrupted.mockRestore();
+        expect(await store.resumePendingPurges()).toEqual({ completed: 1, pending: 0 });
+      }
+      const purged = await store.read();
+      expect(purged.resources.find(resource => resource.id === resourceId)?.logicalName).toBe('[purged]');
+      expect(purged.resourceVersions.find(version => version.id === versionId)).toMatchObject({ blobRef: 'purged-v1', purgedAt: expect.any(String) });
+      expect(purged.attachments).toEqual([]);
+      expect(purged.fileChunks).toEqual([]);
+      expect((await database.query<{ count: number }>(
+        "SELECT count(*)::int count FROM context_candidate_index WHERE workspace_id=$1 AND source_id=ANY($2::text[])",
+        [workspaceId, [attachmentId, chunkId]])).rows[0]?.count).toBe(0);
+      expect((await database.query<{ title: string; lifecycle_status: string }>(
+        "SELECT title,lifecycle_status FROM workspace_objects WHERE workspace_id=$1 AND object_type='resource' AND object_id=$2", [workspaceId, resourceId])).rows)
+        .toEqual([{ title: '[purged]', lifecycle_status: 'tombstoned' }]);
+      expect((await store.rebuildGraphProjection()).objects.find(item => item.ref.objectId === resourceId))
+        .toMatchObject({ title: '[purged]', lifecycle: 'tombstoned' });
+      const portable = await store.readPortableWorkspace();
+      expect(validatePortableHistory(portable, semanticStateChecksum))
+        .toBe(semanticStateChecksum(workspaceSemanticSnapshot(portable.workspace)));
+      expect(JSON.stringify(portable)).not.toContain('private.txt');
+      expect(JSON.stringify(portable)).not.toContain('private chunk');
+      expect((await database.query<{ content_family: string }>('SELECT content_family FROM purge_key_references WHERE purge_id=$1', [purgeId])).rows.map(row => row.content_family))
+        .toEqual(expect.arrayContaining(['resource', 'resource-version', 'attachment', 'file-chunk', 'journal', 'receipt-result']));
+      expect((await database.query<{ phase: string }>('SELECT phase FROM purge_checkpoints WHERE purge_id=$1', [purgeId])).rows[0]?.phase).toBe('revoked');
+      await expect(blobs.read(blob.blobRef, blob.digest)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+      await expect(resources.read(workspaceId, resourceId, resourceRef as never)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+      await expect(attachments.read(workspaceId, attachmentId, attachmentRef as never)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+      await expect(chunks.read(workspaceId, chunkId, fileChunkRef as never)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     } finally { await database.close(); }
   }, 30_000);
 

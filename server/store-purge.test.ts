@@ -4,6 +4,20 @@ import { createSeedWorkspace } from './seed';
 import { validateWorkspaceHistoryUpdate } from './store';
 
 describe('Purge history boundary', () => {
+  it('rejects a ResourceVersion tombstone without removing the authorized node', () => {
+    const current = createSeedWorkspace();
+    const resourceId = randomUUID(), versionId = randomUUID(), createdAt = new Date().toISOString();
+    const version = { id: versionId, resourceId, version: 1, digestAlgorithm: 'sha256' as const,
+      digest: 'a'.repeat(64), canonicalization: 'raw-v1' as const, mediaType: 'text/plain', size: 1,
+      blobRef: 'sealed-v1/private', createdAt };
+    const previous = { ...current, resourceVersions: [...current.resourceVersions, version] };
+    const next = { ...previous, resourceVersions: [...current.resourceVersions,
+      { ...version, blobRef: 'purged-v1', purgedAt: createdAt }] };
+    expect(() => validateWorkspaceHistoryUpdate(previous, next, { purge: {
+      nodeId: current.activeNodeId, auditReceiptId: randomUUID(),
+    } })).toThrow('Immutable ResourceVersion');
+  });
+
   it('rejects free-text purge audit metadata from a direct repository write', () => {
     const current = createSeedWorkspace();
     const nodeId = randomUUID();
