@@ -950,6 +950,8 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     expect(await store.auditProvenanceCoverage()).toMatchObject({ missing: 0, broken: 0, invalid: 0 });
     for (const [field, value] of [
       ['contextManifestRef', randomUUID()], ['inputRefs', []],
+      ['inputRefs', [...original!.inputRefs, randomUUID()]],
+      ['parentRevisionRef', randomUUID()], ['branchSourceRef', randomUUID()],
       ['modelSpecRef', 'wrong-model'], ['providerEndpointRef', 'wrong-endpoint'],
       ['runtimeSnapshotRef', 'wrong-runtime'],
     ] as const) {

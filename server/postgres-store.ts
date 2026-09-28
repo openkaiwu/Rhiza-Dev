@@ -1327,6 +1327,13 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         p.record->>'status' IS NULL OR p.record->>'status' NOT IN ('recorded','pre-run','purged','broken-reference')
         OR jsonb_typeof(p.record->'inputRefs') IS DISTINCT FROM 'array'
         OR jsonb_typeof(p.record->'missingRefs') IS DISTINCT FROM 'array'
+        OR (p.record->>'status'<>'purged' AND (
+          p.record->>'parentRevisionRef' IS DISTINCT FROM m.source_message_id::text
+          OR p.record->>'branchSourceRef' IS DISTINCT FROM n.source_message_id::text
+          OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(p.record->'inputRefs')='array'
+            THEN p.record->'inputRefs' ELSE '[]'::jsonb END) AS input(ref)
+            WHERE NOT EXISTS (SELECT 1 FROM rhiza_messages source JOIN rhiza_nodes owner ON owner.id=source.node_id
+              WHERE source.id::text=input.ref AND owner.project_id=n.project_id))))
         OR (p.record->>'status'='recorded' AND (r.run_id IS NULL OR c.id IS NULL
           OR c.id IS DISTINCT FROM m.manifest_id OR c.request_id::text IS DISTINCT FROM r.run_id
           OR r.node_id IS DISTINCT FROM m.node_id::text
