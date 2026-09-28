@@ -477,6 +477,15 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       expect(counts.journal_payloads).toBeGreaterThan(0);
       expect(counts.context_items).toBeGreaterThan(0);
       expect(counts.resource_blobs).toBe(0);
+      const auditId = randomUUID();
+      await database.query(`INSERT INTO rhiza_audit_events
+        (id,project_id,node_id,action,entity_type,entity_id,metadata,created_at)
+        VALUES ($1,$2,NULL,'node.purged','node',$3,$4::jsonb,now())`,
+      [auditId, store.defaultWorkspaceId, randomUUID(), JSON.stringify({ reason: 'legacy free text' })]);
+      expect((await store.auditLegacyPlaintextReplicas()).purge_audit_reasons).toBe(1);
+      await database.query('UPDATE rhiza_audit_events SET metadata=$2::jsonb WHERE id=$1',
+        [auditId, JSON.stringify({ reason: 'provided-redacted' })]);
+      expect((await store.auditLegacyPlaintextReplicas()).purge_audit_reasons).toBe(0);
     } finally { await database.close(); }
   });
 

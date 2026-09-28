@@ -42,7 +42,7 @@ Bundle 导出通过 `/api/v1/workspaces/:workspaceId/bundle` 读取同一事务�
 
 `pnpm run m09:keys:audit` 对全部 Workspace 的历史正文与 ResourceVersion Blob 密钥做只读引用审计；`RHIZA_OFFLINE_KEY_RECONCILIATION=1 pnpm run m09:keys:reclaim` 仅用于停服后、数据库及上传目录独占的维护窗口。资源引用会核验 scoped blobRef 中的 Workspace/ResourceVersion 身份、摘要及大小；任何已引用密钥缺失或失效都阻止撤销。回收在独占内容锁及 ResourceVersion 表锁下重新读全库引用，先撤销孤儿密钥，再另行按完整保留集合清理不可读密文；当前尚无自动加密 Blob GC。普通业务请求不得调用此维护入口。
 
-M09 Gate 另运行 `m09:plaintext:audit`：用单条数据库快照查询计数所有历史正文族及未密封 ResourceVersion Blob，不读取或输出正文；任一计数非零即阻断验收。该审计只证明当前数据库引用状态，不能替代旧明文 Blob 文件、WAL/备份或已导出 Bundle 的保留期检查。
+M09 Gate 另运行 `m09:plaintext:audit`：用单条数据库快照查询计数所有历史正文族、未密封 ResourceVersion Blob 与旧版 Purge 审计自由文本，不读取或输出正文；任一计数非零即阻断验收。该审计只证明当前数据库引用状态，不能替代旧明文 Blob 文件、WAL/备份或已导出 Bundle 的保留期检查。
 
 `m09:provenance:audit` 在同一数据库快照中计数全库仍存在的 Assistant 输出、缺失的来源关系、显式 broken-reference 及无效/悬空的 recorded 关系；只输出计数，异常即阻断 Gate。这是来源覆盖检查，不替代 Replay 四分类、Blob 完整性或外部 staging 验收。
 

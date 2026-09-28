@@ -417,6 +417,8 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
             WHERE k.content_family='resource-version' AND k.entity_id=rv.resource_version_id AND p.workspace_id=r.workspace_id))
       )) AS resources,
       (SELECT count(*)::int FROM rhiza_resource_versions WHERE blob_ref NOT LIKE 'sealed-v1/%' AND NOT (blob_ref='purged-v1' AND purged_at IS NOT NULL)) AS resource_blobs,
+      (SELECT count(*)::int FROM rhiza_audit_events WHERE action='node.purged'
+        AND metadata->>'reason' IS DISTINCT FROM 'provided-redacted') AS purge_audit_reasons,
       (SELECT count(*)::int FROM rhiza_projects p, jsonb_array_elements(coalesce(p.state->'contextItems','[]'::jsonb)) item
         WHERE jsonb_typeof(item->'contentRef') IS DISTINCT FROM 'object') AS context_items,
       (SELECT count(*)::int FROM rhiza_projects p, jsonb_array_elements(coalesce(p.state->'fileChunks','[]'::jsonb)) item
