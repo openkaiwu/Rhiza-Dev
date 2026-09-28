@@ -398,7 +398,7 @@ describe('Rhiza API', () => {
   });
 
   it('isolates physical purge behind archived state, explicit confirmation and an audit receipt', async () => {
-    const { app, store } = await testApp();
+    const { app, store, filePath } = await testApp();
     const created = await request(app).post('/api/nodes').send({ title: '待清除支线', sourceMessageId: 'm2', messages: [{ kind: 'user', text: '需要受控清除的内容' }] }).expect(201);
     const nodeId = created.body.workspace.activeNodeId as string;
     await request(app).post('/api/chat').send({ message: '生成待清除 Manifest' }).expect(201);
@@ -417,13 +417,16 @@ describe('Rhiza API', () => {
     await request(app).delete(`/api/graph/nodes/${nodeId}`).expect(200);
     await request(app).post(`/api/graph/nodes/${nodeId}/purge`).send({ confirmation: 'PURGE wrong-id', reason: '测试显式物理清除' }).expect(400);
 
-    const purged = await request(app).post(`/api/graph/nodes/${nodeId}/purge`).send({ confirmation: `PURGE ${nodeId}`, reason: '测试显式物理清除' }).expect(200);
+    const reason = '清除包含敏感内容 SECRET_PURGE_REASON_2468 的支线';
+    const purged = await request(app).post(`/api/graph/nodes/${nodeId}/purge`).send({ confirmation: `PURGE ${nodeId}`, reason }).expect(200);
     expect(purged.body.workspace.discussionNodes.some((node: { id: string }) => node.id === nodeId)).toBe(false);
     expect(purged.body.workspace.messages.some((message: { nodeId: string }) => message.nodeId === nodeId)).toBe(false);
     expect(purged.body.workspace.segments.some((segment: { nodeId: string }) => segment.nodeId === nodeId)).toBe(false);
     expect(purged.body.workspace.manifests.some((manifest: { nodeId: string }) => manifest.nodeId === nodeId)).toBe(false);
     expect(purged.body.workspace.contextItems.some((item: { sourceId?: string; sourceNodeId?: string }) => item.sourceId === nodeId || item.sourceId === segmentId || nodeMessageIds.includes(item.sourceId ?? '') || item.sourceNodeId === nodeId)).toBe(false);
-    expect(purged.body.purgeReceipt).toMatchObject({ action: 'node.purged', entityType: 'node', entityId: nodeId, metadata: { reason: '测试显式物理清除', confirmation: 'explicit-id-phrase' } });
+    expect(purged.body.purgeReceipt).toMatchObject({ action: 'node.purged', entityType: 'node', entityId: nodeId, metadata: { reason: 'provided-redacted', confirmation: 'explicit-id-phrase' } });
+    expect(JSON.stringify(purged.body)).not.toContain(reason);
+    expect(await readFile(filePath, 'utf8')).not.toContain(reason);
   });
 
   it('does not claim Purge while a node message still owns an attachment', async () => {

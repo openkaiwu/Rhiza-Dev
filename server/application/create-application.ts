@@ -568,7 +568,7 @@ async function temporaryConversation(payload: Extract<CommandEnvelope<'ExecuteTe
 }
 
 function currentPurge(nodeId: string, confirmation: string, reason: string, receiptId: string, now: () => string) {
-  if (confirmation !== `PURGE ${nodeId}`) throw legacyError(`请输入 PURGE ${nodeId} 以确认物理删除。`, 400, 'PURGE_CONFIRMATION_REQUIRED'); if (!reason || reason.length > 500) throw legacyError('Purge 必须提供不超过 500 字符的审计原因。', 400, 'PURGE_REASON_REQUIRED');
+  if (confirmation !== `PURGE ${nodeId}`) throw legacyError(`请输入 PURGE ${nodeId} 以确认物理删除。`, 400, 'PURGE_CONFIRMATION_REQUIRED'); if (!reason.trim() || reason.length > 500) throw legacyError('Purge 必须提供不超过 500 字符的确认说明；原文不会保存。', 400, 'PURGE_REASON_REQUIRED');
   return (current: WorkspaceData) => {
     const node = current.discussionNodes.find(item => item.id === nodeId);
     if (!node) throw legacyError('讨论节点不存在。', 404, 'NODE_NOT_FOUND');
@@ -581,7 +581,7 @@ function currentPurge(nodeId: string, confirmation: string, reason: string, rece
     const removedSourceIds = new Set([node.id, ...messageIds, ...segmentIds, ...anchorIds]);
     const fallback = current.discussionNodes.find(item => item.id !== node.id && item.status !== 'archived');
     if (!fallback) throw legacyError('至少需要保留一个未归档节点。', 409, 'CANNOT_PURGE_LAST_NODE');
-    const receipt: AuditEvent = { id: receiptId, projectId: current.projectId, nodeId, action: 'node.purged', entityType: 'node', entityId: nodeId, metadata: { reason, confirmation: 'explicit-id-phrase', removed: { nodes: 1, messages: messageIds.size, segments: segmentIds.size, manifests: manifestIds.size, anchors: anchorIds.size } }, createdAt: now() };
+    const receipt: AuditEvent = { id: receiptId, projectId: current.projectId, nodeId, action: 'node.purged', entityType: 'node', entityId: nodeId, metadata: { reason: 'provided-redacted', confirmation: 'explicit-id-phrase', removed: { nodes: 1, messages: messageIds.size, segments: segmentIds.size, manifests: manifestIds.size, anchors: anchorIds.size } }, createdAt: now() };
     const workspace = {
       ...current, activeNodeId: current.activeNodeId === node.id ? fallback.id : current.activeNodeId, nodeId: current.nodeId === node.id ? fallback.id : current.nodeId,
       discussionNodes: current.discussionNodes.filter(item => item.id !== node.id),

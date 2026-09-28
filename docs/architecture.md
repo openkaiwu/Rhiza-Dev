@@ -152,7 +152,7 @@ Express 后端暴露以下边界：
 - `PATCH /api/nodes/:id/position`：持久化 Graph 节点坐标
 - `POST /api/graph/nodes`、`DELETE /api/graph/nodes/:id`：创建图谱节点；普通 DELETE 仅归档并保留 Message、Segment、Manifest 与关系
 - `PATCH /api/nodes/:id/status`：恢复已归档节点；归档期间对象和关系只读
-- `POST /api/graph/nodes/:id/purge`：仅接受 archived leaf、精确 `PURGE <id>` 确认和审计原因；若节点有不可变 Run 输入或历史引用则以 `PURGE_HAS_EXECUTION_HISTORY` 拒绝
+- `POST /api/graph/nodes/:id/purge`：仅接受 archived leaf、精确 `PURGE <id>` 确认和非空确认说明；说明原文不持久化，审计仅保留已提供标记。若节点有不可变 Run 输入或历史引用则以 `PURGE_HAS_EXECUTION_HISTORY` 拒绝
 - `POST /api/graph/edges`、`DELETE /api/graph/edges/:id`：创建和删除语义关系
 - `POST /api/nodes/:id/merge`：选择性合并支线摘要、写入主线引用并生成 `merged-into` 关系
 - `GET/POST/PUT /api/providers`：读取、新增和更新安全裁剪后的供应商配置
