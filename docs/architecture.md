@@ -22,6 +22,8 @@ M09 当前实现：新 Assistant output 在原事务内写入 `provenance_links`
 
 新 Run trace 写入仅接受 Runtime 协议事件类型，并将每条记录投影为 `sequence/type/at`，不持久化流式正文或调用方附带的其他字段。`pnpm run m09:traces:audit` 全库检查既有 trace 行的字段和类型；停服后可用 `RHIZA_OFFLINE_TRACE_SANITIZATION=1 pnpm run m09:traces:sanitize` 分批清除旧行的附加字段，保留可信的 sequence/type/at，格式不可信时失败关闭。正式 staging 仍需执行迁移和审计。
 
+Purge 事务在登记密钥前逐项对账被删 Node、Message、Manifest、Segment、Anchor、Edge 的 SQL 行数与密文引用；任何正文族缺适配器、缺行或仍为旧明文时先拒绝，不把删除 SQL 行当作 crypto-shred。旧内容须通过现有分批密封迁移完成后重试；该保护与 Journal/Receipt/Resource 的独立前置校验共同组成提交边界。
+
 迁移 0032 将 Purge 前已密封的 CommandReceipt result/error 纳入同一 checkpoint；SQL 标记后，重复命令只返回 `RECEIPT_PURGED`，审计读取只保留回执身份和序列。旧明文回执阻断 Purge，必须先完成既有分批密封迁移。此策略会同时撤销该 Workspace 中与目标节点无关的旧回执正文；新 Purge 命令回执不在旧密钥清单内。Run、trace、资源与备份边界尚未闭合，执行历史保护继续生效。
 
 仅当待删消息的附件资源无保留 Message/Manifest/Context/Run 引用、所有版本已密封、附件/Resource/FileChunk 正文已密封且已知原明文文件不存在时，Purge 才在同一事务移除附件与派生块、脱敏资源及 Graph、写入 ResourceVersion 墓碑覆盖层，并将四类旧密钥加入持久 checkpoint；提交后逐项幂等撤钥。直接指向这些附件或文件块的 file/chunk ContextItem 也须无其他节点/Manifest 引用，随事务移除并登记其密钥；任何待移除 ContextItem 若尚无密文引用，整个 Purge 在提交前以 `PURGE_CONTEXT_MIGRATION_REQUIRED` 拒绝。待删旧 Manifest 只有在附件与冻结资源引用全部属于同一待撤销资源集合、且 Manifest 正文已密封时才可一并撤钥；旧明文 Manifest 以 `PURGE_MANIFEST_MIGRATION_REQUIRED` 拒绝。撤钥中断时数据库仍只暴露墓碑，恢复器继续处理。无法归属到独占附件的 Manifest/Context 资源引用仍返回 `PURGE_HAS_RESOURCE_HISTORY`，不可把拒绝保护视为完整资源擦除。

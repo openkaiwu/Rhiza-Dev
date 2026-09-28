@@ -17,6 +17,8 @@ import { PostgresWorkspaceStore } from '../server/postgres-store';
 import { SealedJournalContent } from '../server/infrastructure/sealed-journal-content';
 import { SealedReceiptContent } from '../server/infrastructure/sealed-receipt-content';
 import { SealedManifestContent } from '../server/infrastructure/sealed-manifest-content';
+import { SealedNodeContent } from '../server/infrastructure/sealed-node-content';
+import { SealedMessageContent } from '../server/infrastructure/sealed-message-content';
 import { RepositoryWorkspaceUnitOfWork } from '../server/infrastructure/workspace-repository-unit-of-work';
 import { PostgresGraphProjectionAdapter } from '../server/graph-projection/postgres-adapter';
 import { buildWorkspaceGraphProjection } from '../server/graph-projection/model';
@@ -57,8 +59,10 @@ async function migratedDatabase(backend: 'embedded' | 'postgres' = 'embedded') {
   return database;
 }
 
-function legacyApp(database: TestDatabase, defaultWorkspaceId: string, journalContent?: SealedJournalContent, receiptContent?: SealedReceiptContent) {
-  const store = new PostgresWorkspaceStore(database, defaultWorkspaceId, receiptContent, undefined, journalContent);
+function legacyApp(database: TestDatabase, defaultWorkspaceId: string, journalContent?: SealedJournalContent,
+  receiptContent?: SealedReceiptContent, contentDirectory?: string) {
+  const store = new PostgresWorkspaceStore(database, defaultWorkspaceId, receiptContent, undefined, journalContent,
+    undefined, undefined, contentDirectory ? SealedNodeContent.atDirectory(join(contentDirectory, 'nodes')) : undefined);
   const application = createRhizaApplication({
     unitOfWork: new RepositoryWorkspaceUnitOfWork(store), workspaceDirectory: new WorkspaceDirectory(store.workspaceDirectory), defaultWorkspaceId,
     runtime: { kind: 'provider-adapter', listModels: async () => [{ id: 'model', provider: 'test', model: 'test', displayName: 'test', active: true }], async *generate() { yield { type: 'RUN_END', requestId: 'run', text: 'unused', model: 'test', provider: 'test' } as const; } },
@@ -127,7 +131,7 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
     try {
       const { app, store } = legacyApp(database, workspaceId,
         SealedJournalContent.atDirectory(join(contentDirectory, 'journal')),
-        SealedReceiptContent.atDirectory(join(contentDirectory, 'receipts')));
+        SealedReceiptContent.atDirectory(join(contentDirectory, 'receipts')), contentDirectory);
       await request(app).get('/api/workspace').expect(200);
       await store.backfillJournal();
       await request(app).post('/api/graph/nodes').send({ title: 'Projected', x: 120, y: 80 }).expect(201);
@@ -438,13 +442,21 @@ describe('PostgreSQL workspace persistence', () => {
         }],
       });
       await expect(store.update(purge, { purge: { nodeId, auditReceiptId: receiptId } }))
+        .rejects.toMatchObject({ code: 'PURGE_CONTENT_MIGRATION_REQUIRED', status: 409 });
+      const nodeMessageStore = new PostgresWorkspaceStore(database, projectId, undefined, undefined, undefined,
+        SealedMessageContent.atDirectory(join(directory, 'messages')), undefined,
+        SealedNodeContent.atDirectory(join(directory, 'nodes')));
+      expect(await nodeMessageStore.sealLegacyMessageContent()).toBeGreaterThan(0);
+      expect(await nodeMessageStore.sealLegacyNodeContent()).toBeGreaterThan(0);
+      await expect(nodeMessageStore.update(purge, { purge: { nodeId, auditReceiptId: receiptId } }))
         .rejects.toMatchObject({ code: 'PURGE_MANIFEST_MIGRATION_REQUIRED', status: 409 });
-      const sealedStore = new PostgresWorkspaceStore(database, projectId, undefined, undefined, undefined, undefined,
-        SealedManifestContent.atDirectory(directory));
-      expect(await sealedStore.sealLegacyManifestContent()).toBe(1);
-      await sealedStore.update(purge, { purge: { nodeId, auditReceiptId: receiptId } });
+      const migratedStore = new PostgresWorkspaceStore(database, projectId, undefined, undefined, undefined,
+        SealedMessageContent.atDirectory(join(directory, 'messages')), SealedManifestContent.atDirectory(directory),
+        SealedNodeContent.atDirectory(join(directory, 'nodes')));
+      expect(await migratedStore.sealLegacyManifestContent()).toBe(1);
+      await migratedStore.update(purge, { purge: { nodeId, auditReceiptId: receiptId } });
 
-      const recovered = await sealedStore.read();
+      const recovered = await migratedStore.read();
       expect(recovered.discussionNodes).not.toContainEqual(expect.objectContaining({ id: nodeId }));
       expect(recovered.messages).not.toContainEqual(expect.objectContaining({ id: messageId }));
       expect(recovered.manifests).not.toContainEqual(expect.objectContaining({ id: manifestId }));

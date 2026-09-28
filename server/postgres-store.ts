@@ -1881,13 +1881,18 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       if (shared.rows.length) throw Object.assign(new Error('PURGE_ARCHIVE_SHARED'), { code: 'PURGE_ARCHIVE_SHARED', status: 409 });
       references.push({ family: 'import-archive', entityId: archive.archive_digest, reference: { digest: archive.archive_digest } });
     }
-    const collect = async (family: PurgeContentFamily, sql: string, values: unknown[]) => {
+    const collect = async (family: PurgeContentFamily, sql: string, values: unknown[], expectedIds: string[], storeReady: boolean) => {
+      if (!expectedIds.length) return;
       const rows = await database.query<{ entity_id: string; content_ref: unknown }>(sql, values);
+      if (!storeReady || rows.rows.length !== expectedIds.length || rows.rows.some(row => row.content_ref == null))
+        throw Object.assign(new Error(`Purge requires sealed ${family} content`), { code: 'PURGE_CONTENT_MIGRATION_REQUIRED', status: 409 });
       for (const row of rows.rows) references.push({ family, entityId: String(row.entity_id), reference: asJson(row.content_ref) });
     };
-    await collect('node', 'SELECT id::text entity_id,content_ref FROM rhiza_nodes WHERE project_id=$1 AND id=$2 AND content_ref IS NOT NULL', [workspace.projectId, purge.nodeId]);
-    await collect('message', 'SELECT m.id::text entity_id,m.content_ref FROM rhiza_messages m JOIN rhiza_nodes n ON n.id=m.node_id WHERE n.project_id=$1 AND m.id=ANY($2::uuid[]) AND m.content_ref IS NOT NULL',
-      [workspace.projectId, removedIds(previous.messages, workspace.messages)]);
+    await collect('node', 'SELECT id::text entity_id,content_ref FROM rhiza_nodes WHERE project_id=$1 AND id=$2 FOR UPDATE',
+      [workspace.projectId, purge.nodeId], [purge.nodeId], !!this.nodeContent);
+    const removedMessageIds = removedIds(previous.messages, workspace.messages);
+    await collect('message', 'SELECT m.id::text entity_id,m.content_ref FROM rhiza_messages m JOIN rhiza_nodes n ON n.id=m.node_id WHERE n.project_id=$1 AND m.id=ANY($2::uuid[]) FOR UPDATE OF m',
+      [workspace.projectId, removedMessageIds], removedMessageIds, !!this.messageContent);
     const removedManifestIds = removedIds(previous.manifests, workspace.manifests);
     if (removedManifestIds.length) {
       const rows = await database.query<{ entity_id: string; content_ref: unknown }>(
@@ -1897,12 +1902,15 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         throw Object.assign(new Error('Purge requires sealed Manifest content'), { code: 'PURGE_MANIFEST_MIGRATION_REQUIRED', status: 409 });
       for (const row of rows.rows) references.push({ family: 'manifest', entityId: row.entity_id, reference: asJson(row.content_ref) });
     }
-    await collect('segment', 'SELECT s.id::text entity_id,s.content_ref FROM rhiza_segments s JOIN rhiza_nodes n ON n.id=s.node_id WHERE n.project_id=$1 AND s.id=ANY($2::uuid[]) AND s.content_ref IS NOT NULL',
-      [workspace.projectId, removedIds(previous.segments, workspace.segments)]);
-    await collect('anchor', 'SELECT id::text entity_id,content_ref FROM rhiza_anchors WHERE project_id=$1 AND id=ANY($2::uuid[]) AND content_ref IS NOT NULL',
-      [workspace.projectId, removedIds(previous.anchors, workspace.anchors)]);
-    await collect('edge', 'SELECT id::text entity_id,content_ref FROM rhiza_edges WHERE project_id=$1 AND id=ANY($2::uuid[]) AND content_ref IS NOT NULL',
-      [workspace.projectId, removedIds(previous.discussionEdges, workspace.discussionEdges)]);
+    const removedSegmentIds = removedIds(previous.segments, workspace.segments);
+    await collect('segment', 'SELECT s.id::text entity_id,s.content_ref FROM rhiza_segments s JOIN rhiza_nodes n ON n.id=s.node_id WHERE n.project_id=$1 AND s.id=ANY($2::uuid[]) FOR UPDATE OF s',
+      [workspace.projectId, removedSegmentIds], removedSegmentIds, !!this.segmentContent);
+    const removedAnchorIds = removedIds(previous.anchors, workspace.anchors);
+    await collect('anchor', 'SELECT id::text entity_id,content_ref FROM rhiza_anchors WHERE project_id=$1 AND id=ANY($2::uuid[]) FOR UPDATE',
+      [workspace.projectId, removedAnchorIds], removedAnchorIds, !!this.anchorContent);
+    const removedEdgeIds = removedIds(previous.discussionEdges, workspace.discussionEdges);
+    await collect('edge', 'SELECT id::text entity_id,content_ref FROM rhiza_edges WHERE project_id=$1 AND id=ANY($2::uuid[]) FOR UPDATE',
+      [workspace.projectId, removedEdgeIds], removedEdgeIds, !!this.edgeContent);
 
     const purgedVersions = previous.resourceVersions.filter(version => !version.purgedAt
       && workspace.resourceVersions.some(candidate => candidate.id === version.id && candidate.purgedAt));

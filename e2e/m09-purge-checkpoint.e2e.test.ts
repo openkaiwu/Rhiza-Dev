@@ -21,6 +21,9 @@ import type { WorkspaceData } from '../server/domain';
 import { SealedResourceContent } from '../server/infrastructure/sealed-resource-content';
 import { SealedAttachmentContent } from '../server/infrastructure/sealed-attachment-content';
 import { SealedFileChunkContent } from '../server/infrastructure/sealed-file-chunk-content';
+import { SealedEdgeContent } from '../server/infrastructure/sealed-edge-content';
+import { SealedAnchorContent } from '../server/infrastructure/sealed-anchor-content';
+import { SealedSegmentContent } from '../server/infrastructure/sealed-segment-content';
 import { NodeEncryptedBlobStore } from '../server/infrastructure/node-encrypted-blob-store';
 import { NodeFilesystemBlobStore } from '../server/infrastructure/node-host-runtime';
 import { NodeImportArchiveStore } from '../server/infrastructure/portable-content';
@@ -50,9 +53,10 @@ async function migratedDatabase(backend: 'embedded' | 'postgres'): Promise<TestD
   return database;
 }
 
-function storeWithArchive(database: TestDatabase, workspaceId: string, archive: NodeImportArchiveStore) {
+function storeWithArchive(database: TestDatabase, workspaceId: string, archive: NodeImportArchiveStore, directory: string) {
   return new PostgresWorkspaceStore(database, workspaceId, undefined, undefined, undefined, undefined, undefined,
-    undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, archive);
+    SealedNodeContent.atDirectory(join(directory, 'nodes')), undefined, undefined, undefined, undefined,
+    undefined, undefined, undefined, undefined, archive);
 }
 
 for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M09 durable Purge checkpoint (${backend})`, () => {
@@ -95,7 +99,7 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
     const digest = createHash('sha256').update(bytes).digest('hex');
     const source = join(directory, 'source.rhiza');
     await writeFile(source, bytes);
-    const store = storeWithArchive(database, workspaceId, archive);
+    const store = storeWithArchive(database, workspaceId, archive, directory);
     try {
       const createdAt = new Date().toISOString();
       await store.update(current => ({ ...current, discussionNodes: [...current.discussionNodes, {
@@ -116,7 +120,7 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
         .toEqual({ phase: 'pending', last_error: 'INJECTED_REVOCATION_FAILURE' });
       expect((await database.query<{ content_family: string; entity_id: string }>('SELECT content_family,entity_id FROM purge_key_references WHERE purge_id=$1', [purgeId])).rows)
         .toContainEqual({ content_family: 'import-archive', entity_id: digest });
-      const otherWorkspace = storeWithArchive(database, randomUUID(), archive);
+      const otherWorkspace = storeWithArchive(database, randomUUID(), archive, directory);
       const otherIdentity = { importId: randomUUID(), ownerId: 'other', workspaceId: otherWorkspace.defaultWorkspaceId,
         archiveDigest: digest, stateDigest: 'c'.repeat(64) };
       await expect(otherWorkspace.bundleImportCheckpoints.begin(otherIdentity)).rejects.toMatchObject({ code: 'BUNDLE_ARCHIVE_PURGE_PENDING', status: 409 });
@@ -141,7 +145,7 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
     directories.push(directory);
     const archive = new NodeImportArchiveStore(join(directory, 'imports'));
     const workspaceId = randomUUID(), nodeId = randomUUID(), purgeId = randomUUID();
-    const store = storeWithArchive(database, workspaceId, archive);
+    const store = storeWithArchive(database, workspaceId, archive, directory);
     const identity = { importId: randomUUID(), ownerId: 'owner', workspaceId, archiveDigest: 'a'.repeat(64), stateDigest: 'b'.repeat(64) };
     try {
       await store.bundleImportCheckpoints.begin(identity);
@@ -178,8 +182,8 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
     directories.push(directory);
     const archive = new NodeImportArchiveStore(join(directory, 'imports'));
     const workspaceId = randomUUID(), nodeId = randomUUID(), purgeId = randomUUID();
-    const retaining = storeWithArchive(database, workspaceId, archive);
-    const purging = storeWithArchive(database, workspaceId, archive);
+    const retaining = storeWithArchive(database, workspaceId, archive, directory);
+    const purging = storeWithArchive(database, workspaceId, archive, directory);
     const bytes = Buffer.from('archive content published during a competing purge');
     const digest = createHash('sha256').update(bytes).digest('hex');
     const source = join(directory, 'source.rhiza');
@@ -234,8 +238,8 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
     const digest = createHash('sha256').update(bytes).digest('hex');
     const source = join(directory, 'source.rhiza');
     await writeFile(source, bytes);
-    const purging = storeWithArchive(database, workspaceId, archive);
-    const importing = storeWithArchive(database, otherWorkspaceId, archive);
+    const purging = storeWithArchive(database, workspaceId, archive, directory);
+    const importing = storeWithArchive(database, otherWorkspaceId, archive, directory);
     const otherIdentity = { importId: randomUUID(), ownerId: 'other', workspaceId: otherWorkspaceId, archiveDigest: digest, stateDigest: 'b'.repeat(64) };
     let release!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
@@ -435,8 +439,9 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
     directories.push(directory);
     const content = SealedContextItemContent.atDirectory(directory);
     const workspaceId = randomUUID(), nodeId = randomUUID(), messageId = randomUUID(), itemId = randomUUID(), purgeId = randomUUID();
-    const store = new PostgresWorkspaceStore(database, workspaceId, undefined, undefined, undefined, undefined, undefined,
-      undefined, undefined, undefined, undefined, content);
+    const store = new PostgresWorkspaceStore(database, workspaceId, undefined, undefined, undefined,
+      SealedMessageContent.atDirectory(join(directory, 'messages')), undefined,
+      SealedNodeContent.atDirectory(join(directory, 'nodes')), undefined, undefined, undefined, content);
     try {
       const createdAt = new Date().toISOString();
       await store.update(current => ({ ...current,
@@ -529,19 +534,29 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
 
   it('redacts every saved Graph namespace and candidate index in the Purge transaction', async () => {
     const database = await migratedDatabase(backend);
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-purge-graph-'));
+    directories.push(directory);
     const workspaceId = randomUUID();
-    const store = new PostgresWorkspaceStore(database, workspaceId);
+    const store = new PostgresWorkspaceStore(database, workspaceId, undefined, undefined, undefined,
+      SealedMessageContent.atDirectory(join(directory, 'messages')), undefined,
+      SealedNodeContent.atDirectory(join(directory, 'nodes')),
+      SealedAnchorContent.atDirectory(join(directory, 'anchors')),
+      SealedSegmentContent.atDirectory(join(directory, 'segments')),
+      SealedEdgeContent.atDirectory(join(directory, 'edges')));
     try {
       const current = await store.read();
-      const nodeId = randomUUID(), messageId = randomUUID(), edgeId = randomUUID(), purgeId = randomUUID();
+      const nodeId = randomUUID(), messageId = randomUUID(), segmentId = randomUUID(), anchorId = randomUUID(), edgeId = randomUUID(), purgeId = randomUUID();
       const createdAt = new Date().toISOString();
       await store.update(workspace => ({ ...workspace,
         discussionNodes: [...workspace.discussionNodes, { id: nodeId, title: 'private graph title', summary: 'private graph summary',
           anchorText: 'private graph anchor', status: 'archived' as const, kind: 'branch' as const,
           sourceNodeId: current.activeNodeId, x: 20, y: 30, createdAt, updatedAt: createdAt }],
         messages: [...workspace.messages, { id: messageId, nodeId, kind: 'user' as const, text: 'private graph message', createdAt }],
+        segments: [...workspace.segments, { id: segmentId, nodeId, ordinal: 0, title: 'private graph segment', createdAt }],
+        anchors: [...workspace.anchors, { id: anchorId, nodeId, messageId, segmentId,
+          selectedText: 'private graph anchor text', startOffset: 0, endOffset: 7, createdAt }],
         discussionEdges: [...workspace.discussionEdges, { id: edgeId, source: current.activeNodeId, target: nodeId,
-          relation: 'related-to' as const, label: 'private graph relation', createdAt }],
+          relation: 'related-to' as const, anchorId, label: 'private graph relation', createdAt }],
       }));
       await store.rebuildGraphProjection();
       await store.rebuildGraphProjection();
@@ -554,6 +569,8 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       const purge = () => store.update(workspace => ({ ...workspace,
         discussionNodes: workspace.discussionNodes.filter(node => node.id !== nodeId),
         messages: workspace.messages.filter(message => message.id !== messageId),
+        segments: workspace.segments.filter(segment => segment.id !== segmentId),
+        anchors: workspace.anchors.filter(anchor => anchor.id !== anchorId),
         discussionEdges: workspace.discussionEdges.filter(edge => edge.id !== edgeId),
         auditEvents: [...workspace.auditEvents, { id: purgeId, projectId: workspaceId, nodeId, action: 'node.purged',
           entityType: 'node', entityId: nodeId, metadata: { reason: 'provided-redacted' }, createdAt }],
@@ -568,6 +585,8 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       await database.exec('DROP TRIGGER fail_projection_redaction ON graph_relations');
       await database.exec('DROP FUNCTION fail_projection_redaction()');
       await purge();
+      expect((await database.query<{ content_family: string }>('SELECT content_family FROM purge_key_references WHERE purge_id=$1', [purgeId]))
+        .rows.map(row => row.content_family)).toEqual(expect.arrayContaining(['node', 'message', 'segment', 'anchor', 'edge']));
       const objects = await database.query<{ title: string; summary: string; metadata: unknown }>(
         'SELECT title,summary,metadata FROM workspace_objects WHERE workspace_id=$1 AND object_id=ANY($2::text[])', [workspaceId, [nodeId, messageId]]);
       expect(objects.rows).toHaveLength(before.rows.length);
@@ -638,8 +657,11 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
     directories.push(directory);
     const journalContent = SealedJournalContent.atDirectory(join(directory, 'journal'));
     const receiptContent = SealedReceiptContent.atDirectory(join(directory, 'receipts'));
+    const messageContent = SealedMessageContent.atDirectory(join(directory, 'messages'));
+    const nodeContent = SealedNodeContent.atDirectory(join(directory, 'nodes'));
     const workspaceId = randomUUID();
-    const store = new PostgresWorkspaceStore(database, workspaceId, receiptContent, undefined, journalContent);
+    const store = new PostgresWorkspaceStore(database, workspaceId, receiptContent, undefined, journalContent,
+      messageContent, undefined, nodeContent);
     try {
       const workspace = await store.read();
       await store.workspaceDirectory.ensureWorkspace({ workspaceId, name: 'Journal purge', status: 'active', createdBy: randomUUID(), revision: 1 });
@@ -695,7 +717,8 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       })).rejects.toMatchObject({ code: 'RECEIPT_PURGED', status: 410 });
       expect(apply).not.toHaveBeenCalled();
 
-      const reopened = new PostgresWorkspaceStore(database, workspaceId, receiptContent, undefined, journalContent);
+      const reopened = new PostgresWorkspaceStore(database, workspaceId, receiptContent, undefined, journalContent,
+        messageContent, undefined, nodeContent);
       expect(await reopened.resumePendingPurges()).toEqual({ completed: 1, pending: 0 });
       await expect(journalContent.read(workspaceId, original.event_id, original.payload_content_ref)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
       await expect(receiptContent.read(workspaceId, receiptId, receipt.result_content_ref)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
@@ -714,8 +737,11 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
 
   it('does not stage a Purge while a historical command receipt still contains plaintext', async () => {
     const database = await migratedDatabase(backend);
+    const directory = await mkdtemp(join(tmpdir(), 'rhiza-purge-plaintext-receipt-'));
+    directories.push(directory);
     const workspaceId = randomUUID();
-    const store = new PostgresWorkspaceStore(database, workspaceId);
+    const store = new PostgresWorkspaceStore(database, workspaceId, undefined, undefined, undefined, undefined, undefined,
+      SealedNodeContent.atDirectory(join(directory, 'nodes')));
     try {
       await store.read();
       await store.backfillJournal();
