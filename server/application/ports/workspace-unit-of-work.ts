@@ -30,7 +30,7 @@ export type WorkspaceLifecycleCommand =
 
 export type WorkspaceMutationPolicy =
   | { kind: 'normal' }
-  | { kind: 'purge'; nodeId: string; auditReceiptId: string };
+  | { kind: 'purge'; nodeId: string; auditReceiptId: string; frozenResourceIds?: string[] };
 
 /** A policy-bound workspace mutation. The policy is known before persistence begins. */
 export interface WorkspaceMutation<T> {

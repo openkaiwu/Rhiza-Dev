@@ -1,3 +1,4 @@
+import { purgeResourceIds, runFrozenResourceIds } from '../domain/purge-resources';
 import type { ContextCompiler, ContextVersionVector, FrozenContextItem, IndexedContextPlanningPort } from '../context-runtime/contracts';
 import { RunLifecycle } from './run-lifecycle';
 import { resolveContextHistory } from './context-history';
@@ -439,7 +440,14 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
         case 'CreateRelation': return mutateWorkspace(current => { const source = current.discussionNodes.find(node => node.id === payload.source); const target = current.discussionNodes.find(node => node.id === payload.target); if (!source || !target) throw legacyError('关系节点不存在。', 404, 'NODE_NOT_FOUND'); if (source.status === 'archived' || target.status === 'archived') throw legacyError('归档节点为只读；请先恢复。', 409, 'NODE_ARCHIVED_READ_ONLY'); if (current.discussionEdges.some(edge => edge.source === payload.source && edge.target === payload.target && edge.relation === payload.relation)) throw legacyError('相同关系已经存在。', 409, 'EDGE_ALREADY_EXISTS'); const next = { ...current, discussionEdges: [...current.discussionEdges, { id: id(), source: payload.source, target: payload.target, relation: payload.relation, label: payload.label || '', createdAt: now() }] }; return { next, value: undefined }; });
         case 'RemoveRelation': return mutateWorkspace(current => { const edge = current.discussionEdges.find(item => item.id === payload.edgeId); if (!edge) throw legacyError('关系不存在。', 404, 'EDGE_NOT_FOUND'); if (current.discussionNodes.some(node => (node.id === edge.source || node.id === edge.target) && node.status === 'archived')) throw legacyError('归档节点及其关系为只读；请先恢复。', 409, 'NODE_ARCHIVED_READ_ONLY'); const next = { ...current, discussionEdges: current.discussionEdges.filter(item => item.id !== edge.id) }; return { next, value: undefined }; });
         case 'CreateMergeRevision': return mutateWorkspace(current => { const result = mergeRevision(current, payload.sourceNodeId, payload.targetNodeId || current.discussionNodes.find(node => node.id === payload.sourceNodeId)?.sourceNodeId || '', payload.summary, id, now, planner); return { next: result.next, value: undefined }; });
-        case 'PurgeObject': { const receiptId = id(); const committed = await unitOfWork.execute({ policy: { kind: 'purge', nodeId: payload.nodeId, auditReceiptId: receiptId }, apply: currentPurge(payload.nodeId, payload.confirmation, payload.reason, receiptId, now) }); return { workspace: committed.workspace, purgeReceipt: committed.value.purgeReceipt }; }
+        case 'PurgeObject': {
+          const receiptId = id();
+          const facts = unitOfWork.tracksRuns && unitOfWork.readPortableWorkspace ? await unitOfWork.readPortableWorkspace() : undefined;
+          const frozenResourceIds = facts ? runFrozenResourceIds(facts.workspace, payload.nodeId, facts.runs, facts.journal) : undefined;
+          const committed = await unitOfWork.execute({ policy: { kind: 'purge', nodeId: payload.nodeId, auditReceiptId: receiptId, frozenResourceIds },
+            apply: currentPurge(payload.nodeId, payload.confirmation, payload.reason, receiptId, now, frozenResourceIds) });
+          return { workspace: committed.workspace, purgeReceipt: committed.value.purgeReceipt };
+        }
         case 'CreateBranch': return mutateWorkspace(current => { const result = createBranch(current, payload, id, now, planner); return { next: result.next, value: undefined }; });
         case 'ExecuteTemporaryConversation': {
           const prior = await unitOfWork.readCommittedResult?.<CommandMap['ExecuteTemporaryConversation']['result']>();
@@ -570,7 +578,7 @@ async function temporaryConversation(payload: Extract<CommandEnvelope<'ExecuteTe
   return execute(request, completion => ({ userMessage: { id: id(), nodeId: temporaryNodeId, kind: 'user' as const, text: payload.prompt, createdAt }, assistantMessage: { id: id(), nodeId: temporaryNodeId, kind: 'assistant' as const, text: completion.text, createdAt }, model: completion.model }));
 }
 
-function currentPurge(nodeId: string, confirmation: string, reason: string, receiptId: string, now: () => string) {
+function currentPurge(nodeId: string, confirmation: string, reason: string, receiptId: string, now: () => string, frozenResourceIds?: string[]) {
   if (confirmation !== `PURGE ${nodeId}`) throw legacyError(`请输入 PURGE ${nodeId} 以确认物理删除。`, 400, 'PURGE_CONFIRMATION_REQUIRED'); if (!reason.trim() || reason.length > 500) throw legacyError('Purge 必须提供不超过 500 字符的确认说明；原文不会保存。', 400, 'PURGE_REASON_REQUIRED');
   return (current: WorkspaceData) => {
     const node = current.discussionNodes.find(item => item.id === nodeId);
@@ -582,8 +590,7 @@ function currentPurge(nodeId: string, confirmation: string, reason: string, rece
     const manifestIds = new Set(current.manifests.filter(manifest => manifest.nodeId === node.id).map(manifest => manifest.id));
     const anchorIds = new Set(current.anchors.filter(anchor => anchor.nodeId === node.id || (anchor.messageId && messageIds.has(anchor.messageId)) || (anchor.segmentId && segmentIds.has(anchor.segmentId))).map(anchor => anchor.id));
     const removedSourceIds = new Set([node.id, ...messageIds, ...segmentIds, ...anchorIds]);
-    const attachedIds = new Set(current.messages.filter(message => messageIds.has(message.id)).flatMap(message => message.attachmentIds ?? []));
-    const resourceIds = new Set(current.attachments.filter(attachment => attachedIds.has(attachment.id)).flatMap(attachment => attachment.resourceId ? [attachment.resourceId] : []));
+    const resourceIds = purgeResourceIds(current, node.id, frozenResourceIds);
     const removedAttachmentIds = new Set(current.attachments.filter(attachment => attachment.resourceId && resourceIds.has(attachment.resourceId)).map(attachment => attachment.id));
     const removedChunkIds = new Set(current.fileChunks.filter(chunk => removedAttachmentIds.has(chunk.attachmentId)).map(chunk => chunk.id));
     const fallback = current.discussionNodes.find(item => item.id !== node.id && item.status !== 'archived');

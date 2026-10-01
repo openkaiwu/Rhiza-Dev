@@ -1,3 +1,4 @@
+import { ContentDirectoryOwnership } from './infrastructure/content-directory-ownership';
 import { access, mkdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
@@ -47,7 +48,7 @@ export async function openEmbeddedWorkspaceStore(dataDirectory = resolve('var/rh
       });
     }
     const contentDirectory = `${resolve(dataDirectory)}.content`;
-    return new PostgresWorkspaceStore(database, workspaceId, SealedReceiptContent.atDirectory(contentDirectory), SealedRunContent.atDirectory(join(contentDirectory, 'runs')), SealedJournalContent.atDirectory(join(contentDirectory, 'journal')), SealedMessageContent.atDirectory(join(contentDirectory, 'messages')), SealedManifestContent.atDirectory(join(contentDirectory, 'manifests')), SealedNodeContent.atDirectory(join(contentDirectory, 'nodes')), SealedAnchorContent.atDirectory(join(contentDirectory, 'anchors')), SealedSegmentContent.atDirectory(join(contentDirectory, 'segments')), SealedEdgeContent.atDirectory(join(contentDirectory, 'edges')), SealedContextItemContent.atDirectory(join(contentDirectory, 'context-items')), SealedFileChunkContent.atDirectory(join(contentDirectory, 'file-chunks')), SealedAttachmentContent.atDirectory(join(contentDirectory, 'attachments')), SealedResourceContent.atDirectory(join(contentDirectory, 'resources')), resourceBlobs, importArchives);
+    return new PostgresWorkspaceStore(database, workspaceId, SealedReceiptContent.atDirectory(contentDirectory), SealedRunContent.atDirectory(join(contentDirectory, 'runs')), SealedJournalContent.atDirectory(join(contentDirectory, 'journal')), SealedMessageContent.atDirectory(join(contentDirectory, 'messages')), SealedManifestContent.atDirectory(join(contentDirectory, 'manifests')), SealedNodeContent.atDirectory(join(contentDirectory, 'nodes')), SealedAnchorContent.atDirectory(join(contentDirectory, 'anchors')), SealedSegmentContent.atDirectory(join(contentDirectory, 'segments')), SealedEdgeContent.atDirectory(join(contentDirectory, 'edges')), SealedContextItemContent.atDirectory(join(contentDirectory, 'context-items')), SealedFileChunkContent.atDirectory(join(contentDirectory, 'file-chunks')), SealedAttachmentContent.atDirectory(join(contentDirectory, 'attachments')), SealedResourceContent.atDirectory(join(contentDirectory, 'resources')), resourceBlobs, importArchives, new ContentDirectoryOwnership(contentDirectory, resolve(dataDirectory)));
   } catch (error) {
     await database.close();
     throw error;

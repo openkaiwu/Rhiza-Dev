@@ -13,7 +13,7 @@ import type { ContextManifest, WorkspaceData } from '../server/domain';
 import { createRhizaApplication } from '../server/application/create-application';
 import { createHttpApp } from '../server/http/app';
 import { WorkspaceDirectory } from '../server/identity/workspace-directory';
-import { PostgresWorkspaceStore } from '../server/postgres-store';
+import { PostgresWorkspaceStore } from './fixtures/workspace-store';
 import { SealedJournalContent } from '../server/infrastructure/sealed-journal-content';
 import { SealedReceiptContent } from '../server/infrastructure/sealed-receipt-content';
 import { SealedManifestContent } from '../server/infrastructure/sealed-manifest-content';
@@ -22,7 +22,7 @@ import { SealedMessageContent } from '../server/infrastructure/sealed-message-co
 import { RepositoryWorkspaceUnitOfWork } from '../server/infrastructure/workspace-repository-unit-of-work';
 import { PostgresGraphProjectionAdapter } from '../server/graph-projection/postgres-adapter';
 import { buildWorkspaceGraphProjection } from '../server/graph-projection/model';
-import type { SqlQueryable } from '../server/postgres-store';
+import type { SqlQueryable } from './fixtures/workspace-store';
 import { projectionToGraphPresentationModel, toGraphPresentationModel } from '../src/components/graph-model';
 
 interface TestDatabase extends SqlQueryable {
@@ -287,11 +287,11 @@ describe('PostgreSQL workspace persistence', () => {
     const database = await migratedDatabase();
     try {
       const defaultId = randomUUID(); const scopedId = randomUUID();
-      const unit = new RepositoryWorkspaceUnitOfWork(new PostgresWorkspaceStore(database, defaultId));
+      const unit = new RepositoryWorkspaceUnitOfWork(new PostgresWorkspaceStore(database, defaultId), { fixture: true });
       await unit.read(item => item.projectId);
       await unit.ensureWorkspaceInitialized(scopedId, 'Second workspace');
       await unit.withWorkspace!(scopedId, () => unit.execute({ policy: { kind: 'normal' }, apply: current => ({ next: { ...current, projectTitle: 'Scoped saved' }, value: undefined }) }));
-      const restored = new RepositoryWorkspaceUnitOfWork(new PostgresWorkspaceStore(database, defaultId));
+      const restored = new RepositoryWorkspaceUnitOfWork(new PostgresWorkspaceStore(database, defaultId), { fixture: true });
       await expect(restored.withWorkspace!(scopedId, () => restored.read(item => item.projectTitle))).resolves.toBe('Scoped saved');
       await expect(restored.read(item => item.projectTitle)).resolves.toBe('Rhiza 产品研究');
     } finally { await database.close(); }

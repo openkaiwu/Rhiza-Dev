@@ -6,7 +6,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { expect, it, vi } from 'vitest';
 import { loadMigrations } from './migrate';
 import { SealedEdgeContent } from '../server/infrastructure/sealed-edge-content';
-import { PostgresWorkspaceStore } from '../server/postgres-store';
+import { PostgresWorkspaceStore } from '../e2e/fixtures/workspace-store';
 
 it('rejects plaintext alongside edge ciphertext and preserves endpoint constraints', async () => {
   const database = new PGlite();
@@ -50,7 +50,7 @@ it('rejects plaintext alongside edge ciphertext and preserves endpoint constrain
     expect(stored.label).toBe('');
     expect((await scoped.read()).discussionEdges[0].label).toBe('updated label');
     const seal = vi.spyOn(content, 'seal');
-    await database.exec("CREATE FUNCTION reject_edge_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected edge failure'; END $$; CREATE TRIGGER reject_edge_write BEFORE INSERT ON rhiza_edges FOR EACH ROW EXECUTE FUNCTION reject_edge_write();");
+    await database.exec("CREATE FUNCTION reject_edge_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected edge failure'; END $$; CREATE TRIGGER reject_edge_write BEFORE INSERT OR UPDATE ON rhiza_edges FOR EACH ROW EXECUTE FUNCTION reject_edge_write();");
     await expect(scoped.update(current => ({ ...current, discussionEdges: current.discussionEdges.map(item => ({ ...item, label: 'failed label' })) }))).rejects.toThrow('injected edge failure');
     await expect(content.read(workspace, edge, await seal.mock.results[0].value)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     expect((await scoped.read()).discussionEdges[0].label).toBe('updated label');

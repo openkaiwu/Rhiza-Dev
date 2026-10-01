@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "1.0.0",
+  "ok": true,
+  "compatibleCommit": "5bc84667b37590f6d73a7baa4a737bbba7d84bf9",
+  "compatibleReader": true,
+  "recoveredWithoutDuplicateCall": true,
+  "purgedContentAbsent": true,
+  "workspaces": 2,
+  "bundleVerified": true,
+  "originalRunCreated": true,
+  "externalGate": "pending"
+}

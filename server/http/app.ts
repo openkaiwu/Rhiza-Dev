@@ -34,6 +34,7 @@ export interface HttpAppOptions {
   id(): string;
   runtimeKind: 'provider-adapter' | 'librechat';
   featureFlags: unknown;
+  legacyWriteReport?: () => unknown;
   providerPresets: unknown;
   defaultWorkspaceId?: string;
   frontendDirectory?: string;
@@ -218,7 +219,8 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
         query(response, 'GetHealth', {}),
         query(response, 'GetProviderStatus', {}),
       ]);
-      response.json({ ...health, provider, runtime: options.runtimeKind, featureFlags: options.featureFlags });
+      response.json({ ...health, provider, runtime: options.runtimeKind, featureFlags: options.featureFlags,
+        ...(options.legacyWriteReport ? { legacyWrites: options.legacyWriteReport() } : {}) });
     } catch (error) { next(error); }
   });
 

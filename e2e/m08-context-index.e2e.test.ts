@@ -2,7 +2,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it, vi } from 'vitest';
 import { loadMigrations } from '../scripts/migrate';
-import { PostgresWorkspaceStore, type SqlQueryable } from '../server/postgres-store';
+import { PostgresWorkspaceStore, type SqlQueryable } from './fixtures/workspace-store';
 import { createSeedWorkspace } from '../server/seed';
 import { queryContextCandidates } from '../server/context-runtime/postgres-index';
 

@@ -39,7 +39,11 @@ for (const nodeCount of [1000, 10000]) {
     }
     if (fullWorkspaceScans !== 0 || maxCandidateRows > 500 || maxNeighborhoodObjects > 500) throw new Error('M08 query boundary failed');
     const updateAt = performance.now();
-    await store.update(current => ({ ...current, messages: [...current.messages, { id: 'ffffffff-ffff-4fff-8fff-ffffffffffff', nodeId: nodes[0].id, kind: 'user', text: 'new payment evidence', createdAt: seed.updatedAt }] }));
+    await store.executeCommand({
+      context: { commandId: 'benchmark-incremental', commandType: 'BenchmarkMutation', actor: { actorType: 'system', actorId: 'benchmark' }, scope: { scopeType: 'workspace', scopeId: store.defaultWorkspaceId }, occurredAt: seed.updatedAt },
+      apply: async current => ({ next: { ...current, messages: [...current.messages, { id: 'ffffffff-ffff-4fff-8fff-ffffffffffff', nodeId: nodes[0].id, kind: 'user', text: 'new payment evidence', createdAt: seed.updatedAt }] }, value: null }),
+      events: () => [{ eventType: 'context.selection.changed', aggregateType: 'workspace', aggregateId: store.defaultWorkspaceId, payload: {} }],
+    });
     const incrementalUpdateMs = performance.now() - updateAt;
     const invalidated = await runtime.plan(input);
     if (invalidated.cache.reason === 'hit') throw new Error('Changed source returned stale cache');

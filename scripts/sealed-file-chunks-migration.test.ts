@@ -6,7 +6,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { expect, it, vi } from 'vitest';
 import { loadMigrations } from './migrate';
 import { SealedFileChunkContent, fileChunkStorageProjection } from '../server/infrastructure/sealed-file-chunk-content';
-import { PostgresWorkspaceStore } from '../server/postgres-store';
+import { PostgresWorkspaceStore } from '../e2e/fixtures/workspace-store';
 
 it('enforces sealed file chunk projections and protects rollback', async () => {
   const database = new PGlite();
@@ -67,13 +67,14 @@ it('enforces sealed file chunk projections and protects rollback', async () => {
     const stored = (await database.query<{ state: { fileChunks: unknown[] } }>('SELECT state FROM rhiza_projects WHERE id=$1', [workspace])).rows[0].state;
     expect(stored.fileChunks[0]).toMatchObject({ text: '', terms: [], embedding: [], contentRef: updated });
     seal.mockClear();
-    await database.exec("CREATE FUNCTION reject_chunk_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected chunk failure'; END $$; CREATE TRIGGER reject_chunk_write BEFORE INSERT ON rhiza_projects FOR EACH ROW EXECUTE FUNCTION reject_chunk_write();");
+    await database.exec("CREATE FUNCTION reject_chunk_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected chunk failure'; END $$; CREATE TRIGGER reject_chunk_write BEFORE INSERT OR UPDATE ON rhiza_projects FOR EACH ROW EXECUTE FUNCTION reject_chunk_write();");
     await expect(store.update(current => ({ ...current, fileChunks: current.fileChunks.map(entry => ({ ...entry, text: 'failed' })) }))).rejects.toThrow('injected chunk failure');
     await expect(content.read(workspace, chunk.id, await seal.mock.results[0].value)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     expect((await store.read()).fileChunks[0].text).toBe('changed');
     seal.mockRestore();
     await content.destroy(workspace, chunk.id, updated);
     await expect(store.read()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    await database.exec('DROP TRIGGER reject_chunk_write ON rhiza_projects');
     await write([{ ...item, contentRef: undefined, text: 'legacy', terms: ['legacy'], embedding: [1] }]);
     await database.exec(down);
   } finally { await database.close(); await rm(root, { recursive: true, force: true }); }

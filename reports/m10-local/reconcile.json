@@ -1,0 +1,72 @@
+{
+  "schemaVersion": "1.0.0",
+  "ok": true,
+  "workspaces": [
+    {
+      "workspaceId": "110edd45-44d6-4986-9f60-09ea0645bc42",
+      "currentChecksum": "99e62e90b53f2d6dc8e4b29f884f550d97920b7408d7c0a8da4c92db4bd70621",
+      "journalChecksum": "99e62e90b53f2d6dc8e4b29f884f550d97920b7408d7c0a8da4c92db4bd70621",
+      "match": true,
+      "counts": {
+        "messages": 0,
+        "manifests": 0,
+        "versions": 0,
+        "runs": 0,
+        "journal": 1
+      }
+    },
+    {
+      "workspaceId": "5c0d3988-c184-4568-864c-1c617f5a3bdf",
+      "currentChecksum": "32f3e1cba60db259db9296c6e2258914bdd9ed3537dc1ef2a0b236167e20b236",
+      "journalChecksum": "32f3e1cba60db259db9296c6e2258914bdd9ed3537dc1ef2a0b236167e20b236",
+      "match": true,
+      "counts": {
+        "messages": 0,
+        "manifests": 0,
+        "versions": 5,
+        "runs": 0,
+        "journal": 20
+      }
+    }
+  ],
+  "plaintext": {
+    "receipt_results": 0,
+    "receipt_errors": 0,
+    "run_inputs": 0,
+    "run_error_details": 0,
+    "journal_payloads": 0,
+    "messages": 0,
+    "manifests": 0,
+    "nodes": 0,
+    "segments": 0,
+    "anchors": 0,
+    "edges": 0,
+    "attachments": 0,
+    "resources": 0,
+    "resource_blobs": 0,
+    "purge_audit_reasons": 0,
+    "context_items": 0,
+    "file_chunks": 0
+  },
+  "unhealthyKeys": 0,
+  "provenance": {
+    "outputs": 0,
+    "missing": 0,
+    "broken": 0,
+    "invalid": 0
+  },
+  "purge": {
+    "pending": 0,
+    "unrevokedReferences": 0
+  },
+  "sourceIntegrity": {
+    "checked": 0,
+    "unresolved": 0
+  },
+  "inputHistory": {
+    "checked": 0,
+    "mismatched": 0
+  },
+  "resourceBlobs": 0,
+  "externalGate": "pending"
+}

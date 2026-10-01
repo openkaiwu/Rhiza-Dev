@@ -6,7 +6,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { expect, it, vi } from 'vitest';
 import { loadMigrations } from './migrate';
 import { SealedSegmentContent } from '../server/infrastructure/sealed-segment-content';
-import { PostgresWorkspaceStore } from '../server/postgres-store';
+import { PostgresWorkspaceStore } from '../e2e/fixtures/workspace-store';
 
 it('rejects plaintext alongside segment ciphertext and preserves relational constraints', async () => {
   const database = new PGlite();
@@ -49,7 +49,7 @@ it('rejects plaintext alongside segment ciphertext and preserves relational cons
     expect(stored.title).toBe('');
     expect((await scoped.read()).segments[0].title).toBe('updated title');
     const seal = vi.spyOn(content, 'seal');
-    await database.exec("CREATE FUNCTION reject_segment_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected segment failure'; END $$; CREATE TRIGGER reject_segment_write BEFORE INSERT ON rhiza_segments FOR EACH ROW EXECUTE FUNCTION reject_segment_write();");
+    await database.exec("CREATE FUNCTION reject_segment_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected segment failure'; END $$; CREATE TRIGGER reject_segment_write BEFORE INSERT OR UPDATE ON rhiza_segments FOR EACH ROW EXECUTE FUNCTION reject_segment_write();");
     await expect(scoped.update(current => ({ ...current, segments: current.segments.map(item => ({ ...item, title: 'failed title' })) }))).rejects.toThrow('injected segment failure');
     await expect(content.read(workspace, segment, await seal.mock.results[0].value)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     expect((await scoped.read()).segments[0].title).toBe('updated title');

@@ -1,5 +1,10 @@
+import { runFrozenResourceIds } from './domain/purge-resources';
+import { collectionChanges, validateWorkspaceReferences } from './infrastructure/workspace-change-set';
+import { observeLegacyWrite } from './infrastructure/legacy-write-observation';
+import { ContentDirectoryOwnership } from './infrastructure/content-directory-ownership';
 import { materializeContextCandidates, queryContextCandidates } from './context-runtime/postgres-index';
 import type { ContextPlanningInput } from './context-runtime/contracts';
+import { isDeepStrictEqual } from 'node:util';
 import { createHash, randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { resolve } from 'node:path';
@@ -115,11 +120,6 @@ const relationToDb = (value: DiscussionEdge['relation']) => value.toUpperCase().
 const journalSource = (workspaceId: string) => `urn:rhiza:workspace:${workspaceId}`;
 const journalSubject = (aggregateType: string, aggregateId: string) => `${aggregateType}/${aggregateId}`;
 const journalDataSchema = (eventType: string) => `https://rhiza.dev/schemas/events/${eventType}/v1`;
-const changedItems = <T extends { id: string }>(items: T[], previous?: T[]): T[] => {
-  if (!previous) return items;
-  const before = new Map(previous.map(item => [item.id, JSON.stringify(item)]));
-  return items.filter(item => before.get(item.id) !== JSON.stringify(item));
-};
 const removedIds = <T extends { id: string }>(before: T[], after: T[]): string[] => {
   const remaining = new Set(after.map(item => item.id));
   return before.filter(item => !remaining.has(item.id)).map(item => item.id);
@@ -211,7 +211,7 @@ export class PostgresWorkspaceStore implements WorkspaceRepository {
   private readonly scoped = new Map<string, PostgresWorkspaceStore>();
   readonly defaultWorkspaceId: string;
 
-constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: string, private readonly receiptContent?: SealedReceiptContent, private readonly runContent?: SealedRunContent, private readonly journalContent?: SealedJournalContent, private readonly messageContent?: SealedMessageContent, private readonly manifestContent?: SealedManifestContent, private readonly nodeContent?: SealedNodeContent, private readonly anchorContent?: SealedAnchorContent, private readonly segmentContent?: SealedSegmentContent, private readonly edgeContent?: SealedEdgeContent, private readonly contextItemContent?: SealedContextItemContent, private readonly fileChunkContent?: SealedFileChunkContent, private readonly attachmentContent?: SealedAttachmentContent, private readonly resourceContent?: SealedResourceContent, private readonly resourceBlobs?: NodeEncryptedBlobStore, private readonly importArchives?: NodeImportArchiveStore) {
+constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: string, private readonly receiptContent?: SealedReceiptContent, private readonly runContent?: SealedRunContent, private readonly journalContent?: SealedJournalContent, private readonly messageContent?: SealedMessageContent, private readonly manifestContent?: SealedManifestContent, private readonly nodeContent?: SealedNodeContent, private readonly anchorContent?: SealedAnchorContent, private readonly segmentContent?: SealedSegmentContent, private readonly edgeContent?: SealedEdgeContent, private readonly contextItemContent?: SealedContextItemContent, private readonly fileChunkContent?: SealedFileChunkContent, private readonly attachmentContent?: SealedAttachmentContent, private readonly resourceContent?: SealedResourceContent, private readonly resourceBlobs?: NodeEncryptedBlobStore, private readonly importArchives?: NodeImportArchiveStore, private readonly contentOwnership?: ContentDirectoryOwnership) {
     const configuredWorkspaceId = defaultWorkspaceId?.trim();
     if (configuredWorkspaceId && !uuidPattern.test(configuredWorkspaceId)) throw new Error('RHIZA_PROJECT_ID must be a UUID when set');
     this.defaultWorkspaceId = configuredWorkspaceId || DEFAULT_PROJECT_ID;
@@ -220,11 +220,12 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
   forWorkspace(workspaceId: string): WorkspaceRepository {
     if (workspaceId === this.defaultWorkspaceId) return this;
     let scoped = this.scoped.get(workspaceId);
-    if (!scoped) { scoped = new PostgresWorkspaceStore(this.database, workspaceId, this.receiptContent, this.runContent, this.journalContent, this.messageContent, this.manifestContent, this.nodeContent, this.anchorContent, this.segmentContent, this.edgeContent, this.contextItemContent, this.fileChunkContent, this.attachmentContent, this.resourceContent, this.resourceBlobs, this.importArchives); this.scoped.set(workspaceId, scoped); }
+    if (!scoped) { scoped = new PostgresWorkspaceStore(this.database, workspaceId, this.receiptContent, this.runContent, this.journalContent, this.messageContent, this.manifestContent, this.nodeContent, this.anchorContent, this.segmentContent, this.edgeContent, this.contextItemContent, this.fileChunkContent, this.attachmentContent, this.resourceContent, this.resourceBlobs, this.importArchives, this.contentOwnership); this.scoped.set(workspaceId, scoped); }
     return scoped;
   }
 
   async initialize(workspace: WorkspaceData): Promise<WorkspaceData> {
+    await this.contentOwnership?.bindFresh();
     const initial = relationalizeWorkspace(workspace, this.defaultWorkspaceId);
     return this.inTransaction(async database => {
       await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace:init:' || $1))", [this.defaultWorkspaceId]);
@@ -267,8 +268,13 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     }),
   };
 
-  static fromConnectionString(connectionString: string, projectId?: string, contentDirectory = resolve('var/receipt-content'), resourceBlobs?: NodeEncryptedBlobStore, importArchives?: NodeImportArchiveStore) {
-    return new PostgresWorkspaceStore(new Pool({ connectionString, max: 10, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 5_000 }), projectId, SealedReceiptContent.atDirectory(contentDirectory), SealedRunContent.atDirectory(resolve(contentDirectory, 'runs')), SealedJournalContent.atDirectory(resolve(contentDirectory, 'journal')), SealedMessageContent.atDirectory(resolve(contentDirectory, 'messages')), SealedManifestContent.atDirectory(resolve(contentDirectory, 'manifests')), SealedNodeContent.atDirectory(resolve(contentDirectory, 'nodes')), SealedAnchorContent.atDirectory(resolve(contentDirectory, 'anchors')), SealedSegmentContent.atDirectory(resolve(contentDirectory, 'segments')), SealedEdgeContent.atDirectory(resolve(contentDirectory, 'edges')), SealedContextItemContent.atDirectory(resolve(contentDirectory, 'context-items')), SealedFileChunkContent.atDirectory(resolve(contentDirectory, 'file-chunks')), SealedAttachmentContent.atDirectory(resolve(contentDirectory, 'attachments')), SealedResourceContent.atDirectory(resolve(contentDirectory, 'resources')), resourceBlobs, importArchives);
+  static fromConnectionString(connectionString: string, projectId?: string, contentDirectory = resolve(process.env.RHIZA_RECEIPT_CONTENT_DIR || 'var/receipt-content'), resourceBlobs?: NodeEncryptedBlobStore, importArchives?: NodeImportArchiveStore) {
+    const database = new Pool({ connectionString, max: 10, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 5_000 });
+    const owner = new ContentDirectoryOwnership(contentDirectory, async () => JSON.stringify((await database.query(`SELECT
+      current_database() AS database, current_schema() AS schema, inet_server_addr()::text AS host, inet_server_port() AS port,
+      (SELECT oid FROM pg_database WHERE datname=current_database()) AS database_oid,
+      (SELECT oid FROM pg_namespace WHERE nspname=current_schema()) AS schema_oid`)).rows[0]));
+    return new PostgresWorkspaceStore(database, projectId, SealedReceiptContent.atDirectory(contentDirectory), SealedRunContent.atDirectory(resolve(contentDirectory, 'runs')), SealedJournalContent.atDirectory(resolve(contentDirectory, 'journal')), SealedMessageContent.atDirectory(resolve(contentDirectory, 'messages')), SealedManifestContent.atDirectory(resolve(contentDirectory, 'manifests')), SealedNodeContent.atDirectory(resolve(contentDirectory, 'nodes')), SealedAnchorContent.atDirectory(resolve(contentDirectory, 'anchors')), SealedSegmentContent.atDirectory(resolve(contentDirectory, 'segments')), SealedEdgeContent.atDirectory(resolve(contentDirectory, 'edges')), SealedContextItemContent.atDirectory(resolve(contentDirectory, 'context-items')), SealedFileChunkContent.atDirectory(resolve(contentDirectory, 'file-chunks')), SealedAttachmentContent.atDirectory(resolve(contentDirectory, 'attachments')), SealedResourceContent.atDirectory(resolve(contentDirectory, 'resources')), resourceBlobs, importArchives, owner);
   }
 
   /** PostgreSQL hosts admit one Chat runtime per database; a second host must not reconcile live work. */
@@ -296,7 +302,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     return new Set(result.rows.map(row => row.archive_digest));
   }
 
-  private async inTransaction<T>(callback: (database: SqlQueryable) => Promise<T>, exclusiveContent = false): Promise<T> {
+  protected async inTransaction<T>(callback: (database: SqlQueryable) => Promise<T>, exclusiveContent = false): Promise<T> {
     const pending: PendingContent[] = [];
     let operationFailed = false;
     const operation = async (database: SqlQueryable) => {
@@ -401,6 +407,14 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
   /** Pause transactional content writers while collecting the global reference/key snapshot. */
   async auditHistoricalKeys() {
     return (await this.inspectHistoricalKeys(false)).audit;
+  }
+
+  /** Counts only: inspection must never acknowledge an unfinished Purge. */
+  async auditPurgeCompletion() {
+    const { rows } = await this.database.query<{ pending: number; unrevokedReferences: number }>(`SELECT
+      (SELECT count(*)::int FROM purge_checkpoints WHERE phase='pending') AS pending,
+      (SELECT count(*)::int FROM purge_key_references WHERE revoked_at IS NULL) AS "unrevokedReferences"`);
+    return rows[0];
   }
 
   /** One MVCC snapshot across every historical plaintext family; counts only, never bodies. */
@@ -521,10 +535,10 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     }, reclaim);
   }
 
-  private async inspectHistoricalKeys(reclaim: boolean) {
+  private async inspectHistoricalKeys(reclaim: boolean, lockedDatabase?: SqlQueryable) {
     const { receiptContent, runContent, journalContent, messageContent, manifestContent, nodeContent, anchorContent, segmentContent, edgeContent, contextItemContent, fileChunkContent, attachmentContent, resourceContent } = this;
     if (!receiptContent || !runContent || !journalContent || !messageContent || !manifestContent || !nodeContent || !anchorContent || !segmentContent || !edgeContent || !contextItemContent || !fileChunkContent || !attachmentContent || !resourceContent) throw new Error('HISTORY_CONTENT_STORES_UNAVAILABLE');
-    return this.inTransaction(async database => {
+    const inspect = async (database: SqlQueryable) => {
       if (reclaim) await database.query('LOCK TABLE command_receipts,execution_runs,workspace_events,journal_payload_redactions,rhiza_messages,rhiza_nodes,rhiza_context_manifests,rhiza_anchors,rhiza_segments,rhiza_edges,rhiza_projects,rhiza_attachments,rhiza_resources IN SHARE MODE');
       const { rows } = await database.query<{ family: string; workspace_id: string; id: string; reference: unknown }>(`
         SELECT 'runs' AS family,workspace_id,run_id AS id,input_content_ref AS reference FROM execution_runs WHERE input_content_ref IS NOT NULL
@@ -581,7 +595,8 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         revoked += await resourceContent.revokeUnreferencedKeys(references('resources'));
       }
       return { audit, revoked };
-    }, true);
+    };
+    return lockedDatabase ? inspect(lockedDatabase) : this.inTransaction(inspect, true);
   }
 
   async sealLegacyReceiptErrors(limit = 100): Promise<number> {
@@ -919,33 +934,9 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     return this.inTransaction(database => this.readFrom(database, true));
   }
 
-  async update(mutator: (current: WorkspaceData) => WorkspaceData | Promise<WorkspaceData>, options?: WorkspaceUpdateOptions): Promise<WorkspaceData> {
-    let result!: WorkspaceData;
-    this.queue = this.queue.catch(() => undefined).then(async () => {
-      result = await this.inTransaction(async database => {
-        if (options?.purge) await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
-        let current = await this.readFrom(database, true);
-        if (!current) {
-          current = relationalSeed(this.defaultWorkspaceId);
-          await this.persist(database, current);
-          await database.query('SELECT id FROM rhiza_projects WHERE id = $1 FOR UPDATE', [this.defaultWorkspaceId]);
-        }
-        const next = await mutator(structuredClone(current));
-        validateWorkspaceHistoryUpdate(current, next, options);
-        next.updatedAt = new Date().toISOString();
-        const audit: AuditEvent = {
-          id: randomUUID(), projectId: next.projectId, nodeId: next.activeNodeId,
-          action: 'workspace.updated', entityType: 'workspace', entityId: next.projectId,
-          metadata: { backend: 'postgres', nodes: next.discussionNodes.length, events: next.messages.length }, createdAt: next.updatedAt,
-        };
-        next.auditEvents = [...next.auditEvents, audit];
-        await this.persist(database, next, current, options);
-        return next;
-      });
-    });
-    await this.queue;
-    if (options?.purge) await this.resumePendingPurges();
-    return result;
+  async update(_mutator: (current: WorkspaceData) => WorkspaceData | Promise<WorkspaceData>, _options?: WorkspaceUpdateOptions): Promise<WorkspaceData> {
+    observeLegacyWrite('relational.update');
+    throw Object.assign(new Error('LEGACY_WRITE_DISABLED: use Application Command/UoW or an explicit initialization/import entry'), { code: 'LEGACY_WRITE_DISABLED', status: 503 });
   }
 
   async executeWorkspaceLifecycle(context: import('./domain-journal').CommandFactContext, command: WorkspaceLifecycleCommand): Promise<WorkspaceRecord> {
@@ -1064,6 +1055,17 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
             });
             await database.query('UPDATE purge_key_references SET revoked_at=now() WHERE purge_id=$1 AND ordinal=$2', [checkpoint.purge_id, row.ordinal]);
           }
+          // Mutable documents and prior Journal redactions can leave superseded keys.
+          // The exclusive lifecycle lock excludes every transactional publisher;
+          // the global SQL snapshot protects references in every other Workspace.
+          if (this.receiptContent && this.runContent && this.journalContent && this.messageContent && this.manifestContent
+            && this.nodeContent && this.anchorContent && this.segmentContent && this.edgeContent && this.contextItemContent
+            && this.fileChunkContent && this.attachmentContent && this.resourceContent) {
+            const ownsDirectory = await this.contentOwnership?.owns();
+            const history = await this.inspectHistoricalKeys(Boolean(ownsDirectory), database);
+            if (!ownsDirectory && Object.values(history.audit).flat().some(key => !key.referenced && key.state === 'active'))
+              throw Object.assign(new Error('PURGE_OFFLINE_KEY_RECONCILIATION_REQUIRED'), { code: 'PURGE_OFFLINE_KEY_RECONCILIATION_REQUIRED' });
+          }
           await database.query("UPDATE purge_checkpoints SET phase='revoked',revoked_at=now(),last_error=NULL,updated_at=now() WHERE purge_id=$1", [checkpoint.purge_id]);
           return true;
         }, true);
@@ -1135,6 +1137,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
   }
 
   private async executeCommandNow<T>(command: TransactionalWorkspaceCommand<T>): Promise<TransactionalWorkspaceCommandResult<T>> {
+    await this.contentOwnership?.bindFresh();
     return this.inCommandTransaction(command.context, async database => {
       const existing = await database.query<Record<string, unknown>>('SELECT * FROM command_receipts WHERE workspace_id=$1 AND command_id=$2', [this.defaultWorkspaceId, command.context.commandId]);
       if (existing.rows[0]) {
@@ -1167,6 +1170,16 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         await database.query("UPDATE workspaces SET settings=jsonb_set(settings,'{revision}',to_jsonb($2::int),true),updated_at=now() WHERE workspace_id=$1", [this.defaultWorkspaceId, aggregateRevision]);
       }
       if (command.options?.run) await this.applyRunMutation(database, command.options.run);
+      if (command.options?.purge) {
+        const runs = await database.query<{ record: ExecutionRun; input_content_ref: unknown }>('SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1 AND purged_at IS NULL', [this.defaultWorkspaceId]);
+        const journal = await database.query<Record<string, unknown>>(`SELECT e.*,r.content_ref redacted_content_ref FROM workspace_events e
+          LEFT JOIN journal_payload_redactions r ON r.event_id=e.event_id WHERE e.workspace_id=$1 ORDER BY e.sequence`, [this.defaultWorkspaceId]);
+        const owned = runFrozenResourceIds(current, command.options.purge.nodeId,
+          await Promise.all(runs.rows.map(row => this.decodeRun(row))), await Promise.all(journal.rows.map(row => this.decodeJournalEvent(row))));
+        if (!isDeepStrictEqual(owned, [...(command.options.purge.frozenResourceIds ?? [])].sort())) {
+          throw Object.assign(new Error('Purge history changed; prepare its affected-object list again'), { code: 'PURGE_HISTORY_CHANGED', status: 409 });
+        }
+      }
       const result = await command.apply(structuredClone(current));
       validateWorkspaceHistoryUpdate(current, result.next, command.options);
       const next = { ...result.next, updatedAt: new Date().toISOString() };
@@ -1302,6 +1315,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
   }
 
   async activatePortableImport(importId: string, ownerId: string, facts: PortableWorkspaceFacts): Promise<void> {
+    await this.contentOwnership?.bindFresh();
     const conflict = (code: string) => Object.assign(new Error(code), { code, status: 409 });
     if (facts.workspace.projectId !== this.defaultWorkspaceId) throw conflict('BUNDLE_WORKSPACE_MISMATCH');
     const portableFacts = portableWorkspaceFacts(facts, input => semanticStateChecksum(input as Record<string, unknown>));
@@ -1313,7 +1327,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       if (!checkpoint || checkpoint.workspaceId !== facts.workspace.projectId || checkpoint.stateDigest !== semanticStateChecksum({ facts: portableFacts })) throw conflict('BUNDLE_IMPORT_CONFLICT');
       if (checkpoint.phase === 'activated') return;
       if (checkpoint.phase !== 'blobs-ready') throw conflict('BUNDLE_IMPORT_NOT_READY');
-      // Import alone takes coarse locks: existing legacy upserts must not touch another Workspace's IDs.
+      // Import alone takes coarse locks: identity collision checks and activation share one transaction.
       const collections: Array<[string, string, Array<{ id: string }>]> = [
         ['rhiza_nodes', 'id', facts.workspace.discussionNodes], ['rhiza_messages', 'id', facts.workspace.messages],
         ['rhiza_segments', 'id', facts.workspace.segments], ['rhiza_context_manifests', 'id', facts.workspace.manifests],
@@ -1342,7 +1356,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       if (ordered.length !== facts.runs.length) throw conflict('BUNDLE_RUN_LINEAGE_CYCLE');
       for (const run of ordered) await this.insertRun(database, run);
       for (const link of facts.provenance) await database.query('INSERT INTO provenance_links(workspace_id,output_ref,provenance_id,record) VALUES ($1,$2,$3,$4::jsonb)', [link.workspaceId, link.outputRef, link.id, JSON.stringify(link)]);
-      await this.persist(database, facts.workspace);
+      await this.persist(database, facts.workspace, undefined, undefined, true);
       for (const event of facts.journal) {
         const sealed = await this.prepareJournalPayload(database, event.workspaceId, event.eventId, event.payload);
         await database.query(`INSERT INTO workspace_events
@@ -1819,7 +1833,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     }));
   }
 
-  private async readFrom(database: SqlQueryable, lock = false): Promise<WorkspaceData | undefined> {
+  protected async readFrom(database: SqlQueryable, lock = false): Promise<WorkspaceData | undefined> {
     const projects = await database.query<{ id: string; title: string; active_node_id: string | null; state: unknown; updated_at: unknown }>(`SELECT id, title, active_node_id, state, updated_at FROM rhiza_projects WHERE id = $1${lock ? ' FOR UPDATE' : ''}`, [this.defaultWorkspaceId]);
     const project = projects.rows[0];
     if (!project) return undefined;
@@ -2059,7 +2073,10 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     }
   }
 
-  private async persist(database: SqlQueryable, workspace: WorkspaceData, previous?: WorkspaceData, options?: WorkspaceUpdateOptions): Promise<void> {
+  protected async persist(database: SqlQueryable, workspace: WorkspaceData, previous?: WorkspaceData, options?: WorkspaceUpdateOptions, projectAlreadyCreated = false): Promise<void> {
+    await this.contentOwnership?.bindFresh();
+    validateWorkspaceReferences(workspace, this.defaultWorkspaceId, options?.purge?.nodeId);
+    if (!previous && !projectAlreadyCreated) projectAlreadyCreated = (await database.query('SELECT id FROM rhiza_projects WHERE id=$1', [workspace.projectId])).rows.length > 0;
     if (options?.purge) {
       const nodeId = options.purge.nodeId;
       if (!previous) throw new Error('PURGE_PREVIOUS_STATE_REQUIRED');
@@ -2137,25 +2154,38 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         }
       }
     }
-    const nodes = changedItems(workspace.discussionNodes, previous?.discussionNodes);
-    const segments = changedItems(workspace.segments, previous?.segments);
-    const manifests = changedItems(workspace.manifests, previous?.manifests);
-    const attachments = changedItems(workspace.attachments, previous?.attachments);
-    const resources = changedItems(workspace.resources, previous?.resources);
-    const resourceVersions = changedItems(workspace.resourceVersions, previous?.resourceVersions);
-    const materializations = changedItems(workspace.materializations, previous?.materializations);
-    const messages = changedItems(workspace.messages, previous?.messages);
-    const anchors = changedItems(workspace.anchors, previous?.anchors);
-    const edges = changedItems(workspace.discussionEdges, previous?.discussionEdges);
-    const audits = changedItems(workspace.auditEvents, previous?.auditEvents);
+    const changes = {
+      nodes: collectionChanges(workspace.discussionNodes, previous?.discussionNodes),
+      segments: collectionChanges(workspace.segments, previous?.segments),
+      manifests: collectionChanges(workspace.manifests, previous?.manifests),
+      attachments: collectionChanges(workspace.attachments, previous?.attachments),
+      resources: collectionChanges(workspace.resources, previous?.resources),
+      resourceVersions: collectionChanges(workspace.resourceVersions, previous?.resourceVersions),
+      materializations: collectionChanges(workspace.materializations, previous?.materializations),
+      messages: collectionChanges(workspace.messages, previous?.messages),
+      anchors: collectionChanges(workspace.anchors, previous?.anchors),
+      edges: collectionChanges(workspace.discussionEdges, previous?.discussionEdges),
+      audits: collectionChanges(workspace.auditEvents, previous?.auditEvents),
+    };
+    const nodes = [...changes.nodes.inserted, ...changes.nodes.updated];
+    const segments = [...changes.segments.inserted, ...changes.segments.updated];
+    const manifests = changes.manifests.inserted;
+    const attachments = [...changes.attachments.inserted, ...changes.attachments.updated];
+    const resources = changes.resources.inserted;
+    const resourceVersions = changes.resourceVersions.inserted;
+    const materializations = changes.materializations.inserted;
+    const messages = changes.messages.inserted;
+    const anchors = [...changes.anchors.inserted, ...changes.anchors.updated];
+    const edges = [...changes.edges.inserted, ...changes.edges.updated];
+    const audits = changes.audits.inserted;
     const contextItems = await this.prepareContextItems(database, workspace, previous);
     const fileChunks = await this.prepareFileChunks(database, workspace, previous);
     if (options?.purge && previous) {
       const removedMessages = new Set(previous.messages.filter(item => !workspace.messages.some(candidate => candidate.id === item.id)).map(item => item.id));
       const removedManifests = new Set(previous.manifests.filter(item => !workspace.manifests.some(candidate => candidate.id === item.id)).map(item => item.id));
       const removedEdges = previous.discussionEdges.filter(item => !workspace.discussionEdges.some(candidate => candidate.id === item.id)).map(item => item.id);
-      const purgedResourceIds = workspace.resources.filter(resource => resource.logicalName === '[purged]'
-        && previous.resources.some(before => before.id === resource.id && before.logicalName !== '[purged]')).map(resource => resource.id);
+      const purgedResourceIds = [...new Set(workspace.resourceVersions.filter(version => version.purgedAt
+        && previous.resourceVersions.some(before => before.id === version.id && !before.purgedAt)).map(version => version.resourceId))];
       if (purgedResourceIds.length) {
         await database.query("UPDATE rhiza_resources SET logical_name='[purged]',content_ref=NULL WHERE workspace_id=$1 AND resource_id=ANY($2::text[])",
           [workspace.projectId, purgedResourceIds]);
@@ -2182,7 +2212,13 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
           JSON.stringify({ ...link, status: 'purged', missingRefs: [] })]);
       }
     }
-    await database.query(`INSERT INTO rhiza_projects (id, title, state, created_at, updated_at) VALUES ($1,$2,$3::jsonb,$4,$4) ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, state=EXCLUDED.state, updated_at=EXCLUDED.updated_at`, [workspace.projectId, workspace.projectTitle, JSON.stringify({ mode: workspace.mode, contextItems, fileChunks }), workspace.updatedAt]);
+    const stateChanges = {
+      ...(!previous || workspace.mode !== previous.mode ? { mode: workspace.mode } : {}),
+      ...(!previous || !isDeepStrictEqual(workspace.contextItems, previous.contextItems) ? { contextItems } : {}),
+      ...(!previous || !isDeepStrictEqual(workspace.fileChunks, previous.fileChunks) ? { fileChunks } : {}),
+    };
+    if (previous || projectAlreadyCreated) await database.query('UPDATE rhiza_projects SET title=$2,state=state || $3::jsonb,updated_at=$4 WHERE id=$1', [workspace.projectId, workspace.projectTitle, JSON.stringify(stateChanges), workspace.updatedAt]);
+    else await database.query(`INSERT INTO rhiza_projects (id, title, state, created_at, updated_at) VALUES ($1,$2,$3::jsonb,$4,$4)`, [workspace.projectId, workspace.projectTitle, JSON.stringify({ mode: workspace.mode, contextItems, fileChunks }), workspace.updatedAt]);
     await database.query(`INSERT INTO graph_layouts (workspace_id,layout_id,owner_scope) VALUES ($1,'default',$2::jsonb) ON CONFLICT DO NOTHING`, [workspace.projectId, JSON.stringify({ scopeType: 'workspace', scopeId: workspace.projectId })]);
     for (const node of nodes) {
       let reference: SealedNodeRef | undefined;
@@ -2192,7 +2228,8 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         reference = await this.nodeContent.seal(workspace.projectId, node.id, node);
         pending.push({ workspaceId: workspace.projectId, nodeId: node.id, reference });
       }
-      await database.query(`INSERT INTO rhiza_nodes (id,project_id,title,summary,status,kind,position_x,position_y,created_at,updated_at,anchor_text,content_ref) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb) ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title,summary=EXCLUDED.summary,status=EXCLUDED.status,kind=EXCLUDED.kind,updated_at=EXCLUDED.updated_at,anchor_text=EXCLUDED.anchor_text,content_ref=EXCLUDED.content_ref`, [node.id,workspace.projectId,reference ? '[sealed]' : node.title,reference ? '' : node.summary,node.status,node.kind,node.x,node.y,node.createdAt,node.updatedAt,reference ? null : node.anchorText || null,reference ? JSON.stringify(reference) : null]);
+      if (changes.nodes.updated.some(item => item.id === node.id)) await database.query(`UPDATE rhiza_nodes SET position_x=$7,position_y=$8,created_at=$9,title=$3,summary=$4,status=$5,kind=$6,updated_at=$10,anchor_text=$11,content_ref=$12 WHERE id=$1 AND project_id=$2`, [node.id,workspace.projectId,reference ? '[sealed]' : node.title,reference ? '' : node.summary,node.status,node.kind,node.x,node.y,node.createdAt,node.updatedAt,reference ? null : node.anchorText || null,reference ? JSON.stringify(reference) : null]);
+      else await database.query(`INSERT INTO rhiza_nodes (id,project_id,title,summary,status,kind,position_x,position_y,created_at,updated_at,anchor_text,content_ref) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)`, [node.id,workspace.projectId,reference ? '[sealed]' : node.title,reference ? '' : node.summary,node.status,node.kind,node.x,node.y,node.createdAt,node.updatedAt,reference ? null : node.anchorText || null,reference ? JSON.stringify(reference) : null]);
       await database.query(`INSERT INTO graph_layout_nodes (workspace_id,layout_id,object_type,object_id,x,y) VALUES ($1,'default','conversation',$2,$3,$4) ON CONFLICT (workspace_id,layout_id,object_type,object_id) DO UPDATE SET x=EXCLUDED.x,y=EXCLUDED.y`, [workspace.projectId,node.id,node.x,node.y]);
     }
     for (const segment of segments) {
@@ -2203,21 +2240,21 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         reference = await this.segmentContent.seal(workspace.projectId, segment.id, segment);
         pending.push({ workspaceId: workspace.projectId, segmentId: segment.id, reference });
       }
-      await database.query(`INSERT INTO rhiza_segments (id,node_id,ordinal,title,created_at,content_ref) VALUES ($1,$2,$3,$4,$5,$6::jsonb) ON CONFLICT (id) DO UPDATE SET node_id=EXCLUDED.node_id,ordinal=EXCLUDED.ordinal,title=EXCLUDED.title,content_ref=EXCLUDED.content_ref`, [segment.id,segment.nodeId,segment.ordinal,reference ? '' : segment.title,segment.createdAt,reference ? JSON.stringify(reference) : null]);
+      if (changes.segments.updated.some(item => item.id === segment.id)) await database.query(`UPDATE rhiza_segments SET created_at=$5,node_id=$2,ordinal=$3,title=$4,content_ref=$6 WHERE id=$1 AND node_id IN (SELECT id FROM rhiza_nodes WHERE project_id=$7)`, [segment.id,segment.nodeId,segment.ordinal,reference ? '' : segment.title,segment.createdAt,reference ? JSON.stringify(reference) : null,workspace.projectId]);
+      else await database.query(`INSERT INTO rhiza_segments (id,node_id,ordinal,title,created_at,content_ref) SELECT $1,$2,$3,$4,$5,$6::jsonb WHERE EXISTS (SELECT 1 FROM rhiza_nodes WHERE id=$2 AND project_id=$7)`, [segment.id,segment.nodeId,segment.ordinal,reference ? '' : segment.title,segment.createdAt,reference ? JSON.stringify(reference) : null,workspace.projectId]);
     }
     for (const resource of resources) {
       let reference: SealedResourceRef | undefined;
       if (this.resourceContent) {
-        if ((await database.query('SELECT resource_id FROM rhiza_resources WHERE resource_id=$1', [resource.id])).rows.length) continue;
         const pending = this.transactionContent.get(database);
         if (!pending) throw new Error('RESOURCE_CONTENT_REQUIRES_TRANSACTION');
         reference = await this.resourceContent.seal(resource.workspaceId, resource.id, resource);
         pending.push({ workspaceId: resource.workspaceId, resourceId: resource.id, reference });
       }
-      const inserted = await database.query(`INSERT INTO rhiza_resources (resource_id,workspace_id,kind,logical_name,created_at,content_ref) VALUES ($1,$2,$3,$4,$5,$6::jsonb) ON CONFLICT (resource_id) DO NOTHING RETURNING resource_id`, [resource.id,resource.workspaceId,resource.kind,reference ? '[sealed]' : resource.logicalName,resource.createdAt,reference ? JSON.stringify(reference) : null]);
+      const inserted = await database.query(`INSERT INTO rhiza_resources (resource_id,workspace_id,kind,logical_name,created_at,content_ref) VALUES ($1,$2,$3,$4,$5,$6::jsonb) RETURNING resource_id`, [resource.id,resource.workspaceId,resource.kind,reference ? '[sealed]' : resource.logicalName,resource.createdAt,reference ? JSON.stringify(reference) : null]);
       if (reference && !inserted.rows.length) await this.resourceContent!.destroy(resource.workspaceId, resource.id, reference);
     }
-    for (const version of resourceVersions.filter(item => !previous?.resourceVersions.some(old => old.id === item.id))) await database.query(`INSERT INTO rhiza_resource_versions (resource_version_id,resource_id,version,digest_algorithm,digest,canonicalization,media_type,size_bytes,blob_ref,created_at,purged_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [version.id,version.resourceId,version.version,version.digestAlgorithm,version.digest,version.canonicalization,version.mediaType,version.size,version.blobRef,version.createdAt,version.purgedAt ?? null]);
+    for (const version of resourceVersions.filter(item => !previous?.resourceVersions.some(old => old.id === item.id))) await database.query(`INSERT INTO rhiza_resource_versions (resource_version_id,resource_id,version,digest_algorithm,digest,canonicalization,media_type,size_bytes,blob_ref,created_at,purged_at) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11 WHERE EXISTS (SELECT 1 FROM rhiza_resources WHERE resource_id=$2 AND workspace_id=$12)`, [version.id,version.resourceId,version.version,version.digestAlgorithm,version.digest,version.canonicalization,version.mediaType,version.size,version.blobRef,version.createdAt,version.purgedAt ?? null,workspace.projectId]);
     for (const manifest of manifests) {
       let reference: SealedManifestRef | undefined;
       if (this.manifestContent) {
@@ -2230,7 +2267,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       await database.query(`INSERT INTO rhiza_context_manifests (id,project_id,node_id,request_id,mode,provider,model,runtime,estimated_tokens,manifest,created_at,content_ref) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12::jsonb)`,
       [manifest.id,workspace.projectId,manifest.nodeId,manifest.requestId,manifest.mode,manifest.provider,manifest.model,manifest.runtime,manifest.estimatedTokens,JSON.stringify(reference ? manifestReferenceProjection(manifest) : manifest),manifest.createdAt,reference ? JSON.stringify(reference) : null]);
     }
-    for (const materialization of materializations) await database.query(`INSERT INTO rhiza_resource_materializations (materialization_id,resource_version_id,kind,generator,created_at) VALUES ($1,$2,$3,$4,$5)`, [materialization.id,materialization.resourceVersionId,materialization.kind,materialization.generator,materialization.createdAt]);
+    for (const materialization of materializations) await database.query(`INSERT INTO rhiza_resource_materializations (materialization_id,resource_version_id,kind,generator,created_at) SELECT $1,$2,$3,$4,$5 WHERE EXISTS (SELECT 1 FROM rhiza_resource_versions v JOIN rhiza_resources r ON r.resource_id=v.resource_id WHERE v.resource_version_id=$2 AND r.workspace_id=$6)`, [materialization.id,materialization.resourceVersionId,materialization.kind,materialization.generator,materialization.createdAt,workspace.projectId]);
     for (const attachment of attachments) {
       let reference: SealedAttachmentRef | undefined;
       if (this.attachmentContent) {
@@ -2239,7 +2276,8 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         reference = await this.attachmentContent.seal(workspace.projectId, attachment.id, attachment);
         pending.push({ workspaceId: workspace.projectId, attachmentId: attachment.id, reference });
       }
-      await database.query(`INSERT INTO rhiza_attachments (id,project_id,name,mime_type,size_bytes,kind,storage_key,extracted_text,created_at,resource_id,resource_version_id,summary,chunk_count,content_ref) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name,mime_type=EXCLUDED.mime_type,size_bytes=EXCLUDED.size_bytes,kind=EXCLUDED.kind,extracted_text=EXCLUDED.extracted_text,resource_id=EXCLUDED.resource_id,resource_version_id=EXCLUDED.resource_version_id,summary=EXCLUDED.summary,chunk_count=EXCLUDED.chunk_count,content_ref=EXCLUDED.content_ref`, [attachment.id,workspace.projectId,reference ? '[sealed]' : attachment.name,attachment.mimeType,attachment.size,attachment.kind,attachment.blobRef || attachment.id,reference ? null : attachment.extractedText || null,attachment.createdAt,attachment.resourceId || null,attachment.resourceVersionId || null,reference ? null : attachment.summary || null,attachment.chunkCount ?? null,reference ? JSON.stringify(reference) : null]);
+      if (changes.attachments.updated.some(item => item.id === attachment.id)) await database.query(`UPDATE rhiza_attachments SET storage_key=$7,created_at=$9,name=$3,mime_type=$4,size_bytes=$5,kind=$6,extracted_text=$8,resource_id=$10,resource_version_id=$11,summary=$12,chunk_count=$13,content_ref=$14 WHERE id=$1 AND project_id=$2`, [attachment.id,workspace.projectId,reference ? '[sealed]' : attachment.name,attachment.mimeType,attachment.size,attachment.kind,attachment.blobRef || attachment.id,reference ? null : attachment.extractedText || null,attachment.createdAt,attachment.resourceId || null,attachment.resourceVersionId || null,reference ? null : attachment.summary || null,attachment.chunkCount ?? null,reference ? JSON.stringify(reference) : null]);
+      else await database.query(`INSERT INTO rhiza_attachments (id,project_id,name,mime_type,size_bytes,kind,storage_key,extracted_text,created_at,resource_id,resource_version_id,summary,chunk_count,content_ref) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb)`, [attachment.id,workspace.projectId,reference ? '[sealed]' : attachment.name,attachment.mimeType,attachment.size,attachment.kind,attachment.blobRef || attachment.id,reference ? null : attachment.extractedText || null,attachment.createdAt,attachment.resourceId || null,attachment.resourceVersionId || null,reference ? null : attachment.summary || null,attachment.chunkCount ?? null,reference ? JSON.stringify(reference) : null]);
     }
     for (const message of messages) {
       let reference: SealedMessageRef | undefined;
@@ -2249,10 +2287,11 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         reference = await this.messageContent.seal(workspace.projectId, message.id, message);
         pending.push({ workspaceId: workspace.projectId, messageId: message.id, reference });
       }
-      await database.query(`INSERT INTO rhiza_messages (id,node_id,segment_id,kind,body,manifest_id,created_at,operation,version_group_id,version,usage,reasoning,tool_calls,content_ref) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13::jsonb,$14::jsonb) ON CONFLICT (id) DO UPDATE SET segment_id=EXCLUDED.segment_id,body=EXCLUDED.body,manifest_id=EXCLUDED.manifest_id,operation=EXCLUDED.operation,version_group_id=EXCLUDED.version_group_id,version=EXCLUDED.version,usage=EXCLUDED.usage,reasoning=EXCLUDED.reasoning,tool_calls=EXCLUDED.tool_calls,content_ref=EXCLUDED.content_ref`, [message.id,message.nodeId,message.segmentId || null,message.kind,reference ? '' : message.text,message.manifestId || null,message.createdAt,message.operation || 'send',message.versionGroupId || null,message.version || 1,JSON.stringify(message.usage || null),reference ? null : message.reasoning || null,reference ? null : JSON.stringify(message.toolCalls || null),reference ? JSON.stringify(reference) : null]);
+      await database.query(`INSERT INTO rhiza_messages (id,node_id,segment_id,kind,body,manifest_id,created_at,operation,version_group_id,version,usage,reasoning,tool_calls,content_ref) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13::jsonb,$14::jsonb WHERE EXISTS (SELECT 1 FROM rhiza_nodes WHERE id=$2 AND project_id=$15)`, [message.id,message.nodeId,message.segmentId || null,message.kind,reference ? '' : message.text,message.manifestId || null,message.createdAt,message.operation || 'send',message.versionGroupId || null,message.version || 1,JSON.stringify(message.usage || null),reference ? null : message.reasoning || null,reference ? null : JSON.stringify(message.toolCalls || null),reference ? JSON.stringify(reference) : null,workspace.projectId]);
     }
-    for (const node of nodes) await database.query('UPDATE rhiza_nodes SET source_node_id=$2, source_message_id=$3 WHERE id=$1', [node.id,node.sourceNodeId || null,node.sourceMessageId || null]);
-    for (const message of messages) await database.query('UPDATE rhiza_messages SET source_message_id=$2, reply_to_message_id=$3 WHERE id=$1', [message.id,message.sourceMessageId || null,message.replyToMessageId || null]);
+    for (const node of nodes) await database.query('UPDATE rhiza_nodes SET source_node_id=$2, source_message_id=$3 WHERE id=$1 AND project_id=$4', [node.id,node.sourceNodeId || null,node.sourceMessageId || null,workspace.projectId]);
+    for (const message of messages) await database.query('UPDATE rhiza_messages SET source_message_id=$2, reply_to_message_id=$3 WHERE id=$1 AND node_id IN (SELECT id FROM rhiza_nodes WHERE project_id=$4)', [message.id,message.sourceMessageId || null,message.replyToMessageId || null,workspace.projectId]);
+    for (const message of changes.messages.updated) await database.query('UPDATE rhiza_messages SET segment_id=$2,source_message_id=$3,reply_to_message_id=$4 WHERE id=$1 AND node_id IN (SELECT id FROM rhiza_nodes WHERE project_id=$5)', [message.id,message.segmentId || null,message.sourceMessageId || null,message.replyToMessageId || null,workspace.projectId]);
     for (const anchor of anchors) {
       let reference: SealedAnchorRef | undefined;
       if (this.anchorContent && anchor.selectedText !== undefined) {
@@ -2261,7 +2300,8 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         reference = await this.anchorContent.seal(workspace.projectId, anchor.id, anchor);
         pending.push({ workspaceId: workspace.projectId, anchorId: anchor.id, reference });
       }
-      await database.query(`INSERT INTO rhiza_anchors (id,project_id,node_id,message_id,segment_id,selected_text,start_offset,end_offset,created_at,content_ref) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb) ON CONFLICT (id) DO UPDATE SET node_id=EXCLUDED.node_id,message_id=EXCLUDED.message_id,segment_id=EXCLUDED.segment_id,selected_text=EXCLUDED.selected_text,start_offset=EXCLUDED.start_offset,end_offset=EXCLUDED.end_offset,content_ref=EXCLUDED.content_ref`, [anchor.id,workspace.projectId,anchor.nodeId,anchor.messageId || null,anchor.segmentId || null,reference ? null : anchor.selectedText || null,anchor.startOffset ?? null,anchor.endOffset ?? null,anchor.createdAt,reference ? JSON.stringify(reference) : null]);
+      if (changes.anchors.updated.some(item => item.id === anchor.id)) await database.query(`UPDATE rhiza_anchors SET created_at=$9,node_id=$3,message_id=$4,segment_id=$5,selected_text=$6,start_offset=$7,end_offset=$8,content_ref=$10 WHERE id=$1 AND project_id=$2`, [anchor.id,workspace.projectId,anchor.nodeId,anchor.messageId || null,anchor.segmentId || null,reference ? null : anchor.selectedText || null,anchor.startOffset ?? null,anchor.endOffset ?? null,anchor.createdAt,reference ? JSON.stringify(reference) : null]);
+      else await database.query(`INSERT INTO rhiza_anchors (id,project_id,node_id,message_id,segment_id,selected_text,start_offset,end_offset,created_at,content_ref) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)`, [anchor.id,workspace.projectId,anchor.nodeId,anchor.messageId || null,anchor.segmentId || null,reference ? null : anchor.selectedText || null,anchor.startOffset ?? null,anchor.endOffset ?? null,anchor.createdAt,reference ? JSON.stringify(reference) : null]);
     }
     for (const edge of edges) {
       let reference: SealedEdgeRef | undefined;
@@ -2271,13 +2311,13 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         reference = await this.edgeContent.seal(workspace.projectId, edge.id, edge);
         pending.push({ workspaceId: workspace.projectId, edgeId: edge.id, reference });
       }
-      await database.query(`INSERT INTO rhiza_edges (id,project_id,source_node_id,target_node_id,anchor_id,relation,label,created_at,content_ref) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb) ON CONFLICT (id) DO UPDATE SET source_node_id=EXCLUDED.source_node_id,target_node_id=EXCLUDED.target_node_id,anchor_id=EXCLUDED.anchor_id,relation=EXCLUDED.relation,label=EXCLUDED.label,content_ref=EXCLUDED.content_ref`, [edge.id,workspace.projectId,edge.source,edge.target,edge.anchorId || null,relationToDb(edge.relation),reference ? '' : edge.label,edge.createdAt,reference ? JSON.stringify(reference) : null]);
+      if (changes.edges.updated.some(item => item.id === edge.id)) await database.query(`UPDATE rhiza_edges SET created_at=$8,source_node_id=$3,target_node_id=$4,anchor_id=$5,relation=$6,label=$7,content_ref=$9 WHERE id=$1 AND project_id=$2`, [edge.id,workspace.projectId,edge.source,edge.target,edge.anchorId || null,relationToDb(edge.relation),reference ? '' : edge.label,edge.createdAt,reference ? JSON.stringify(reference) : null]);
+      else await database.query(`INSERT INTO rhiza_edges (id,project_id,source_node_id,target_node_id,anchor_id,relation,label,created_at,content_ref) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)`, [edge.id,workspace.projectId,edge.source,edge.target,edge.anchorId || null,relationToDb(edge.relation),reference ? '' : edge.label,edge.createdAt,reference ? JSON.stringify(reference) : null]);
     }
-    if (messages.length) await database.query('DELETE FROM rhiza_message_attachments WHERE message_id = ANY($1::uuid[])', [messages.map(message => message.id)]);
-    for (const message of messages) for (const [ordinal, attachmentId] of (message.attachmentIds || []).entries()) await database.query('INSERT INTO rhiza_message_attachments (message_id,attachment_id,ordinal) VALUES ($1,$2,$3)', [message.id,attachmentId,ordinal]);
-    for (const audit of audits) await database.query(`INSERT INTO rhiza_audit_events (id,project_id,node_id,action,entity_type,entity_id,metadata,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8) ON CONFLICT (id) DO NOTHING`, [audit.id,audit.projectId,audit.nodeId || null,audit.action,audit.entityType,audit.entityId,JSON.stringify(audit.metadata),audit.createdAt]);
+    for (const message of messages) for (const [ordinal, attachmentId] of (message.attachmentIds || []).entries()) await database.query('INSERT INTO rhiza_message_attachments (message_id,attachment_id,ordinal) SELECT $1,$2,$3 WHERE EXISTS (SELECT 1 FROM rhiza_messages m JOIN rhiza_nodes n ON n.id=m.node_id JOIN rhiza_attachments a ON a.id=$2 AND a.project_id=n.project_id WHERE m.id=$1 AND n.project_id=$4)', [message.id,attachmentId,ordinal,workspace.projectId]);
+    for (const audit of audits) await database.query(`INSERT INTO rhiza_audit_events (id,project_id,node_id,action,entity_type,entity_id,metadata,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8)`, [audit.id,workspace.projectId,audit.nodeId || null,audit.action,audit.entityType,audit.entityId,JSON.stringify(audit.metadata),audit.createdAt]);
     await database.query('UPDATE rhiza_projects SET active_node_id=$2 WHERE id=$1', [workspace.projectId, workspace.activeNodeId]);
-    await this.deleteMissing(database, workspace, options);
+    await this.deleteAffected(database, workspace, changes, options);
     await materializeContextCandidates(database, workspace, previous);
     if (options?.purge && previous) {
       const removedSegments = previous.segments.filter(item => !workspace.segments.some(candidate => candidate.id === item.id)).map(item => item.id);
@@ -2301,14 +2341,31 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     return inserted;
   }
 
-  private async deleteMissing(database: SqlQueryable, workspace: WorkspaceData, options?: WorkspaceUpdateOptions) {
-    await database.query('DELETE FROM rhiza_edges WHERE project_id=$1 AND NOT (id = ANY($2::uuid[]))', [workspace.projectId, workspace.discussionEdges.map(item => item.id)]);
-    await database.query('DELETE FROM rhiza_anchors WHERE project_id=$1 AND NOT (id = ANY($2::uuid[]))', [workspace.projectId, workspace.anchors.map(item => item.id)]);
-    await database.query('DELETE FROM rhiza_segments WHERE node_id IN (SELECT id FROM rhiza_nodes WHERE project_id=$1) AND NOT (id = ANY($2::uuid[]))', [workspace.projectId, workspace.segments.map(item => item.id)]);
-    await database.query('DELETE FROM rhiza_attachments WHERE project_id=$1 AND NOT (id = ANY($2::uuid[]))', [workspace.projectId, workspace.attachments.map(item => item.id)]);
+  private async deleteAffected(database: SqlQueryable, workspace: WorkspaceData, changes: {
+    edges: { deleted: DiscussionEdge[] }; anchors: { deleted: Anchor[] }; segments: { deleted: Segment[] };
+    attachments: { deleted: StoredAttachment[] }; messages: { deleted: StoredMessage[] };
+    manifests: { deleted: ContextManifest[] }; nodes: { deleted: DiscussionNode[] };
+  }, options?: WorkspaceUpdateOptions) {
+    const ids = (items: { id: string }[]) => items.map(item => item.id);
+    const scope = workspace.projectId;
+    if (changes.edges.deleted.length) await database.query('DELETE FROM rhiza_edges WHERE project_id=$1 AND id=ANY($2::uuid[])', [scope, ids(changes.edges.deleted)]);
+    if (changes.anchors.deleted.length) await database.query('DELETE FROM rhiza_anchors WHERE project_id=$1 AND id=ANY($2::uuid[])', [scope, ids(changes.anchors.deleted)]);
     if (options?.purge) {
       await database.query("SELECT set_config('rhiza.purge_context_manifest_delete', 'on', true)");
-      await database.query('DELETE FROM rhiza_nodes WHERE project_id=$1 AND id=$2', [workspace.projectId, options.purge.nodeId]);
+      const messageIds = ids(changes.messages.deleted);
+      await database.query('DELETE FROM rhiza_message_attachments WHERE message_id=ANY($2::uuid[]) AND message_id IN (SELECT m.id FROM rhiza_messages m JOIN rhiza_nodes n ON n.id=m.node_id WHERE n.project_id=$1)', [scope, messageIds]);
+      // Remove internal self references explicitly before deleting the affected history.
+      await database.query('UPDATE rhiza_messages SET source_message_id=NULL,reply_to_message_id=NULL WHERE id=ANY($2::uuid[]) AND node_id IN (SELECT id FROM rhiza_nodes WHERE project_id=$1)', [scope, messageIds]);
+      await database.query('UPDATE rhiza_nodes SET source_message_id=NULL WHERE project_id=$1 AND id=ANY($2::uuid[])', [scope, ids(changes.nodes.deleted)]);
+      await database.query('DELETE FROM rhiza_messages WHERE id=ANY($2::uuid[]) AND node_id IN (SELECT id FROM rhiza_nodes WHERE project_id=$1)', [scope, messageIds]);
+      await database.query('DELETE FROM rhiza_context_manifests WHERE project_id=$1 AND id=ANY($2::uuid[])', [scope, ids(changes.manifests.deleted)]);
+    }
+    if (changes.segments.deleted.length) await database.query('DELETE FROM rhiza_segments WHERE node_id IN (SELECT id FROM rhiza_nodes WHERE project_id=$1) AND id=ANY($2::uuid[])', [scope, ids(changes.segments.deleted)]);
+    if (changes.attachments.deleted.length) await database.query('DELETE FROM rhiza_attachments WHERE project_id=$1 AND id=ANY($2::uuid[])', [scope, ids(changes.attachments.deleted)]);
+    if (options?.purge) {
+      await database.query('UPDATE rhiza_audit_events SET node_id=NULL WHERE project_id=$1 AND node_id=ANY($2::uuid[])', [scope, ids(changes.nodes.deleted)]);
+      await database.query("DELETE FROM graph_layout_nodes WHERE workspace_id=$1 AND object_type='conversation' AND object_id=ANY($2::text[])", [scope, ids(changes.nodes.deleted)]);
+      await database.query('DELETE FROM rhiza_nodes WHERE project_id=$1 AND id=ANY($2::uuid[])', [scope, ids(changes.nodes.deleted)]);
     }
   }
 }

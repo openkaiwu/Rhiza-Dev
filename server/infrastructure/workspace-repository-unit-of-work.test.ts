@@ -21,9 +21,25 @@ class FakeRepository implements WorkspaceRepository {
 }
 
 describe('RepositoryWorkspaceUnitOfWork', () => {
-  it('reads through the repository and applies ordinary mutations without update options', async () => {
+  it('rejects production mutations without command context before applying them', async () => {
     const repository = new FakeRepository();
     const unit = new RepositoryWorkspaceUnitOfWork(repository);
+    await expect(unit.execute({ policy: { kind: 'normal' }, apply: current => ({ next: { ...current, projectTitle: 'unsafe' }, value: null }) }))
+      .rejects.toMatchObject({ code: 'COMMAND_CONTEXT_REQUIRED' });
+    expect(repository.data.projectTitle).not.toBe('unsafe');
+  });
+  it('rejects a production command when transactional persistence is unavailable', async () => {
+    const repository = new FakeRepository();
+    const unit = new RepositoryWorkspaceUnitOfWork(repository);
+    await expect(unit.withCommand({ commandId: 'command', commandType: 'Change', actor: { actorType: 'system', actorId: 'test' },
+      scope: { scopeType: 'workspace', scopeId: repository.data.projectId }, occurredAt: new Date().toISOString() },
+    () => unit.execute({ policy: { kind: 'normal' }, apply: current => ({ next: { ...current, projectTitle: 'unsafe' }, value: null }) })))
+      .rejects.toMatchObject({ code: 'TRANSACTIONAL_PERSISTENCE_REQUIRED' });
+    expect(repository.data.projectTitle).not.toBe('unsafe');
+  });
+  it('reads through the repository and applies ordinary mutations without update options', async () => {
+    const repository = new FakeRepository();
+    const unit = new RepositoryWorkspaceUnitOfWork(repository, { fixture: true });
     await expect(unit.read(workspace => workspace.projectId)).resolves.toBe(repository.data.projectId);
     await expect(unit.execute({
       policy: { kind: 'normal' },
@@ -35,7 +51,7 @@ describe('RepositoryWorkspaceUnitOfWork', () => {
 
   it('maps a purge policy exactly to the repository purge capability', async () => {
     const repository = new FakeRepository();
-    const unit = new RepositoryWorkspaceUnitOfWork(repository);
+    const unit = new RepositoryWorkspaceUnitOfWork(repository, { fixture: true });
     await unit.execute({
       policy: { kind: 'purge', nodeId: 'node-1', auditReceiptId: 'receipt-1' },
       apply: workspace => ({ next: workspace, value: undefined }),
@@ -47,12 +63,12 @@ describe('RepositoryWorkspaceUnitOfWork', () => {
     const directory = await mkdtemp(join(tmpdir(), 'rhiza-uow-'));
     try {
       const path = join(directory, 'workspace.json');
-      const first = new RepositoryWorkspaceUnitOfWork(new WorkspaceStore(path));
+      const first = new RepositoryWorkspaceUnitOfWork(new WorkspaceStore(path), { fixture: true });
       await Promise.all(['workspace-a', 'workspace-b'].map(async id => {
         await first.ensureWorkspaceInitialized(id, id);
         await first.withWorkspace!(id, () => first.execute({ policy: { kind: 'normal' }, apply: current => ({ next: { ...current, projectTitle: `${id}-saved` }, value: undefined }) }));
       }));
-      const restored = new RepositoryWorkspaceUnitOfWork(new WorkspaceStore(path));
+      const restored = new RepositoryWorkspaceUnitOfWork(new WorkspaceStore(path), { fixture: true });
       await expect(restored.withWorkspace!('workspace-a', () => restored.read(item => item.projectTitle))).resolves.toBe('workspace-a-saved');
       await expect(restored.withWorkspace!('workspace-b', () => restored.read(item => item.projectTitle))).resolves.toBe('workspace-b-saved');
       await expect(restored.withWorkspace!('missing', () => restored.read(item => item.projectId))).rejects.toMatchObject({ code: 'WORKSPACE_DATA_MISSING', status: 409 });
@@ -79,7 +95,7 @@ describe('RepositoryWorkspaceUnitOfWork', () => {
   it('keeps an initialized JSON aggregate on an idempotent ensure retry', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'rhiza-ensure-'));
     try {
-      const unit = new RepositoryWorkspaceUnitOfWork(new WorkspaceStore(join(directory, 'workspace.json')));
+      const unit = new RepositoryWorkspaceUnitOfWork(new WorkspaceStore(join(directory, 'workspace.json')), { fixture: true });
       await unit.ensureWorkspaceInitialized('ensure-workspace', 'Ensure');
       await unit.withWorkspace!('ensure-workspace', () => unit.execute({ policy: { kind: 'normal' }, apply: current => ({ next: { ...current, projectTitle: 'Preserved' }, value: undefined }) }));
       await unit.ensureWorkspaceInitialized('ensure-workspace', 'Should not overwrite');
@@ -100,7 +116,7 @@ describe('RepositoryWorkspaceUnitOfWork', () => {
         if (failOnce) { failOnce = false; throw new Error('simulated JSON initialize failure'); }
         return initialize(workspace);
       };
-      const unit = new RepositoryWorkspaceUnitOfWork(store);
+      const unit = new RepositoryWorkspaceUnitOfWork(store, { fixture: true });
       await expect(unit.ensureWorkspaceInitialized(workspaceId, 'Retry')).rejects.toThrow('simulated JSON initialize failure');
       await unit.ensureWorkspaceInitialized(workspaceId, 'Retry');
       await unit.withWorkspace!(workspaceId, () => unit.execute({ policy: { kind: 'normal' }, apply: current => ({ next: { ...current, projectTitle: 'Recovered' }, value: undefined }) }));

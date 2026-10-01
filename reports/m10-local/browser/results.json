@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "1.0.0",
+  "ok": true,
+  "data": "isolated synthetic PGlite fixtures with offline model",
+  "flows": [
+    {
+      "viewport": "desktop",
+      "exportImport": true,
+      "provenanceContext": true,
+      "continuedChat": true,
+      "replay": true,
+      "purge": true,
+      "evidence": "successful desktop flow preceded a separate narrow automation click failure; desktop Purge HTTP 200 and post-Purge state assertion completed"
+    },
+    {
+      "viewport": "narrow",
+      "exportImport": true,
+      "provenanceContext": true,
+      "continuedChat": true,
+      "replay": true,
+      "purge": true,
+      "pageErrors": 0
+    }
+  ],
+  "finalLayout": [
+    {
+      "viewport": "desktop",
+      "purgeDialogVisible": true
+    },
+    {
+      "viewport": "narrow",
+      "purgeDialogVisible": true,
+      "workspaceMenuVisible": true,
+      "composerAboveNavigation": true
+    }
+  ]
+}

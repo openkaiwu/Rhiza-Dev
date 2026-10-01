@@ -3,7 +3,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { loadMigrations } from '../scripts/migrate';
-import { PostgresWorkspaceStore } from '../server/postgres-store';
+import { PostgresWorkspaceStore } from './fixtures/workspace-store';
 import { createSeedWorkspace } from '../server/seed';
 
 describe('M09 provenance persistence', () => {

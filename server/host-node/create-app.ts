@@ -15,6 +15,8 @@ import { NodeEncryptedBlobStore } from '../infrastructure/node-encrypted-blob-st
 import { NodePortableBundle } from '../infrastructure/portable-bundle';
 import { NodeBundleImport } from '../infrastructure/node-bundle-import';
 import { RepositoryWorkspaceUnitOfWork } from '../infrastructure/workspace-repository-unit-of-work';
+import { WorkspaceStore } from '../store';
+import { legacyWriteReport } from '../infrastructure/legacy-write-observation';
 import { WorkspaceDirectory } from '../identity/workspace-directory';
 import { DEFAULT_WORKSPACE_ID } from '../identity/workspace-scope';
 import { providerPresets, type ProviderService } from '../provider-service';
@@ -35,7 +37,7 @@ export function createApp(
   const upload = new NodeFilesystemLegacyUpload(uploadDirectory);
   const host = new NodeHostRuntimeAdapter(uploadDirectory, { blobs: encryptedBlobs });
   const application = createRhizaApplication({
-    unitOfWork: new RepositoryWorkspaceUnitOfWork(store),
+    unitOfWork: new RepositoryWorkspaceUnitOfWork(store, store instanceof WorkspaceStore ? { fixture: true } : {}),
     runtime,
     hashRunInput: input => semanticStateChecksum(input as unknown as Record<string, unknown>),
     providers: provider,
@@ -69,6 +71,7 @@ export function createApp(
     id: randomUUID,
     runtimeKind: runtime.kind || 'provider-adapter',
     featureFlags,
+    legacyWriteReport,
     providerPresets,
     defaultWorkspaceId,
     ...(serveFrontend && existsSync(frontendDirectory) ? { frontendDirectory } : {}),

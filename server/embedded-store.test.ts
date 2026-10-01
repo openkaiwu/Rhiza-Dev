@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it } from 'vitest';
-import { openEmbeddedWorkspaceStore } from './embedded-store';
+import { openEmbeddedWorkspaceStore } from '../e2e/fixtures/workspace-store';
 import { createSeedWorkspace } from './seed';
 import { PostgresWorkspaceStore, relationalizeWorkspace, type SqlQueryable } from './postgres-store';
 import { semanticChecksum, semanticStateChecksum } from './infrastructure/workspace-semantic-checksum';

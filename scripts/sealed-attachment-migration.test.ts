@@ -6,7 +6,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { expect, it, vi } from 'vitest';
 import { loadMigrations } from './migrate';
 import { SealedAttachmentContent } from '../server/infrastructure/sealed-attachment-content';
-import { PostgresWorkspaceStore } from '../server/postgres-store';
+import { PostgresWorkspaceStore } from '../e2e/fixtures/workspace-store';
 
 it('rejects plaintext beside attachment ciphertext and prevents unsafe downgrade', async () => {
   const database = new PGlite();
@@ -59,7 +59,7 @@ it('rejects plaintext beside attachment ciphertext and prevents unsafe downgrade
     expect((await store.read()).attachments[0].name).toBe('updated.txt');
     expect((await database.query('SELECT name,extracted_text,summary,content_ref FROM rhiza_attachments')).rows[0]).toEqual({ name: '[sealed]', extracted_text: null, summary: null, content_ref: updated });
     seal.mockClear();
-    await database.exec("CREATE FUNCTION reject_attachment_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected attachment failure'; END $$; CREATE TRIGGER reject_attachment_write BEFORE INSERT ON rhiza_attachments FOR EACH ROW EXECUTE FUNCTION reject_attachment_write();");
+    await database.exec("CREATE FUNCTION reject_attachment_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected attachment failure'; END $$; CREATE TRIGGER reject_attachment_write BEFORE INSERT OR UPDATE ON rhiza_attachments FOR EACH ROW EXECUTE FUNCTION reject_attachment_write();");
     await expect(store.update(current => ({ ...current, attachments: current.attachments.map(item => ({ ...item, name: 'failed.txt' })) }))).rejects.toThrow('injected attachment failure');
     await expect(content.read(workspace, id, await seal.mock.results[0].value)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     expect((await store.readConversationPreparation([id])).attachments[0].name).toBe('updated.txt');
@@ -67,6 +67,7 @@ it('rejects plaintext beside attachment ciphertext and prevents unsafe downgrade
     await content.destroy(workspace, id, updated);
     await expect(store.read()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     await expect(store.readConversationPreparation([id])).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    await database.exec('DROP TRIGGER reject_attachment_write ON rhiza_attachments');
     await database.exec("UPDATE rhiza_attachments SET content_ref=NULL,name='legacy',extracted_text='restored'");
     await database.exec(down);
   } finally { await database.close(); await rm(root, { recursive: true, force: true }); }

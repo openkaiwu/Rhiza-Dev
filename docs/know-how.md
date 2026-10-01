@@ -156,3 +156,15 @@
 - Candidate rows and their revision commit with source facts. Graph-edge changes also invalidate planning even when source text is unchanged. Rebuild derived rows with `pnpm run context:rebuild`; a missing or unsupported index must not reuse stale selection text.
 - Plan caches use existing source versions/digests; new per-execution frozen ResourceVersions are created after planning. Historical lookup follows those frozen references and never reruns Planner.
 - Manifest v1 rejects deletion under the legacy purge flag alone; only an authorized pending checkpoint with sealed Run/Manifest content permits it. Preserve unrelated ResourceVersions and blobs during cleanup.
+
+### M10 write boundary and recovery
+
+- Production UoW requires both Command context and `executeCommand`; relational `update()` returns `LEGACY_WRITE_DISABLED`. JSON fixture writes must be explicitly enabled. Relational test setup lives in `e2e/fixtures/workspace-store.ts`, never production composition.
+- Workspace directory creation can precede aggregate initialization with an empty `rhiza_projects` row. Initialization must populate that row without overwriting an existing Node history.
+- Segment membership is a mutable Message relation; body, version and attachment history are frozen. Purge may explicitly clear source/reply relations only when they point to Messages deleted by that Purge. Its deletion order follows the affected-object list rather than database cascades.
+- Rollback drills run the actual compatible baseline reader after checking migration checksums. Roll back code only, preserve current schema and encryption, and never restore Purged body content.
+- `legacyWrites` covers the current process window. A new offline process or a restart with zero counts is not continuous observation evidence. Preflight/reconciliation never seed, backfill or revoke keys; failures preserve original data.
+- Context snapshots commit with `run.created` before a Manifest exists. Failed/canceled Runs still own snapshots; derive their IDs from Journal state changes inside the Purge transaction and reject stale application ownership lists. A frozen snapshot never owns its independent `originResourceVersionId`.
+- Purge Resource redaction follows newly tombstoned ResourceVersions, never a display-name transition: a real attachment may already be named `[purged]`.
+- A pending Purge or unacknowledged key reference makes M10 inspection fail. Superseded document keys can retain body copies; only a bound single-database directory and the exclusive content-lifecycle lock permit online global document orphan reclamation. Legacy unbound directories stay pending until explicit offline reclamation. Blob/archive deletion remains identity-scoped.
+- Live Journal checksums describe a complete transaction, while portable Purge overlays can carry per-event checksums. Reconciliation must validate each at its own boundary; do not weaken the untrusted Bundle validator to accept a mixed live tail.

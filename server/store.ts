@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { AuditEvent, WorkspaceData } from './domain';
 import { createSeedWorkspace } from './seed';
+import { purgeResourceIds } from './domain/purge-resources';
 import type { WorkspaceDirectoryPort } from './identity/workspace-directory';
 import type { WorkspaceRecord } from './contracts/application';
 import type { CommandFactContext, DomainEventDraft, DomainEventEnvelope } from './domain-journal';
@@ -53,6 +54,7 @@ export interface WorkspaceRepository {
 export interface WorkspacePurgeCapability {
   nodeId: string;
   auditReceiptId: string;
+  frozenResourceIds?: string[];
 }
 
 export interface WorkspaceUpdateOptions {
@@ -83,6 +85,18 @@ export function validateWorkspaceHistoryUpdate(previous: WorkspaceData, next: Wo
   const nextFileChunks = itemById(next.fileChunks);
   const priorMaterializations = itemById(previous.materializations);
   const nextMaterializations = itemById(next.materializations);
+
+  for (const [id, message] of priorMessages) {
+    const candidate = nextMessages.get(id);
+    if (!candidate) continue; // Deletion is checked against the scoped Purge below.
+    // Segment membership is a mutable relation; all historical content stays frozen.
+    const purgedRelations = (['sourceMessageId', 'replyToMessageId'] as const).filter(key => options?.purge
+      && message[key] && !nextMessages.has(message[key]!) && !candidate[key]);
+    const content = (value: typeof message) => Object.fromEntries(Object.entries({ ...value,
+      operation: value.operation ?? 'send', version: value.version ?? 1, attachmentIds: value.attachmentIds ?? [] })
+      .filter(([key, item]) => item !== undefined && key !== 'segmentId' && !purgedRelations.includes(key as typeof purgedRelations[number])));
+    if (!isDeepStrictEqual(content(candidate), content(message))) throw new Error(`Immutable Message ${id} cannot be rewritten`);
+  }
 
   for (const [id, manifest] of priorManifests) {
     const candidate = nextManifests.get(id);
@@ -132,7 +146,7 @@ export function validateWorkspaceHistoryUpdate(previous: WorkspaceData, next: Wo
   const receiptTime = next.auditEvents.find(event => event.id === purge.auditReceiptId)?.createdAt;
   const removedAttachmentIds = new Set(previous.attachments.filter(item => !next.attachments.some(candidate => candidate.id === item.id)).map(item => item.id));
   const attachedToRemovedMessages = new Set(removedMessageIds.flatMap(id => priorMessages.get(id)?.attachmentIds ?? []));
-  const resourcesToPurge = new Set([...attachedToRemovedMessages].map(id => previous.attachments.find(item => item.id === id)?.resourceId).filter((id): id is string => !!id));
+  const resourcesToPurge = purgeResourceIds(previous, purge.nodeId, purge.frozenResourceIds);
   const affectedAttachments = new Set(previous.attachments.filter(item => item.resourceId && resourcesToPurge.has(item.resourceId)).map(item => item.id));
   const affectedVersions = new Set(previous.resourceVersions.filter(item => resourcesToPurge.has(item.resourceId)).map(item => item.id));
   const affectedChunks = new Set(previous.fileChunks.filter(item => affectedAttachments.has(item.attachmentId)).map(item => item.id));
@@ -186,7 +200,8 @@ export function validateWorkspaceHistoryUpdate(previous: WorkspaceData, next: Wo
     return manifest.attachmentIds.some(attachmentId => !affectedAttachments.has(attachmentId))
       || manifest.contextItems.some(item => (item.resourceId && !resourcesToPurge.has(item.resourceId))
         || (item.resourceVersionId && !affectedVersions.has(item.resourceVersionId))
-        || (item.originResourceVersionId && !affectedVersions.has(item.originResourceVersionId))
+        || (item.originResourceVersionId && !affectedVersions.has(item.originResourceVersionId)
+          && !next.resourceVersions.some(version => version.id === item.originResourceVersionId && !version.purgedAt))
         || ((item.sourceType === 'file' || item.sourceType === 'chunk')
           && !(affectedAttachments.has(item.sourceId) || affectedChunks.has(item.sourceId)))
         || ((attachmentIds.has(item.sourceId) || chunkIds.has(item.sourceId))
@@ -197,7 +212,7 @@ export function validateWorkspaceHistoryUpdate(previous: WorkspaceData, next: Wo
       || (item.sourceId && (attachmentIds.has(item.sourceId) || chunkIds.has(item.sourceId))))
     && (!item.sourceId || !(affectedAttachments.has(item.sourceId) || affectedChunks.has(item.sourceId))
       || retainedContextIds.has(item.id) || (!!item.sourceNodeId && item.sourceNodeId !== purge.nodeId)));
-  if ((attachedToRemovedMessages.size && !safeAttachedResources) || unauthorizedResourceChange || resourceManifest || resourceContext) {
+  if (((resourcesToPurge.size || attachedToRemovedMessages.size) && !safeAttachedResources) || unauthorizedResourceChange || resourceManifest || resourceContext) {
     throw Object.assign(new Error('该节点的历史内容仍引用文件资源，请使用归档；Purge 需要先覆盖资源密钥撤销。'), { code: 'PURGE_HAS_RESOURCE_HISTORY', status: 409 });
   }
   const removedSegments = previous.segments.filter(item => !next.segments.some(candidate => candidate.id === item.id));

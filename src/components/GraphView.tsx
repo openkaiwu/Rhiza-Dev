@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Archive, Check, Focus, Grip, Link2, Maximize2, Minus, Plus, RotateCcw, Search, Trash2, X } from 'lucide-react';
 import { presentErrorText } from '../error-presentation';
+import { PurgeNodeControl } from './PurgeNodeControl';
 import type { GraphEdgeModel, GraphNodeModel, GraphRelation } from './graph-model';
 
 const STAGE_WIDTH = 2200;
@@ -28,11 +29,12 @@ interface GraphViewProps {
   onCreateNode: (input: { title: string; summary?: string; x: number; y: number }) => Promise<void>;
   onArchiveNode: (id: string) => Promise<void>;
   onRestoreNode: (id: string) => Promise<void>;
+  onPurgeNode?: (id: string, confirmation: string, reason: string) => Promise<void>;
   onCreateEdge: (input: { source: string; target: string; relation: GraphRelation; label: string }) => Promise<void>;
   onDeleteEdge: (id: string) => Promise<void>;
 }
 
-export function GraphView({ loading = false, error = '', hasMore = false, onLoadMore, onRefresh, nodes, edges, activeNodeId, onMove, onActivate, onCreateNode, onArchiveNode, onRestoreNode, onCreateEdge, onDeleteEdge }: GraphViewProps) {
+export function GraphView({ loading = false, error = '', hasMore = false, onLoadMore, onRefresh, nodes, edges, activeNodeId, onMove, onActivate, onCreateNode, onArchiveNode, onRestoreNode, onPurgeNode, onCreateEdge, onDeleteEdge }: GraphViewProps) {
   const canvasRef = useRef<HTMLElement>(null);
   const dragRef = useRef<DragState | null>(null);
   const panRef = useRef<PanState | null>(null);
@@ -240,7 +242,7 @@ export function GraphView({ loading = false, error = '', hasMore = false, onLoad
 
     <section className="graph-archive" aria-label="已归档节点">
       <header><Archive size={14}/><strong>已归档节点</strong><span>{archivedNodes.length}</span></header>
-      {archivedNodes.length === 0 ? <p>暂无已归档节点。</p> : <ul>{archivedNodes.map(node => <li key={node.id}><span><strong>{node.title}</strong><small>{node.summary || '无摘要'}</small></span><button type="button" onClick={() => void restoreNode(node.id)}><RotateCcw size={13}/>恢复</button></li>)}</ul>}
+      {archivedNodes.length === 0 ? <p>暂无已归档节点。</p> : <ul>{archivedNodes.map(node => <li key={node.id}><span><strong>{node.title}</strong><small>{node.summary || '无摘要'}</small></span><button type="button" onClick={() => void restoreNode(node.id)}><RotateCcw size={13}/>恢复</button>{onPurgeNode && <PurgeNodeControl nodeId={node.id} title={node.title} onPurge={onPurgeNode}/>}</li>)}</ul>}
     </section>
 
     {nodeFormOpen && <div className="dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setNodeFormOpen(false); }}><form className="graph-dialog" aria-label="新建图谱节点" onSubmit={submitNode}><div className="graph-dialog-head"><div><span className="eyebrow">NEW NODE</span><h2>新建讨论节点</h2></div><button type="button" className="icon-button" aria-label="关闭新建节点" onClick={() => setNodeFormOpen(false)}><X size={16}/></button></div><label><span>节点标题</span><input autoFocus value={nodeForm.title} onChange={event => setNodeForm(current => ({ ...current, title: event.target.value }))} placeholder="例如：验证检索分层" maxLength={120}/></label><label><span>摘要（可选）</span><textarea value={nodeForm.summary} onChange={event => setNodeForm(current => ({ ...current, summary: event.target.value }))} placeholder="说明这个节点要探索的问题" maxLength={500}/></label><div className="dialog-actions"><button type="button" className="ghost-button" onClick={() => setNodeFormOpen(false)}>取消</button><button type="submit" className="primary-button" disabled={!nodeForm.title.trim()}><Check size={14}/>创建节点</button></div></form></div>}

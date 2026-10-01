@@ -1,0 +1,159 @@
+{
+  "schemaVersion": "1.0.0",
+  "branch": "update1002",
+  "baseCommit": "5bc84667b37590f6d73a7baa4a737bbba7d84bf9",
+  "verifiedLocalDate": "2026-10-01",
+  "engineeringStatus": "complete",
+  "formalGates": {
+    "M09": "pending_external_evidence",
+    "M10": "pending_external_evidence"
+  },
+  "commandsDerivedFrom": "package.json scripts; root AGENTS.md commands are placeholders",
+  "verification": [
+    {
+      "command": "pnpm run lint",
+      "result": "passed",
+      "exitCode": 0,
+      "stage": "final source"
+    },
+    {
+      "command": "pnpm run build",
+      "result": "passed",
+      "exitCode": 0,
+      "includes": [
+        "typecheck",
+        "vite",
+        "tsup"
+      ],
+      "stage": "final source"
+    },
+    {
+      "command": "pnpm run test",
+      "result": "initial_unit_failures_resolved_by_targeted_checks",
+      "initialUnit": {
+        "passed": 368,
+        "failed": 11,
+        "total": 379
+      },
+      "failureCauses": [
+        "old setup adapters used disabled production update",
+        "immutable historical fixture edits",
+        "fault triggers assumed INSERT-only upserts"
+      ],
+      "resolution": "10 affected files rerun: 50 passed and 3 fixture cleanup failures; those 3 passed after removing fault triggers before explicit restoration",
+      "fullCommandRerunAfterFix": false
+    },
+    {
+      "command": "pnpm run test:e2e",
+      "result": "initial_failure_resolved_by_targeted_check",
+      "initial": {
+        "passed": 113,
+        "failed": 1,
+        "skipped": 94,
+        "total": 208
+      },
+      "resolution": "unsealed historical Run fixture now fails at PURGE_RUN_MIGRATION_REQUIRED; updated expected guard passed, with unchanged 409 and no-mutation assertions",
+      "enabledCasesPassingAcrossBroadAndTargetedRuns": 114,
+      "realPostgresCasesSkipped": 94
+    },
+    {
+      "command": "pnpm run m10:checks",
+      "result": "passed",
+      "testsPassed": 28,
+      "filesPassed": 9,
+      "legacyScan": {
+        "violations": 0,
+        "guardedFixtureCalls": 2
+      }
+    },
+    {
+      "command": "pnpm vitest run server/infrastructure/content-directory-ownership.test.ts --maxWorkers=1 --testTimeout=30000",
+      "result": "passed",
+      "testsPassed": 2,
+      "reason": "additional ownership race regression after aggregate run"
+    },
+    {
+      "command": "pnpm vitest run src/App.test.tsx src/components/PurgeNodeControl.test.tsx --maxWorkers=1 --testTimeout=30000",
+      "result": "passed",
+      "testsPassed": 34,
+      "reason": "final single mobile Bundle control and portal behavior"
+    },
+    {
+      "command": "pnpm run licenses:verify",
+      "result": "passed",
+      "productionPackages": 366
+    },
+    {
+      "command": "pnpm run verify:g0",
+      "result": "passed",
+      "benchmarkFailures": 0,
+      "benchmarkTimeouts": 0
+    },
+    {
+      "command": "pnpm run verify:m02:boundaries",
+      "result": "passed"
+    },
+    {
+      "command": "pnpm run verify:m04:host-boundary",
+      "result": "passed"
+    },
+    {
+      "command": "pnpm run m10:preflight / pnpm run m10:reconcile",
+      "result": "passed",
+      "exitCode": 0,
+      "workspaces": 2,
+      "mismatches": 0,
+      "repeatable": true,
+      "reportFiles": [
+        "preflight.json",
+        "reconcile.json"
+      ]
+    },
+    {
+      "command": "pnpm exec tsx scripts/m10-check-store.ts (missing explicit data paths)",
+      "result": "expected_failure",
+      "exitCode": 1,
+      "reportFile": "preflight-failure.json"
+    },
+    {
+      "command": "pnpm run m10:rollback",
+      "result": "passed",
+      "exitCode": 0,
+      "reportFile": "rollback-cli.json"
+    },
+    {
+      "command": "browser acceptance",
+      "result": "passed",
+      "reportFile": "browser/results.json",
+      "externalModelCalls": 0
+    }
+  ],
+  "remainingCoreBlockers": [],
+  "deferred": [
+    "real business staging acceptance",
+    "backup retention and expiry verification",
+    "continuous 24-hour zero legacy write observation",
+    "supplemental real PostgreSQL validation: no configured/available local server"
+  ],
+  "operationalConstraints": [
+    "old nonempty unmarked content directories require explicit offline key reconciliation for orphan-key Purge checkpoints",
+    "rollback only to a current-schema-compatible reader; never down-migrate or restore Purged plaintext",
+    "runtime legacy counters describe only the current process window"
+  ],
+  "artifactChecksums": {
+    "browser/desktop-import.png": "4c637feddd9c21697b3c992f353794d0b2be5f76108f239d0f30827cb7988410",
+    "browser/desktop-provenance-context.png": "035fd272d20bbfea665ef4dacef17c17c15a156a9e8df8fa47ca93cbb951b136",
+    "browser/desktop-purge-confirm.png": "7142104cfaeeadb99c49ccb3c10c09d4351ddda799fd098cad1b94bf7ff04ac3",
+    "browser/desktop-replay.png": "53da3e283cc2898887f0942c7bda6247815c0389a2cf905b2c7f31a620be23a8",
+    "browser/narrow-import.png": "4e706a2e985e4d14e161fb87445a895ac2a95a31e3504fb6a6b377f8dcc2b6ad",
+    "browser/narrow-provenance-context.png": "a0bcc552bb64b58dc4e54174c8263692e571be98da4c1df8ff63606b23b8ece2",
+    "browser/narrow-purge-confirm.png": "a1ee068e3ce7d8a00cee7859a73030fb397ca109dfb6607ec9aaea5249db97e5",
+    "browser/narrow-replay.png": "a6c8db179c6bfd1ea2c87526879e30aac0274f609ca2481357b30cba74364fe1",
+    "browser/narrow-workspace-menu.png": "fd4a4e2bf6d2635679aeef37547ba19c0dbdb4bd9fec28780b84dcbeccd5d403",
+    "browser/results.json": "b0eee39b6d7105568695b8ee15a80479aaf362cddf9f3ead9203f7d35c4280c4",
+    "preflight-failure.json": "9f0091aa305b00b69468869149e7086eebabbaae687096dd95ea9743efd9933c",
+    "preflight.json": "250db5e207adb146fefae428b940cb2c47c75334d7e06a248e98f217cdf13fd4",
+    "reconcile.json": "250db5e207adb146fefae428b940cb2c47c75334d7e06a248e98f217cdf13fd4",
+    "rollback-cli.json": "c7b042921943574b34a1664187bb759a8f021f64d26c1a4a0a958f9191d049fa"
+  }
+}

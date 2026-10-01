@@ -437,7 +437,7 @@ describe('Rhiza API', () => {
     await store.update(current => ({ ...current,
       attachments: [...current.attachments, { id: attachmentId, name: 'secret.txt', mimeType: 'text/plain', size: 6,
         kind: 'file', createdAt: new Date().toISOString() }],
-      messages: current.messages.map(message => message.nodeId === nodeId ? { ...message, attachmentIds: [attachmentId] } : message),
+      messages: [...current.messages, { id: randomUUID(), nodeId, kind: 'user' as const, text: 'attached secret', attachmentIds: [attachmentId], createdAt: new Date().toISOString() }],
     }));
     await request(app).delete(`/api/graph/nodes/${nodeId}`).expect(200);
     const response = await request(app).post(`/api/graph/nodes/${nodeId}/purge`)

@@ -7,17 +7,19 @@ import type { RunMutation } from '../application/ports/workspace-unit-of-work';
 import type { CommandFactContext } from '../domain-journal';
 import { eventForCommand, toActivityItem } from '../domain-journal';
 import { buildWorkspaceGraphProjection, graphChanges, graphNeighborhood, graphPath, graphTree } from '../graph-projection/model';
+import { observeLegacyWrite } from './legacy-write-observation';
 
 function updateOptions(policy: WorkspaceMutationPolicy | undefined): WorkspaceUpdateOptions | undefined {
   if (!policy || policy.kind === 'normal') return undefined;
-  return { purge: { nodeId: policy.nodeId, auditReceiptId: policy.auditReceiptId } };
+  return { purge: { nodeId: policy.nodeId, auditReceiptId: policy.auditReceiptId,
+    ...(policy.frozenResourceIds ? { frozenResourceIds: policy.frozenResourceIds } : {}) } };
 }
 
-/** Bridges the M01 repository while preserving its append-only/purge guarantees. */
+/** Production mutations require command facts and transactional persistence. */
 export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
   private readonly scope = new AsyncLocalStorage<string>();
   private readonly command = new AsyncLocalStorage<CommandFactContext>();
-  constructor(private readonly repository: WorkspaceRepository) {}
+  constructor(private readonly repository: WorkspaceRepository, private readonly options: { fixture?: true } = {}) {}
 
   get tracksRuns() { return Boolean(this.repository.getRun); }
   private runRepository() {
@@ -90,6 +92,11 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
     const target = workspaceId && workspaceId !== defaultWorkspaceId ? this.repository.forWorkspace?.(workspaceId) : this.repository;
     if (!target) throw Object.assign(new Error('Scoped workspace persistence is unavailable'), { code: 'WORKSPACE_PERSISTENCE_UNAVAILABLE', status: 503 });
     const context = this.command.getStore();
+    if (!this.options.fixture && (!context || !target.executeCommand)) {
+      const code = !context ? 'COMMAND_CONTEXT_REQUIRED' : 'TRANSACTIONAL_PERSISTENCE_REQUIRED';
+      observeLegacyWrite(!context ? 'uow.missing-command' : 'uow.missing-transaction');
+      throw Object.assign(new Error(code), { code, status: 503 });
+    }
     if (context && target.executeCommand) {
       const result = await target.executeCommand({
         context,
@@ -99,6 +106,7 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
       });
       return { workspace: result.workspace, value: result.value };
     }
+    observeLegacyWrite('json.fixture.update');
     const workspace = await target.update(async current => {
       const result = await mutation.apply(current);
       value = result.value;
@@ -147,6 +155,10 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
   }
 
   async executeWorkspaceLifecycle(context: CommandFactContext, command: import('../application/ports/workspace-unit-of-work').WorkspaceLifecycleCommand) {
+    if (!this.repository.executeWorkspaceLifecycle && !this.options.fixture) {
+      observeLegacyWrite('uow.missing-transaction');
+      throw Object.assign(new Error('TRANSACTIONAL_PERSISTENCE_REQUIRED'), { code: 'TRANSACTIONAL_PERSISTENCE_REQUIRED', status: 503 });
+    }
     return this.repository.executeWorkspaceLifecycle?.(context, command);
   }
 }

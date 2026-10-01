@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { Pool } from 'pg';
-import type { SqlQueryable } from '../server/postgres-store';
+import type { SqlQueryable } from './fixtures/workspace-store';
 import { PGlite } from '@electric-sql/pglite';
 import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { loadMigrations } from '../scripts/migrate';
-import { PostgresWorkspaceStore } from '../server/postgres-store';
+import { PostgresWorkspaceStore } from './fixtures/workspace-store';
 import { createApp } from '../server/app';
 import type { AIRuntime, RuntimeRequest } from '../server/ai-runtime';
 import { ProviderService } from '../server/provider-service';
@@ -1146,14 +1146,14 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     expect(JSON.stringify(portable)).not.toContain(secret);
   });
 
-  it('keeps archive available when historical Run resources cannot be purged', async () => {
+  it('keeps archive available when historical Run inputs are not sealed', async () => {
     const { app, store } = await setup(success);
     await request(app).post('/api/chat').send({ message: 'retain provenance' }).expect(201);
     const [run] = await store.listRuns();
     await request(app).post('/api/graph/nodes').send({ title: 'Other node' }).expect(201);
     await request(app).patch(`/api/nodes/${run.nodeId}/status`).send({ status: 'archived' }).expect(200);
     const response = await request(app).post(`/api/graph/nodes/${run.nodeId}/purge`).send({ confirmation: `PURGE ${run.nodeId}`, reason: 'remove' }).expect(409);
-    expect(response.body.error.code).toBe('PURGE_HAS_RESOURCE_HISTORY');
+    expect(response.body.error.code).toBe('PURGE_RUN_MIGRATION_REQUIRED');
     expect((await store.read()).discussionNodes.some(node => node.id === run.nodeId)).toBe(true);
     expect(await store.getRun(run.id)).toEqual(run);
   });

@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { NodeHostRuntimeAdapter } from '../server/infrastructure/node-host-runtime';
 import { backfillWorkspaceResources } from '../server/infrastructure/resource-backfill';
+import { PostgresWorkspaceStore as FixtureStore } from './fixtures/workspace-store';
 import { PostgresWorkspaceStore } from '../server/postgres-store';
 
 async function migratedDatabase() {
@@ -26,7 +27,7 @@ describe('Resource attachment backfill E2E', () => {
       const store = new PostgresWorkspaceStore(database, workspaceId);
       const seed = await store.read();
       await writeFile(join(directory, attachmentId), 'backfill bytes');
-      await store.update(current => ({ ...current, attachments: [{ id: attachmentId, name: 'legacy.txt', mimeType: 'text/plain', size: 14, kind: 'file', createdAt: seed.updatedAt }] }));
+      await new FixtureStore(database, workspaceId).update(current => ({ ...current, attachments: [{ id: attachmentId, name: 'legacy.txt', mimeType: 'text/plain', size: 14, kind: 'file', createdAt: seed.updatedAt }] }));
       const host = new NodeHostRuntimeAdapter(directory);
       const first = await backfillWorkspaceResources(store, host);
       const second = await backfillWorkspaceResources(store, host);

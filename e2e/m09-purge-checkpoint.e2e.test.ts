@@ -8,7 +8,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { Pool } from 'pg';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadMigrations } from '../scripts/migrate';
-import { PostgresWorkspaceStore, type SqlQueryable } from '../server/postgres-store';
+import { PostgresWorkspaceStore, type SqlQueryable } from './fixtures/workspace-store';
 import { SealedNodeContent, type SealedNodeRef } from '../server/infrastructure/sealed-node-content';
 import { SealedMessageContent } from '../server/infrastructure/sealed-message-content';
 import { SealedManifestContent, type SealedManifestRef } from '../server/infrastructure/sealed-manifest-content';

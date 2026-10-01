@@ -6,7 +6,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { expect, it, vi } from 'vitest';
 import { loadMigrations } from './migrate';
 import { SealedContextItemContent } from '../server/infrastructure/sealed-context-item-content';
-import { PostgresWorkspaceStore } from '../server/postgres-store';
+import { PostgresWorkspaceStore } from '../e2e/fixtures/workspace-store';
 
 it('rejects plaintext and malformed metadata in encrypted context item projections', async () => {
   const database = new PGlite();
@@ -59,7 +59,7 @@ it('rejects plaintext and malformed metadata in encrypted context item projectio
     expect(JSON.stringify(stored)).not.toContain('private');
     expect((await scoped.readConversationPreparation([])).contextItems[0].title).toBe('updated title');
     seal.mockClear();
-    await database.exec("CREATE FUNCTION reject_project_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected project failure'; END $$; CREATE TRIGGER reject_project_write BEFORE INSERT ON rhiza_projects FOR EACH ROW EXECUTE FUNCTION reject_project_write();");
+    await database.exec("CREATE FUNCTION reject_project_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected project failure'; END $$; CREATE TRIGGER reject_project_write BEFORE INSERT OR UPDATE ON rhiza_projects FOR EACH ROW EXECUTE FUNCTION reject_project_write();");
     await expect(scoped.update(current => ({ ...current, contextItems: current.contextItems.map(entry => ({ ...entry, title: 'failed title' })) }))).rejects.toThrow('injected project failure');
     await expect(content.read(workspace, item.id, await seal.mock.results[0].value)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     expect((await scoped.read()).contextItems[0].title).toBe('updated title');
@@ -67,6 +67,7 @@ it('rejects plaintext and malformed metadata in encrypted context item projectio
     await content.destroy(workspace, item.id, updated);
     await expect(scoped.read()).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     await expect(scoped.readConversationPreparation([])).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
+    await database.exec('DROP TRIGGER reject_project_write ON rhiza_projects');
     await write({ id: 'legacy', title: 'legacy plaintext' });
     await database.exec(await readFile('db/migrations/0025_sealed_context_items.down.sql', 'utf8'));
   } finally { await database.close(); await rm(root, { recursive: true, force: true }); }

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { HostRuntimePort } from '../application/ports/host-runtime';
 import type { Resource, ResourceMaterialization, ResourceVersion } from '../domain';
-import type { WorkspaceRepository } from '../store';
+import { WorkspaceStore, type WorkspaceRepository } from '../store';
 
 export interface ResourceBackfillResult {
   migrated: number;
@@ -16,6 +16,7 @@ function checksum(value: unknown): string {
 
 /** Repeatable legacy attachment backfill. A promoted blob may outlive a failed DB commit and is reclaimed by orphan GC. */
 export async function backfillWorkspaceResources(repository: WorkspaceRepository, host: HostRuntimePort): Promise<ResourceBackfillResult> {
+  if (!repository.executeCommand && !(repository instanceof WorkspaceStore)) throw new Error('TRANSACTIONAL_PERSISTENCE_REQUIRED');
   const before = await repository.read();
   let migrated = 0;
   const promoted = new Map<string, Awaited<ReturnType<HostRuntimePort['blobs']['put']>>>();
@@ -27,7 +28,7 @@ export async function backfillWorkspaceResources(repository: WorkspaceRepository
     if (!host.readLegacyAttachment) throw Object.assign(new Error(`Legacy attachment ${attachment.id} cannot be read by this host`), { code: 'RESOURCE_BACKFILL_UNAVAILABLE' });
     promoted.set(attachment.id, await host.blobs.put(await host.readLegacyAttachment(attachment.id)));
   }
-  if (promoted.size) await repository.update(current => {
+  const apply = (current: import('../domain').WorkspaceData) => {
     const resources = [...current.resources];
     const versions = [...current.resourceVersions];
     const materializations = [...current.materializations];
@@ -50,7 +51,17 @@ export async function backfillWorkspaceResources(repository: WorkspaceRepository
       const attachment = attachments.find(item => item.id === chunk.attachmentId);
       return attachment?.resourceVersionId ? { ...chunk, resourceVersionId: attachment.resourceVersionId } : chunk;
     }) };
-  });
+  };
+  if (promoted.size) {
+    if (repository.executeCommand) await repository.executeCommand({
+      context: { commandId: `backfill:resources:v1:${checksum([...promoted].map(([id, blob]) => ({ id, digest: blob.digest })))}`,
+        commandType: 'BackfillWorkspaceResources', actor: { actorType: 'system', actorId: 'resource-backfill' },
+        scope: { scopeType: 'workspace', scopeId: before.projectId }, occurredAt: new Date().toISOString() },
+      apply: async current => ({ next: apply(current), value: { promoted: promoted.size } }),
+      events: () => [{ eventType: 'resource.version.created', aggregateType: 'workspace', aggregateId: before.projectId, payload: { count: promoted.size } }],
+    });
+    else await repository.update(apply); // Explicit JSON migration fixture only.
+  }
   const after = await repository.read();
   const versionIds = new Set(after.resourceVersions.map(item => item.id));
   const dangling = after.attachments.filter(item => !item.resourceId || !item.resourceVersionId || !item.digest || !item.blobRef || !versionIds.has(item.resourceVersionId)).length;

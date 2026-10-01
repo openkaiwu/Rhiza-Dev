@@ -6,7 +6,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { expect, it, vi } from 'vitest';
 import { loadMigrations } from './migrate';
 import { SealedAnchorContent } from '../server/infrastructure/sealed-anchor-content';
-import { PostgresWorkspaceStore } from '../server/postgres-store';
+import { PostgresWorkspaceStore } from '../e2e/fixtures/workspace-store';
 
 it('requires an association for sealed anchor text and refuses plaintext coexistence or lossy rollback', async () => {
   const database = new PGlite();
@@ -52,7 +52,7 @@ it('requires an association for sealed anchor text and refuses plaintext coexist
     expect(stored.selected_text).toBeNull();
     expect((await scoped.read()).anchors[0].selectedText).toBe('updated quote');
     const seal = vi.spyOn(content, 'seal');
-    await database.exec("CREATE FUNCTION reject_anchor_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected anchor failure'; END $$; CREATE TRIGGER reject_anchor_write BEFORE INSERT ON rhiza_anchors FOR EACH ROW EXECUTE FUNCTION reject_anchor_write();");
+    await database.exec("CREATE FUNCTION reject_anchor_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected anchor failure'; END $$; CREATE TRIGGER reject_anchor_write BEFORE INSERT OR UPDATE ON rhiza_anchors FOR EACH ROW EXECUTE FUNCTION reject_anchor_write();");
     await expect(scoped.update(current => ({ ...current, anchors: current.anchors.map(item => ({ ...item, selectedText: 'failed quote' })) }))).rejects.toThrow('injected anchor failure');
     await expect(content.read(workspace, anchor, await seal.mock.results[0].value)).rejects.toThrow('CONTENT_KEY_UNAVAILABLE');
     expect((await scoped.read()).anchors[0].selectedText).toBe('updated quote');

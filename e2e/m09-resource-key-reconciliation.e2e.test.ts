@@ -4,12 +4,12 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
-import { openEmbeddedWorkspaceStore } from '../server/embedded-store';
+import { openEmbeddedWorkspaceStore } from './fixtures/workspace-store';
 import { NodeContentKeys } from '../server/infrastructure/node-content-keys';
 import { NodeEncryptedBlobStore } from '../server/infrastructure/node-encrypted-blob-store';
 import { NodeFilesystemBlobStore } from '../server/infrastructure/node-host-runtime';
 import { NodeSealedContentStore } from '../server/infrastructure/node-sealed-content-store';
-import type { PostgresWorkspaceStore } from '../server/postgres-store';
+import type { PostgresWorkspaceStore } from './fixtures/workspace-store';
 
 it('reconciles ResourceVersion keys across every Workspace before offline revocation', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rhiza-resource-key-reconcile-'));

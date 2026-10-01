@@ -86,7 +86,12 @@
     "benchmark:m08": "tsx scripts/benchmark-m08-context.ts",
     "m08:checks": "pnpm run lint && pnpm run typecheck && pnpm run test:unit && pnpm run test:e2e && pnpm run licenses:verify && pnpm run verify:g0 && pnpm run verify:m02:boundaries && pnpm run verify:m04:host-boundary && pnpm run benchmark:m08 && pnpm run build && node -e \"if (!process.env.DATABASE_URL) console.log('M08 real PostgreSQL context E2E: skipped (DATABASE_URL unavailable).')\"",
     "m08:evidence": "tsx scripts/architecture-gates/verify-milestone-evidence.ts --milestone M08 --write",
-    "verify:m08:closure": "pnpm run m08:checks && tsx scripts/architecture-gates/verify-milestone-evidence.ts --milestone M08 --strict-current"
+    "verify:m08:closure": "pnpm run m08:checks && tsx scripts/architecture-gates/verify-milestone-evidence.ts --milestone M08 --strict-current",
+    "m10:preflight": "tsx scripts/m10-check-store.ts",
+    "m10:reconcile": "tsx scripts/m10-check-store.ts",
+    "m10:rollback": "tsx scripts/m10-rollback-drill.ts",
+    "m10:legacy-writes": "tsx scripts/architecture-gates/verify-m10-write-path.ts",
+    "m10:checks": "pnpm vitest run server/infrastructure/content-directory-ownership.test.ts src/components/PurgeNodeControl.test.tsx server/m10-history.test.ts server/infrastructure/workspace-repository-unit-of-work.test.ts server/feature-flags.test.ts scripts/m10-inspection.test.ts scripts/architecture-gates/verify-m10-write-path.test.ts e2e/m10-write-path.e2e.test.ts e2e/m10-rollback.e2e.test.ts --maxWorkers=1 --testTimeout=30000 && pnpm run m10:legacy-writes"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",
