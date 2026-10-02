@@ -1,0 +1,51 @@
+{
+  "schemaVersion": "1.0.0",
+  "toolVersion": "8.30.1",
+  "reviews": [
+    {
+      "ruleRef": "9d881e62cdea6c933acbed58dcbaab2c1b6738e906169d00d1de1427ab34a4f9",
+      "fileRef": "88ccfc3736a8ef6347e32c784385fdd283cdbd3c15f82345b4597d797b87b9ac",
+      "commit": "5d3b7039158fc4cd1506af05de0306a86fa0e594",
+      "line": 10,
+      "endLine": 10,
+      "sourceBlobDigest": "cf361d24aa3db25c73d8b00333007b33708a03fbfa176c3c3c17680f2a83cf13",
+      "kind": "public-version-literal"
+    },
+    {
+      "ruleRef": "9d881e62cdea6c933acbed58dcbaab2c1b6738e906169d00d1de1427ab34a4f9",
+      "fileRef": "65a20f0ab96b81825ce77c1177d7838f0d4fbfb8a96ca15076478cc2a8144c3a",
+      "commit": "10f3724e9272a3e5717b8a146794cd679b636101",
+      "line": 8,
+      "endLine": 8,
+      "sourceBlobDigest": "b361eef979f73a9c42a21424c584bd4d1a0cfd9bd046994c8dc440cbcb804aeb",
+      "kind": "public-version-literal"
+    },
+    {
+      "ruleRef": "9d881e62cdea6c933acbed58dcbaab2c1b6738e906169d00d1de1427ab34a4f9",
+      "fileRef": "88ccfc3736a8ef6347e32c784385fdd283cdbd3c15f82345b4597d797b87b9ac",
+      "commit": "105ff982f4ed62a9381879888fcecce910a1dbe3",
+      "line": 7,
+      "endLine": 7,
+      "sourceBlobDigest": "f4a311d52300ad9e24f1dda5ffa64ca721c598569ccaa56b76d02f801e55a564",
+      "kind": "public-version-literal"
+    },
+    {
+      "ruleRef": "9d881e62cdea6c933acbed58dcbaab2c1b6738e906169d00d1de1427ab34a4f9",
+      "fileRef": "b335630551682c19a781afebcf4d07bf978fb1f8ac04c6bf87428ed5106870f5",
+      "commit": "d62405f9df763cb7ae7a5ba192ec74d75c07f4fd",
+      "line": 36,
+      "endLine": 37,
+      "sourceBlobDigest": "f5f7532bcc62d73c147e095aa2a9f13273eac4c6f231ed9985c566ce04a66d38",
+      "kind": "public-config-assignment"
+    },
+    {
+      "ruleRef": "9d881e62cdea6c933acbed58dcbaab2c1b6738e906169d00d1de1427ab34a4f9",
+      "fileRef": "e52a39a8d6126bc8762f0b19f18ead626a6c02f7563b87b33f167b95a1ed9f53",
+      "commit": "fc921f467b7f077c48ff10fd37fe076bd1a3a01e",
+      "line": 38,
+      "endLine": 39,
+      "sourceBlobDigest": "1ee48505fef9cec7e4848bf9699bf63c6b035e19d2fd7ece08c5a1db274c639d",
+      "kind": "public-config-assignment"
+    }
+  ]
+}

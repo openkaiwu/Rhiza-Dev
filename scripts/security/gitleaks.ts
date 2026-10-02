@@ -68,8 +68,50 @@ export function sanitizedFindings(raw: unknown) {
     return { ruleRef: hash(row.RuleID), fileRef: hash(row.File), line: row.StartLine };
   });
 }
+export interface HistoryFindingReview {
+  ruleRef: string; fileRef: string; commit: string; line: number; endLine: number; sourceBlobDigest: string;
+  kind: 'public-version-literal' | 'public-config-assignment';
+}
+/** Explicit decisions bind immutable historical locations, never a filename, rule or value wildcard. */
+export function classifyHistoryFindings(raw: unknown, mode: 'git' | 'dir', reviews: readonly HistoryFindingReview[]) {
+  const safe = sanitizedFindings(raw);
+  const records = raw as Array<{ Commit?: unknown; EndLine?: unknown }>;
+  let reviewedFindingCount = 0;
+  const findings = safe.map((finding, index) => {
+    const row = records[index];
+    const review = mode === 'git' ? reviews.find(review => review.ruleRef === finding.ruleRef && review.fileRef === finding.fileRef
+      && review.line === finding.line && review.endLine === row.EndLine && review.commit === row.Commit) : undefined;
+    if (!review) return finding;
+    reviewedFindingCount++;
+    return { ...finding, review: { kind: review.kind, commitRef: hash(review.commit), sourceBlobDigest: review.sourceBlobDigest } };
+  });
+  return { findings, reviewedFindingCount, unreviewedFindingCount: findings.length - reviewedFindingCount };
+}
+export function parseHistoryFindingReviews(input: unknown): HistoryFindingReview[] {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('INVALID_HISTORY_REVIEW');
+  const value = input as { schemaVersion?: unknown; toolVersion?: unknown; reviews?: unknown };
+  const hex = (entry: unknown, length: number) => typeof entry === 'string' && new RegExp(`^[a-f0-9]{${length}}$`).test(entry);
+  const keys = ['ruleRef', 'fileRef', 'commit', 'line', 'endLine', 'sourceBlobDigest', 'kind'];
+  if (!value || value.schemaVersion !== '1.0.0' || value.toolVersion !== lock.version || !Array.isArray(value.reviews) || value.reviews.length > 100
+    || Object.keys(value).some(key => !['schemaVersion', 'toolVersion', 'reviews'].includes(key))) throw new Error('INVALID_HISTORY_REVIEW');
+  const identities = new Set<string>();
+  for (const review of value.reviews) {
+    if (!review || typeof review !== 'object' || Array.isArray(review) || Object.keys(review).some(key => !keys.includes(key))
+      || !hex(review.ruleRef, 64) || !hex(review.fileRef, 64) || !hex(review.commit, 40) || !hex(review.sourceBlobDigest, 64)
+      || !Number.isSafeInteger(review.line) || review.line < 1 || !Number.isSafeInteger(review.endLine) || review.endLine < review.line
+      || !['public-version-literal', 'public-config-assignment'].includes(review.kind)) throw new Error('INVALID_HISTORY_REVIEW');
+    const identity = JSON.stringify([review.ruleRef, review.fileRef, review.commit, review.line, review.endLine]);
+    if (identities.has(identity)) throw new Error('INVALID_HISTORY_REVIEW');
+    identities.add(identity);
+  }
+  return value.reviews as HistoryFindingReview[];
+}
+async function historyFindingReviews(): Promise<HistoryFindingReview[]> {
+  return parseHistoryFindingReviews(JSON.parse(await readFile(new URL('../../tools/security-history-reviews.json', import.meta.url), 'utf8')));
+}
 export async function scanSecrets(target: string, mode: 'git' | 'dir' = 'git') {
   const tool = await verifiedBinary();
+  const reviews = mode === 'git' ? await historyFindingReviews() : [];
   const temporary = await mkdtemp(join(tmpdir(),'rhiza-safe-scan-'));
   try {
     const report = join(temporary,'raw.json'); const config = join(temporary,'rules.toml'); const ignore = join(temporary,'ignore');
@@ -79,10 +121,10 @@ export async function scanSecrets(target: string, mode: 'git' | 'dir' = 'git') {
     try { await execute(tool,args,{ timeout: 35000, maxBuffer: 2 * 1024 ** 2 }); }
     catch (error) { status = Number((error as { code?: number }).code ?? 1); }
     if (![0,23].includes(status)) throw new Error('SCAN_EXECUTION_FAILED');
-    const findings = sanitizedFindings(JSON.parse(await readFile(report,'utf8')));
+    const { findings, reviewedFindingCount, unreviewedFindingCount } = classifyHistoryFindings(JSON.parse(await readFile(report,'utf8')), mode, reviews);
     if ((status === 0) !== (findings.length === 0)) throw new Error('INCONSISTENT_SCAN_REPORT');
-    return { schemaVersion: '1.0.0', ok: findings.length === 0, code: findings.length ? 'SECRET_FINDINGS' : 'SCAN_CLEAN', tool: 'gitleaks', version: lock.version, checksumVerified: true,
-      scope: mode, coverage: { maxArchiveDepth: 1, maxDecodeDepth: 2, timeoutSeconds: 30 }, findingCount: findings.length, findings };
+    return { schemaVersion: '1.0.0', ok: unreviewedFindingCount === 0, code: unreviewedFindingCount ? 'SECRET_FINDINGS' : findings.length ? 'REVIEWED_HISTORY_FINDINGS' : 'SCAN_CLEAN', tool: 'gitleaks', version: lock.version, checksumVerified: true,
+      scope: mode, coverage: { maxArchiveDepth: 1, maxDecodeDepth: 2, timeoutSeconds: 30 }, findingCount: findings.length, reviewedFindingCount, unreviewedFindingCount, findings };
   } finally { await rm(temporary,{ recursive: true, force: true }); }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -90,7 +132,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const result = process.argv[2] === 'install' ? await installGitleaks() : await scanSecrets(process.argv[3] ?? '.',process.argv[2] === 'dir' ? 'dir' : 'git');
     console.info(JSON.stringify(result)); if (!result.ok) process.exitCode = 1;
   } catch (error) {
-    const allowed = ['TOOL_DOWNLOAD_FAILED','TOOL_CHECKSUM_MISMATCH','TOOL_CHECKSUM_MANIFEST_MISMATCH','GITLEAKS_NOT_INSTALLED','UNSUPPORTED_PINNED_TOOL_PLATFORM','TOOL_VERSION_MISMATCH','INVALID_SCAN_REPORT','SCAN_EXECUTION_FAILED'];
+    const allowed = ['TOOL_DOWNLOAD_FAILED','TOOL_CHECKSUM_MISMATCH','TOOL_CHECKSUM_MANIFEST_MISMATCH','GITLEAKS_NOT_INSTALLED','UNSUPPORTED_PINNED_TOOL_PLATFORM','TOOL_VERSION_MISMATCH','INVALID_SCAN_REPORT','INVALID_HISTORY_REVIEW','SCAN_EXECUTION_FAILED'];
     console.error(JSON.stringify({ ok: false, code: error instanceof Error && allowed.includes(error.message) ? error.message : 'SECURITY_CHECK_FAILED' })); process.exitCode = 1;
   }
 }

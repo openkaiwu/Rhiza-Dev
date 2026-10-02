@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "ok": false,
+  "ok": true,
   "installed": {
     "ok": true,
     "tool": "gitleaks",
@@ -42,7 +42,8 @@
   },
   "repositoryHistory": {
     "schemaVersion": "1.0.0",
-    "ok": false,
+    "ok": true,
+    "code": "REVIEWED_HISTORY_FINDINGS",
     "tool": "gitleaks",
     "version": "8.30.1",
     "checksumVerified": true,
@@ -53,40 +54,149 @@
       "timeoutSeconds": 30
     },
     "findingCount": 5,
+    "reviewedFindingCount": 5,
+    "unreviewedFindingCount": 0,
     "findings": [
       {
         "ruleRef": "9d881e62cdea6c933acbed58dcbaab2c1b6738e906169d00d1de1427ab34a4f9",
         "fileRef": "88ccfc3736a8ef6347e32c784385fdd283cdbd3c15f82345b4597d797b87b9ac",
-        "line": 10
+        "line": 10,
+        "review": {
+          "kind": "public-version-literal",
+          "commitRef": "876af4766b2c4e042bdbc90cb44d62fda95af3965d3b8cdfafef94a390bd231e",
+          "sourceBlobDigest": "cf361d24aa3db25c73d8b00333007b33708a03fbfa176c3c3c17680f2a83cf13"
+        }
       },
       {
         "ruleRef": "9d881e62cdea6c933acbed58dcbaab2c1b6738e906169d00d1de1427ab34a4f9",
         "fileRef": "65a20f0ab96b81825ce77c1177d7838f0d4fbfb8a96ca15076478cc2a8144c3a",
-        "line": 8
+        "line": 8,
+        "review": {
+          "kind": "public-version-literal",
+          "commitRef": "3815dfb12198d2aa94e90f922159aec677b50ca9d4ca641de43aaccf8e894d1c",
+          "sourceBlobDigest": "b361eef979f73a9c42a21424c584bd4d1a0cfd9bd046994c8dc440cbcb804aeb"
+        }
       },
       {
         "ruleRef": "9d881e62cdea6c933acbed58dcbaab2c1b6738e906169d00d1de1427ab34a4f9",
         "fileRef": "88ccfc3736a8ef6347e32c784385fdd283cdbd3c15f82345b4597d797b87b9ac",
-        "line": 7
+        "line": 7,
+        "review": {
+          "kind": "public-version-literal",
+          "commitRef": "7aabfb1fbed8c590bc11d7720e72c9f7b3873a0733b6dd3bd0649eb6582e7065",
+          "sourceBlobDigest": "f4a311d52300ad9e24f1dda5ffa64ca721c598569ccaa56b76d02f801e55a564"
+        }
       },
       {
         "ruleRef": "9d881e62cdea6c933acbed58dcbaab2c1b6738e906169d00d1de1427ab34a4f9",
         "fileRef": "e52a39a8d6126bc8762f0b19f18ead626a6c02f7563b87b33f167b95a1ed9f53",
-        "line": 38
+        "line": 38,
+        "review": {
+          "kind": "public-config-assignment",
+          "commitRef": "faf8fc7a7aff9874eb8fed4bd5ed8ca013dca383b5d85d18fc472b76e66db756",
+          "sourceBlobDigest": "1ee48505fef9cec7e4848bf9699bf63c6b035e19d2fd7ece08c5a1db274c639d"
+        }
       },
       {
         "ruleRef": "9d881e62cdea6c933acbed58dcbaab2c1b6738e906169d00d1de1427ab34a4f9",
         "fileRef": "b335630551682c19a781afebcf4d07bf978fb1f8ac04c6bf87428ed5106870f5",
-        "line": 36
+        "line": 36,
+        "review": {
+          "kind": "public-config-assignment",
+          "commitRef": "7c1c25200788e4d7f4bcb6f84bcea278b96fbca0027ae576ad8c798ba6b59157",
+          "sourceBlobDigest": "f5f7532bcc62d73c147e095aa2a9f13273eac4c6f231ed9985c566ce04a66d38"
+        }
       }
-    ],
-    "code": "SECRET_FINDINGS"
+    ]
   },
   "classification": {
     "verifiedPublicVersionLiteralFindings": 3,
-    "unreviewedHistoricalDocumentationFindings": 2,
-    "suppressionsAdded": 0
+    "verifiedPublicConfigurationFindings": 2,
+    "unreviewedHistoricalDocumentationFindings": 0,
+    "explicitHistoryReviewDecisions": 5,
+    "broadRuleOrFileSuppressionsAdded": 0,
+    "rawFindingsRetained": true,
+    "scope": "pinned tool version and exact immutable Git locations only; never directory/export"
   },
-  "exportSemanticMetadataAcceptance": "pending real export safety integration; existing M09 DTO safeguards retained",
-  "formalGate": "pending"
+  "exportSemanticMetadataAcceptance": "actual isolated Bundle negative/attachment-positive fixtures verified; deployment artifact and production UI/formal acceptance pending",
+  "formalGate": "pending",
+  "actualExportFixtures": {
+    "schemaVersion": "1.0.0",
+    "tool": "gitleaks",
+    "version": "8.30.1",
+    "ok": true,
+    "results": [
+      {
+        "fixture": "sanitized-export-negative",
+        "ok": true,
+        "findingCount": 0,
+        "sanitized": true,
+        "validated": true
+      },
+      {
+        "fixture": "attachment-positive",
+        "ok": true,
+        "findingCount": 1,
+        "sanitized": true,
+        "validated": true
+      }
+    ]
+  },
+  "status": "local tooling and explicit historical review verified; formal Gate pending",
+  "observedAt": "2026-10-02T17:23:27.902983+00:00",
+  "baseCommit": "25fcd73c9ead0cd5bd111ea8ae79037770244f07",
+  "verificationSubject": "Uncommitted history-review implementation identified by hashes; local component evidence, not remote CI/deployment or formal acceptance.",
+  "fixtures": [
+    {
+      "path": "scripts/security/gitleaks.ts",
+      "sha256": "c72c2727c71b7c646c9609bab93b2941bd0f982adcd2a420b0b84dc7b6213b16"
+    },
+    {
+      "path": "scripts/security/gitleaks.test.ts",
+      "sha256": "c8894c282d2d128e27bee9ae6f8ceddd0063e8cfa61e473327d607c3e9234cd5"
+    },
+    {
+      "path": "tools/security-history-reviews.json",
+      "sha256": "5ff02ffa0b1ef9011e037f4fb36819233d15336d665919b339d94aebfb8d2440"
+    }
+  ],
+  "verification": [
+    {
+      "command": "pnpm vitest run scripts/security/gitleaks.test.ts scripts/security/export-scan.test.ts server/infrastructure/portable-export-security.test.ts --maxWorkers=1",
+      "result": "7 passed initially; final review-validation addition passed with all 3 Gitleaks cases. Existing other five cases unchanged.",
+      "evidence": [
+        ".superpowers/sdd/2026-10-02-m15-m18/security-review-green.log",
+        ".superpowers/sdd/2026-10-02-m15-m18/security-review-validation-green.log"
+      ]
+    },
+    {
+      "command": "pnpm run security:scan",
+      "result": "5 detections retained, 5 exact historical reviews, 0 unreviewed; exit 0",
+      "evidence": [
+        ".superpowers/sdd/2026-10-02-m15-m18/security-reviewed-scan.log"
+      ]
+    },
+    {
+      "command": "pnpm run security:fixtures",
+      "result": "4/4 detections, 100%, negative clean and reports sanitized; exit 0",
+      "evidence": [
+        ".superpowers/sdd/2026-10-02-m15-m18/security-reviewed-fixtures.log"
+      ]
+    },
+    {
+      "command": "pnpm run security:export:fixtures",
+      "result": "Actual Bundle negative has 0 findings; attachment-only synthetic credential detected; exit 0",
+      "evidence": [
+        ".superpowers/sdd/2026-10-02-m15-m18/security-reviewed-export.log"
+      ]
+    },
+    {
+      "command": "pnpm run typecheck; pnpm exec eslint scripts/security/gitleaks.ts scripts/security/gitleaks.test.ts",
+      "result": "passed",
+      "evidence": [
+        ".superpowers/sdd/2026-10-02-m15-m18/security-reviewed-typecheck-final.log",
+        ".superpowers/sdd/2026-10-02-m15-m18/security-reviewed-lint-final.log"
+      ]
+    }
+  ]
 }
