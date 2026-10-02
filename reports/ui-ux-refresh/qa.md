@@ -64,3 +64,7 @@
 - 个人视图：慢 GET 不覆盖新 revision，scope epoch 拒绝 A→B→A 旧回包；同 Workspace 后台刷新不会冻结 loading。独立审查发现该后台刷新反例后修复并定向确认。
 
 本次有界视觉 verdict：PASS（以上固定状态与代表性实际交互）。这是对既有设计目标的局部功能/布局验收，不是完整 WCAG、live-provider、线上灾难恢复或整里程碑 Gate。自动检查来自 package.json：四个受影响测试文件 96/96、`pnpm run lint`、最终 `pnpm run build`（含 typecheck）通过；日志见 `../m15-m18/ui-state-*.log`。既有统一全套结果保持原证据，不因这次 UI 小修重复运行后端/性能测试。M17 Command p95 242.41ms 超过 200ms，正式门禁仍未通过；真实业务环境、保留到期、长期观察及用户验收继续单列。
+
+## 图谱内层控制的键盘与指针隔离
+
+剩余要求审查发现归档按钮的 Enter/Space 和 pointerup 会冒泡到节点打开/选择逻辑。已限制父节点键盘处理只接受自身目标，并排除内层交互控件的 pointerup；节点本身的键盘打开行为保留。新增五项回归，RED 中三项准确复现，修复后 GraphView 文件 18/18、两文件 ESLint、最终 build/typecheck 通过。正式组件固定样本中，桌面 Enter 和窄屏 Space 都只打开归档确认，Graph route 未变化；随后取消，没有执行归档。见 [桌面键盘](graph-archive-keyboard-desktop.jpg)、[窄屏键盘](graph-archive-keyboard-narrow.jpg)。窄屏最初尝试的节点在虚拟画布外，因此改用当前可见节点；这是 viewport 可见范围，不是交互失败。该局部确认不替代完整辅助技术验收。

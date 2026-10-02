@@ -1,0 +1,45 @@
+{
+  "scope": "remaining local engineering audit; external gates remain separate",
+  "parentCommit": "6a06368ed9b7c881e1e7644f74d4a4e31d152b23",
+  "implemented": "Graph inner archive controls no longer activate/inspect/select the parent node; direct node Enter/Space preserved",
+  "regression": {
+    "command": "pnpm exec vitest run src/components/GraphView.test.tsx --maxWorkers=1 --testTimeout=30000",
+    "passed": 18,
+    "newCases": 5,
+    "redFailures": 3
+  },
+  "lint": {
+    "command": "pnpm exec eslint src/components/GraphView.tsx src/components/GraphView.test.tsx",
+    "exitCode": 0
+  },
+  "build": {
+    "command": "pnpm run build",
+    "exitCode": 0,
+    "includes": "typecheck"
+  },
+  "visual": {
+    "desktop": "../ui-ux-refresh/graph-archive-keyboard-desktop.jpg",
+    "narrow": "../ui-ux-refresh/graph-archive-keyboard-narrow.jpg",
+    "contract": "Production components with fixed isolated responses; Enter/Space open archive confirmation without navigation, canceled without persistence"
+  },
+  "sourceSha256": [
+    {
+      "path": "src/components/GraphView.tsx",
+      "sha256": "e2e918803ce51f26d205e257d93f6e17385f2544f996b6317052f81a3a5bf377"
+    },
+    {
+      "path": "src/components/GraphView.test.tsx",
+      "sha256": "06ad5f0c26f44f5291473fe36ec9695900b40cec4328d4bc059d4038ff642266"
+    }
+  ],
+  "diagnostic": {
+    "scope": "diagnostic only, 200 samples, unchanged encrypted 300-node RenameConversation; not gate evidence",
+    "p50": 72.13341600000058,
+    "p95": 81.163958000001,
+    "p99": 84.92666699999972,
+    "max": 86.19904200000019,
+    "raw": "m17-command-diagnostic.json",
+    "conclusion": "Archived tail increase did not reproduce; no speculative production optimization. This diagnostic is not frozen full benchmark/Gate evidence."
+  },
+  "completionAudit": "Independent source/evidence audit confirmed actual wiring for plan tasks1–8, found and repaired this Graph interaction gap, and found no further immediate local implementation gap. This is not formal milestone acceptance."
+}

@@ -27,6 +27,42 @@ describe('GraphView', () => {
     await waitFor(() => expect(handlers.onArchiveNode).toHaveBeenCalledWith('root'));
   });
 
+  it.each(['Enter', ' '])('keeps archive-button %j separate from node activation', key => {
+    const handlers = callbacks();
+    render(<GraphView nodes={[node]} edges={[]} activeNodeId="root" {...handlers}/>);
+    const archive = screen.getByRole('button', { name: '归档节点 根节点' });
+    const keydown = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+    fireEvent(archive, keydown);
+    expect(handlers.onActivate).not.toHaveBeenCalled();
+    expect(keydown.defaultPrevented).toBe(false);
+    fireEvent.click(archive);
+    expect(screen.getByRole('alertdialog', { name: '归档图谱节点' })).toBeInTheDocument();
+    expect(handlers.onArchiveNode).not.toHaveBeenCalled();
+  });
+
+  it('keeps archive-button pointer release separate from node inspection and selection', () => {
+    const inspect = vi.fn();
+    render(<GraphView nodes={[node]} edges={[]} activeNodeId="root" {...callbacks()} onInspectObject={inspect} onBatch={vi.fn()}/>);
+    const article = screen.getByRole('button', { name: '讨论节点：根节点' });
+    article.hasPointerCapture = () => false;
+    const archive = screen.getByRole('button', { name: '归档节点 根节点' });
+    fireEvent(archive, new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+    fireEvent(archive, new MouseEvent('pointerup', { bubbles: true, button: 0 }));
+    expect(inspect).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '批量选择' }));
+    fireEvent(archive, new MouseEvent('pointerup', { bubbles: true, button: 0 }));
+    expect(screen.getByRole('checkbox', { name: '选择讨论 根节点' })).not.toBeChecked();
+    fireEvent.click(archive);
+    expect(screen.getByRole('alertdialog', { name: '归档图谱节点' })).toBeInTheDocument();
+  });
+
+  it.each(['Enter', ' '])('preserves direct node %j activation', key => {
+    const handlers = callbacks();
+    render(<GraphView nodes={[node]} edges={[]} activeNodeId="root" {...handlers}/>);
+    fireEvent.keyDown(screen.getByRole('button', { name: '讨论节点：根节点' }), { key });
+    expect(handlers.onActivate).toHaveBeenCalledExactlyOnceWith(node.id);
+  });
+
   it('hides archived nodes from the canvas, search and overview while exposing restore', async () => {
     const archived = { ...node, id: 'archived', title: '已归档讨论', status: 'archived' as const };
     const handlers = callbacks();

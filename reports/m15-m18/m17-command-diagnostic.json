@@ -1,0 +1,4205 @@
+{
+  "scope": "diagnostic only, 200 samples, unchanged encrypted 300-node RenameConversation; not gate evidence",
+  "observations": [
+    {
+      "duration": 75.31291600000077,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 48.97400200000811
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 95.68128700001398
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.1609989999979
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.81054100000074
+        }
+      }
+    },
+    {
+      "duration": 71.2560829999984,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 48.64198499998929
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 95.71220700000595
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.000041999999667
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.45562500000051
+        }
+      }
+    },
+    {
+      "duration": 73.63212500000009,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 50.36107999999149
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 102.95713700001579
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 28.598708000001352
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.108540999999605
+        }
+      }
+    },
+    {
+      "duration": 77.27558299999873,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 65.78182299998844
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 128.56204199999956
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 31.540917000000263
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.162791999999172
+        }
+      }
+    },
+    {
+      "duration": 74.78979099999924,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 46.31458200000634
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 98.85321600000862
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.115082999998776
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.613499999999476
+        }
+      }
+    },
+    {
+      "duration": 75.3869999999988,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 45.49612700000398
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 99.20766699997876
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.84295800000109
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.28495799999837
+        }
+      }
+    },
+    {
+      "duration": 73.86120800000026,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 43.811536000008346
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 85.10755100000824
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.165956999999253
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.620458999999755
+        }
+      }
+    },
+    {
+      "duration": 74.8507499999996,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 48.57912599999872
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 88.87938199999735
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 25.93091600000116
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.956458000000566
+        }
+      }
+    },
+    {
+      "duration": 72.87433299999975,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 44.65981899998587
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 92.46595800001887
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.41741700000057
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.415375000000495
+        }
+      }
+    },
+    {
+      "duration": 70.95779100000073,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 46.00970999997844
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 90.70645500000137
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 25.925123999999414
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.24791600000026
+        }
+      }
+    },
+    {
+      "duration": 73.95408399999906,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 41.33420400000796
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 80.12296299998707
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.462083000000348
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.899499999999534
+        }
+      }
+    },
+    {
+      "duration": 60.02924999999959,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 38.31704600000376
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 76.61412299999756
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.199083000001337
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.758459000000585
+        }
+      }
+    },
+    {
+      "duration": 65.67383299999892,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 38.23737200002142
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 76.77595899998232
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 22.55829200000153
+        },
+        "persist": {
+          "count": 1,
+          "total": 16.466834000000745
+        }
+      }
+    },
+    {
+      "duration": 69.26079100000061,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 43.04449800001021
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 79.30070900001738
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 22.995915999999852
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.121916000000056
+        }
+      }
+    },
+    {
+      "duration": 71.17066599999998,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 41.58167100002356
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 79.44429399999535
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.56041600000208
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.67016700000022
+        }
+      }
+    },
+    {
+      "duration": 77.82716599999912,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 41.71917300003406
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 78.42220700001235
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.95325000000048
+        },
+        "persist": {
+          "count": 1,
+          "total": 23.84633400000166
+        }
+      }
+    },
+    {
+      "duration": 70.07720899999913,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 39.03758700000253
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 78.67413300000044
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.03495799999837
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.61229099999946
+        }
+      }
+    },
+    {
+      "duration": 70.90687499999876,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 54.45396399999299
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 97.29812900000616
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.51441700000032
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.478250000000116
+        }
+      }
+    },
+    {
+      "duration": 86.19904200000019,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 65.24441499999557
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 120.4942460000002
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 31.08391699999993
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.375041999999667
+        }
+      }
+    },
+    {
+      "duration": 74.91187499999978,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 49.84919900001114
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 97.85454699998809
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.11479099999997
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.178250000000844
+        }
+      }
+    },
+    {
+      "duration": 72.94683299999997,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 43.80429200001345
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 90.72004499999093
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 28.0106250000008
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.830917000001136
+        }
+      }
+    },
+    {
+      "duration": 71.92024999999921,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 47.53921099999934
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 94.67841100001897
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 25.988375000000815
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.356792000000496
+        }
+      }
+    },
+    {
+      "duration": 71.21770900000047,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 49.38687700002447
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 97.39096199998494
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.050915999998324
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.88420799999949
+        }
+      }
+    },
+    {
+      "duration": 66.94383299999936,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 39.62078299998757
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 79.67516499999692
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.430874000001495
+        },
+        "persist": {
+          "count": 1,
+          "total": 16.458333000000493
+        }
+      }
+    },
+    {
+      "duration": 76.05679099999907,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 42.78750499999296
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 84.98063099999854
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 25.63641699999971
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.915083999998387
+        }
+      }
+    },
+    {
+      "duration": 69.79945899999984,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 38.67791700001908
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 76.74907700003314
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.583708999998635
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.486249999999927
+        }
+      }
+    },
+    {
+      "duration": 72.07474999999977,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 43.64851699999599
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 89.27878600000804
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.28754199999821
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.259625000000597
+        }
+      }
+    },
+    {
+      "duration": 71.93187500000022,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 52.329630999987785
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 94.64041200000065
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.175833999999668
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.303334000000177
+        }
+      }
+    },
+    {
+      "duration": 71.04583400000047,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 57.489959999975326
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 104.62375899999643
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.527541000001293
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.728541000000405
+        }
+      }
+    },
+    {
+      "duration": 72.10408400000051,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 40.760741000012786
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 76.18475200000648
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.269542
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.88641599999937
+        }
+      }
+    },
+    {
+      "duration": 71.67454200000066,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 51.06237000000692
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 93.77607600000374
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 25.925499999999374
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.754624999999578
+        }
+      }
+    },
+    {
+      "duration": 74.35687499999949,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 46.82942700000058
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 97.1669539999948
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 25.952415999998266
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.241291999998793
+        }
+      }
+    },
+    {
+      "duration": 84.01008299999921,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 55.065178999977434
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 100.31437100000403
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.763374999998632
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.676790999999866
+        }
+      }
+    },
+    {
+      "duration": 71.79816599999867,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 42.08517200001006
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 83.57683599997836
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.866250000000946
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.434250000000247
+        }
+      }
+    },
+    {
+      "duration": 69.1009580000009,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 39.33416799999213
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 79.32950000001074
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.40312400000039
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.11683400000038
+        }
+      }
+    },
+    {
+      "duration": 71.0594170000004,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 40.546327000025485
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 79.02866799999356
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.338666999999987
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.642125000000306
+        }
+      }
+    },
+    {
+      "duration": 71.0512920000001,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 41.33616500000062
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 82.54371199999514
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 25.368500000000495
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.35712500000045
+        }
+      }
+    },
+    {
+      "duration": 71.77054099999987,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 49.41636500000277
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 92.20432599999731
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.147917000000234
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.779249999999593
+        }
+      }
+    },
+    {
+      "duration": 69.9249579999996,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 44.16761699999188
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 88.49120699999366
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 25.894000000002052
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.814249999999447
+        }
+      }
+    },
+    {
+      "duration": 76.34212500000103,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 52.91484199999468
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 104.5327550000111
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.444000999999844
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.186542000001282
+        }
+      }
+    },
+    {
+      "duration": 75.93512499999997,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 47.92587500000445
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 96.76862699999401
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.57929200000217
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.50329199999942
+        }
+      }
+    },
+    {
+      "duration": 72.9731670000001,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 49.67803899999308
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 96.81153500002802
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.064582999999402
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.52466699999968
+        }
+      }
+    },
+    {
+      "duration": 77.8377500000006,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 49.00993200000812
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 93.82745999998951
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 25.945957999998427
+        },
+        "persist": {
+          "count": 1,
+          "total": 22.143833000000086
+        }
+      }
+    },
+    {
+      "duration": 76.25266600000032,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 58.49199900001622
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 109.44771099999707
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 28.99554199999875
+        },
+        "persist": {
+          "count": 1,
+          "total": 16.915625000001455
+        }
+      }
+    },
+    {
+      "duration": 74.72379100000035,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 64.30979799999841
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 116.34049499999128
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 29.75054199999977
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.119834000000992
+        }
+      }
+    },
+    {
+      "duration": 79.1462500000016,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 47.04382799999621
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 92.64254699999765
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 28.697249999999258
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.469250000000102
+        }
+      }
+    },
+    {
+      "duration": 75.0918330000004,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 46.21333900000354
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 89.67908700000953
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 25.38408299999901
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.824125000001004
+        }
+      }
+    },
+    {
+      "duration": 69.84595799999988,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 47.76913400003468
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 94.64283199998135
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.50350100000105
+        },
+        "persist": {
+          "count": 1,
+          "total": 15.730290999999852
+        }
+      }
+    },
+    {
+      "duration": 69.97495799999888,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 41.774925999990955
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 77.70744999999988
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.383875000001353
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.342124999999214
+        }
+      }
+    },
+    {
+      "duration": 71.04241700000057,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 37.78163399998812
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 75.71345400000791
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 22.908956999999646
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.617958000000726
+        }
+      }
+    },
+    {
+      "duration": 70.97883400000137,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 41.79638199999317
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 80.02783799999634
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.592501000000993
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.25012500000048
+        }
+      }
+    },
+    {
+      "duration": 68.12174999999843,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 38.14081400001851
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 77.56467700001667
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.092709000000468
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.756624999999985
+        }
+      }
+    },
+    {
+      "duration": 70.66454200000044,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 46.519658000015625
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 97.29949199999646
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.761333000000377
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.537333000000217
+        }
+      }
+    },
+    {
+      "duration": 69.23474999999962,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 48.31824900002903
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 94.02234200001112
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.288540999999896
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.18279199999961
+        }
+      }
+    },
+    {
+      "duration": 77.14433300000019,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 53.72324800000024
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 110.98391099999026
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 28.384666999998444
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.64991700000064
+        }
+      }
+    },
+    {
+      "duration": 71.1361250000009,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 45.9769159999978
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 86.37141700000575
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 25.348332999998092
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.08679200000006
+        }
+      }
+    },
+    {
+      "duration": 78.98954200000117,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 45.1783000000014
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 91.87783999999374
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.60187500000211
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.63025000000016
+        }
+      }
+    },
+    {
+      "duration": 77.80266699999993,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 52.27821000000222
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 98.262740999995
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 28.041207999998733
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.03370900000118
+        }
+      }
+    },
+    {
+      "duration": 71.83808299999873,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 46.17831700000352
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 99.1499479999984
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.902957999998762
+        },
+        "persist": {
+          "count": 1,
+          "total": 15.948167000000467
+        }
+      }
+    },
+    {
+      "duration": 66.91991700000108,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 44.14387899997746
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 83.96129299999484
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.068042000000787
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.12629199999901
+        }
+      }
+    },
+    {
+      "duration": 67.13483400000041,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 43.301667999998244
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 81.91242099998999
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.966958000000886
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.52258299999994
+        }
+      }
+    },
+    {
+      "duration": 69.02583400000003,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 41.34262800002216
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 82.82050499998331
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.715958999999202
+        },
+        "persist": {
+          "count": 1,
+          "total": 16.185832999999548
+        }
+      }
+    },
+    {
+      "duration": 68.99137500000143,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 42.07871200000409
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 77.56437600001846
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.576374999998734
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.350209000000177
+        }
+      }
+    },
+    {
+      "duration": 66.88483300000007,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 40.37291299998287
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 81.71615200000815
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.20091599999978
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.548000000000684
+        }
+      }
+    },
+    {
+      "duration": 64.13749999999891,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 45.61667000000671
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 82.07916599999407
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.641708999999537
+        },
+        "persist": {
+          "count": 1,
+          "total": 15.211083000000144
+        }
+      }
+    },
+    {
+      "duration": 66.97249999999985,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 38.641456000008475
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 78.46186099999068
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.40270899999996
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.345957999999882
+        }
+      }
+    },
+    {
+      "duration": 68.96670799999993,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 43.98371500000576
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 84.3393699999815
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.08350000000246
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.726333000000523
+        }
+      }
+    },
+    {
+      "duration": 65.1817919999994,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 40.43387200001234
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 82.1689849999857
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.2393749999992
+        },
+        "persist": {
+          "count": 1,
+          "total": 16.0590830000001
+        }
+      }
+    },
+    {
+      "duration": 68.8422499999997,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 42.23757400000977
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 77.63862400000289
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.282750000002125
+        },
+        "persist": {
+          "count": 1,
+          "total": 16.459209000000556
+        }
+      }
+    },
+    {
+      "duration": 70.94216699999924,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 40.773416000001816
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 81.58813000000737
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.24279099999876
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.182957999999417
+        }
+      }
+    },
+    {
+      "duration": 71.96875,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 44.57124699998349
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 82.58930299998792
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.93499999999949
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.81129200000032
+        }
+      }
+    },
+    {
+      "duration": 76.49108399999932,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 38.1174600000104
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 77.71971400001894
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.152916999999434
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.631499999999505
+        }
+      }
+    },
+    {
+      "duration": 79.32366600000023,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 60.12534000001688
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 114.47342099999696
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 31.34900000000016
+        },
+        "persist": {
+          "count": 1,
+          "total": 21.937040999999226
+        }
+      }
+    },
+    {
+      "duration": 72.24641599999995,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 41.44537400000445
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 82.36108600000262
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.619918000000325
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.672457999999097
+        }
+      }
+    },
+    {
+      "duration": 69.9958340000012,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 42.71837399998549
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 79.49620800003504
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.516790999998193
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.049041000000216
+        }
+      }
+    },
+    {
+      "duration": 68.00562499999978,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 37.680339000007734
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 75.69500299999345
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 22.834499000000505
+        },
+        "persist": {
+          "count": 1,
+          "total": 15.500708999999915
+        }
+      }
+    },
+    {
+      "duration": 68.06683300000077,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 40.494701999994504
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 73.50224699998944
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 22.934000000001106
+        },
+        "persist": {
+          "count": 1,
+          "total": 16.80249999999978
+        }
+      }
+    },
+    {
+      "duration": 76.01825000000099,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 40.91775399998369
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 82.15111600000819
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.494834000000992
+        },
+        "persist": {
+          "count": 1,
+          "total": 16.886500000000524
+        }
+      }
+    },
+    {
+      "duration": 73.97391599999901,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 42.89271100001679
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 78.17929300001015
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.602499999999054
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.26208299999962
+        }
+      }
+    },
+    {
+      "duration": 65.03287500000079,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 38.35625100000652
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 76.19486900000265
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.509166999998342
+        },
+        "persist": {
+          "count": 1,
+          "total": 15.87670799999978
+        }
+      }
+    },
+    {
+      "duration": 71.85308299999997,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 41.77821100000256
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 80.45544700000391
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 25.021833000000697
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.23933399999987
+        }
+      }
+    },
+    {
+      "duration": 78.17458299999998,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 45.93087200000991
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 89.22659400001248
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.962124999998196
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.903458000000683
+        }
+      }
+    },
+    {
+      "duration": 80.195291,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 55.74578699999802
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 119.25704399997448
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 29.55091700000048
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.290500000000975
+        }
+      }
+    },
+    {
+      "duration": 74.71624999999949,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 45.83545500001492
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 100.79696900002818
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 28.07783399999971
+        },
+        "persist": {
+          "count": 1,
+          "total": 20.691791999999623
+        }
+      }
+    },
+    {
+      "duration": 78.18024999999943,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 57.50762400000349
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 113.00733400001263
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 29.748082999998587
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.03849999999875
+        }
+      }
+    },
+    {
+      "duration": 82.0211249999993,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 52.10779500001627
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 100.81595399998878
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 28.39183299999968
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.743333000000348
+        }
+      }
+    },
+    {
+      "duration": 79.02224999999999,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 52.76733000000786
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 106.37153600001511
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 30.18616700000166
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.516250000000582
+        }
+      }
+    },
+    {
+      "duration": 78.92220799999996,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 62.732381999980134
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 112.83841600000233
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 30.052498999999443
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.115375000001222
+        }
+      }
+    },
+    {
+      "duration": 70.90162500000042,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 51.0314130000188
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 102.96216800001639
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.931291000002602
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.41424999999981
+        }
+      }
+    },
+    {
+      "duration": 77.29016600000068,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 45.79767000000902
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 91.18787400000656
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.996541999998954
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.837374999999156
+        }
+      }
+    },
+    {
+      "duration": 73.74800000000141,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 44.25383399999919
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 92.32688399998187
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.325916000001598
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.816624999999476
+        }
+      }
+    },
+    {
+      "duration": 85.01316700000098,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 52.205171999985396
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 105.22142600000188
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 30.31908300000032
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.667959000000337
+        }
+      }
+    },
+    {
+      "duration": 78.94279199999983,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 53.9571630000064
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 103.76187199999003
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 28.591001000000688
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.71783299999879
+        }
+      }
+    },
+    {
+      "duration": 81.163958000001,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 54.746960999989824
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 104.69495799999822
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 28.512708000000202
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.805333000000246
+        }
+      }
+    },
+    {
+      "duration": 73.85125000000153,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 43.387680000007094
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 85.61038299997745
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 25.101542999998856
+        },
+        "persist": {
+          "count": 1,
+          "total": 22.808208000000377
+        }
+      }
+    },
+    {
+      "duration": 77.14258299999892,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 43.46308900001168
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 89.3286630000257
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.631916999998793
+        },
+        "persist": {
+          "count": 1,
+          "total": 21.39954200000102
+        }
+      }
+    },
+    {
+      "duration": 77.8174999999992,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 53.18903200000568
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 100.9015400000153
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.714499999998225
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.70366699999977
+        }
+      }
+    },
+    {
+      "duration": 77.6491670000014,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 43.03499800000827
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 85.3526289999827
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.731665999999677
+        },
+        "persist": {
+          "count": 1,
+          "total": 20.04462500000045
+        }
+      }
+    },
+    {
+      "duration": 78.4322919999995,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 53.227827000002435
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 104.22154000001683
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 28.156834000001254
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.892541999999594
+        }
+      }
+    },
+    {
+      "duration": 75.96000000000095,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 48.59007099998962
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 105.52580599999783
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.977751000000353
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.831625000000713
+        }
+      }
+    },
+    {
+      "duration": 69.01366700000108,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 48.24091199999384
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 92.36200099999223
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 25.952376000001095
+        },
+        "persist": {
+          "count": 1,
+          "total": 20.270167000000583
+        }
+      }
+    },
+    {
+      "duration": 75.44287500000064,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 48.21729999999479
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 97.81100699999661
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 28.648541000000478
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.6005839999998
+        }
+      }
+    },
+    {
+      "duration": 77.5218330000007,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 63.00758699999096
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 116.20779500000936
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 29.772415999999794
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.474083999999493
+        }
+      }
+    },
+    {
+      "duration": 81.24279100000058,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 51.299872000001415
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 96.4648790000083
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 28.026874000001044
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.856959000000643
+        }
+      }
+    },
+    {
+      "duration": 76.73970800000097,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 53.83003899997857
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 101.10432799999762
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.273041999998895
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.13683300000048
+        }
+      }
+    },
+    {
+      "duration": 65.97004200000083,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 42.24783000000207
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 78.75861699999768
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.216041000001496
+        },
+        "persist": {
+          "count": 1,
+          "total": 15.889832999999271
+        }
+      }
+    },
+    {
+      "duration": 76.9359170000007,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 46.37463499998739
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 90.8926669999837
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.31012499999997
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.816208000000188
+        }
+      }
+    },
+    {
+      "duration": 72.02375000000029,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 41.085796999988816
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 81.14474299999347
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.794126000000688
+        },
+        "persist": {
+          "count": 1,
+          "total": 16.298290999999153
+        }
+      }
+    },
+    {
+      "duration": 74.09841700000106,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 52.98546200000601
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 104.72325699997964
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 28.350208999998358
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.40679199999977
+        }
+      }
+    },
+    {
+      "duration": 71.95654099999956,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 48.568126999987726
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 96.83687300004749
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.047334000002593
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.199040999999852
+        }
+      }
+    },
+    {
+      "duration": 72.79258299999856,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 49.24620999999388
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 99.25796000001355
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.4721669999999
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.260042000001704
+        }
+      }
+    },
+    {
+      "duration": 72.27241700000013,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 40.832078999999794
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 75.54458099999101
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.117582999999286
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.512291999999434
+        }
+      }
+    },
+    {
+      "duration": 71.78579199999876,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 45.074750000021595
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 91.49707600002148
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.228833999997732
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.37670799999978
+        }
+      }
+    },
+    {
+      "duration": 80.08499999999913,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 46.83153699998729
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 94.02816700000767
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.45375100000092
+        },
+        "persist": {
+          "count": 1,
+          "total": 21.11779199999728
+        }
+      }
+    },
+    {
+      "duration": 70.08075000000099,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 42.42403500002547
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 81.75697299998137
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.70054199999504
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.671708000001672
+        }
+      }
+    },
+    {
+      "duration": 77.03904200000034,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 45.022169999985636
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 90.62732699999106
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.60650099999475
+        },
+        "persist": {
+          "count": 1,
+          "total": 22.44562500000029
+        }
+      }
+    },
+    {
+      "duration": 59.85608299999876,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 43.80299899998863
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 79.94020999996792
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.6504999999961
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.73924999999872
+        }
+      }
+    },
+    {
+      "duration": 64.94883299999856,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 47.047866999979306
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 92.19088499994905
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 25.872875999997632
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.184416000000056
+        }
+      }
+    },
+    {
+      "duration": 71.98445900000297,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 47.94716500004142
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 94.00399599999582
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.11933399999907
+        },
+        "persist": {
+          "count": 1,
+          "total": 16.78662500000064
+        }
+      }
+    },
+    {
+      "duration": 66.15512500000114,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 41.231247000010626
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 79.87416799999119
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.519124999998894
+        },
+        "persist": {
+          "count": 1,
+          "total": 15.812709000001632
+        }
+      }
+    },
+    {
+      "duration": 76.01041700000133,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 45.85716699995828
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 94.15800899999158
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.466417000003275
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.67066700000214
+        }
+      }
+    },
+    {
+      "duration": 72.96754099999816,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 45.92733199997383
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 84.967955000051
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 25.64600000000064
+        },
+        "persist": {
+          "count": 1,
+          "total": 16.753624999997555
+        }
+      }
+    },
+    {
+      "duration": 73.0168330000015,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 49.91774400001668
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 90.85869999995339
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.202500999999756
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.07733399999779
+        }
+      }
+    },
+    {
+      "duration": 76.03429099999994,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 54.49569899999915
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 94.9901200000495
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.39654199999859
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.582915999999386
+        }
+      }
+    },
+    {
+      "duration": 71.79258299999856,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 45.47437899998113
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 83.87475400000767
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 25.116916000002675
+        },
+        "persist": {
+          "count": 1,
+          "total": 15.984874999998283
+        }
+      }
+    },
+    {
+      "duration": 75.08270800000173,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 43.89340999998967
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 91.67308200001207
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.642124999998487
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.901208999999653
+        }
+      }
+    },
+    {
+      "duration": 73.03137499999866,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 55.70046500000535
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 98.71866999998747
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.02366599999732
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.090957999997045
+        }
+      }
+    },
+    {
+      "duration": 76.12733300000036,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 47.14904199999728
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 98.38724400000865
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.85004200000185
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.222583999999188
+        }
+      }
+    },
+    {
+      "duration": 78.9575420000001,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 51.99600100001044
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 100.33441800002402
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.214373999999225
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.58583400000134
+        }
+      }
+    },
+    {
+      "duration": 71.9622500000005,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 59.94412300007025
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 103.85307899997497
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 28.163332000000082
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.16374999999971
+        }
+      }
+    },
+    {
+      "duration": 76.83499999999913,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 40.883009000026505
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 82.58288099997662
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.493207999999868
+        },
+        "persist": {
+          "count": 1,
+          "total": 22.29612499999712
+        }
+      }
+    },
+    {
+      "duration": 73.07999999999811,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 42.21141499999794
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 88.25517399998353
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.66241699999955
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.895667000000685
+        }
+      }
+    },
+    {
+      "duration": 77.04791699999987,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 52.52737699999125
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 97.34917100000166
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.266332999999577
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.6529580000024
+        }
+      }
+    },
+    {
+      "duration": 82.30262500000026,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 55.67400000000998
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 108.1761609999594
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 29.080250000002707
+        },
+        "persist": {
+          "count": 1,
+          "total": 21.416957999997976
+        }
+      }
+    },
+    {
+      "duration": 77.88637499999822,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 47.58750299992971
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 94.50582500004384
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.29133400000137
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.308916999998473
+        }
+      }
+    },
+    {
+      "duration": 79.92224999999962,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 52.48369900000034
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 106.29275700002108
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 30.081709000001865
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.533125000001746
+        }
+      }
+    },
+    {
+      "duration": 83.07600000000093,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 46.51115499994921
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 95.2917400000224
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 29.22462500000256
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.193875000000844
+        }
+      }
+    },
+    {
+      "duration": 74.93608300000051,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 49.346619000007195
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 92.66982800001279
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.31904100000611
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.19550000000163
+        }
+      }
+    },
+    {
+      "duration": 75.80754200000229,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 51.37812400000985
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 107.82537600003343
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 28.758249999998952
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.625332999999955
+        }
+      }
+    },
+    {
+      "duration": 81.47745900000155,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 55.10647399998561
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 104.73846000000412
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 29.78475100000287
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.66008299999885
+        }
+      }
+    },
+    {
+      "duration": 68.54408300000068,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 38.063541999974404
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 83.42892100003155
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.365375000001222
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.286917000001267
+        }
+      }
+    },
+    {
+      "duration": 71.15237500000148,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 45.48345899998094
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 85.08176400004231
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.793209000003117
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.521958000001177
+        }
+      }
+    },
+    {
+      "duration": 75.11845900000117,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 42.82287399997949
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 83.53350300005695
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.340083000002778
+        },
+        "persist": {
+          "count": 1,
+          "total": 16.350249999999505
+        }
+      }
+    },
+    {
+      "duration": 71.8302909999984,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 41.97575200000574
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 77.75062500000422
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.281708000002254
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.443458000001556
+        }
+      }
+    },
+    {
+      "duration": 84.92666699999972,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 48.49517599993487
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 93.57366900002671
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.266583000000537
+        },
+        "persist": {
+          "count": 1,
+          "total": 22.236832999999024
+        }
+      }
+    },
+    {
+      "duration": 79.05391699999745,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 44.04045400002724
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 96.54046499998367
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 28.092541999998502
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.179416999999376
+        }
+      }
+    },
+    {
+      "duration": 76.1909999999989,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 48.010170999972615
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 96.95483299999614
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.646625000001222
+        },
+        "persist": {
+          "count": 1,
+          "total": 20.070457999998325
+        }
+      }
+    },
+    {
+      "duration": 84.9149580000012,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 45.90621499998451
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 85.49545900002704
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.98041699999885
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.81183299999975
+        }
+      }
+    },
+    {
+      "duration": 69.78029199999946,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 41.296460999968986
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 84.79897300001176
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 25.90349900000001
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.148791999999958
+        }
+      }
+    },
+    {
+      "duration": 70.18658299999879,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 43.12586200000442
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 80.81499099995563
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.11137499999677
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.22950000000128
+        }
+      }
+    },
+    {
+      "duration": 70.97904099999869,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 37.762259999999515
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 78.15232999997897
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.58220799999981
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.138083999998344
+        }
+      }
+    },
+    {
+      "duration": 59.78241700000217,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 42.34866200000397
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 79.79149399999005
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.377667000000656
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.036959000000934
+        }
+      }
+    },
+    {
+      "duration": 68.00012499999866,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 39.320130999938556
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 80.34940699998333
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.47516700000051
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.161707999999635
+        }
+      }
+    },
+    {
+      "duration": 74.94424999999683,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 41.947707999996055
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 79.32437700001174
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.118333999998868
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.03770799999984
+        }
+      }
+    },
+    {
+      "duration": 69.19458300000042,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 39.15729000001738
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 76.71445999997741
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.75462499999776
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.34770899999785
+        }
+      }
+    },
+    {
+      "duration": 66.96212500000183,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 41.02205500000491
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 73.97899200002212
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.890251000004355
+        },
+        "persist": {
+          "count": 1,
+          "total": 16.59570800000074
+        }
+      }
+    },
+    {
+      "duration": 67.10295799999949,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 37.859626000044955
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 75.63234000002922
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.021542000002228
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.373790999998164
+        }
+      }
+    },
+    {
+      "duration": 66.99933299999975,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 38.23967099999936
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 72.33403699996052
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.615582999998878
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.82495899999776
+        }
+      }
+    },
+    {
+      "duration": 71.67720799999734,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 40.98415300002307
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 80.7579980000155
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.52404100000058
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.360375000000204
+        }
+      }
+    },
+    {
+      "duration": 72.406332999999,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 37.50194799999008
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 70.85247200000231
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.572792000002664
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.815458000000945
+        }
+      }
+    },
+    {
+      "duration": 65.9472910000004,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 39.416951000017434
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 74.9207900000365
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.577457999996113
+        },
+        "persist": {
+          "count": 1,
+          "total": 16.943833000001177
+        }
+      }
+    },
+    {
+      "duration": 63.86812500000087,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 41.935833999985334
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 77.07004599999345
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.802376000003278
+        },
+        "persist": {
+          "count": 1,
+          "total": 16.20575000000099
+        }
+      }
+    },
+    {
+      "duration": 74.16775000000052,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 51.76786399998673
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 104.06459199997698
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.67320800000016
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.56329199999891
+        }
+      }
+    },
+    {
+      "duration": 76.03995799999757,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 54.87620900007096
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 98.39133599999332
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.433625000001484
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.974458000000595
+        }
+      }
+    },
+    {
+      "duration": 81.09195800000089,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 51.861004999991565
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 100.22970899999927
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.806457999995473
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.598541999999725
+        }
+      }
+    },
+    {
+      "duration": 74.79420899999968,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 51.17412100000365
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 99.41224599995621
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.429457999998704
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.94208300000173
+        }
+      }
+    },
+    {
+      "duration": 74.97699999999895,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 45.934044000026915
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 91.31549700001415
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.226707999998325
+        },
+        "persist": {
+          "count": 1,
+          "total": 21.023000000001048
+        }
+      }
+    },
+    {
+      "duration": 71.89362500000061,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 51.73908599998322
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 95.27100200002678
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.169708999997965
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.298000000002503
+        }
+      }
+    },
+    {
+      "duration": 72.90212500000052,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 50.32604700002048
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 102.32416999998168
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 28.22008300000016
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.487333000000945
+        }
+      }
+    },
+    {
+      "duration": 67.98841700000048,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 40.726006000044435
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 80.61561900000379
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.8193339999998
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.93395800000144
+        }
+      }
+    },
+    {
+      "duration": 75.184957999998,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 50.135507000009966
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 96.97153799999796
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.361958999998024
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.900291000001744
+        }
+      }
+    },
+    {
+      "duration": 78.85733299999993,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 40.62041599993245
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 77.36166500001491
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.736541999998735
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.812333999998373
+        }
+      }
+    },
+    {
+      "duration": 72.09783400000015,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 45.421494999998686
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 87.99129199998788
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 25.414498999998614
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.558499999999185
+        }
+      }
+    },
+    {
+      "duration": 68.93145799999911,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 37.905662000026496
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 74.50700299999153
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.084874999996828
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.36987500000032
+        }
+      }
+    },
+    {
+      "duration": 74.07083300000158,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 37.384250000020984
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 75.13470799993593
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.765958999996656
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.183666000000812
+        }
+      }
+    },
+    {
+      "duration": 73.10549999999785,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 40.064843999989534
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 78.30625700001474
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.07379099999889
+        },
+        "persist": {
+          "count": 1,
+          "total": 19.277540999999474
+        }
+      }
+    },
+    {
+      "duration": 61.74970899999971,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 40.96446200000719
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 81.19232600002215
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.347416999997222
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.328958000001876
+        }
+      }
+    },
+    {
+      "duration": 56.94616700000188,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 39.250460000013845
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 77.47000099998331
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.490208000002895
+        },
+        "persist": {
+          "count": 1,
+          "total": 16.057457999999315
+        }
+      }
+    },
+    {
+      "duration": 68.16629100000137,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 37.47695100001147
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 74.76800699999876
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.293000000001484
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.1037499999984
+        }
+      }
+    },
+    {
+      "duration": 68.0892079999976,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 37.34066100002747
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 72.63353899999129
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.784374999999272
+        },
+        "persist": {
+          "count": 1,
+          "total": 15.459875000000466
+        }
+      }
+    },
+    {
+      "duration": 68.85550000000148,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 40.2889090000499
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 78.90078299996458
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.935207999998966
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.967500000002474
+        }
+      }
+    },
+    {
+      "duration": 69.08150000000023,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 38.18283900002643
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 76.13862700000391
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.965875000001688
+        },
+        "persist": {
+          "count": 1,
+          "total": 16.16400000000067
+        }
+      }
+    },
+    {
+      "duration": 71.01845799999865,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 40.60686800001349
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 77.47529500000746
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.787583000001177
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.01875000000291
+        }
+      }
+    },
+    {
+      "duration": 72.13341600000058,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 40.500237000003835
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 79.43350799996188
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.1193749999984
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.054415999999037
+        }
+      }
+    },
+    {
+      "duration": 72.97720800000025,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 49.610554000017146
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 93.12353799995253
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.174582999999984
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.89533400000073
+        }
+      }
+    },
+    {
+      "duration": 62.999832999998034,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 48.569230999972206
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 92.3873510000085
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.587750000002416
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.8471669999999
+        }
+      }
+    },
+    {
+      "duration": 72.8404589999991,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 51.000916999972105
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 95.7382899999975
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.816375000002154
+        },
+        "persist": {
+          "count": 1,
+          "total": 16.52508300000045
+        }
+      }
+    },
+    {
+      "duration": 74.00387500000215,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 42.39211899998554
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 77.89816499996596
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.629000000000815
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.69708299999911
+        }
+      }
+    },
+    {
+      "duration": 69.07437500000015,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 41.72292899998138
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 83.18024400001013
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.64470899999651
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.19441700000243
+        }
+      }
+    },
+    {
+      "duration": 69.95966599999883,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 38.31417299999521
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 75.68804100001944
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.276333000001614
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.044957999998587
+        }
+      }
+    },
+    {
+      "duration": 69.82395800000086,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 43.76771599996573
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 83.69296599996596
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.794041999997717
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.904833000000508
+        }
+      }
+    },
+    {
+      "duration": 66.30216699999801,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 40.80008900001121
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 77.58796399999483
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.879957999997714
+        },
+        "persist": {
+          "count": 1,
+          "total": 15.296583999999712
+        }
+      }
+    },
+    {
+      "duration": 68.91579199999978,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 39.78788700000587
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 76.86830000001282
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 23.700333999997383
+        },
+        "persist": {
+          "count": 1,
+          "total": 15.913750000003347
+        }
+      }
+    },
+    {
+      "duration": 79.14929100000154,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 42.6252559999557
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 79.09050599998955
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.3471669999999
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.99341600000116
+        }
+      }
+    },
+    {
+      "duration": 70.79958299999998,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 45.213174000018626
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 93.31801000003179
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.697375000003376
+        },
+        "persist": {
+          "count": 1,
+          "total": 16.24462499999936
+        }
+      }
+    },
+    {
+      "duration": 69.98033299999952,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 44.59646099996826
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 98.03882499998872
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 27.526999999998225
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.22337499999776
+        }
+      }
+    },
+    {
+      "duration": 69.91583299999911,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 45.7154220000084
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 92.63216699997793
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 26.664084000000003
+        },
+        "persist": {
+          "count": 1,
+          "total": 15.365041000000929
+        }
+      }
+    },
+    {
+      "duration": 64.05841700000019,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 44.05566899997211
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 80.98417100004372
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 25.096376000001328
+        },
+        "persist": {
+          "count": 1,
+          "total": 16.504958000001352
+        }
+      }
+    },
+    {
+      "duration": 74.10116699999708,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 39.8157990000218
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 77.64766699994652
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.03912599999967
+        },
+        "persist": {
+          "count": 1,
+          "total": 18.829333000001498
+        }
+      }
+    },
+    {
+      "duration": 64.74179200000071,
+      "stages": {
+        "keyDiskRead": {
+          "count": 307,
+          "total": 42.44125500001246
+        },
+        "verifiedDiskRead": {
+          "count": 307,
+          "total": 78.24290299996937
+        },
+        "readFrom": {
+          "count": 2,
+          "total": 24.317457999997714
+        },
+        "persist": {
+          "count": 1,
+          "total": 17.837625000000116
+        }
+      }
+    }
+  ]
+}
