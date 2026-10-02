@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "1.0.0",
+  "snapshotCommit": "f0be426616df577c9f974893d2c0b110ff35d941",
+  "evidenceCommit": "c382219c3d81726d496132d1aa4dc13a62936347",
+  "approvals": [
+    {
+      "commit": "a094458cc9cb82ff20bdd9b5578ec0fc41af0ffe",
+      "apiSourceSha256": "sha256:850a9de346c4a03150a418cecd63676bd458b2e58c50c0328484ca5ec1d9e060",
+      "plans": [
+        {
+          "path": "docs/superpowers/plans/2026-10-01-m11-m14.md",
+          "sha256": "sha256:067a9bee96e4bf9f04df6a37b7edaeec0196dc814334cdb3cc4a8ad56704b1a5"
+        },
+        {
+          "path": "docs/superpowers/plans/2026-10-02-m15-m18.md",
+          "sha256": "sha256:5a57845b5d4f67a89eaf65930f867a9a71f4a0aa6a27e7423cc07b76c888dd9e"
+        }
+      ],
+      "routes": [
+        "GET /api/backups",
+        "GET /api/backups/:backupId/archive",
+        "GET /api/collaborations",
+        "GET /api/collaborations/:id",
+        "GET /api/graph/batches/:batchId",
+        "GET /api/graph/views/:viewType",
+        "GET /api/objects/:outputId/provenance",
+        "GET /api/runs/:runId/replay/preflight",
+        "GET /api/runs/by-command/:commandId",
+        "GET /api/search",
+        "GET /api/v1/objects/:outputId/provenance",
+        "GET /api/workspace/context/preview",
+        "PATCH /api/nodes/:id/model",
+        "PATCH /api/nodes/:id/title",
+        "PATCH /api/segments/:id",
+        "PATCH /api/workspace/model",
+        "POST /api/backups",
+        "POST /api/bundle/hydrate",
+        "POST /api/collaborations",
+        "POST /api/collaborations/:id/invoke",
+        "POST /api/collaborations/:id/retain",
+        "POST /api/collaborations/:id/retry",
+        "POST /api/collaborations/:id/stop",
+        "POST /api/collaborations/:id/stream",
+        "POST /api/collaborations/:id/synthesize",
+        "POST /api/graph/batches",
+        "POST /api/graph/batches/:batchId/undo",
+        "POST /api/providers/discover",
+        "POST /api/runs/:runId/replay",
+        "POST /api/runs/:runId/retry",
+        "POST /api/temp-chat/stream",
+        "POST /api/v1/runs/:runId/replay",
+        "POST /api/workspace/context/decisions",
+        "PUT /api/graph/views/:viewType"
+      ],
+      "migrations": {
+        "db/migrations/0037_product_preferences.up.sql": "sha256:12989b0c79b10135819979f7a336b18dfc1cd34bb7462b535ac26036816f5262",
+        "db/migrations/0038_collaboration_facts.up.sql": "sha256:413e96df1a1b56cfc26c3197e9ab274339531624c55f3f214be3af92c0c1912b",
+        "db/migrations/0039_managed_backups.down.sql": "sha256:826d4cca5c818326a82b6ab016c6523b8900b82ea5cd0dbe94b690585f5a126c",
+        "db/migrations/0039_managed_backups.up.sql": "sha256:e23e6552f0b5ba803f4f64fe082ba2c31e680e83873af70b87312aca28f580ff",
+        "db/migrations/0040_personal_graph_views.down.sql": "sha256:32896fff8e6c06e8413da62c2572234654a56b5c387e91b882f6c1497fd3f57d",
+        "db/migrations/0040_personal_graph_views.up.sql": "sha256:1ac7a7710a48c3f173ba599b4257da0e30fab76ef984268d042be990d75cd94a"
+      }
+    },
+    {
+      "commit": "3793f8bbf838ce8ca42724e5c105ac06172f7694",
+      "apiSourceSha256": "sha256:5053fb3d87f3e21e18d7d3907a269653a972587a6f572bb0e9d2519cbdb8bd32",
+      "plans": [
+        {
+          "path": "docs/superpowers/plans/2026-10-02-m15-m18.md",
+          "sha256": "sha256:5a57845b5d4f67a89eaf65930f867a9a71f4a0aa6a27e7423cc07b76c888dd9e"
+        }
+      ],
+      "routes": [
+        "GET /api/resources/:resourceId/versions/:versionId",
+        "GET /api/resources/:resourceId/versions/:versionId/content"
+      ],
+      "migrations": {}
+    }
+  ]
+}

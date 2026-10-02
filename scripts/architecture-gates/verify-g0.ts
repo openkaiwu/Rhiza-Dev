@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
+import { readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { cpus, platform, release, tmpdir, totalmem } from 'node:os';
 import { join, relative, resolve } from 'node:path';
@@ -22,10 +23,13 @@ const fixturesDirectory = join(gates, 'fixtures');
 const update = process.argv.includes('--update');
 const writeEvidence = process.argv.includes('--write-evidence');
 const writeObservation = process.argv.includes('--write-observation');
+const contractsOnly = process.argv.includes('--contracts-only');
 const baselineCommit = 'b29d94fb034678e0c9d5660848e92e995311d4da';
 const baselineTag = 'pre-0815-engineering-baseline';
 const legacyCiObservationCommit = 'bbcb85e1a985f9beffd4caa758f0f328f41cb554';
 const legacyCiObservationSha256 = '63ce4415fab6b58cb00b0bedba716215aff066eca4ff94b89043814b2f6f1542';
+const frozenSnapshotCommit = 'f0be426616df577c9f974893d2c0b110ff35d941';
+const frozenEvidenceCommit = 'c382219c3d81726d496132d1aa4dc13a62936347';
 
 type JsonObject = Record<string, unknown>;
 type RegistryEntry = {
@@ -251,17 +255,109 @@ export function extractApiRoutes(appSource: string): string[] {
   return [...new Set(routes)].filter(route => route !== 'GET *path').sort();
 }
 
-async function verifySnapshots(registryDigest: string): Promise<Record<string, string>> {
-  const snapshotDirectory = join(gates, 'G0/snapshots');
-  await mkdir(snapshotDirectory, { recursive: true });
-  const appSource = await readFile(join(root, 'server/http/app.ts'), 'utf8');
-  const runtimeSource = await readFile(join(root, 'server/ai-runtime.ts'), 'utf8');
-  const api = {
-    version: 'legacy-api-snapshot-1.0.0',
-    routes: extractApiRoutes(appSource),
-    sseChannels: ['runtime', 'commit'],
+type ApiSnapshot = { version: string; routes: string[]; sseChannels: string[]; sseEventTypes: string[] };
+type DbSnapshot = { version: string; migrations: Record<string, string> };
+type ContractAdditions = { routes: string[]; migrations: Record<string, string> };
+type ApprovedAdditions = {
+  schemaVersion: '1.0.0'; snapshotCommit: string; evidenceCommit: string;
+  approvals: Array<ContractAdditions & { commit: string; apiSourceSha256: string; plans: Array<{ path: string; sha256: string }> }>;
+};
+
+export function compareContractSnapshots(
+  frozenApi: ApiSnapshot, frozenDb: DbSnapshot, api: ApiSnapshot, db: DbSnapshot, additions: ContractAdditions,
+) {
+  const expectedRoutes = [...frozenApi.routes, ...additions.routes];
+  const expectedMigrations = { ...frozenDb.migrations, ...additions.migrations };
+  const addedRoutes = api.routes.filter(route => !frozenApi.routes.includes(route)).sort();
+  const removedRoutes = frozenApi.routes.filter(route => !api.routes.includes(route)).sort();
+  const unknownRoutes = api.routes.filter(route => !expectedRoutes.includes(route)).sort();
+  const missingApprovedRoutes = additions.routes.filter(route => !api.routes.includes(route)).sort();
+  const addedMigrations = Object.keys(db.migrations).filter(path => !(path in frozenDb.migrations)).sort();
+  const removedMigrations = Object.keys(expectedMigrations).filter(path => !(path in db.migrations)).sort();
+  const changedMigrations = Object.keys(expectedMigrations).filter(path => path in db.migrations && db.migrations[path] !== expectedMigrations[path]).sort();
+  const unknownMigrations = Object.keys(db.migrations).filter(path => !(path in expectedMigrations)).sort();
+  const duplicateApprovals = new Set(expectedRoutes).size !== expectedRoutes.length
+    || Object.keys(additions.migrations).some(path => path in frozenDb.migrations);
+  const sseChanged = canonicalize(api.sseChannels) !== canonicalize(frozenApi.sseChannels)
+    || canonicalize(api.sseEventTypes) !== canonicalize(frozenApi.sseEventTypes);
+  const versionChanged = api.version !== frozenApi.version || db.version !== frozenDb.version;
+  const ok = !duplicateApprovals && !sseChanged && !versionChanged
+    && ![removedRoutes, unknownRoutes, missingApprovedRoutes, removedMigrations, changedMigrations, unknownMigrations].some(items => items.length);
+  return { ok, addedRoutes, removedRoutes, unknownRoutes, missingApprovedRoutes, addedMigrations, removedMigrations, changedMigrations, unknownMigrations, duplicateApprovals, sseChanged, versionChanged };
+}
+
+function gitSource(commit: string, path: string): Buffer {
+  if (!/^[A-Za-z0-9._/-]+$/.test(path) || path.startsWith('/') || path.split('/').includes('..')) fail(`unsafe contract source path: ${path}`);
+  try { return execFileSync('git', ['show', `${commit}:${path}`], { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] }); }
+  catch { return fail(`contract source is absent from recorded commit ${commit}: ${path}`); }
+}
+
+function apiSnapshot(appSource: string, runtimeSource: string): ApiSnapshot {
+  return {
+    version: 'legacy-api-snapshot-1.0.0', routes: extractApiRoutes(appSource), sseChannels: ['runtime', 'commit'],
     sseEventTypes: [...new Set([...runtimeSource.matchAll(/type: '([A-Z_]+)'/g)].map(match => match[1]))].sort(),
   };
+}
+
+export function verifyApprovedContractSources(manifest: ApprovedAdditions): ContractAdditions {
+  if (manifest?.schemaVersion !== '1.0.0' || manifest.snapshotCommit !== frozenSnapshotCommit
+    || manifest.evidenceCommit !== frozenEvidenceCommit || !Array.isArray(manifest.approvals) || !manifest.approvals.length) {
+    fail('approved additions have an invalid frozen snapshot source or evidence source');
+  }
+  assertArchivedEvidenceCommit(manifest.snapshotCommit);
+  assertArchivedEvidenceCommit(manifest.evidenceCommit);
+  for (const name of ['api', 'db', 'schema-index']) {
+    const path = `docs/architecture-gates/G0/snapshots/${name}.json`;
+    if (!readFileSync(join(root, path)).equals(gitSource(manifest.snapshotCommit, path))) fail(`${name} frozen snapshot source mismatch`);
+  }
+  const evidencePath = 'docs/architecture-gates/G0/evidence.json';
+  const evidenceContent = readFileSync(join(root, evidencePath));
+  if (!evidenceContent.equals(gitSource(manifest.evidenceCommit, evidencePath))) fail('frozen evidence source mismatch');
+  const evidence = JSON.parse(evidenceContent.toString()) as { commit: string; checksums: Record<string, { algorithm: string; value: string }> };
+  if (evidence.commit !== manifest.snapshotCommit) fail('frozen evidence records a different snapshot source');
+  const frozenApi = JSON.parse(readFileSync(join(gates, 'G0/snapshots/api.json'), 'utf8')) as ApiSnapshot;
+  const frozenDb = JSON.parse(readFileSync(join(gates, 'G0/snapshots/db.json'), 'utf8')) as DbSnapshot;
+  for (const name of ['api', 'db', 'schema-index']) {
+    const path = `G0/snapshots/${name}.json`;
+    if (evidence.checksums[path]?.algorithm !== 'sha256'
+      || evidence.checksums[path]?.value !== sha256(readFileSync(join(gates, path))).replace(/^sha256:/, '')) fail(`${name} frozen evidence checksum mismatch`);
+  }
+  const additions: ContractAdditions = { routes: [], migrations: {} };
+  let previousCommit = manifest.snapshotCommit;
+  for (const approval of manifest.approvals) {
+    if (!approval || !Array.isArray(approval.routes) || !approval.routes.every(route => typeof route === 'string')
+      || !approval.migrations || typeof approval.migrations !== 'object' || Array.isArray(approval.migrations)
+      || !Array.isArray(approval.plans) || !approval.plans.length) fail('invalid approved contract additions');
+    const commit = assertArchivedEvidenceCommit(approval.commit);
+    try { execFileSync('git', ['merge-base', '--is-ancestor', previousCommit, commit], { cwd: root, stdio: 'ignore' }); }
+    catch { fail('contract approval sources are not in ancestor order'); }
+    const appSource = gitSource(commit, 'server/http/app.ts');
+    if (sha256(appSource) !== approval.apiSourceSha256) fail('API approval source checksum mismatch');
+    for (const plan of approval.plans) {
+      if (!plan || !/^docs\/(?:superpowers\/plans\/|m18-navigation-contract\.md$)/.test(plan.path)
+        || sha256(gitSource(commit, plan.path)) !== plan.sha256) fail('contract approval plan source checksum mismatch');
+    }
+    for (const path of Object.keys(approval.migrations)) {
+      if (path in additions.migrations || path in frozenDb.migrations) fail(`duplicate approved migration: ${path}`);
+    }
+    additions.routes.push(...approval.routes);
+    Object.assign(additions.migrations, approval.migrations);
+    const migrationPaths = execFileSync('git', ['ls-tree', '-r', '--name-only', commit, 'db/migrations'], { cwd: root, encoding: 'utf8' })
+      .trim().split('\n').filter(path => path.endsWith('.sql'));
+    const sourceDb = { version: frozenDb.version, migrations: Object.fromEntries(migrationPaths.map(path => [path, sha256(gitSource(commit, path))])) };
+    const comparison = compareContractSnapshots(frozenApi, frozenDb,
+      apiSnapshot(appSource.toString(), gitSource(commit, 'server/ai-runtime.ts').toString()), sourceDb, additions);
+    if (!comparison.ok) fail(`approved additions do not match recorded source ${commit}: ${JSON.stringify(comparison)}`);
+    previousCommit = commit;
+  }
+  return additions;
+}
+
+async function verifySnapshots(registryDigest: string) {
+  const snapshotDirectory = join(gates, 'G0/snapshots');
+  const appSource = await readFile(join(root, 'server/http/app.ts'), 'utf8');
+  const runtimeSource = await readFile(join(root, 'server/ai-runtime.ts'), 'utf8');
+  const api = apiSnapshot(appSource, runtimeSource);
   const migrationPaths = (await listFiles(join(root, 'db/migrations')))
     .filter(path => path.endsWith('.sql'))
     .sort();
@@ -273,14 +369,16 @@ async function verifySnapshots(registryDigest: string): Promise<Record<string, s
     ]))),
   };
 
-  const checksums: Record<string, string> = {};
-  for (const [name, value] of Object.entries({ api, db })) {
-    const content = `${JSON.stringify(value, null, 2)}\n`;
-    const path = join(snapshotDirectory, `${name}.json`);
-    if (update) await writeFile(path, content);
-    else if (await readFile(path, 'utf8') !== content) fail(`${name} snapshot drift`);
-    checksums[`G0/snapshots/${name}.json`] = sha256(content);
-  }
+  const approvalContent = await readFile(join(gates, 'G0/approved-additions.json'), 'utf8');
+  const approved = JSON.parse(approvalContent) as ApprovedAdditions;
+  const additions = verifyApprovedContractSources(approved);
+  const frozenApi = await readJson<ApiSnapshot>(join(snapshotDirectory, 'api.json'));
+  const frozenDb = await readJson<DbSnapshot>(join(snapshotDirectory, 'db.json'));
+  const comparison = compareContractSnapshots(frozenApi, frozenDb, api, db, additions);
+  // Historical evidence continues to hash its original inputs; current additions have a separate attested digest.
+  const checksums: Record<string, string> = Object.fromEntries(await Promise.all(['api', 'db'].map(async name => [
+    `G0/snapshots/${name}.json`, sha256(await readFile(join(snapshotDirectory, `${name}.json`))),
+  ])));
 
   const schemaIndex = {
     schema_version: '1.0.0',
@@ -293,10 +391,15 @@ async function verifySnapshots(registryDigest: string): Promise<Record<string, s
   };
   const indexContent = `${JSON.stringify(schemaIndex, null, 2)}\n`;
   const indexPath = join(snapshotDirectory, 'schema-index.json');
-  if (update) await writeFile(indexPath, indexContent);
-  else if (await readFile(indexPath, 'utf8') !== indexContent) fail('schema index drift');
+  if (await readFile(indexPath, 'utf8') !== indexContent) fail('schema index drift');
   checksums['G0/snapshots/schema-index.json'] = sha256(indexContent);
-  return checksums;
+  return { checksums, report: {
+    schemaVersion: '1.0.0', mode: 'contracts-only', gateStatus: 'pending', fullG0Verified: false,
+    commit: currentCommit(), snapshotCommit: approved.snapshotCommit, evidenceCommit: approved.evidenceCommit,
+    approvalCommits: approved.approvals.map(approval => approval.commit), approvedAdditionsSha256: sha256(approvalContent),
+    currentApiSourceSha256: sha256(appSource), currentRuntimeSourceSha256: sha256(runtimeSource),
+    currentContractsSha256: sha256(canonicalize({ api, db })), ...comparison,
+  } };
 }
 
 function percentile(samples: number[], fraction: number): number {
@@ -573,6 +676,8 @@ async function verifyCiPerformanceBaseline(
 
 async function run(): Promise<void> {
   const startedAt = new Date().toISOString();
+  if (contractsOnly && (update || writeEvidence || writeObservation)) fail('--contracts-only cannot be combined with output or update flags');
+  if (update) fail('--update cannot overwrite frozen G0 inputs; review approved-additions.json for intentional contract additions');
   if (update && (writeEvidence || writeObservation)) fail('--update cannot be combined with evidence output');
   if (writeEvidence && writeObservation) fail('choose either archived evidence or CI observation output');
   if (writeEvidence) {
@@ -590,7 +695,14 @@ async function run(): Promise<void> {
     fail(`performance profile references an unregistered workspace fixture: ${performanceProfile.baseFixtureId}`);
   }
   const characterizationCount = await verifyCharacterizationMap();
-  const snapshotChecksums = await verifySnapshots(fixture.digest);
+  const snapshotVerification = await verifySnapshots(fixture.digest);
+  if (contractsOnly) {
+    console.log(JSON.stringify(snapshotVerification.report));
+    if (!snapshotVerification.report.ok) process.exitCode = 1;
+    return;
+  }
+  if (!snapshotVerification.report.ok) fail(`contract compatibility drift: ${JSON.stringify(snapshotVerification.report)}`);
+  const snapshotChecksums = snapshotVerification.checksums;
   const performanceProfileChecksum = sha256(await readFile(join(gates, 'performance-profile.json')));
   const metrics = await runBenchmarks(fixture.registry, performanceProfile);
   console.table(metrics);
@@ -759,7 +871,9 @@ async function run(): Promise<void> {
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(import.meta.filename)) {
   run().catch(error => {
-    console.error(error instanceof Error ? error.message : error);
+    const message = error instanceof Error ? error.message : String(error);
+    if (contractsOnly) console.log(JSON.stringify({ schemaVersion: '1.0.0', mode: 'contracts-only', ok: false, gateStatus: 'pending', fullG0Verified: false, error: message }));
+    else console.error(message);
     process.exitCode = 1;
   });
 }

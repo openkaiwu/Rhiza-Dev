@@ -6,6 +6,10 @@ Unified verification: lint, build/typecheck, licenses and M02/M04/M10 boundaries
 
 The following records retain earlier backend evidence; later approved production work supersedes their earlier UI-pending descriptions.
 
+Engineering entrypoints are `pnpm --silent run m15:checks`, `m16:checks`, `m17:checks`, `m18:checks`: stdout is one machine-readable JSON, child logs go to stderr and any failed/missing check returns nonzero. Twelve runner regressions pass. M17 includes isolated encrypted PGlite ENOSPC upload/Context-freeze tests (two pass): failed Blob publication leaves business facts/checksum unchanged, no model dispatch or orphan keys, then manual same-key retry commits once. This injected local evidence does not establish production disk/WAL/capacity recovery. The M17 command reevaluates existing performance evidence and does not rerun the benchmark.
+
+`pnpm exec tsx scripts/architecture-gates/verify-g0.ts --contracts-only` passed on source `3793f8b`: 36 explicitly approved additive routes, zero removed/unknown routes, six additive migration files and all 72 original files unchanged. Frozen snapshots and evidence remain byte-identical; source commits, API/plan SHA and migration hashes are checked. `--update` rejects baseline replacement. The report retains `gateStatus: pending` and `fullG0Verified: false`; this static compatibility result does not replace performance acceptance or approve future unknown additions.
+
 Implemented backend units: distinct Context modes; bounded read-only preview; version-bound accept/reject with reasons, stale-source rejection and idempotent transactional persistence; safe fallback, Manifest identity and temporary input filtering; read-only Replay policy/config preflight sharing execution guards; no static recommendation in new server seeds. No user database migration, historical rewriting or production UI redesign performed.
 
 Verified targeted checks (actual current work):
