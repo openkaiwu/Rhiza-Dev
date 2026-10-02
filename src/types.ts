@@ -9,7 +9,7 @@ export type ChatOperation = 'send' | 'retry' | 'regenerate' | 'edit-resend';
 export interface GenerationOptions { temperature: number; topP: number; maxTokens: number }
 export interface TokenUsage { promptTokens: number; completionTokens: number; totalTokens: number; estimated?: boolean }
 export interface ToolCall { id: string; name: string; arguments: string }
-export interface Attachment { id: string; name: string; mimeType: string; size: number; kind: 'file' | 'image'; summary?: string; chunkCount?: number; createdAt: string }
+export interface Attachment { id: string; name: string; mimeType: string; size: number; kind: 'file' | 'image'; summary?: string; chunkCount?: number; resourceId?: string; resourceVersionId?: string; digest?: string; createdAt: string }
 
 export interface ContextItem {
   id: string;
@@ -161,6 +161,16 @@ export interface ProviderStatus {
 
 export type ProviderPreset = 'openai' | 'openrouter' | 'deepseek' | 'siliconflow' | 'ollama' | 'custom';
 export interface ProviderDiscoveryBatchResult { catalog: ProviderCatalog; results: Array<{ providerId: string; status: 'succeeded' | 'failed' | 'skipped'; code?: string }> }
+export interface BundleMappingChoice { modelSpecRef: string; providerEndpointRef: string; targetModelId: string; targetProviderEndpointRef: string; targetEndpointVersion: string }
+export interface BundleExecutionConfiguration { ready: boolean; mappingCount: number; truncated: boolean; mappings: Array<{ modelSpecRef: string; providerEndpointRef: string; runCount: number; target: BundleMappingChoice | null; currentEndpointVersion: string | null; status: 'ready' | 'unresolved' | 'blocked'; reason?: string; credentialStatus: string; discoveryStatus: string }> }
+export interface BundleResourceDescriptor { resourceId: string; resourceVersionId: string; digest: string; size: number; mediaType: string }
+export interface BundlePreview { workspaceId: string; name: string; archiveDigest: string; messages: number; runs: number; resourceVersions: number; documentVersion: string; canImport: boolean; reasons: string[]; missingResourceCount: number; missingResources: BundleResourceDescriptor[]; missingResourcesTruncated: boolean; executionRequirementCount: number; executionRequirementsTruncated: boolean; executionConfiguration: BundleExecutionConfiguration }
+export interface ManagedBackup { backupId: string; workspaceId: string; ownerId: string; status: 'running' | 'ready' | 'failed' | 'interrupted' | 'purged'; location: string; startedAt: string; updatedAt: string; completedAt?: string; sizeBytes?: number; errorCode?: string; retryOf?: string }
+export interface ManagedBackupList { backups: ManagedBackup[]; reminder: { due: boolean; nextAt: string | null; intervalDays: 7 } }
+export interface PersonalGraphView { viewType: string; revision: number; source: 'default' | 'personal'; ownerScope: { scopeType: 'user'; scopeId: string }; positions: Array<{ objectType: 'conversation' | 'segment' | 'message' | 'resource' | 'run'; objectId: string; x: number; y: number; collapsed: boolean }>; viewport: { x: number; y: number; zoom: number }; filters: { objectTypes: string[]; relationTypes: string[] } }
+export type GraphViewInput = Pick<PersonalGraphView, 'positions' | 'viewport' | 'filters'>;
+export type GraphBatchItem = { itemId: string } & ({ commandType: 'ArchiveObject'; payload: { nodeId: string } } | { commandType: 'CreateRelation'; payload: { source: string; target: string; relation: EdgeRelation; label: string } });
+export interface GraphBatchResult { batchId: string; workspaceId: string; status: 'completed' | 'partial' | 'failed' | 'incomplete'; outcomes: Array<{ itemId: string; status: 'succeeded' | 'failed' | 'partial' | 'pending' | 'skipped'; code?: string; undoable: boolean }> }
 export interface SafeProvider {
   discoveryHealth?: { status: 'unknown' | 'healthy' | 'degraded' | 'invalid-key' | 'unconfigured'; endpointVersion: string; checkedAt?: string; code?: string; discoveredCount?: number };
   id: string; preset: ProviderPreset; name: string; baseUrl: string; chatPath: string;

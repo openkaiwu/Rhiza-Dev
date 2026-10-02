@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { expect, it, vi } from 'vitest';
+import { NodeEncryptedBlobStore } from '../server/infrastructure/node-encrypted-blob-store';
+import { NodeImportArchiveStore } from '../server/infrastructure/portable-content';
 import { api } from '../src/api';
 import { createApp } from '../server/app';
 import { openEmbeddedWorkspaceStore } from '../server/embedded-store';
@@ -127,4 +129,40 @@ it('keeps inline collaboration in its conversation across partial result, single
     api.setWorkspace(); vi.unstubAllGlobals();
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); await store.close(); await rm(root, { recursive: true, force: true });
   }
+}, 30000);
+
+it('connects data recovery and personal/batch Graph clients through actual scoped HTTP without model calls', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rhiza-data-graph-ui-client-'));
+  const blobs = NodeEncryptedBlobStore.atDirectory(join(root, 'uploads'));
+  const store = await openEmbeddedWorkspaceStore(join(root, 'db'), undefined, 'apply', blobs, new NodeImportArchiveStore(join(root, 'uploads/imports')));
+  const provider = new ProviderService(new ProviderStore(join(root, 'providers')), new SecretVault(join(root, 'key')), { baseUrl: 'https://example.test', apiKey: '', model: 'fixture', providerName: 'Fixture', chatPath: '/chat', timeoutMs: 1000, temperature: 0, extraHeaders: {}, allowNoKey: true });
+  const generate = vi.fn(() => { throw new Error('Inspection must not invoke a model'); });
+  const app = createApp(store, provider, false, { kind: 'provider-adapter', listModels: async () => [], generate }, undefined, join(root, 'uploads'), blobs);
+  const server = app.listen(0, '127.0.0.1'); await new Promise<void>((resolve, reject) => { server.once('listening', resolve); server.once('error', reject); });
+  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`; const nativeFetch = globalThis.fetch;
+  vi.stubGlobal('fetch', (path: string, init?: RequestInit) => nativeFetch(`${origin}${path}`, init));
+  try {
+    api.setWorkspace(); const { workspace } = await api.getWorkspace(); api.setWorkspace(workspace.projectId); await store.backfillJournal();
+    const file = new File(['Frozen attachment bytes'], 'brief.txt', { type: 'text/plain' }); const attachment = await api.uploadAttachment(file);
+    const backup = await api.createManagedBackup('data-backup'); expect(backup.status).toBe('ready'); expect((await api.createManagedBackup('data-backup')).backupId).toBe(backup.backupId);
+    expect((await api.listManagedBackups()).backups).toHaveLength(1);
+    const archive = await api.getManagedBackupArchive(backup.backupId); expect((await api.previewWorkspaceBundle(archive)).canImport).toBe(true);
+    const thinResponse = await nativeFetch(`${origin}/api/v1/workspaces/${workspace.projectId}/bundle?includeResources=false`); expect(thinResponse.status).toBe(200);
+    const thin = new File([await thinResponse.blob()], 'thin.rhiza'); const missing = await api.previewWorkspaceBundle(thin); expect(missing.canImport).toBe(false); expect(missing.missingResourceCount).toBeGreaterThan(0);
+    await expect(api.importWorkspaceBundle(thin, 'thin-import')).rejects.toMatchObject({ code: 'BUNDLE_EXTERNAL_CONTENT_REQUIRED' });
+    const restored = await api.hydrateWorkspaceBundle(thin, { [attachment.resourceVersionId!]: file }); expect((await api.previewWorkspaceBundle(restored)).canImport).toBe(true);
+    await expect(api.importWorkspaceBundle(restored, 'existing-import')).rejects.toMatchObject({ code: 'BUNDLE_TARGET_EXISTS' });
+    await api.createGraphNode({ title: 'Batch client fixture', x: 800, y: 200 });
+    const before = await store.read(); const journal = await store.readJournal(); const view = await api.getPersonalGraphView();
+    const input = { positions: [{ objectType: 'conversation' as const, objectId: workspace.activeNodeId, x: 730, y: 410, collapsed: true }], viewport: { x: -400, y: -200, zoom: 1.1 }, filters: { objectTypes: ['conversation'], relationTypes: ['references'] } };
+    expect((await api.savePersonalGraphView(input, view.revision, 'personal-save')).revision).toBe(1); expect((await api.savePersonalGraphView(input, view.revision, 'personal-save')).revision).toBe(1);
+    expect(await store.read()).toEqual(before); expect(await store.readJournal()).toEqual(journal); expect((await api.getPersonalGraphView()).positions).toEqual(input.positions);
+    await expect(api.savePersonalGraphView(input, view.revision, 'stale-view')).rejects.toMatchObject({ code: 'GRAPH_VIEW_REVISION_CONFLICT' });
+    const node = before.discussionNodes.find(node => node.id !== before.activeNodeId && node.status !== 'archived')!;
+    const items = [{ itemId: node.id, commandType: 'ArchiveObject' as const, payload: { nodeId: node.id } }];
+    const batch = await api.batchGraphOperations(items, 'ui-archive'); expect(batch.outcomes[0]).toMatchObject({ status: 'succeeded', undoable: true });
+    expect(await api.batchGraphOperations(items, 'ui-archive')).toEqual(batch); expect(await api.getGraphBatch(batch.batchId)).toEqual(batch);
+    const undo = await api.undoGraphBatch(batch.batchId, 'ui-undo'); expect(undo.status).toBe('completed'); expect((await store.read()).discussionNodes.find(item => item.id === node.id)?.status).toBe(node.status);
+    expect(generate).not.toHaveBeenCalled();
+  } finally { api.setWorkspace(); vi.unstubAllGlobals(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); await store.close(); await rm(root, { recursive: true, force: true }); }
 }, 30000);

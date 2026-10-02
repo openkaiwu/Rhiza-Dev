@@ -1,9 +1,10 @@
+import { BundleControls } from './components/BundleControls';
 import { WorkspaceForm } from './components/WorkspaceForm';
 import { WorkspaceSearch } from './components/WorkspaceSearch';
 import { MergeDialog } from './components/MergeDialog';
 import { boundedGraphCache } from './components/graph-viewport';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Anchor, Attachment, ContextManifest, ContextMode, ContextPreview, ContextRecommendationDecision, CollaborationInput, CollaborationRecord, ContextStatus, DiscussionEdge, DiscussionNode, GraphProjectionResult, Message, ProviderCatalog, ProviderPresetInfo, ProviderStatus, Segment, View, WorkspaceActivityItem, WorkspaceSnapshot, WorkspaceRecord } from './types';
+import type { Anchor, Attachment, ContextManifest, ContextMode, ContextPreview, ContextRecommendationDecision, CollaborationInput, CollaborationRecord, ContextStatus, DiscussionEdge, DiscussionNode, GraphProjectionResult, Message, GraphBatchItem, GraphBatchResult, GraphViewInput, PersonalGraphView, ManagedBackupList, ProviderCatalog, ProviderPresetInfo, ProviderStatus, Segment, View, WorkspaceActivityItem, WorkspaceSnapshot, WorkspaceRecord } from './types';
 import { api, type ChatRequestOptions } from './api';
 import { presentErrorText } from './error-presentation';
 import { Sidebar } from './components/Sidebar';
@@ -16,7 +17,7 @@ import { ProviderSettings, type ProviderFormState } from './components/ProviderS
 import { RunHistory } from './components/RunHistory';
 import { ActivityView } from './components/ActivityView';
 import { AppShell } from './components/AppShell';
-import { projectionToGraphPresentationModel, toGraphPresentationModel } from './components/graph-model';
+import { projectionToGraphPresentationModel, toGraphPresentationModel, toGraphPersonalPresentation, type GraphPersonalPresentation, type GraphRelation } from './components/graph-model';
 
 export function App() {
   const initialNode: DiscussionNode = { id: 'information-architecture', title: '信息架构方向', summary: '探索首屏的内容层级、上下文入口与专业能力的渐进呈现方式。', status: 'active', kind: 'main', x: 350, y: 150, createdAt: '2026-08-09T12:00:00.000Z', updatedAt: '2026-08-09T12:00:00.000Z' };
@@ -32,6 +33,11 @@ export function App() {
   const [providerCatalog, setProviderCatalog] = useState<ProviderCatalog>({ providers: [], models: [], activeModelId: null });
   const [providerPresets, setProviderPresets] = useState<Record<string, ProviderPresetInfo>>({});
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [dataOpen, setDataOpen] = useState(false);
+  const [backups, setBackups] = useState<ManagedBackupList>();
+  const [backupsLoading, setBackupsLoading] = useState(false);
+  const [backupsError, setBackupsError] = useState('');
+  const backupRequestRef = useRef(0);
   const [syncError, setSyncError] = useState('');
   const [contextOpen, setContextOpen] = useState(false);
   const [contextHistory, setContextHistory] = useState<ContextHistoryState>();
@@ -76,6 +82,20 @@ export function App() {
   const [graphProjection, setGraphProjection] = useState<GraphProjectionResult>();
   const [graphLoading, setGraphLoading] = useState(false);
   const [graphError, setGraphError] = useState('');
+  const [personalView, setPersonalView] = useState<PersonalGraphView>();
+  const personalViewRef = useRef<PersonalGraphView | undefined>(undefined);
+  const [personalLoading, setPersonalLoading] = useState(false);
+  const personalRequestRef = useRef(0);
+  const personalSaving = useRef(false);
+  const personalSaveKeys = useRef(new Map<string, string>());
+  const [graphBatch, setGraphBatch] = useState<GraphBatchResult>();
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchError, setBatchError] = useState('');
+  const batchRunning = useRef(false);
+  const batchInputRef = useRef<{ workspaceId?: string; items: GraphBatchItem[]; key: string } | undefined>(undefined);
+  const batchUndoKeys = useRef(new Map<string, string>());
+  const batchUndoRef = useRef<{ workspaceId?: string; batchId: string; key: string } | undefined>(undefined);
+
   const graphFiltersRef=useRef<{query?:string;statuses?:string[];updatedAfter?:string}>({});
   const graphRequestRef = useRef(0);
   const graphPagesRef = useRef(1);
@@ -282,6 +302,62 @@ export function App() {
   };
   useEffect(() => { if (view === 'graph' && boot === 'ready') void loadGraph(); }, [view, boot, currentWorkspaceId, discussionNodes, loadGraph]);
   useEffect(() => { if (api.listWorkspaces) void api.listWorkspaces(true).then(result => setWorkspaces(result.workspaces)).catch(() => undefined); }, []);
+  const loadPersonalView = useCallback(async () => {
+    const scope = selectedWorkspaceRef.current; const request = ++personalRequestRef.current;
+    setPersonalLoading(true);
+    try { const result = await api.getPersonalGraphView(); if (scope === selectedWorkspaceRef.current && request === personalRequestRef.current) { personalViewRef.current = result; setPersonalView(result); } }
+    catch (error) { if (scope === selectedWorkspaceRef.current && request === personalRequestRef.current) setGraphError(presentErrorText(error, { message: '无法读取个人视图。', recovery: '请重新读取后再保存。' })); }
+    finally { if (scope === selectedWorkspaceRef.current && request === personalRequestRef.current) setPersonalLoading(false); }
+  }, []);
+  useEffect(() => { personalRequestRef.current++; personalViewRef.current = undefined; setPersonalView(undefined); setGraphBatch(undefined); setBatchError(''); batchInputRef.current = undefined; batchUndoRef.current = undefined; setBatchBusy(false); }, [currentWorkspaceId]);
+  useEffect(() => { if (view === 'graph' && boot === 'ready') void loadPersonalView(); }, [view, boot, currentWorkspaceId, loadPersonalView]);
+  const savePersonalInput = async (input: GraphViewInput) => {
+    const original = personalViewRef.current; const scope = selectedWorkspaceRef.current;
+    if (!original || personalSaving.current) throw new Error('个人视图尚未就绪或保存仍在进行。');
+    const identity = JSON.stringify([scope, original.revision, input]); const key = personalSaveKeys.current.get(identity) ?? crypto.randomUUID(); personalSaveKeys.current.set(identity, key);
+    personalSaving.current = true;
+    try { const receipt = await api.savePersonalGraphView(input, original.revision, key); if (scope !== selectedWorkspaceRef.current) return; const next = { ...original, ...input, ...receipt, source: 'personal' as const }; personalViewRef.current = next; setPersonalView(next); personalSaveKeys.current.delete(identity); }
+    finally { personalSaving.current = false; }
+  };
+  const saveGraphPresentation = async (presentation: GraphPersonalPresentation) => {
+    const original = personalViewRef.current; if (!original) throw new Error('请先读取个人视图。');
+    const changes = new Map(Object.entries(presentation.positions).map(([objectId, position]) => [objectId, { objectId, ...position, objectType: graphProjection?.objects.find(item => item.ref.objectId === objectId)?.ref.objectType ?? 'conversation', collapsed: presentation.collapsedIds.includes(objectId) }]));
+    const positions = [...original.positions.filter(item => !changes.has(item.objectId)), ...changes.values()] as PersonalGraphView['positions'];
+    await savePersonalInput({ positions, viewport: presentation.viewport ? { x: presentation.viewport.x, y: presentation.viewport.y, zoom: presentation.viewport.scale } : original.viewport, filters: { ...original.filters, relationTypes: presentation.relationFilter ? [presentation.relationFilter.replaceAll('-', '_')] : [] } });
+  };
+  const runGraphBatch = async (operation: 'apply' | 'resume' | 'read' | 'undo', input?: { ids: string[]; operation: 'archive' | 'relate'; relation?: GraphRelation }) => {
+    if (batchRunning.current) return;
+    const scope = selectedWorkspaceRef.current;
+    if (operation === 'apply' && input) {
+      const items: GraphBatchItem[] = input.operation === 'archive' ? input.ids.map(id => ({ itemId: id, commandType: 'ArchiveObject', payload: { nodeId: id } })) : input.ids.slice(1).map(id => ({ itemId: id, commandType: 'CreateRelation', payload: { source: input.ids[0], target: id, relation: input.relation ?? 'related-to', label: '' } }));
+      const previous = batchInputRef.current;
+      if (!previous || previous.workspaceId !== scope || graphBatch?.status === 'completed' || batchUndoRef.current || JSON.stringify(previous.items) !== JSON.stringify(items)) batchInputRef.current = { workspaceId: scope, items, key: crypto.randomUUID() };
+      batchUndoRef.current = undefined;
+    }
+    const frozen = batchInputRef.current;
+    if ((operation === 'apply' || operation === 'resume') && (!frozen || frozen.workspaceId !== scope)) return;
+    if ((operation === 'read' || operation === 'undo') && !graphBatch) return;
+    batchRunning.current = true; setBatchBusy(true); setBatchError('');
+    try {
+      let result: GraphBatchResult;
+      if (operation === 'read') result = await api.getGraphBatch(graphBatch!.batchId);
+      else if (operation === 'undo') { const identity = `${scope}:${graphBatch!.batchId}`; const key = batchUndoKeys.current.get(identity) ?? crypto.randomUUID(); batchUndoKeys.current.set(identity, key); batchUndoRef.current = { workspaceId: scope, batchId: graphBatch!.batchId, key }; result = await api.undoGraphBatch(graphBatch!.batchId, key); }
+      else if (operation === 'resume' && batchUndoRef.current && batchUndoRef.current.workspaceId === scope) result = await api.undoGraphBatch(batchUndoRef.current.batchId, batchUndoRef.current.key);
+      else result = await api.batchGraphOperations(frozen!.items, frozen!.key);
+      if (scope !== selectedWorkspaceRef.current) return;
+      setGraphBatch(result);
+      if (operation !== 'read') await loadWorkspace(true);
+    } catch (error) { if (scope === selectedWorkspaceRef.current) setBatchError(presentErrorText(error, { message: '批量状态待确认。', recovery: '请读取结果或继续原批次；已完成项不会重复执行。' })); }
+    finally { batchRunning.current = false; if (scope === selectedWorkspaceRef.current) setBatchBusy(false); }
+  };
+  const refreshBackups = useCallback(async () => {
+    const scope = selectedWorkspaceRef.current; const request = ++backupRequestRef.current;
+    setBackupsLoading(true); setBackupsError('');
+    try { const result = await api.listManagedBackups(); if (scope === selectedWorkspaceRef.current && request === backupRequestRef.current) setBackups(result); }
+    catch (error) { if (scope === selectedWorkspaceRef.current && request === backupRequestRef.current) setBackupsError(presentErrorText(error, { message: '无法读取备份。', recovery: '请刷新后重试。' })); }
+    finally { if (scope === selectedWorkspaceRef.current && request === backupRequestRef.current) setBackupsLoading(false); }
+  }, []);
+  useEffect(() => { setBackups(undefined); backupRequestRef.current++; if (dataOpen) void refreshBackups(); }, [dataOpen, currentWorkspaceId, refreshBackups]);
   const openCurrentContext = () => { historyRequestRef.current++; setContextHistory(undefined); setContextOpen(true); };
   const inspectMessageContext = async (messageId: string, manifestId?: string) => {
     const request = ++historyRequestRef.current;
@@ -295,6 +371,7 @@ export function App() {
     }
   };
   const switchWorkspace = async (workspaceId: string) => {
+    setDataOpen(false);
     historyRequestRef.current++; setContextHistory(undefined);
     setContextPreview(undefined); setPreviewError(''); setDecidingContext(false); setFocusedRunId(undefined);
     const generation = ++workspaceGenerationRef.current;
@@ -341,6 +418,10 @@ export function App() {
         if (event.key === 'Escape') setPaletteOpen(false);
         return;
       }
+      if (dataOpen) {
+        if (event.key === 'Escape') setDataOpen(false);
+        return;
+      }
       if (settingsOpen) {
         if (event.key === 'Escape') setSettingsOpen(false);
         return;
@@ -355,11 +436,14 @@ export function App() {
       if (event.key === '/' && !modifier && !(event.target instanceof HTMLInputElement) && !(event.target instanceof HTMLTextAreaElement)) { event.preventDefault(); setView('chat'); setFocusComposerRequest(value => value + 1); }
     };
     window.addEventListener('keydown', keydown); return () => window.removeEventListener('keydown', keydown);
-  }, [onboardingOpen, paletteOpen, settingsOpen]);
+  }, [onboardingOpen, paletteOpen, settingsOpen, dataOpen]);
   useEffect(() => {
-    if (!paletteOpen && !onboardingOpen && !settingsOpen) return;
+    if (!paletteOpen && !onboardingOpen && !settingsOpen && !dataOpen) return;
     modalReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const dialog = settingsOpen ? document.querySelector<HTMLElement>('.provider-settings') : activeModalRef.current;
+    const dialog = dataOpen ? document.querySelector<HTMLElement>('.workspace-data-dialog') : settingsOpen ? document.querySelector<HTMLElement>('.provider-settings') : activeModalRef.current;
+    const background = [...document.querySelectorAll<HTMLElement>('.workbench-main, .mobile-navigation, .sidebar')];
+    const previousInert = background.map(element => element.inert);
+    background.forEach(element => { element.inert = true; });
     const focusable = () => [...(dialog?.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])') || [])];
     const first = focusable()[0];
     first?.focus();
@@ -372,8 +456,8 @@ export function App() {
       else if (!event.shiftKey && document.activeElement === lastControl) { event.preventDefault(); firstControl.focus(); }
     };
     document.addEventListener('keydown', trapFocus);
-    return () => { document.removeEventListener('keydown', trapFocus); modalReturnFocusRef.current?.focus(); };
-  }, [onboardingOpen, paletteOpen, settingsOpen]);
+    return () => { document.removeEventListener('keydown', trapFocus); background.forEach((element, index) => { element.inert = previousInert[index]; }); modalReturnFocusRef.current?.focus(); };
+  }, [onboardingOpen, paletteOpen, settingsOpen, dataOpen]);
 
   const applyCatalog = (catalog: ProviderCatalog) => {
     setProviderCatalog(catalog);
@@ -512,18 +596,9 @@ export function App() {
     if (openChat) setView('chat');
   };
   const moveNode = async (id: string, x: number, y: number) => {
-    const current = workspaceMutation();
-    const previous = discussionNodes;
-    setDiscussionNodes(nodes => nodes.map(node => node.id === id ? { ...node, x, y } : node));
-    try {
-      const { workspace } = await api.moveNode(id, x, y);
-      if (!current()) return;
-      applyWorkspace(workspace);
-    } catch (error) {
-      if (!current()) return;
-      setDiscussionNodes(previous);
-      setSyncError(presentErrorText(error, { message: '无法保存节点位置。', recovery: '请稍后重试。' }));
-    }
+    const original = personalViewRef.current; if (!original) throw new Error('个人视图尚未就绪。');
+    const prior = original.positions.find(item => item.objectId === id);
+    await savePersonalInput({ viewport: original.viewport, filters: original.filters, positions: [...original.positions.filter(item => item.objectId !== id), { objectType: 'conversation', objectId: id, x, y, collapsed: prior?.collapsed ?? false }] });
   };
   const createGraphNode = async (input: { title: string; summary?: string; x: number; y: number }) => {
     const current = workspaceMutation();
@@ -569,14 +644,19 @@ export function App() {
   };
   const mergeNode = async (id:string) => { setMergeSource(id); };
   const activeCount = contextPreview?.items.length ?? 0;
-  const navigableNodes = discussionNodes.filter(node => node.status !== 'archived');
+  const navigableNodes = discussionNodes.filter(node => node.status !== 'archived' && !collaborations.some(record => record.nodeId === node.id));
   const activeNode = navigableNodes.find(node => node.id === activeNodeId) || navigableNodes[0] || initialNode;
   const activeMessages = messages.filter(message => message.nodeId === activeNode.id);
   const graphModel = useMemo(
-    () => graphProjection ? projectionToGraphPresentationModel(graphProjection) : toGraphPresentationModel([], []),
-    [graphProjection],
+    () => {
+      const model = graphProjection ? projectionToGraphPresentationModel(graphProjection) : toGraphPresentationModel([], []);
+      const internalIds = new Set(collaborations.map(record => record.nodeId));
+      return { nodes: model.nodes.filter(node => !internalIds.has(node.id)), edges: model.edges.filter(edge => !internalIds.has(edge.source) && !internalIds.has(edge.target)) };
+    },
+    [graphProjection, collaborations],
   );
 
+  const graphPersonal = useMemo(() => personalView ? toGraphPersonalPresentation(personalView) : undefined, [personalView]);
   if (boot === 'loading') return <main className="app-loading" aria-busy="true" aria-live="polite"><strong>正在加载工作区…</strong><p>正在同步项目、讨论节点与上下文。</p></main>;
   if (boot === 'error') return <main className="app-loading" role="alert"><strong>工作区加载失败</strong><p>{bootError}</p><button className="primary-button" onClick={() => void loadWorkspace()}>重试</button></main>;
 
@@ -594,12 +674,7 @@ export function App() {
     title={view === 'chat' ? (discussionNodes.length ? activeNode.title : '尚无讨论') : ({ graph: '对话图谱', state: '知识状态', activity: '活动时间线', runs: '执行历史' })[view]}
     workspaceName={workspaceRecord()?.name}
     contextCount={previewLoading ? undefined : activeCount}
-    sidebar={<Sidebar view={view} nodes={navigableNodes.filter(node => !collaborations.some(record => record.nodeId === node.id))} messages={messages} activeNodeId={activeNode.id} onView={setView} onNode={id => activateNode(id, true)} onSettings={openSettings} onCommand={() => setPaletteOpen(true)} onHelp={() => setOnboardingOpen(true)} workspaces={workspaces} currentWorkspaceId={currentWorkspaceId} onWorkspace={id => void switchWorkspace(id)} onCreateWorkspace={() => setWorkspaceForm('create')} onRenameWorkspace={() => setWorkspaceForm('rename')} onArchiveWorkspace={() => void archiveWorkspace()} onRestoreWorkspace={() => void restoreWorkspace()} onBundleImported={async workspaceId => {
-      if (selectedWorkspaceRef.current !== currentWorkspaceId) return;
-      const current = workspaceMutation();
-      await refreshWorkspaces();
-      if (current()) await switchWorkspace(workspaceId);
-    }}/>}
+    sidebar={<Sidebar view={view} nodes={navigableNodes.filter(node => !collaborations.some(record => record.nodeId === node.id))} messages={messages} activeNodeId={activeNode.id} onView={setView} onNode={id => activateNode(id, true)} onSettings={openSettings} onCommand={() => setPaletteOpen(true)} onHelp={() => setOnboardingOpen(true)} workspaces={workspaces} currentWorkspaceId={currentWorkspaceId} onWorkspace={id => void switchWorkspace(id)} onCreateWorkspace={() => setWorkspaceForm('create')} onRenameWorkspace={() => setWorkspaceForm('rename')} onArchiveWorkspace={() => void archiveWorkspace()} onRestoreWorkspace={() => void restoreWorkspace()} onData={() => { setContextOpen(false); setDataOpen(true); }}/>}
     emptySurface={<main id="workspace-main" className="workspace-empty"><h1>这个工作区还没有讨论节点</h1><p>请通过项目入口创建第一个节点，然后开始建立上下文。</p></main>}
     surfaces={{
       chat: <ChatView
@@ -612,7 +687,7 @@ export function App() {
         onActivateNode={id => activateNode(id, true)} onMerge={mergeNode} onSelectModel={async modelId=>{const current=workspaceMutation();const {workspace}=await api.setConversationModel(activeNode.id,modelId);if(current())applyWorkspace(workspace);}}
         onSettings={openSettings} onOpenContext={() => { if (contextHistory) openCurrentContext(); else setContextOpen(open => !open); }} onInspectContext={id => void inspectMessageContext(id)} onGraph={() => setView('graph')} onRuns={() => setView('runs')}
       />,
-      graph: <GraphView key={currentWorkspaceId} loading={graphLoading} error={graphError} hasMore={!!graphProjection?.nextCursor} onLoadMore={() => void loadGraph(graphProjection?.nextCursor)} onRefresh={() => void loadGraph()} onFilter={filterGraph} onNeighborhood={loadGraphNeighborhood} contextIds={contextItems.filter(item=>item.status==='active').map(item=>item.sourceId??'')} onContext={async(node,remove)=>{if(remove){const item=contextItems.find(item=>item.sourceId===node.id);if(item)await updateStatus(item.id,'excluded');}else await addContextSource(node.objectType==='segment'?'segment':'node',node.id);}} onNavigateObject={async node=>{let parent=node.parentId;const parentObject=graphProjection?.objects.find(item=>item.ref.objectId===parent);if(parentObject?.ref.objectType==='segment')parent=graphProjection?.relations.find(edge=>edge.relationType==='contains'&&edge.target.objectId===parent)?.source.objectId;if(parent)await activateNode(parent,true);const message=node.objectType==='message'?node.id:anchors.find(anchor=>anchor.segmentId===node.id)?.messageId??messages.find(message=>message.segmentId===node.id)?.id;if(message)setTimeout(()=>document.getElementById(`message-${message}`)?.scrollIntoView({block:'center'}),50);}} onPath={highlightGraphPath} nodes={graphModel.nodes} edges={graphModel.edges} activeNodeId={activeNode.id} onMove={moveNode} onActivate={id => activateNode(id, true)} onCreateNode={createGraphNode} onArchiveNode={archiveGraphNode} onRestoreNode={restoreGraphNode} onPurgeNode={purgeGraphNode} onCreateEdge={createGraphEdge} onDeleteEdge={deleteGraphEdge}/>,
+      graph: <GraphView key={currentWorkspaceId} personalView={graphPersonal} personalLoading={personalLoading} onSavePersonal={saveGraphPresentation} onReloadPersonal={() => void loadPersonalView()} batch={graphBatch} batchBusy={batchBusy} batchError={batchError} onBatch={(ids, operation, relation) => runGraphBatch('apply', { ids, operation, relation })} onResumeBatch={() => void runGraphBatch('resume')} onReadBatch={() => void runGraphBatch('read')} onUndoBatch={() => void runGraphBatch('undo')} loading={graphLoading} error={graphError} hasMore={!!graphProjection?.nextCursor} onLoadMore={() => void loadGraph(graphProjection?.nextCursor)} onRefresh={() => void loadGraph()} onFilter={filterGraph} onNeighborhood={loadGraphNeighborhood} contextIds={contextItems.filter(item=>item.status==='active').map(item=>item.sourceId??'')} onContext={async(node,remove)=>{if(remove){const item=contextItems.find(item=>item.sourceId===node.id);if(item)await updateStatus(item.id,'excluded');}else await addContextSource(node.objectType==='segment'?'segment':'node',node.id);}} onNavigateObject={async node=>{let parent=node.parentId;const parentObject=graphProjection?.objects.find(item=>item.ref.objectId===parent);if(parentObject?.ref.objectType==='segment')parent=graphProjection?.relations.find(edge=>edge.relationType==='contains'&&edge.target.objectId===parent)?.source.objectId;if(parent)await activateNode(parent,true);const message=node.objectType==='message'?node.id:anchors.find(anchor=>anchor.segmentId===node.id)?.messageId??messages.find(message=>message.segmentId===node.id)?.id;if(message)setTimeout(()=>document.getElementById(`message-${message}`)?.scrollIntoView({block:'center'}),50);}} onPath={highlightGraphPath} nodes={graphModel.nodes} edges={graphModel.edges} activeNodeId={activeNode.id} onMove={moveNode} onActivate={id => activateNode(id, true)} onCreateNode={createGraphNode} onArchiveNode={archiveGraphNode} onRestoreNode={restoreGraphNode} onPurgeNode={purgeGraphNode} onCreateEdge={createGraphEdge} onDeleteEdge={deleteGraphEdge}/>,
       state: <StateView/>,
       runs: <RunHistory key={currentWorkspaceId} focusedRunId={focusedRunId} onInspectContext={id => void inspectMessageContext('', id)} onChanged={() => void loadWorkspace(true)}/>,
       activity: <ActivityView activity={activity} loading={activityLoading} error={activityError} onRefresh={() => void loadActivity()}/>,
@@ -622,6 +697,7 @@ export function App() {
       {workspaceForm&&<WorkspaceForm key={currentWorkspaceId} rename={workspaceForm==='rename'} initialName={workspaceForm==='rename'?workspaceRecord()?.name:undefined} onSave={workspaceForm==='rename'?renameWorkspace:createWorkspace} onClose={()=>setWorkspaceForm(undefined)}/>}
       {mergeSource&&discussionNodes.find(node=>node.id===mergeSource)&&<MergeDialog source={discussionNodes.find(node=>node.id===mergeSource)!} nodes={discussionNodes} latestReply={[...messages].reverse().find(message=>message.nodeId===mergeSource&&message.kind==='assistant')?.text??''} onClose={()=>setMergeSource(undefined)} onSave={async(targetNodeId,summary)=>{const current=workspaceMutation();const {workspace}=await api.mergeNode(mergeSource,targetNodeId,summary);if(current())applyWorkspace(workspace);}}/>}
 
+      {dataOpen && <div className="dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setDataOpen(false); }}><section className="workspace-data-dialog" role="dialog" aria-modal="true" aria-labelledby="workspace-data-title"><header><div><h2 id="workspace-data-title">数据与备份</h2><p>{workspaceRecord()?.name ?? '当前工作区'} · {currentWorkspaceId}</p></div><button aria-label="关闭数据与备份" onClick={() => setDataOpen(false)}>×</button></header><BundleControls key={currentWorkspaceId} workspaceId={currentWorkspaceId} catalog={providerCatalog} backups={backups} backupsLoading={backupsLoading} backupsError={backupsError} onRefreshBackups={() => void refreshBackups()} onSettings={() => { setDataOpen(false); void openSettings(); }} onPreview={api.previewWorkspaceBundle} onHydrate={api.hydrateWorkspaceBundle} onBackupArchive={api.getManagedBackupArchive} onBackup={async (key, retryOf) => { const scope = selectedWorkspaceRef.current; await api.createManagedBackup(key, retryOf); if (scope === selectedWorkspaceRef.current) await refreshBackups(); }} onImport={async (file, key, mappings) => { const scope = selectedWorkspaceRef.current; const result = await api.importWorkspaceBundle(file, key, mappings); if (scope !== selectedWorkspaceRef.current) return; await refreshWorkspaces(); if (scope === selectedWorkspaceRef.current) { await switchWorkspace(result.workspaceId); setView('chat'); } }}/></section></div>}
       {settingsOpen && <ProviderSettings catalog={providerCatalog} presets={providerPresets} onClose={() => setSettingsOpen(false)} onSave={saveProvider} onDiscover={discoverModels} onDiscoverBatch={discoverProviderBatch} onToggleModel={updateModel} onSelectModel={selectModel}/>}
       {paletteOpen && <div className="dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setPaletteOpen(false); }}><section ref={activeModalRef} className="command-palette" role="dialog" aria-modal="true" aria-label="命令面板"><header><strong>搜索或运行命令</strong><kbd>Esc</kbd></header><WorkspaceSearch key={currentWorkspaceId} onOpen={async(nodeId,segmentId,query)=>{await activateNode(nodeId,true);setPaletteOpen(false);const message=segmentId?messages.find(message=>message.segmentId===segmentId):messages.find(message=>message.nodeId===nodeId&&message.text.toLocaleLowerCase().includes(query?.toLocaleLowerCase()??''));if(message)setTimeout(()=>document.getElementById(`message-${message.id}`)?.scrollIntoView({block:'center'}),50);}}/><label>工作区默认模型<select value={workspaceModelId??''} onChange={event=>{const current=workspaceMutation();void api.setWorkspaceModel(event.target.value||null).then(({workspace})=>{if(current())applyWorkspace(workspace);}).catch(()=>setSyncError('工作区模型保存失败，请重试。'));}}><option value="">继承全局默认模型</option>{providerCatalog.models.map(model=><option key={model.id} value={model.id}>{model.displayName}</option>)}</select></label><details><summary>已归档讨论</summary>{discussionNodes.filter(node=>node.status==='archived').map(node=><div key={node.id}>{node.title}<button onClick={()=>void restoreGraphNode(node.id)}>恢复讨论</button></div>)}</details><button onClick={() => runCommand(() => setView('chat'))}>当前讨论 <kbd>⌘1</kbd></button><button onClick={() => runCommand(() => setView('graph'))}>对话图谱 <kbd>⌘2</kbd></button><button onClick={() => runCommand(() => setView('state'))}>知识状态 <kbd>⌘3</kbd></button><button onClick={() => runCommand(() => setView('activity'))}>活动时间线 <kbd>⌘4</kbd></button><button onClick={() => runCommand(() => setContextOpen(true))}>打开 Context <kbd>⌘⇧C</kbd></button><button onClick={() => runCommand(() => { setView('chat'); setFocusComposerRequest(value => value + 1); })}>聚焦消息输入框 <kbd>/</kbd></button><button onClick={() => runCommand(() => setOnboardingOpen(true))}>帮助与快捷键</button></section></div>}
       {onboardingOpen && <div className="dialog-backdrop" role="presentation"><section ref={activeModalRef} className="onboarding-dialog" role="dialog" aria-modal="true" aria-labelledby="onboarding-title"><h2 id="onboarding-title">欢迎来到 Rhiza</h2><p>用四个对象把研究和决策留在同一个工作区：</p><dl><div><dt>Project</dt><dd>一个完整的研究或决策空间。</dd></div><div><dt>Node</dt><dd>围绕一个问题持续展开的讨论。</dd></div><div><dt>Graph</dt><dd>展示讨论之间的衍生、引用和合并关系。</dd></div><div><dt>Context</dt><dd>明确控制本轮发送给模型的材料。</dd></div></dl><button className="primary-button" autoFocus onClick={closeOnboarding}>开始使用</button></section></div>}

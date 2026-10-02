@@ -1,6 +1,10 @@
-import type { DiscussionEdge, DiscussionNode, EdgeRelation, GraphProjectionResult } from '../types';
+import type { DiscussionEdge, DiscussionNode, EdgeRelation, GraphProjectionResult, PersonalGraphView } from '../types';
 
 export type GraphRelation = EdgeRelation;
+export interface GraphPersonalPresentation { positions: Record<string, { x: number; y: number }>; viewport?: { x: number; y: number; scale: number }; collapsedIds: string[]; relationFilter: GraphRelation | '' }
+export function toGraphPersonalPresentation(view: PersonalGraphView): GraphPersonalPresentation {
+  return { positions: Object.fromEntries(view.positions.filter(item => ['conversation', 'segment', 'message'].includes(item.objectType)).map(item => [item.objectId, { x: item.x, y: item.y }])), collapsedIds: view.positions.filter(item => item.collapsed).map(item => item.objectId), viewport: view.source === 'personal' ? { x: view.viewport.x, y: view.viewport.y, scale: view.viewport.zoom } : undefined, relationFilter: view.filters.relationTypes.length === 1 ? (view.filters.relationTypes[0].replaceAll('_', '-') as GraphRelation) : '' };
+}
 
 export interface GraphNodeModel {
   id: string;

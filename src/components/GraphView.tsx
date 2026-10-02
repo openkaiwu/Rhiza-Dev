@@ -3,7 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Archive, Check, Focus, Grip, Link2, Maximize2, Minus, Plus, RotateCcw, Search, Trash2, X } from 'lucide-react';
 import { presentErrorText } from '../error-presentation';
 import { PurgeNodeControl } from './PurgeNodeControl';
-import type { GraphEdgeModel, GraphNodeModel, GraphRelation } from './graph-model';
+import type { GraphEdgeModel, GraphNodeModel, GraphPersonalPresentation, GraphRelation } from './graph-model';
+import type { GraphBatchResult } from '../types';
 
 const STAGE_WIDTH = 2200;
 const STAGE_HEIGHT = 1400;
@@ -17,6 +18,17 @@ type DragState = { id: string; offsetX: number; offsetY: number; moved: boolean;
 type PanState = { x: number; y: number; startX: number; startY: number };
 
 interface GraphViewProps {
+  personalView?: GraphPersonalPresentation;
+  personalLoading?: boolean;
+  onSavePersonal?: (presentation: GraphPersonalPresentation) => Promise<void>;
+  onReloadPersonal?: () => void;
+  batch?: GraphBatchResult;
+  batchBusy?: boolean;
+  batchError?: string;
+  onBatch?: (ids: string[], operation: 'archive' | 'relate', relation?: GraphRelation) => Promise<void>;
+  onResumeBatch?: () => void;
+  onReadBatch?: () => void;
+  onUndoBatch?: () => void;
   loading?: boolean;
   error?: string;
   hasMore?: boolean;
@@ -41,12 +53,12 @@ interface GraphViewProps {
   onDeleteEdge: (id: string) => Promise<void>;
 }
 
-export function GraphView({ loading = false, error = '', hasMore = false, onLoadMore, onRefresh, nodes, edges, activeNodeId, onMove, onActivate, onCreateNode, onArchiveNode, onRestoreNode, onPurgeNode, onCreateEdge, onDeleteEdge, onNeighborhood, onNavigateObject, onContext, contextIds = [], onPath, onFilter }: GraphViewProps) {
+export function GraphView({ loading = false, error = '', hasMore = false, onLoadMore, onRefresh, nodes, edges, activeNodeId, onMove, onActivate, onCreateNode, onArchiveNode, onRestoreNode, onPurgeNode, onCreateEdge, onDeleteEdge, onNeighborhood, onNavigateObject, onContext, contextIds = [], onPath, onFilter, personalView, personalLoading = false, onSavePersonal, onReloadPersonal, batch, batchBusy = false, batchError, onBatch, onResumeBatch, onReadBatch, onUndoBatch }: GraphViewProps) {
   const canvasRef = useRef<HTMLElement>(null);
   const dragRef = useRef<DragState | null>(null);
   const panRef = useRef<PanState | null>(null);
   const [positions, setPositions] = useState<Record<string, Point>>({});
-  const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, scale: 1 });
+  const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, scale: .8 });
   const [listOpen,setListOpen]=useState(false);
   const [size,setSize]=useState({width:800,height:600});
   const [statusFilter,setStatusFilter]=useState('');const [relationFilter,setRelationFilter]=useState('');const [since,setSince]=useState('');const [pathTarget,setPathTarget]=useState('');const [pathIds,setPathIds]=useState<string[]>([]);
@@ -59,6 +71,28 @@ export function GraphView({ loading = false, error = '', hasMore = false, onLoad
   const [edgeForm, setEdgeForm] = useState<{ source: string; target: string; relation: GraphRelation; label: string } | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<GraphNodeModel | null>(null);
   const [actionError, setActionError] = useState('');
+  const [selection, setSelection] = useState<string[]>([]);
+  const [batchMode, setBatchMode] = useState(false);
+  const [batchConfirmation, setBatchConfirmation] = useState(false);
+  const [batchRelation, setBatchRelation] = useState<GraphRelation>('related-to');
+  const [collapsedIds, setCollapsedIds] = useState<string[]>([]);
+  const [savingView, setSavingView] = useState(false);
+  const [viewNotice, setViewNotice] = useState('');
+  const initializedPersonal = useRef(false);
+  const restorePresentation = (presentation: GraphPersonalPresentation) => { setPositions(presentation.positions); if (presentation.viewport) setViewport(presentation.viewport); setCollapsedIds(presentation.collapsedIds); setRelationFilter(presentation.relationFilter); };
+  useEffect(() => {
+    if (!personalView || initializedPersonal.current) return;
+    initializedPersonal.current = true;
+    setPositions(personalView.positions); if (personalView.viewport) setViewport(personalView.viewport); setCollapsedIds(personalView.collapsedIds); setRelationFilter(personalView.relationFilter);
+  }, [personalView]);
+  const toggleSelection = (id: string) => { setBatchConfirmation(false); setSelection(previous => previous.includes(id) ? previous.filter(item => item !== id) : previous.length < 100 ? [...previous, id] : previous); };
+  const savePresentation = async () => {
+    if (!onSavePersonal || savingView) return;
+    setSavingView(true); setViewNotice('');
+    try { await onSavePersonal({ positions: Object.fromEntries(nodes.filter(node => node.lifecycle !== 'tombstoned').map(node => [node.id, positionOf(node)])), viewport, collapsedIds, relationFilter: relationFilter as GraphRelation | '' }); setViewNotice('个人视图已保存。'); }
+    catch (error) { setViewNotice(presentErrorText(error, { message: '个人视图未保存。', recovery: '请重新读取已保存视图，再重试。' })); }
+    finally { setSavingView(false); }
+  };
   const activeNodes = nodes.filter(node => node.status !== 'archived');
   const archivedNodes = nodes.filter(node => node.status === 'archived'&&node.objectType!=='message');
 
@@ -92,6 +126,7 @@ export function GraphView({ loading = false, error = '', hasMore = false, onLoad
   };
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
+      if (initializedPersonal.current) return;
       const active = nodes.find(node => node.id === activeNodeId);
       if (active) focusNode(active);
     });
@@ -132,7 +167,7 @@ export function GraphView({ loading = false, error = '', hasMore = false, onLoad
 
   const pointerDownNode = (event: React.PointerEvent<HTMLElement>, node: GraphNodeModel) => {
     event.stopPropagation();
-    if (node.lifecycle==='tombstoned'||(node.objectType&&node.objectType!=='conversation')) return;
+    if (node.lifecycle==='tombstoned'||(node.objectType&&node.objectType!=='conversation')||batchMode||personalLoading) return;
     const position = positionOf(node);
     const point = toWorldPoint(event.clientX, event.clientY);
     if (!point) return;
@@ -154,7 +189,7 @@ export function GraphView({ loading = false, error = '', hasMore = false, onLoad
     const drag = dragRef.current;
     dragRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    if (!drag) { if(node.lifecycle!=='tombstoned'&&node.objectType&&node.objectType!=='conversation')await onNavigateObject?.(node);return; }
+    if (!drag) { if (batchMode && node.lifecycle !== 'tombstoned' && (!node.objectType || node.objectType === 'conversation')) toggleSelection(node.id); else if(node.lifecycle!=='tombstoned'&&node.objectType&&node.objectType!=='conversation')await onNavigateObject?.(node);return; }
     if (drag.moved) {
       try { await onMove(node.id, drag.x, drag.y); } catch (error) { setPositions(current => { const next = { ...current }; delete next[node.id]; return next; }); setActionError(presentErrorText(error, { message: '无法保存节点位置。', recovery: '请稍后重试。' })); }
       return;
@@ -212,7 +247,7 @@ export function GraphView({ loading = false, error = '', hasMore = false, onLoad
   const normalizedQuery = query.trim().toLowerCase();
   const isConversation=(node:GraphNodeModel)=>!node.objectType||node.objectType==='conversation';
   const nearParentIds=new Set([activeNodeId,...nodes.filter(node=>node.objectType==='segment'&&node.parentId===activeNodeId).map(node=>node.id)]);
-  const filteredNodes=activeNodes.filter(node=>(isConversation(node)||(viewport.scale>.85&&nearParentIds.has(node.parentId??'')))&&(!statusFilter||node.status===statusFilter)&&(!since||!node.updatedAt||node.updatedAt>=since)&&(!normalizedQuery||`${node.title}\n${node.summary}\n${node.anchorText??''}`.toLowerCase().includes(normalizedQuery)));
+  const filteredNodes=activeNodes.filter(node=>(isConversation(node)||(viewport.scale>.85&&nearParentIds.has(node.parentId??'')&&!collapsedIds.includes(node.parentId??'')))&&(!statusFilter||node.status===statusFilter)&&(!since||!node.updatedAt||node.updatedAt>=since)&&(!normalizedQuery||`${node.title}\n${node.summary}\n${node.anchorText??''}`.toLowerCase().includes(normalizedQuery)));
   const visibleNodes=visibleGraphNodes(filteredNodes.map(node=>({...node,...positionOf(node)})),viewport,size);
   const canvasIds=new Set(visibleNodes.map(node=>node.id));
   const selectedEdge = edges.find(edge => edge.id === selectedEdgeId);
@@ -224,7 +259,10 @@ export function GraphView({ loading = false, error = '', hasMore = false, onLoad
       {onRefresh && <button disabled={loading} onClick={onRefresh}>刷新图谱</button>}
       {error && <span role="alert">{error}</span>}
     </div>
-    <div className="graph-filters"><label>状态<select value={statusFilter} onChange={event=>setStatusFilter(event.target.value)}><option value="">全部状态</option>{['draft','active','resolved','stale'].map(status=><option key={status}>{status}</option>)}</select></label><label>关系<select value={relationFilter} onChange={event=>setRelationFilter(event.target.value)}><option value="">全部关系</option>{Object.entries(EDGE_LABELS).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label><label>更新时间之后<input type="date" value={since} onChange={event=>setSince(event.target.value)}/></label><label>路径目标<select value={pathTarget} onChange={event=>setPathTarget(event.target.value)}><option value="">选择讨论</option>{activeNodes.filter(node=>!node.objectType||node.objectType==='conversation').map(node=><option key={node.id} value={node.id}>{node.title}</option>)}</select></label><button disabled={!pathTarget||!onPath} onClick={()=>void onPath?.(activeNodeId,pathTarget).then(setPathIds).catch(()=>setActionError('路径查询失败，请刷新后重试。'))}>高亮路径</button><button onClick={()=>setPathIds([])}>清除路径</button><span>缩放 ≤85%：讨论 · 放大：Segment 与消息</span></div>
+    <div className="graph-workbench-actions">{onBatch && <button aria-pressed={batchMode} onClick={() => { setBatchMode(value => !value); setListOpen(true); setSelection([]); setBatchConfirmation(false); }}>{batchMode ? '结束选择' : '批量选择'}</button>}{onSavePersonal && <button disabled={savingView || personalLoading || !personalView} onClick={() => void savePresentation()}>{savingView ? '保存中…' : '保存个人视图'}</button>}{personalView && <button disabled={savingView || personalLoading} onClick={() => { restorePresentation(personalView); setViewNotice('已恢复保存的布局与缩放。'); }}>恢复已保存视图</button>}{onReloadPersonal && <button disabled={savingView || personalLoading} onClick={() => { initializedPersonal.current = false; onReloadPersonal(); }}>重新读取个人视图</button>}{viewNotice && <span role="status">{viewNotice}</span>}</div>
+    <details className="graph-tools"><summary>筛选与路径</summary><div className="graph-filters"><label>状态<select value={statusFilter} onChange={event=>setStatusFilter(event.target.value)}><option value="">全部状态</option>{['draft','active','resolved','stale'].map(status=><option key={status}>{status}</option>)}</select></label><label>关系<select value={relationFilter} onChange={event=>setRelationFilter(event.target.value)}><option value="">全部关系</option>{Object.entries(EDGE_LABELS).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label><label>更新时间之后<input type="date" value={since} onChange={event=>setSince(event.target.value)}/></label><label>路径目标<select value={pathTarget} onChange={event=>setPathTarget(event.target.value)}><option value="">选择讨论</option>{activeNodes.filter(node=>!node.objectType||node.objectType==='conversation').map(node=><option key={node.id} value={node.id}>{node.title}</option>)}</select></label><button disabled={!pathTarget||!onPath} onClick={()=>void onPath?.(activeNodeId,pathTarget).then(setPathIds).catch(()=>setActionError('路径查询失败，请刷新后重试。'))}>高亮路径</button><button onClick={()=>setPathIds([])}>清除路径</button><span>缩放 ≤85%：讨论 · 放大：Segment 与消息</span></div></details>
+    {batchMode && <section className="graph-batch-controls" aria-label="批量图谱操作"><span>已选 {selection.length} / 100 个讨论 · {selection.map(id => nodes.find(node => node.id === id)?.title ?? id).join('、')}</span><label className="data-check"><input type="checkbox" checked={batchConfirmation} onChange={event => setBatchConfirmation(event.target.checked)}/>确认归档所选讨论（可撤销，消息与关系保留）</label><div><button disabled={batchBusy || !selection.length || !batchConfirmation} onClick={() => void onBatch?.(selection, 'archive')}>归档所选讨论</button><select aria-label="批量关系类型" value={batchRelation} onChange={event => setBatchRelation(event.target.value as GraphRelation)}>{Object.entries(EDGE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><button disabled={batchBusy || selection.length < 2} onClick={() => void onBatch?.(selection, 'relate', batchRelation)}>连接所选讨论</button><small>从第一个所选讨论连接到其余讨论</small></div></section>}
+    {(batch || batchError) && <section className="graph-batch-result" aria-label="批量操作结果">{batchError && <p role="alert">{batchError}</p>}{batch && <><strong>{batch.status === 'completed' ? '批量操作完成' : '批量操作部分完成，请检查每项结果'}</strong><details><summary>每项结果 · {batch.outcomes.length}</summary><ul>{batch.outcomes.map(item => <li key={item.itemId}>{nodes.find(node => node.id === item.itemId)?.title ?? item.itemId} · {{ succeeded: '已完成', partial: '部分完成', failed: '失败', pending: '待完成', skipped: '已跳过' }[item.status]}{item.code ? ` · ${item.code}` : ''}</li>)}</ul></details></>}<div>{onReadBatch && batch && <button disabled={batchBusy} onClick={onReadBatch}>读取批次结果</button>}{onResumeBatch && (!batch || batch.status !== 'completed') && <button disabled={batchBusy} onClick={onResumeBatch}>继续原批次</button>}{onUndoBatch && batch?.outcomes.some(item => item.undoable) && <button disabled={batchBusy} onClick={onUndoBatch}>撤销已完成项</button>}</div></section>}
     <section className="graph-canvas" aria-label="讨论关系图" ref={canvasRef} onWheel={handleWheel} onPointerDown={pointerDownCanvas} onPointerMove={pointerMoveCanvas} onPointerUp={pointerUpCanvas}>
       <div className="graph-search" data-no-pan="true"><Search size={15}/><input aria-label="搜索图谱" placeholder="搜索标题、摘要或来源锚点" value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && filteredNodes[0]) focusNode(filteredNodes[0]); }} onPointerDown={event => event.stopPropagation()}/><span>{filteredNodes.length}</span></div>
       <div className="graph-toolbar" data-no-pan="true">
@@ -247,7 +285,7 @@ export function GraphView({ loading = false, error = '', hasMore = false, onLoad
         {visibleNodes.map(node => {
           const position = positionOf(node);
           const selectedForConnection = connectionSourceId === node.id;
-          return <article className={`graph-node ${node.kind} ${node.status} ${node.id === activeNodeId ? 'current' : ''} ${selectedForConnection ? 'connection-source' : ''} ${pathIds.includes(node.id)?'path-highlight':''} ${node.lifecycle==='tombstoned'?'tombstoned':''} ${node.objectType??'conversation'}`} style={{ left: position.x, top: position.y }} key={node.id} role="button" tabIndex={0} aria-label={`讨论节点：${node.title}`} onPointerDown={event => pointerDownNode(event, node)} onPointerMove={pointerMoveNode} onPointerUp={event => void pointerUpNode(event, node)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') void (node.lifecycle==='tombstoned'?undefined:node.objectType&&node.objectType!=='conversation'?onNavigateObject?.(node):onActivate(node.id)); }} title={connectMode ? '点击选择关系节点' : '拖拽移动，点击打开讨论'}>
+          return <article className={`graph-node ${node.kind} ${node.status} ${node.id === activeNodeId ? 'current' : ''} ${selectedForConnection ? 'connection-source' : ''} ${pathIds.includes(node.id)?'path-highlight':''} ${node.lifecycle==='tombstoned'?'tombstoned':''} ${selection.includes(node.id) ? 'batch-selected' : ''} ${node.objectType??'conversation'}`} style={{ left: position.x, top: position.y }} key={node.id} role="button" tabIndex={0} aria-label={`讨论节点：${node.title}`} onPointerDown={event => pointerDownNode(event, node)} onPointerMove={pointerMoveNode} onPointerUp={event => void pointerUpNode(event, node)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') void (node.lifecycle==='tombstoned'?undefined:batchMode&&isConversation(node)?toggleSelection(node.id):node.objectType&&node.objectType!=='conversation'?onNavigateObject?.(node):onActivate(node.id)); }} title={connectMode ? '点击选择关系节点' : '拖拽移动，点击打开讨论'}>
             <span className="node-kicker">{node.kind === 'main' ? 'MAIN NODE' : 'DISCUSSION NODE'} <Grip size={12}/></span><strong>{node.title}</strong><small>{node.status === 'resolved' ? '已合并回主线' : node.summary}</small>
             <button className="node-delete" data-no-pan="true" aria-label={`归档节点 ${node.title}`} title="归档节点" onPointerDown={event => event.stopPropagation()} disabled={node.lifecycle==='tombstoned'||(node.objectType!==undefined&&node.objectType!=='conversation')} onClick={event => { event.stopPropagation(); setArchiveTarget(node); }}><Archive size={12}/></button><i className="port left"/><i className="port right"/>
           </article>;
@@ -256,7 +294,7 @@ export function GraphView({ loading = false, error = '', hasMore = false, onLoad
       {!loading && filteredNodes.length === 0 && <div className="graph-empty">没有匹配的讨论节点</div>}
       {!visibleNodes.length&&<p className="graph-empty" role="status">当前视口没有匹配节点，可搜索或适合全部节点。</p>}
       <div className="graph-overview" data-no-pan="true" aria-label="图谱概览">{activeNodes.map(node => <i key={node.id} className={node.id === activeNodeId ? 'current' : ''} style={{ left: `${node.x / STAGE_WIDTH * 100}%`, top: `${node.y / STAGE_HEIGHT * 100}%` }}/>)}</div>
-      <div className="graph-controls" data-no-pan="true"><button aria-label="缩小图谱" onClick={() => zoomAt(viewport.scale - .1)}><Minus size={16}/></button><span aria-label="当前缩放比例">{Math.round(viewport.scale * 100)}%</span><button aria-label="放大图谱" onClick={() => zoomAt(viewport.scale + .1)}><Plus size={16}/></button><button aria-label="重置画布" onClick={() => setViewport({ x: 0, y: 0, scale: 1 })}><RotateCcw size={15}/></button><button aria-label="适合全部节点" onClick={() => fitNodes(activeNodes)}><Maximize2 size={15}/></button><button aria-label="聚焦当前节点" onClick={() => { const node = activeNodes.find(item => item.id === activeNodeId); if (node) focusNode(node); }}><Focus size={16}/></button></div>
+      <div className="graph-controls" data-no-pan="true"><button aria-label="缩小图谱" onClick={() => zoomAt(viewport.scale - .1)}><Minus size={16}/></button><span aria-label="当前缩放比例">{Math.round(viewport.scale * 100)}%</span><button aria-label="放大图谱" onClick={() => zoomAt(viewport.scale + .1)}><Plus size={16}/></button><button aria-label="重置画布" onClick={() => setViewport({ x: 0, y: 0, scale: .8 })}><RotateCcw size={15}/></button><button aria-label="适合全部节点" onClick={() => fitNodes(activeNodes)}><Maximize2 size={15}/></button><button aria-label="聚焦当前节点" onClick={() => { const node = activeNodes.find(item => item.id === activeNodeId); if (node) focusNode(node); }}><Focus size={16}/></button></div>
       <div className="graph-hint"><span>{connectMode ? 'CONNECT' : 'PAN / ZOOM'}</span> {connectMode ? (connectionSourceId ? '再点击一个节点完成关系' : '点击第一个节点作为关系起点') : '拖动空白处平移 · 滚轮缩放 · 点击关系后删除'}</div>
       {actionError && <div className="graph-error" role="alert"><span>{actionError}</span><button aria-label="关闭图谱错误" onClick={() => setActionError('')}><X size={13}/></button></div>}
     </section>
@@ -266,7 +304,7 @@ export function GraphView({ loading = false, error = '', hasMore = false, onLoad
       {archivedNodes.length === 0 ? <p>暂无已归档节点。</p> : <ul>{archivedNodes.map(node => <li key={node.id}><span><strong>{node.title}</strong><small>{node.summary || '无摘要'}</small></span><button type="button" onClick={() => void restoreNode(node.id)}><RotateCcw size={13}/>恢复</button>{onPurgeNode && <PurgeNodeControl nodeId={node.id} title={node.title} onPurge={onPurgeNode}/>}</li>)}</ul>}
     </section>
 
-    <details className="graph-accessible-list" onToggle={event=>setListOpen(event.currentTarget.open)}><summary>图谱节点列表（键盘导航）</summary><ul>{listOpen&&filteredNodes.map(node=><li key={node.id}><button onClick={()=>focusNode(node)}>{node.title}</button>{node.lifecycle==='tombstoned'?<span>已清除 · 来源不可用</span>:<><button onClick={()=>void (isConversation(node)?onActivate(node.id):onNavigateObject?.(node))}>打开</button>{onContext&&node.objectType!=='message'&&<button onClick={()=>void onContext(node,contextIds.includes(node.id))}>{contextIds.includes(node.id)?'移出 Context':'加入 Context'}</button>}</>}</li>)}</ul></details>
+    <details className="graph-accessible-list" open={listOpen} onToggle={event=>setListOpen(event.currentTarget.open)}><summary>图谱节点列表（键盘导航）</summary><ul>{listOpen&&filteredNodes.map(node=><li key={node.id}>{batchMode && isConversation(node) && node.lifecycle !== 'tombstoned' && <input type="checkbox" aria-label={`选择讨论 ${node.title}`} checked={selection.includes(node.id)} disabled={batchBusy || (!selection.includes(node.id) && selection.length >= 100)} onChange={() => toggleSelection(node.id)}/>}<button onClick={()=>focusNode(node)}>{node.title}</button>{node.lifecycle==='tombstoned'?<span>已清除 · 来源不可用</span>:<><button onClick={()=>void (isConversation(node)?onActivate(node.id):onNavigateObject?.(node))}>打开</button>{onContext&&node.objectType!=='message'&&<button onClick={()=>void onContext(node,contextIds.includes(node.id))}>{contextIds.includes(node.id)?'移出 Context':'加入 Context'}</button>}{isConversation(node) && onSavePersonal && <button onClick={() => setCollapsedIds(previous => previous.includes(node.id) ? previous.filter(id => id !== node.id) : [...previous, node.id])}>{collapsedIds.includes(node.id) ? '展开层级' : '折叠层级'}</button>}</>}</li>)}</ul></details>
     {nodeFormOpen && <div className="dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setNodeFormOpen(false); }}><form className="graph-dialog" aria-label="新建图谱节点" onSubmit={submitNode}><div className="graph-dialog-head"><div><span className="eyebrow">NEW NODE</span><h2>新建讨论节点</h2></div><button type="button" className="icon-button" aria-label="关闭新建节点" onClick={() => setNodeFormOpen(false)}><X size={16}/></button></div><label><span>节点标题</span><input autoFocus value={nodeForm.title} onChange={event => setNodeForm(current => ({ ...current, title: event.target.value }))} placeholder="例如：验证检索分层" maxLength={120}/></label><label><span>摘要（可选）</span><textarea value={nodeForm.summary} onChange={event => setNodeForm(current => ({ ...current, summary: event.target.value }))} placeholder="说明这个节点要探索的问题" maxLength={500}/></label><div className="dialog-actions"><button type="button" className="ghost-button" onClick={() => setNodeFormOpen(false)}>取消</button><button type="submit" className="primary-button" disabled={!nodeForm.title.trim()}><Check size={14}/>创建节点</button></div></form></div>}
     {edgeForm && <div className="dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setEdgeForm(null); }}><form className="graph-dialog" aria-label="新建图谱关系" onSubmit={submitEdge}><div className="graph-dialog-head"><div><span className="eyebrow">NEW RELATION</span><h2>连接两个讨论节点</h2></div><button type="button" className="icon-button" aria-label="关闭新建关系" onClick={() => setEdgeForm(null)}><X size={16}/></button></div><p className="graph-dialog-note">{nodes.find(node => node.id === edgeForm.source)?.title} <span>→</span> {nodes.find(node => node.id === edgeForm.target)?.title}</p><label><span>关系类型</span><select value={edgeForm.relation} onChange={event => setEdgeForm(current => current ? { ...current, relation: event.target.value as GraphRelation, label: EDGE_LABELS[event.target.value as GraphRelation] } : current)}><option value="related-to">相关（RELATED_TO）</option><option value="references">引用（REFERENCES）</option><option value="derived-from">衍生支线</option><option value="merged-into">选择性合并</option></select></label><label><span>关系标签</span><input value={edgeForm.label} onChange={event => setEdgeForm(current => current ? { ...current, label: event.target.value } : current)} maxLength={120}/></label><div className="dialog-actions"><button type="button" className="ghost-button" onClick={() => setEdgeForm(null)}>取消</button><button type="submit" className="primary-button" disabled={!edgeForm.label.trim()}><Link2 size={14}/>创建关系</button></div></form></div>}
     {archiveTarget && <div className="dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setArchiveTarget(null); }}><div className="graph-dialog" role="alertdialog" aria-label="归档图谱节点"><div className="graph-dialog-head"><div><span className="eyebrow">ARCHIVE NODE</span><h2>归档讨论节点？</h2></div><button type="button" className="icon-button" aria-label="关闭归档节点" onClick={() => setArchiveTarget(null)}><X size={16}/></button></div><p className="graph-dialog-note">“{archiveTarget.title}” 将从日常导航和图谱中隐藏；消息和关系会保留，之后可在归档区恢复。</p><div className="dialog-actions"><button type="button" className="ghost-button" onClick={() => setArchiveTarget(null)}>取消</button><button type="button" className="primary-button" onClick={() => void archiveNode()}><Archive size={14}/>确认归档</button></div></div></div>}

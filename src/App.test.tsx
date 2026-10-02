@@ -6,7 +6,7 @@ import { initialContext } from './data';
 import type { CollaborationRecord, ContextManifest, DiscussionNode, Message } from './types';
 
 const mocks = vi.hoisted(() => { const temporary = vi.fn(); return ({
-  getWorkspace: vi.fn(), listCollaborations: vi.fn(), createCollaboration: vi.fn(), streamCollaboration: vi.fn(),
+  batchGraphOperations: vi.fn(), getGraphBatch: vi.fn(), undoGraphBatch: vi.fn(), getPersonalGraphView: vi.fn(), savePersonalGraphView: vi.fn(), listManagedBackups: vi.fn(), getWorkspace: vi.fn(), listCollaborations: vi.fn(), createCollaboration: vi.fn(), streamCollaboration: vi.fn(),
   getMessageContext: vi.fn(), getManifestContext: vi.fn(), getContextPreview: vi.fn(), decideContextRecommendation: vi.fn(),
   getWorkspaceActivity: vi.fn(),
   getGraphNeighborhood: vi.fn(), getGraphPath: vi.fn(),
@@ -72,6 +72,9 @@ const projectedGraph = (nodes: readonly DiscussionNode[] = workspace.discussionN
 
 beforeEach(() => {
   localStorage.clear();
+  mocks.getPersonalGraphView.mockResolvedValue({ viewType: 'conversation', revision: 0, source: 'default', ownerScope: { scopeType: 'user', scopeId: 'local' }, positions: [], viewport: { x: 0, y: 0, zoom: 1 }, filters: { objectTypes: ['conversation'], relationTypes: [] } });
+  mocks.savePersonalGraphView.mockResolvedValue({ viewType: 'conversation', revision: 1, ownerScope: { scopeType: 'user', scopeId: 'local' } });
+  mocks.listManagedBackups.mockResolvedValue({ backups: [], reminder: { due: true, nextAt: null, intervalDays: 7 } });
   mocks.listCollaborations.mockResolvedValue({ collaborations: [] });
   mocks.workspaceId.mockReturnValue(undefined);
   mocks.getContextPreview.mockResolvedValue({ mode: workspace.mode, items: workspace.contextItems.filter(item => item.status === 'active'), recommendations: workspace.contextItems.filter(item => item.status === 'recommended'), omissions: [], budget: 32000, usedTokens: 4200, overBudget: false });
@@ -610,7 +613,7 @@ it('reuses an unresolved attempt identity after transport loss before RUN_CREATE
 it('discards a stale neighborhood after a newer graph refresh',async()=>{
  const late=deferred<ReturnType<typeof projectedGraph>>();const original=projectedGraph();const newer={graph:{...projectedGraph([{...workspace.discussionNodes[0]!,title:'Current title'}]).graph,checkpoint:2}};
  mocks.getGraphNeighborhood.mockImplementation((input:{objectId?:string})=>input.objectId?late.promise:Promise.resolve(original));
- render(<App/>);fireEvent.click(await screen.findByRole('button',{name:'对话图谱'}));await waitFor(()=>expect(mocks.getGraphNeighborhood.mock.calls.some(([input])=>input.objectId)).toBe(true));
+ render(<App/>);fireEvent.click(await screen.findByRole('button',{name:'对话图谱'}));fireEvent.click(screen.getByRole('button',{name:'放大图谱'}));await waitFor(()=>expect(mocks.getGraphNeighborhood.mock.calls.some(([input])=>input.objectId)).toBe(true));
  mocks.getGraphNeighborhood.mockImplementation((input:{objectId?:string})=>input.objectId?Promise.resolve(newer):Promise.resolve(newer));
  fireEvent.click(screen.getByRole('button',{name:'刷新图谱'}));await screen.findByRole('button',{name:'讨论节点：Current title'});
  await act(async()=>{late.resolve(original);await late.promise;});expect(screen.queryByRole('button',{name:'讨论节点：信息架构方向'})).not.toBeInTheDocument();
@@ -674,4 +677,18 @@ it('does not dispatch or display a collaboration created after switching Workspa
   await act(async () => { creation.resolve({ collaboration: inlineRecord }); await creation.promise; });
   expect(mocks.streamCollaboration).not.toHaveBeenCalled();
   expect(screen.queryByRole('region', { name: '第二意见协作结果' })).not.toBeInTheDocument();
+});
+
+it('resumes a partial Undo using its original command and never re-applies the archive batch', async () => {
+  mocks.batchGraphOperations.mockClear(); mocks.undoGraphBatch.mockClear();
+  const original = { batchId: 'archive-batch', workspaceId: workspace.projectId, status: 'completed', outcomes: [{ itemId: workspace.activeNodeId, status: 'succeeded', undoable: true }] };
+  mocks.batchGraphOperations.mockResolvedValueOnce(original);
+  mocks.undoGraphBatch.mockResolvedValueOnce({ ...original, batchId: 'undo-batch', status: 'partial', outcomes: [{ itemId: workspace.activeNodeId, status: 'partial', undoable: false }] }).mockResolvedValueOnce({ ...original, batchId: 'undo-batch', outcomes: [{ itemId: workspace.activeNodeId, status: 'succeeded', undoable: false }] });
+  render(<App/>); fireEvent.click(await screen.findByRole('button', { name: '对话图谱' }));
+  fireEvent.click(screen.getByRole('button', { name: '批量选择' })); fireEvent.click(await screen.findByRole('checkbox', { name: '选择讨论 信息架构方向' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: '确认归档所选讨论（可撤销，消息与关系保留）' })); fireEvent.click(screen.getByRole('button', { name: '归档所选讨论' }));
+  fireEvent.click(await screen.findByRole('button', { name: '撤销已完成项' }));
+  const resume = await screen.findByRole('button', { name: '继续原批次' }); await waitFor(() => expect(resume).toBeEnabled()); fireEvent.click(resume);
+  await waitFor(() => expect(mocks.undoGraphBatch).toHaveBeenCalledTimes(2)); expect(mocks.undoGraphBatch.mock.calls[0]).toEqual(mocks.undoGraphBatch.mock.calls[1]);
+  expect(mocks.batchGraphOperations).toHaveBeenCalledTimes(1);
 });

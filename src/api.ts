@@ -21,7 +21,7 @@ export class ApiError extends Error {
 
 type ErrorPayload = { code?: string; message?: string; category?: ApiErrorCategory; retryable?: boolean; correlationId?: string; recovery?: string };
 let currentWorkspaceId: string | undefined;
-const scopedPath = (path: string) => currentWorkspaceId && /^\/api\/(?!v1\/workspaces(?:\/|\?|$)|bundle\/(?:import|preview)$|health$|providers|models)/.test(path) ? `/api/v1/workspaces/${encodeURIComponent(currentWorkspaceId)}${path.slice(4)}` : path;
+const scopedPath = (path: string) => currentWorkspaceId && /^\/api\/(?!v1\/workspaces(?:\/|\?|$)|bundle\/(?:import|preview|hydrate)$|health$|providers|models)/.test(path) ? `/api/v1/workspaces/${encodeURIComponent(currentWorkspaceId)}${path.slice(4)}` : path;
 
 function apiError(payload: ErrorPayload | undefined, status: number) {
   return new ApiError(payload?.message || `请求失败（${status}）`, payload?.code, status, {
@@ -39,6 +39,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const payload = await response.json().catch(() => ({})) as { error?: ErrorPayload } & T;
   if (!response.ok) throw apiError(payload.error, response.status);
   return payload;
+}
+
+async function requestArchive(path: string, init?: RequestInit): Promise<File> {
+  const response = await fetch(scopedPath(path), init);
+  if (!response.ok) { const payload = await response.json().catch(() => ({})); throw apiError(payload.error, response.status); }
+  return new File([await response.blob()], 'workspace.rhiza', { type: 'application/vnd.rhiza.workspace+zip' });
 }
 
 export type RuntimeStreamEvent =
@@ -172,15 +178,24 @@ export const api = {
     method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(decision),
   }),
   getReplayPreflight: (runId: string) => request<import('./types').ReplayPreflight>(`/api/runs/${encodeURIComponent(runId)}/replay/preflight`),
-  previewWorkspaceBundle: (file: File) => request<{ workspaceId: string; name: string; archiveDigest: string; messages: number; runs: number; resourceVersions: number }>('/api/bundle/preview', {
-    method: 'POST', headers: { 'Content-Type': 'application/vnd.rhiza.workspace+zip' }, body: file,
+  previewWorkspaceBundle: (file: File, mappings?: import('./types').BundleMappingChoice[]) => request<import('./types').BundlePreview>('/api/bundle/preview', {
+    method: 'POST', headers: { 'Content-Type': 'application/vnd.rhiza.workspace+zip', ...(mappings ? { 'X-Rhiza-Bundle-Mappings': JSON.stringify(mappings) } : {}) }, body: file,
   }),
+  hydrateWorkspaceBundle: (file: File, resources: Record<string, File>) => { const body = new FormData(); body.append('bundle', file); for (const [id, resource] of Object.entries(resources)) body.append(`resource:${id}`, resource); return requestArchive('/api/bundle/hydrate', { method: 'POST', body }); },
+  listManagedBackups: () => request<import('./types').ManagedBackupList>('/api/backups'),
+  createManagedBackup: (key: string, retryOf?: string) => request<import('./types').ManagedBackup>('/api/backups', { method: 'POST', headers: { 'Idempotency-Key': key }, body: JSON.stringify({ retryOf }) }),
+  getManagedBackupArchive: (id: string) => requestArchive(`/api/backups/${encodeURIComponent(id)}/archive`),
+  getPersonalGraphView: () => request<import('./types').PersonalGraphView>('/api/graph/views/conversation'),
+  savePersonalGraphView: (input: import('./types').GraphViewInput, expectedRevision: number, key: string) => request<Pick<import('./types').PersonalGraphView, 'viewType' | 'revision' | 'ownerScope'>>('/api/graph/views/conversation', { method: 'PUT', headers: { 'Idempotency-Key': key }, body: JSON.stringify({ ...input, expectedRevision }) }),
+  batchGraphOperations: (items: import('./types').GraphBatchItem[], key: string) => request<import('./types').GraphBatchResult>('/api/graph/batches', { method: 'POST', headers: { 'Idempotency-Key': key }, body: JSON.stringify({ items }) }),
+  getGraphBatch: (id: string) => request<import('./types').GraphBatchResult>(`/api/graph/batches/${encodeURIComponent(id)}`),
+  undoGraphBatch: (id: string, key: string) => request<import('./types').GraphBatchResult>(`/api/graph/batches/${encodeURIComponent(id)}/undo`, { method: 'POST', headers: { 'Idempotency-Key': key }, body: '{}' }),
   replayRun: (runId: string, policy: 'exact' | 'partial' | 'current-model', idempotencyKey: string) => request<{ replay: { classification: 'exact' | 'partial' | 'current-model' } }>(`/api/runs/${encodeURIComponent(runId)}/replay`, {
     method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ policy }),
   }),
   getProvenance: (outputId: string) => request<import('./types').ProvenanceLink>(`/api/objects/${encodeURIComponent(outputId)}/provenance`),
-  importWorkspaceBundle: (file: File, idempotencyKey: string) => request<{ workspaceId: string; importId: string }>('/api/bundle/import', {
-    method: 'POST', headers: { 'Content-Type': 'application/vnd.rhiza.workspace+zip', 'Idempotency-Key': idempotencyKey }, body: file,
+  importWorkspaceBundle: (file: File, idempotencyKey: string, mappings?: import('./types').BundleMappingChoice[]) => request<{ workspaceId: string; importId: string; executionConfiguration: import('./types').BundleExecutionConfiguration }>('/api/bundle/import', {
+    method: 'POST', headers: { 'Content-Type': 'application/vnd.rhiza.workspace+zip', 'Idempotency-Key': idempotencyKey, ...(mappings ? { 'X-Rhiza-Bundle-Mappings': JSON.stringify(mappings) } : {}) }, body: file,
   }),
   listRuns: () => request<{ runs: import('./types').ExecutionRun[] }>('/api/runs'),
   getRun: (runId: string) => request<{ run: import('./types').ExecutionRun }>(`/api/runs/${encodeURIComponent(runId)}`),
