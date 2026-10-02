@@ -79,7 +79,7 @@ export function AppShell({
       <button className="desktop-navigation-toggle" aria-label={sidebarCollapsed ? '展开导航' : '收起导航'} aria-expanded={!sidebarCollapsed} onClick={() => setSidebarCollapsed(value => !value)}>☰</button>
       <button className="workspace-menu-button" aria-label="打开工作区菜单" aria-expanded={sidebarOpen} onClick={() => { setSidebarOpen(value => !value); onCloseContext(); }}>☰</button>
       <div><span>{workspaceName || 'RHIZA'}</span>{view === 'chat' ? <h1>{title || '工作区'}</h1> : <strong>{title || '工作区'}</strong>}</div>
-      {onOpenContext && <button className={`context-chip ${contextOpen ? 'active' : ''}`} aria-expanded={contextOpen} onClick={onOpenContext}>上下文{contextCount !== undefined && <span>{contextCount}</span>}</button>}
+      {onOpenContext && <button className={`context-chip ${contextOpen ? 'active' : ''}`} aria-label={contextCount === undefined ? '上下文' : `上下文 ${contextCount}`} aria-expanded={contextOpen} onClick={onOpenContext}>上下文{contextCount !== undefined && <span>{contextCount}</span>}</button>}
     </header>
     <div className="workbench-content">
     {!hasDiscussionNodes && emptySurface}
