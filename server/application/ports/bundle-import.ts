@@ -27,4 +27,10 @@ export interface StagedBundleImport {
 }
 export interface BundleImportArchivePort {
   receive(bytes: AsyncIterable<Uint8Array>): Promise<StagedBundleImport>;
+  receiveMultipart?(bytes: AsyncIterable<Uint8Array>, contentType: string): Promise<StagedHydrationUpload>;
+}
+export interface StagedHydrationUpload {
+  bundle: AsyncIterable<Uint8Array>;
+  resources: AsyncIterable<import('../../domain/portable-bundle').ProvidedBundleResource>;
+  dispose(): Promise<void>;
 }

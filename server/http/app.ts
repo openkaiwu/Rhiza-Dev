@@ -116,6 +116,18 @@ function expectedRevision(request: express.Request): number | undefined {
   return value && /^\d+$/.test(value) ? Number(value) : undefined;
 }
 
+async function sendWorkspaceBundle(response: express.Response, bundle: QueryResult<'ExportWorkspaceBundle'>): Promise<void> {
+  response.attachment('workspace.rhiza').type('application/vnd.rhiza.workspace+zip').set('Content-Length', String(bundle.size));
+  for await (const bytes of bundle.bytes) {
+    if (response.destroyed) break;
+    if (!response.write(bytes)) await new Promise<void>(resolve => {
+      const finish = () => { response.off('drain', finish); response.off('close', finish); resolve(); };
+      response.once('drain', finish); response.once('close', finish);
+    });
+  }
+  response.end();
+}
+
 function idempotentWorkspaceId(actorId: string, key: string): string {
   const hex = createHash('sha256').update(`${actorId}:${key}`).digest('hex');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
@@ -189,15 +201,7 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
       bundle = request.params.backupId
         ? await query(response, 'DownloadManagedBackup', { backupId: String(request.params.backupId) })
         : await query(response, 'ExportWorkspaceBundle', includeResources === undefined ? {} : { includeResources: includeResources === 'true' });
-      response.attachment('workspace.rhiza').type('application/vnd.rhiza.workspace+zip').set('Content-Length', String(bundle.size));
-      for await (const bytes of bundle.bytes) {
-        if (response.destroyed) break;
-        if (!response.write(bytes)) await new Promise<void>(resolve => {
-          const finish = () => { response.off('drain', finish); response.off('close', finish); resolve(); };
-          response.once('drain', finish); response.once('close', finish);
-        });
-      }
-      response.end();
+      await sendWorkspaceBundle(response, bundle);
     } catch (error) { next(error); }
     finally { await bundle?.dispose(); }
   });
@@ -207,6 +211,16 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
       if (!request.is('application/vnd.rhiza.workspace+zip')) rejectInput('需要 workspace.rhiza 归档。', 'BUNDLE_UNSUPPORTED_MEDIA_TYPE', 415);
       response.json(await execute(response, 'PreviewWorkspaceBundle', { bytes: request }));
     } catch (error) { next(error); }
+  });
+
+  app.post('/api/bundle/hydrate', async (request, response, next) => {
+    let bundle: CommandResult<'HydrateWorkspaceBundle'> | undefined;
+    try {
+      if (!request.is('multipart/form-data')) rejectInput('需要上传归档及精确历史文件。', 'BUNDLE_UNSUPPORTED_MEDIA_TYPE', 415);
+      bundle = await execute(response, 'HydrateWorkspaceBundle', { bytes: request, multipartContentType: request.get('Content-Type')! });
+      await sendWorkspaceBundle(response, bundle);
+    } catch (error) { next(error); }
+    finally { await bundle?.dispose(); }
   });
 
   app.post('/api/bundle/import', async (request, response, next) => {

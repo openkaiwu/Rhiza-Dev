@@ -293,11 +293,17 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
       if (envelope.commandType === 'HydrateWorkspaceBundle') {
         if (!dependencies.bundleImport) throw legacyError('Bundle 文件补齐不可用。', 503, 'BUNDLE_IMPORT_UNAVAILABLE');
         if (envelope.actor.actorType !== 'human') throw legacyError('文件补齐需要用户身份。', 403, 'BUNDLE_IMPORT_FORBIDDEN');
-        const staged = await dependencies.bundleImport.receive(envelope.payload.bytes);
+        const multipart = 'multipartContentType' in envelope.payload;
+        if (multipart && !dependencies.bundleImport.receiveMultipart) throw legacyError('Bundle 文件上传不可用。', 503, 'BUNDLE_UPLOAD_UNAVAILABLE');
+        const upload = 'multipartContentType' in envelope.payload
+          ? await dependencies.bundleImport.receiveMultipart!(envelope.payload.bytes, envelope.payload.multipartContentType) : undefined;
         try {
-          if (!staged.facts.members.some(member => member.userId === envelope.actor.actorId && member.role === 'owner')) throw legacyError('当前用户不是归档中的 Workspace owner。', 403, 'BUNDLE_IMPORT_FORBIDDEN');
-          return await staged.hydrate(envelope.payload.resources);
-        } finally { await staged.dispose(); }
+          const staged = await dependencies.bundleImport.receive(upload?.bundle ?? envelope.payload.bytes);
+          try {
+            if (!staged.facts.members.some(member => member.userId === envelope.actor.actorId && member.role === 'owner')) throw legacyError('当前用户不是归档中的 Workspace owner。', 403, 'BUNDLE_IMPORT_FORBIDDEN');
+            return await staged.hydrate('resources' in envelope.payload ? envelope.payload.resources : upload!.resources);
+          } finally { await staged.dispose(); }
+        } finally { await upload?.dispose(); }
       }
       if (envelope.commandType === 'PreviewWorkspaceBundle') {
         if (!dependencies.bundleImport) throw legacyError('Bundle 导入不可用。', 503, 'BUNDLE_IMPORT_UNAVAILABLE');

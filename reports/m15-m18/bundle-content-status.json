@@ -1,9 +1,9 @@
 {
   "schemaVersion": "1.0.0",
   "status": "partial backend verified; INH-130 incomplete",
-  "observedAt": "2026-10-02T14:43:33.576551+00:00",
-  "baseCommit": "ef7ecdb",
-  "verificationSubject": "tested uncommitted hydration core added to committed content preflight; not whole-branch or formal acceptance",
+  "observedAt": "2026-10-02T16:14:24.587953+00:00",
+  "baseCommit": "bd332a21010400e2adeaad562334728ce01a10f6",
+  "verificationSubject": "tested multipart HTTP hydration and retained restart recovery working tree on committed hydration core; not whole-branch or formal acceptance",
   "fixtures": [
     {
       "path": "server/infrastructure/portable-content.ts",
@@ -15,7 +15,7 @@
     },
     {
       "path": "server/infrastructure/node-bundle-import.ts",
-      "sha256": "4995fb2f39bf4771aed6c6170688507d63d4ba5997854d37b64f947c1267ddf9"
+      "sha256": "22e48eca94ac94d7a96b30f19e8929659a02d89f281045e9576a89bdf914940a"
     },
     {
       "path": "server/infrastructure/portable-external-resources.test.ts",
@@ -23,7 +23,7 @@
     },
     {
       "path": "e2e/m16-external-bundle.e2e.test.ts",
-      "sha256": "85c06885ce56e39203be1f54c616f2d954fb8c125be7d81effcf5a7a91c36970"
+      "sha256": "4da3ad171d8a9bdd6b7a4c4c0ad190219d0a88280edd0a4fe2bc4d49c5f3592f"
     },
     {
       "path": "scripts/security/export-scan.test.ts",
@@ -39,7 +39,43 @@
     },
     {
       "path": "server/application/create-application.test.ts",
-      "sha256": "30e899eda379436706ab5187d83e60c7f9f1b0eec20caac2e5a9725943c36dbc"
+      "sha256": "57bf1f8064ac526f32e44a90b1abf778dc551a7d9b459385d515809b410e25f0"
+    },
+    {
+      "path": "server/infrastructure/bundle-hydration-upload.ts",
+      "sha256": "7307373911802d2e8d242be593d188a8b525277d81b206c6c26466a87ab2e887"
+    },
+    {
+      "path": "server/infrastructure/bundle-hydration-upload.test.ts",
+      "sha256": "694f5efb5f247db16a3044f13310b13b78ea663e871d5c8baba4951e347df407"
+    },
+    {
+      "path": "server/http/app.ts",
+      "sha256": "7f16e00f186a9731eee1076cf0cd5b40e8828d976d6bbad5db5a021387f65952"
+    },
+    {
+      "path": "server/application/create-application.ts",
+      "sha256": "b33913391e5134732b5ee367db6a2935ee64dd6b5489b1f4e0af9230d002a35e"
+    },
+    {
+      "path": "server/contracts/application.ts",
+      "sha256": "9375f0198eed0e38d20eb209284db95434b59db5dc6d85a56d7d88784de3dbf2"
+    },
+    {
+      "path": "server/application/ports/bundle-import.ts",
+      "sha256": "93bc32f1b863d73aba93d96f4d93ebca7744072990bc48fa2f9657aec923a047"
+    },
+    {
+      "path": "package.json",
+      "sha256": "ecf5be121bee5f0db73280e9d3e01d94b8a53979feaeb7d278628aa1642c15f2"
+    },
+    {
+      "path": "pnpm-lock.yaml",
+      "sha256": "131f7596edc6870b57797adf8797e10239f333667304aab94f4cb3d9c95816a3"
+    },
+    {
+      "path": "reports/third-party-licenses.json",
+      "sha256": "a57d8cf5ccce846cfdeb0a320bd30cd8d2f448a0fc98f8b56d200c510747b0fc"
     }
   ],
   "passed": [
@@ -56,12 +92,22 @@
     "thin security adapter control with only executable mocked",
     "both ingest helpers reject missing exact bytes without Blob writes",
     "exact-file hydration core: wrong/unknown/duplicate/missing supply rejected, shared digest roundtrip, original staging independence",
-    "owner-checked HydrateWorkspaceBundle Application command without Domain writes/model dispatch"
+    "owner-checked HydrateWorkspaceBundle Application command without Domain writes/model dispatch",
+    "bounded actual multipart HTTP exact resource completion without activation",
+    "three parser cases: hostile filenames, rejection/quota/disconnect cleanup, unavailable storage",
+    "retained hydrated archive recovery after blobs-ready interruption and independent store reopening",
+    "exact restored attachment bytes, portable facts/checkpoint checksum, source preservation, duplicate ingest/model calls zero",
+    "extended Application multipart capability refusal, human owner checks and nested cleanup",
+    "existing dependency versions preserved; one MIT parser dependency and license verification"
   ],
   "remaining": [
-    "bounded HTTP resource upload transport and hydrated-artifact retained restart recovery integration",
     "explicit model/endpoint mapping and local credential readiness",
     "production UI approval/implementation and desktop/narrow acceptance",
     "final whole-branch verification and formal gates"
+  ],
+  "currentUnitEvidence": [
+    ".superpowers/sdd/2026-10-02-m15-m18/m16-upload-recovery-confirmation.log",
+    ".superpowers/sdd/2026-10-02-m15-m18/m16-upload-layer-confirmation.log",
+    ".superpowers/sdd/2026-10-02-m15-m18/m16-upload-owner-confirmation.log"
   ]
 }

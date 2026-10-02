@@ -8,9 +8,13 @@ import type { BlobStorePort } from '../application/ports/host-runtime';
 import { BUNDLE_LIMITS, bundleError } from '../domain/portable-bundle';
 import { ingestPortableWorkspace, NodeImportArchiveStore, stagePortableWorkspace } from './portable-content';
 import { hydratePortableWorkspace } from './portable-hydration';
+import { stageHydrationUpload } from './bundle-hydration-upload';
 
 export class NodeBundleImport implements BundleImportArchivePort {
   constructor(private readonly archiveRoot: string, private readonly blobs: BlobStorePort) {}
+  receiveMultipart(bytes: AsyncIterable<Uint8Array>, contentType: string) {
+    return stageHydrationUpload(bytes, contentType, join(this.archiveRoot, 'transient'));
+  }
   async receive(bytes: AsyncIterable<Uint8Array>): Promise<StagedBundleImport> {
     const transient = join(this.archiveRoot, 'transient');
     await mkdir(transient, { recursive: true, mode: 0o700 });

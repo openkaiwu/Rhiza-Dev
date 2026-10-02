@@ -76,6 +76,19 @@ describe('Rhiza Application', () => {
     await expect(application.execute({ ...command, commandId: 'hydrate-denied' })).rejects.toMatchObject({ details: { code: 'BUNDLE_IMPORT_FORBIDDEN', status: 403 } });
     await expect(application.execute({ ...command, actor: { actorType: 'executor', actorId: LOCAL_USER_ID } })).rejects.toMatchObject({ details: { code: 'BUNDLE_IMPORT_FORBIDDEN', status: 403 } });
     expect(receive).toHaveBeenCalledTimes(2); expect(hydrate).toHaveBeenCalledTimes(1); expect(dispose).toHaveBeenCalledTimes(2);
+    const multipart = createLegacyCommandEnvelope('multipart', 'HydrateWorkspaceBundle', { bytes: command.payload.bytes, multipartContentType: 'multipart/form-data; boundary=test' });
+    await expect(application.execute(multipart)).rejects.toMatchObject({ details: { code: 'BUNDLE_UPLOAD_UNAVAILABLE', status: 503 } });
+    const upload = { bundle: command.payload.bytes, resources: (async function* () {})(), dispose: vi.fn(async () => {}) };
+    const receiveMultipart = vi.fn(async () => upload);
+    const multipartApplication = fixture({}, { receive, receiveMultipart }).application;
+    facts.members[0].userId = LOCAL_USER_ID;
+    expect(await multipartApplication.execute(multipart)).toBe(output);
+    expect(hydrate).toHaveBeenLastCalledWith(upload.resources); expect(upload.dispose).toHaveBeenCalledTimes(1);
+    receive.mockRejectedValueOnce(Object.assign(new Error('fixture archive invalid'), { code: 'BUNDLE_INVALID_INDEX', status: 400 }));
+    await expect(multipartApplication.execute(multipart)).rejects.toMatchObject({ details: { code: 'BUNDLE_INVALID_INDEX', status: 400 } });
+    expect(upload.dispose).toHaveBeenCalledTimes(2);
+    await expect(multipartApplication.execute({ ...multipart, actor: { actorType: 'executor', actorId: LOCAL_USER_ID } })).rejects.toMatchObject({ details: { code: 'BUNDLE_IMPORT_FORBIDDEN', status: 403 } });
+    expect(receiveMultipart).toHaveBeenCalledTimes(2);
     expect(commits).toEqual([]); expect(runtimeCalls).toEqual([]);
   });
 
