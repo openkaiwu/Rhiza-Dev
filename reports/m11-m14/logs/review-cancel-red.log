@@ -1,0 +1,33 @@
+
+ RUN  v4.1.10 <repo>
+
+stdout | e2e/m06-runs.e2e.test.ts > M12–M13 HTTP product contracts (PGlite) > cancels a disconnected Retry before its delayed preparation can dispatch
+[api] GET /api/workspace 200 50ms request=b3031eb2-7823-44fc-8f1a-7605759605e5
+
+stdout | e2e/m06-runs.e2e.test.ts > M12–M13 HTTP product contracts (PGlite) > cancels a disconnected Retry before its delayed preparation can dispatch
+[api] POST /api/chat 502 576ms request=6a5bf8a6-f344-4d47-869b-80aa766452f2
+
+ ❯ e2e/m06-runs.e2e.test.ts (80 tests | 1 failed | 79 skipped) 5277ms
+     × cancels a disconnected Retry before its delayed preparation can dispatch 5277ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  e2e/m06-runs.e2e.test.ts > M12–M13 HTTP product contracts (PGlite) > cancels a disconnected Retry before its delayed preparation can dispatch
+AssertionError: expected 2 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ e2e/m06-runs.e2e.test.ts:1240:19
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 79 skipped (80)
+   Start at  21:31:08
+   Duration  7.16s (transform 260ms, setup 434ms, import 1.38s, tests 5.28s, environment 0ms)

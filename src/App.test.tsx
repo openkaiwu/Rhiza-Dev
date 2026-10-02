@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => { const temporary = vi.fn(); return ({
   getWorkspace: vi.fn(),
   getMessageContext: vi.fn(),
   getWorkspaceActivity: vi.fn(),
-  getGraphNeighborhood: vi.fn(),
+  getGraphNeighborhood: vi.fn(), getGraphPath: vi.fn(),
   setMode: vi.fn(),
   setContextStatus: vi.fn(),
   setContextPin: vi.fn(),
@@ -602,4 +602,19 @@ it('discards a stale neighborhood after a newer graph refresh',async()=>{
 it('reconciles an ambiguous completed Chat without sending it again',async()=>{
  const calls=mocks.streamMessage.mock.calls.length;mocks.streamMessage.mockRejectedValueOnce(new TypeError('lost commit'));mocks.findAttemptRun.mockResolvedValue({id:'completed',status:'completed'});
  render(<App/>);await screen.findByLabelText('输入消息');fireEvent.change(screen.getByLabelText('输入消息'),{target:{value:'completed request'}});fireEvent.click(screen.getByRole('button',{name:'发送'}));fireEvent.click(await screen.findByRole('button',{name:'重试'}));await waitFor(()=>expect(screen.queryByRole('button',{name:'重试'})).not.toBeInTheDocument());expect(mocks.streamMessage).toHaveBeenCalledTimes(calls+1);
+});
+
+it('preserves IME/Shift+Enter drafts and submits plain Enter with composer focus',async()=>{
+ const calls=mocks.streamMessage.mock.calls.length;render(<App/>);const input=await screen.findByLabelText('输入消息');await waitFor(()=>expect(input).toHaveFocus());
+ fireEvent.change(input,{target:{value:'keyboard draft'}});fireEvent.keyDown(input,{key:'Enter',isComposing:true});fireEvent.keyDown(input,{key:'Enter',shiftKey:true});expect(mocks.streamMessage).toHaveBeenCalledTimes(calls);expect(input).toHaveValue('keyboard draft');
+ fireEvent.keyDown(input,{key:'Enter'});await waitFor(()=>expect(mocks.streamMessage).toHaveBeenCalledTimes(calls+1));
+});
+
+it('rejects an old path namespace and preserves the list cursor when merging a current path',async()=>{
+ const target={...workspace.discussionNodes[0]!,id:'target',title:'Target',x:540};const list={graph:{...projectedGraph([...workspace.discussionNodes,target]).graph,nextCursor:'list-next'}};
+ mocks.getGraphNeighborhood.mockImplementation((input:{objectId?:string})=>Promise.resolve(input.objectId?{graph:{...list.graph,nextCursor:undefined}}:list));
+ const late=deferred<typeof list>();mocks.getGraphPath.mockReturnValueOnce(late.promise).mockResolvedValue({graph:{...list.graph,nextCursor:undefined}});
+ render(<App/>);fireEvent.click(await screen.findByRole('button',{name:'对话图谱'}));await screen.findByRole('button',{name:'讨论节点：Target'});fireEvent.change(screen.getByLabelText('路径目标'),{target:{value:'target'}});fireEvent.click(screen.getByRole('button',{name:'高亮路径'}));
+ await act(async()=>{late.resolve({graph:{...projectedGraph([{...target,title:'Stale path title'}]).graph,version:'old-namespace',nextCursor:'stale-next'}});await late.promise;});expect(screen.queryByRole('button',{name:'讨论节点：Stale path title'})).not.toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button',{name:'高亮路径'}));await waitFor(()=>expect(document.querySelectorAll('.path-highlight')).toHaveLength(2));fireEvent.click(screen.getByRole('button',{name:'加载更多'}));await waitFor(()=>expect(mocks.getGraphNeighborhood).toHaveBeenCalledWith(expect.objectContaining({cursor:'list-next'})));
 });

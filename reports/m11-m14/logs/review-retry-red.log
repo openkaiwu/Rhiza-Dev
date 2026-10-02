@@ -1,0 +1,29 @@
+
+ RUN  v4.1.10 <repo>
+
+ ❯ src/App.test.tsx (34 tests | 1 failed | 33 skipped) 442ms
+   × reuses an unresolved attempt identity after transport loss before RUN_CREATED 441ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/App.test.tsx > reuses an unresolved attempt identity after transport loss before RUN_CREATED
+AssertionError: expected '6e5b1778-6578-4aa3-92c2-1932ebcf4add' to be '5067a6aa-260c-4c5f-9668-28416a3f183e' // Object.is equality
+
+Expected: "5067a6aa-260c-4c5f-9668-28416a3f183e"
+Received: "6e5b1778-6578-4aa3-92c2-1932ebcf4add"
+
+ ❯ src/App.test.tsx:588:63
+    586|  await screen.findByRole('button',{name:'重试'});fireEvent.click(screen.…
+    587|  await waitFor(()=>expect(mocks.streamMessage).toHaveBeenCalledTimes(2…
+    588|  expect(mocks.streamMessage.mock.calls[1]![2].idempotencyKey).toBe(moc…
+       |                                                               ^
+    589|  expect(mocks.streamMessage.mock.calls[1]![2].operation).toBe('send');
+    590| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 33 skipped (34)
+   Start at  21:29:44
+   Duration  1.13s (transform 185ms, setup 64ms, import 242ms, tests 442ms, environment 284ms)

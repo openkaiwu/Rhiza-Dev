@@ -1,0 +1,15 @@
+{
+  "viewport": "narrow",
+  "actions": [
+    "Conversation rename",
+    "Conversation model preference",
+    "Segment create/archive/restore",
+    "Indexed partial case-insensitive search",
+    "Durable Stop",
+    "Temporary streaming/Stop/discard",
+    "Explicit Merge latest full reply",
+    "Graph search/semantic zoom"
+  ],
+  "pageErrors": [],
+  "ok": true
+}

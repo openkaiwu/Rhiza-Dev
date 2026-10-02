@@ -1,0 +1,27 @@
+$ pnpm vitest run src/components/GraphView.test.tsx src/components/graph-model.test.ts src/components/graph-viewport.test.ts e2e/m11-graph.e2e.test.ts --maxWorkers=1 --testTimeout=30000 && pnpm vitest run e2e/m06-runs.e2e.test.ts -t "M14 Graph Context" --maxWorkers=1 --testTimeout=30000 && pnpm vitest run src/App.test.tsx -t "graph|Graph|neighborhood|path" --maxWorkers=1
+
+ RUN  v4.1.10 <repo>
+
+
+ Test Files  4 passed (4)
+      Tests  14 passed (14)
+   Start at  22:07:43
+   Duration  10.00s (transform 317ms, setup 355ms, import 966ms, tests 7.08s, environment 1.32s)
+
+
+ RUN  v4.1.10 <repo>
+
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 80 skipped (81)
+   Start at  22:07:53
+   Duration  2.22s (transform 348ms, setup 69ms, import 611ms, tests 1.47s, environment 0ms)
+
+
+ RUN  v4.1.10 <repo>
+
+
+ Test Files  1 passed (1)
+      Tests  8 passed | 30 skipped (38)
+   Start at  22:07:56
+   Duration  1.91s (transform 165ms, setup 63ms, import 270ms, tests 1.28s, environment 239ms)

@@ -1,0 +1,50 @@
+
+ RUN  v4.1.10 <repo>
+
+stdout | e2e/m11-graph.e2e.test.ts > scrubs removed Segment content and containment edges from every retained graph namespace
+[api] GET /api/workspace 200 55ms request=67dbf2ee-baad-427f-ab4e-83f1b01abf1e
+
+stdout | e2e/m11-graph.e2e.test.ts > scrubs removed Segment content and containment edges from every retained graph namespace
+[api] POST /api/graph/nodes 201 322ms request=ad8c6479-464e-4a80-b1f8-20eee857cc71
+
+stdout | e2e/m11-graph.e2e.test.ts > scrubs removed Segment content and containment edges from every retained graph namespace
+[api] PATCH /api/nodes/information-architecture/status 404 94ms request=4ebfba7d-cd4f-4ea3-8d6c-9096ffed971e
+
+ ❯ e2e/m11-graph.e2e.test.ts (3 tests | 2 failed | 1 skipped) 3795ms
+   × scrubs removed Segment content and containment edges from every retained graph namespace 2203ms
+   × upgrades an old materializer namespace once before serving Segment neighborhoods 1591ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  e2e/m11-graph.e2e.test.ts > scrubs removed Segment content and containment edges from every retained graph namespace
+Error: expected 200 "OK", got 404 "Not Found"
+ ❯ e2e/m11-graph.e2e.test.ts:46:167
+
+ ❯ Test._assertStatus node_modules/.pnpm/supertest@7.2.2_supports-color@10.2.2/node_modules/supertest/lib/test.js:309:14
+ ❯ node_modules/.pnpm/supertest@7.2.2_supports-color@10.2.2/node_modules/supertest/lib/test.js:365:13
+ ❯ Test._assertFunction node_modules/.pnpm/supertest@7.2.2_supports-color@10.2.2/node_modules/supertest/lib/test.js:342:13
+ ❯ Test.assert node_modules/.pnpm/supertest@7.2.2_supports-color@10.2.2/node_modules/supertest/lib/test.js:195:23
+ ❯ localAssert node_modules/.pnpm/supertest@7.2.2_supports-color@10.2.2/node_modules/supertest/lib/test.js:138:14
+ ❯ Server.<anonymous> node_modules/.pnpm/supertest@7.2.2_supports-color@10.2.2/node_modules/supertest/lib/test.js:152:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  e2e/m11-graph.e2e.test.ts > upgrades an old materializer namespace once before serving Segment neighborhoods
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ e2e/m11-graph.e2e.test.ts:55:229
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 skipped (3)
+   Start at  21:30:33
+   Duration  5.13s (transform 388ms, setup 66ms, import 1.20s, tests 3.79s, environment 0ms)

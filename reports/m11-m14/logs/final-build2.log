@@ -1,0 +1,238 @@
+$ pnpm run typecheck && vite build && tsup server/index.ts --format esm --platform node --out-dir dist-server --clean
+$ tsc -b
+vite v8.2.1 building client environment for production...
+[2K
+transforming...✓ 4159 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                                1.01 kB │ gzip:   0.65 kB
+dist/assets/manrope-vietnamese-500-normal-DCXiE_xi.woff2       4.32 kB
+dist/assets/KaTeX_Size3-Regular-CTq5MqoE.woff                  4.42 kB
+dist/assets/manrope-vietnamese-400-normal-DHb3EETF.woff2       4.46 kB
+dist/assets/manrope-vietnamese-600-normal-C1J5PCl_.woff2       4.46 kB
+dist/assets/manrope-vietnamese-700-normal-CUqMx5-1.woff2       4.55 kB
+dist/assets/KaTeX_Size4-Regular-Dl5lxZxV.woff2                 4.92 kB
+dist/assets/KaTeX_Size2-Regular-Dy4dx90m.woff2                 5.20 kB
+dist/assets/manrope-greek-600-normal-BoRV6lzK.woff2            5.23 kB
+dist/assets/manrope-greek-700-normal-CHUG9PD8.woff2            5.23 kB
+dist/assets/manrope-greek-500-normal-GeMIHyWm.woff2            5.25 kB
+dist/assets/manrope-greek-400-normal-CM4qok81.woff2            5.28 kB
+dist/assets/newsreader-vietnamese-500-normal-CL6a8tp2.woff2    5.43 kB
+dist/assets/KaTeX_Size1-Regular-mCD8mA8B.woff2                 5.46 kB
+dist/assets/newsreader-vietnamese-600-normal-CaH84vfx.woff2    5.49 kB
+dist/assets/KaTeX_Size4-Regular-BF-4gkZK.woff                  5.98 kB
+dist/assets/manrope-vietnamese-500-normal-DaZ8i3XM.woff        6.06 kB
+dist/assets/manrope-vietnamese-400-normal-D7E_mLGF.woff        6.10 kB
+dist/assets/manrope-vietnamese-600-normal-lA7a_7Ok.woff        6.14 kB
+dist/assets/KaTeX_Size2-Regular-oD1tc_U0.woff                  6.18 kB
+dist/assets/manrope-vietnamese-700-normal-pt65Fn2Z.woff        6.36 kB
+dist/assets/KaTeX_Size1-Regular-C195tn64.woff                  6.49 kB
+dist/assets/manrope-greek-600-normal-CF2i9ZRY.woff             6.74 kB
+dist/assets/manrope-greek-700-normal-DyfsrCpP.woff             6.74 kB
+dist/assets/manrope-greek-500-normal-DyxYGEtJ.woff             6.76 kB
+dist/assets/manrope-greek-400-normal-DuX9RsAR.woff             6.77 kB
+dist/assets/KaTeX_Caligraphic-Regular-Di6jR-x-.woff2           6.90 kB
+dist/assets/KaTeX_Caligraphic-Bold-Dq_IR9rO.woff2              6.91 kB
+dist/assets/newsreader-vietnamese-500-normal-BEAbKU8A.woff     7.03 kB
+dist/assets/newsreader-vietnamese-600-normal-CVAR0otO.woff     7.06 kB
+dist/assets/dm-mono-latin-ext-500-normal-Dw3M13d8.woff         7.48 kB
+dist/assets/dm-mono-latin-ext-400-normal-1aZr6b2b.woff         7.50 kB
+dist/assets/KaTeX_Size3-Regular-DgpXs0kz.ttf                   7.58 kB
+dist/assets/KaTeX_Caligraphic-Regular-CTRA-rTL.woff            7.65 kB
+dist/assets/KaTeX_Caligraphic-Bold-BEiXGLvX.woff               7.71 kB
+dist/assets/manrope-cyrillic-400-normal-BMzJvInZ.woff2         7.84 kB
+dist/assets/manrope-cyrillic-700-normal-Dw_fZAg2.woff2         7.85 kB
+dist/assets/manrope-cyrillic-500-normal-B1OEZity.woff2         7.87 kB
+dist/assets/manrope-cyrillic-600-normal-DvRl3Mj-.woff2         7.87 kB
+dist/assets/manrope-latin-ext-500-normal-dm74KBQw.woff2        8.19 kB
+dist/assets/manrope-latin-ext-700-normal-DYOwVNan.woff2        8.27 kB
+dist/assets/manrope-latin-ext-400-normal-CMDvPJRp.woff2        8.29 kB
+dist/assets/manrope-latin-ext-600-normal-_gBojHdJ.woff2        8.30 kB
+dist/assets/dm-mono-latin-ext-400-normal-C2zvOubV.woff2        9.55 kB
+dist/assets/dm-mono-latin-ext-500-normal-BtRyHRi6.woff2        9.61 kB
+dist/assets/KaTeX_Script-Regular-D3wIWfF6.woff2                9.64 kB
+dist/assets/manrope-cyrillic-700-normal-7JNVKxyl.woff         10.00 kB
+dist/assets/manrope-cyrillic-500-normal-CNwnNrRC.woff         10.01 kB
+dist/assets/manrope-cyrillic-400-normal-Dvx59UGC.woff         10.03 kB
+dist/assets/manrope-cyrillic-600-normal-It4mZcQk.woff         10.06 kB
+dist/assets/KaTeX_SansSerif-Regular-DDBCnlJ7.woff2            10.34 kB
+dist/assets/KaTeX_Size4-Regular-DWFBv043.ttf                  10.36 kB
+dist/assets/KaTeX_Script-Regular-D5yQViql.woff                10.58 kB
+dist/assets/dm-mono-latin-400-normal--0xN8mdc.woff            11.21 kB
+dist/assets/dm-mono-latin-500-normal-CN8Miw6E.woff            11.24 kB
+dist/assets/manrope-latin-ext-500-normal-EtoS1VaI.woff        11.24 kB
+dist/assets/manrope-latin-ext-600-normal-u5Pl7hTU.woff        11.24 kB
+dist/assets/KaTeX_Fraktur-Regular-CTYiF6lA.woff2              11.31 kB
+dist/assets/manrope-latin-ext-400-normal-C-X6QNXX.woff        11.31 kB
+dist/assets/KaTeX_Fraktur-Bold-CL6g_b3V.woff2                 11.34 kB
+dist/assets/manrope-latin-ext-700-normal-eVCcYqtJ.woff        11.35 kB
+dist/assets/KaTeX_Size2-Regular-B7gKUWhC.ttf                  11.50 kB
+dist/assets/KaTeX_SansSerif-Italic-C3H0VqGB.woff2             12.02 kB
+dist/assets/KaTeX_SansSerif-Bold-D1sUS0GD.woff2               12.21 kB
+dist/assets/KaTeX_Size1-Regular-Dbsnue_I.ttf                  12.22 kB
+dist/assets/KaTeX_SansSerif-Regular-CS6fqUqJ.woff             12.31 kB
+dist/assets/KaTeX_Caligraphic-Regular-wX97UBjC.ttf            12.34 kB
+dist/assets/KaTeX_Caligraphic-Bold-ATXxdsX0.ttf               12.36 kB
+dist/assets/KaTeX_Fraktur-Regular-Dxdc4cR9.woff               13.20 kB
+dist/assets/KaTeX_Fraktur-Bold-BsDP51OF.woff                  13.29 kB
+dist/assets/KaTeX_Typewriter-Regular-CO6r4hn1.woff2           13.56 kB
+dist/assets/manrope-latin-500-normal-BYYD-dBL.woff2           14.04 kB
+dist/assets/manrope-latin-400-normal-PaqtzbVb.woff2           14.10 kB
+dist/assets/KaTeX_SansSerif-Italic-DN2j7dab.woff              14.11 kB
+dist/assets/manrope-latin-600-normal-4f0koTD-.woff2           14.17 kB
+dist/assets/manrope-latin-700-normal-BZp_XxE4.woff2           14.21 kB
+dist/assets/KaTeX_SansSerif-Bold-DbIhKOiC.woff                14.40 kB
+dist/assets/dm-mono-latin-400-normal-4GdczIuU.woff2           14.82 kB
+dist/assets/dm-mono-latin-500-normal-DRMDZjhP.woff2           14.98 kB
+dist/assets/newsreader-latin-ext-500-normal-BNHmvKvI.woff2    15.06 kB
+dist/assets/newsreader-latin-ext-600-normal-BXv5iMHi.woff2    15.16 kB
+dist/assets/KaTeX_Typewriter-Regular-C0xS9mPB.woff            16.02 kB
+dist/assets/KaTeX_Math-BoldItalic-CZnvNsCZ.woff2              16.40 kB
+dist/assets/KaTeX_Math-Italic-t53AETM-.woff2                  16.44 kB
+dist/assets/KaTeX_Script-Regular-C5JkGWo-.ttf                 16.64 kB
+dist/assets/KaTeX_Main-BoldItalic-DxDJ3AOS.woff2              16.78 kB
+dist/assets/KaTeX_Main-Italic-NWA7e6Wa.woff2                  16.98 kB
+dist/assets/manrope-latin-500-normal-DMZssgOp.woff            18.24 kB
+dist/assets/manrope-latin-400-normal-8tf8FM3T.woff            18.29 kB
+dist/assets/manrope-latin-600-normal-BqgrALkZ.woff            18.38 kB
+dist/assets/manrope-latin-700-normal-DGRFkw-m.woff            18.41 kB
+dist/assets/KaTeX_Math-BoldItalic-iY-2wyZ7.woff               18.66 kB
+dist/assets/KaTeX_Math-Italic-DA0__PXp.woff                   18.74 kB
+dist/assets/newsreader-latin-ext-500-normal-CZruMFou.woff     19.29 kB
+dist/assets/newsreader-latin-ext-600-normal-BrbfzHZ5.woff     19.39 kB
+dist/assets/KaTeX_Main-BoldItalic-SpSLRI95.woff               19.41 kB
+dist/assets/KaTeX_SansSerif-Regular-BNo7hRIc.ttf              19.43 kB
+dist/assets/KaTeX_Fraktur-Regular-CB_wures.ttf                19.57 kB
+dist/assets/KaTeX_Fraktur-Bold-BdnERNNW.ttf                   19.58 kB
+dist/assets/KaTeX_Main-Italic-BMLOBm91.woff                   19.67 kB
+dist/assets/KaTeX_SansSerif-Italic-YYjJ1zSn.ttf               22.36 kB
+dist/assets/newsreader-latin-500-normal-B66TYsaK.woff2        23.62 kB
+dist/assets/newsreader-latin-600-normal-30OJ_TG_.woff2        23.87 kB
+dist/assets/KaTeX_SansSerif-Bold-CFMepnvq.ttf                 24.50 kB
+dist/assets/KaTeX_Main-Bold-Cx986IdX.woff2                    25.32 kB
+dist/assets/KaTeX_Main-Regular-B22Nviop.woff2                 26.27 kB
+dist/assets/KaTeX_Typewriter-Regular-D3Ib7_Hf.ttf             27.55 kB
+dist/assets/KaTeX_AMS-Regular-BQhdFMY1.woff2                  28.07 kB
+dist/assets/newsreader-latin-500-normal-DFwuUcdu.woff         29.63 kB
+dist/assets/newsreader-latin-600-normal-DUnT2r2g.woff         29.78 kB
+dist/assets/KaTeX_Main-Bold-Jm3AIy58.woff                     29.91 kB
+dist/assets/KaTeX_Main-Regular-Dr94JaBh.woff                  30.77 kB
+dist/assets/KaTeX_Math-BoldItalic-B3XSjfu4.ttf                31.19 kB
+dist/assets/KaTeX_Math-Italic-flOr_0UB.ttf                    31.30 kB
+dist/assets/KaTeX_Main-BoldItalic-DzxPMmG6.ttf                32.96 kB
+dist/assets/KaTeX_AMS-Regular-DMm9YOAa.woff                   33.51 kB
+dist/assets/KaTeX_Main-Italic-3WenGoN9.ttf                    33.58 kB
+dist/assets/KaTeX_Main-Bold-waoOVXN0.ttf                      51.33 kB
+dist/assets/KaTeX_Main-Regular-ypZvNtVU.ttf                   53.58 kB
+dist/assets/KaTeX_AMS-Regular-DRggAlZN.ttf                    63.63 kB
+dist/assets/MarkdownRenderer-Ddr6Z9Sf.css                     29.73 kB │ gzip:   7.94 kB
+dist/assets/index-Cv175PVl.css                               101.51 kB │ gzip:  29.22 kB
+dist/assets/katex-8ZSVVKh8.js                                  0.07 kB │ gzip:   0.08 kB
+dist/assets/array-BifhSqXX.js                                  0.10 kB │ gzip:   0.11 kB
+dist/assets/channel-DslGBrcr.js                                0.11 kB │ gzip:   0.12 kB
+dist/assets/pie-RZYD4A2V-2dkPdYLg.js                           0.12 kB │ gzip:   0.13 kB
+dist/assets/info-DKCQHKI2-CqM7JnPX.js                          0.12 kB │ gzip:   0.13 kB
+dist/assets/radar-I7S5WNFK-C-0PdTtl.js                         0.12 kB │ gzip:   0.13 kB
+dist/assets/packet-7NZHBO7P-TP4b6Bt4.js                        0.12 kB │ gzip:   0.13 kB
+dist/assets/cynefin-VYW2F7L2-CEB50IvZ.js                       0.12 kB │ gzip:   0.13 kB
+dist/assets/treemap-6X3UGDF4-B90Ey7RL.js                       0.12 kB │ gzip:   0.13 kB
+dist/assets/wardley-OPB4EBWU-C12NRMu1.js                       0.12 kB │ gzip:   0.13 kB
+dist/assets/gitGraph-TEB2WS4Q-CML3nC6v.js                      0.12 kB │ gzip:   0.13 kB
+dist/assets/railroad-3IZDKUUU-BdVopgbl.js                      0.12 kB │ gzip:   0.13 kB
+dist/assets/treeView-QDETBFTQ-fQKCVDJV.js                      0.12 kB │ gzip:   0.13 kB
+dist/assets/railroad-peg-LSFZ7HO6-DCRZVQ33.js                  0.13 kB │ gzip:   0.13 kB
+dist/assets/architecture-TIHT7OUA-QRDr1_ZS.js                  0.13 kB │ gzip:   0.13 kB
+dist/assets/railroad-abnf-AHOZXSZD-DkzQv4rN.js                 0.13 kB │ gzip:   0.13 kB
+dist/assets/railroad-ebnf-EBAXGLYW-ChRJpdQ-.js                 0.13 kB │ gzip:   0.13 kB
+dist/assets/eventmodeling-45OFAUF4-B6rhyW_B.js                 0.13 kB │ gzip:   0.13 kB
+dist/assets/init-C-OQMol4.js                                   0.14 kB │ gzip:   0.12 kB
+dist/assets/chunk-Y2CYZVJY-DsF7k-Jl.js                         0.15 kB │ gzip:   0.14 kB
+dist/assets/chunk-2Q5K7J3B-C1jixKkw.js                         0.19 kB │ gzip:   0.16 kB
+dist/assets/chunk-JWPE2WC7-DVXcaiue.js                         0.22 kB │ gzip:   0.17 kB
+dist/assets/chunk-XXDRQBXY-DqAYeljN.js                         0.26 kB │ gzip:   0.22 kB
+dist/assets/chunk-5VM5RSS4-ZNzvKenW.js                         0.36 kB │ gzip:   0.27 kB
+dist/assets/chunk-KBJHAD2P-D4w5XG27.js                         0.57 kB │ gzip:   0.40 kB
+dist/assets/flowDiagram-UKHOOZJN-DV1qvavZ.js                   0.57 kB │ gzip:   0.31 kB
+dist/assets/infoDiagram-6WML65LV-DyVbwP_t.js                   0.65 kB │ gzip:   0.41 kB
+dist/assets/rolldown-runtime-hePW80VL.js                       0.71 kB │ gzip:   0.42 kB
+dist/assets/classDiagram-JCYQIIEL-DQP4xLNa.js                  0.77 kB │ gzip:   0.45 kB
+dist/assets/classDiagram-v2-OCEON4UE-DQP4xLNa.js               0.77 kB │ gzip:   0.45 kB
+dist/assets/stateDiagram-v2-UEYNNEHI-khueCi3E.js               0.78 kB │ gzip:   0.45 kB
+dist/assets/swimlanesDiagram-ULZ7WXOC-CLwmr093.js              0.83 kB │ gzip:   0.48 kB
+dist/assets/sizeCapture-X5ZJPWSS-B0uUizjq.js                   0.87 kB │ gzip:   0.51 kB
+dist/assets/line-CQlZD0Wz.js                                   0.94 kB │ gzip:   0.47 kB
+dist/assets/chunk-UBXNYLIW-BVnGHtvW.js                         0.96 kB │ gzip:   0.59 kB
+dist/assets/ordinal-BDEzSJ7C.js                                1.17 kB │ gzip:   0.56 kB
+dist/assets/railroadDiagram-AXF67PYL-08L34jyA.js               1.65 kB │ gzip:   0.76 kB
+dist/assets/abnfDiagram-N423BO3Z-DSKccbMa.js                   1.84 kB │ gzip:   0.89 kB
+dist/assets/chunk-W5SLKNZC-W963-f4d.js                         1.84 kB │ gzip:   0.90 kB
+dist/assets/chunk-2GRJ4B5K-Od3_fvNp.js                         1.97 kB │ gzip:   0.88 kB
+dist/assets/pegDiagram-VL7TDLO6-CZDHTKLi.js                    2.01 kB │ gzip:   0.94 kB
+dist/assets/ebnfDiagram-BXEA7PRR-CCpRaIYe.js                   2.05 kB │ gzip:   0.88 kB
+dist/assets/chunk-7BUUIJ7U-Bb538aSH.js                         2.10 kB │ gzip:   0.82 kB
+dist/assets/dist-v5Q1xZ2K.js                                   2.17 kB │ gzip:   0.98 kB
+dist/assets/path-fybaL0A-.js                                   2.27 kB │ gzip:   0.98 kB
+dist/assets/arc-Pry-7G1_.js                                    3.47 kB │ gzip:   1.46 kB
+dist/assets/diagram-LBJQPF4R-C7awtrWO.js                       4.28 kB │ gzip:   1.84 kB
+dist/assets/defaultLocale-BFoDCU3G.js                          4.63 kB │ gzip:   2.12 kB
+dist/assets/map-BaFkSB1l.js                                    5.03 kB │ gzip:   2.05 kB
+dist/assets/linear-DmucvK78.js                                 5.51 kB │ gzip:   2.25 kB
+dist/assets/chunk-4I5QYGJK-CiWGDOvU.js                         5.83 kB │ gzip:   2.68 kB
+dist/assets/diagram-UB23O5K3-DOUTJr_f.js                       6.07 kB │ gzip:   2.56 kB
+dist/assets/pieDiagram-7S7Q4E2Y-Bfe7QMfh.js                    6.22 kB │ gzip:   2.59 kB
+dist/assets/chunk-RYQCIY6F-BsoV8yK2.js                         7.02 kB │ gzip:   2.68 kB
+dist/assets/diagram-7IWD3JNH-Cd_Lerwc.js                       8.31 kB │ gzip:   3.70 kB
+dist/assets/dagre-VZM6K2ZE-CEbNxSo1.js                         8.81 kB │ gzip:   3.42 kB
+dist/assets/cynefinDiagram-MW4NZA55-Cr1RXROo.js                9.94 kB │ gzip:   3.51 kB
+dist/assets/stateDiagram-OKZ733FA-ChjoVQR1.js                 10.64 kB │ gzip:   3.74 kB
+dist/assets/diagram-B4RE2ZJO-D4IImDV6.js                      10.65 kB │ gzip:   4.12 kB
+dist/assets/chunk-6Q2QTUOP-Ge6wSMPj.js                        15.64 kB │ gzip:   4.35 kB
+dist/assets/diagram-Q27KOJAE-XBA6REVQ.js                      15.75 kB │ gzip:   5.52 kB
+dist/assets/mermaid-parser.core-CA-qCqoF.js                   16.58 kB │ gzip:   3.92 kB
+dist/assets/ishikawaDiagram-WSZJBQD7-DKZ09pPD.js              17.31 kB │ gzip:   6.53 kB
+dist/assets/kanban-definition-27J2QSJJ-WXuH3KvB.js            20.22 kB │ gzip:   7.12 kB
+dist/assets/sankeyDiagram-W5VNT64P-IYA7YEEj.js                22.79 kB │ gzip:   8.25 kB
+dist/assets/journeyDiagram-NVQOT4AX-DgYdoSjJ.js               23.15 kB │ gzip:   8.16 kB
+dist/assets/mindmap-definition-FAOFIHXS-DiT2vj2G.js           23.44 kB │ gzip:   8.01 kB
+dist/assets/graphlib-DS17s2tU.js                              23.90 kB │ gzip:   8.31 kB
+dist/assets/wardleyDiagram-T6FBY63Y-DrBW2ejt.js               25.20 kB │ gzip:   6.54 kB
+dist/assets/erDiagram-JOGREHBK-C3qT8c2v.js                    27.09 kB │ gzip:   9.44 kB
+dist/assets/rough.esm-Dy-Kn_BL.js                             27.10 kB │ gzip:   8.85 kB
+dist/assets/gitGraphDiagram-DS77QQ5N-D6l14W4x.js              29.00 kB │ gzip:   8.55 kB
+dist/assets/timeline-definition-Z64GVDOM-CoSvIugm.js          30.36 kB │ gzip:   9.97 kB
+dist/assets/chunk-NSK5VX7P-7RT29uc6.js                        30.75 kB │ gzip:   8.50 kB
+dist/assets/requirementDiagram-LRYGKXZP-CctMhcvY.js           30.99 kB │ gzip:   9.77 kB
+dist/assets/dagre-Buvkdvvj.js                                 32.06 kB │ gzip:  11.58 kB
+dist/assets/quadrantDiagram-CIZ2JOQS-DImfjOQ0.js              33.51 kB │ gzip:   9.73 kB
+dist/assets/chunk-7Z6QIM7H-BxpyNIwN.js                        33.95 kB │ gzip:   7.31 kB
+dist/assets/chunk-5RXB4S5H-CpspCR1n.js                        37.68 kB │ gzip:  12.29 kB
+dist/assets/vennDiagram-T6HMQDX7-De_7U_DQ.js                  41.15 kB │ gzip:  15.11 kB
+dist/assets/xychartDiagram-ELKLHX3M-RTdA4YLo.js               41.60 kB │ gzip:  11.68 kB
+dist/assets/src-B6xuSHsQ.js                                   45.68 kB │ gzip:  16.00 kB
+dist/assets/chunk-WRU74C26-Cgty7gyP.js                        46.83 kB │ gzip:  14.74 kB
+dist/assets/chunk-GF5L2VYU-CJuzHXMQ.js                        48.78 kB │ gzip:  15.75 kB
+dist/assets/chunk-JQJVKLGR-DsqvmqcW.js                        60.11 kB │ gzip:  19.52 kB
+dist/assets/c4Diagram-5PPSVZJV-B4W9C0KY.js                    69.16 kB │ gzip:  19.33 kB
+dist/assets/ganttDiagram-PKOTCBZU-DdMA_BoF.js                 69.35 kB │ gzip:  22.74 kB
+dist/assets/blockDiagram-VBNYF7ZC-DxUbUG6N.js                 72.71 kB │ gzip:  20.71 kB
+dist/assets/mermaid.core-BpZeMr3i.js                          79.93 kB │ gzip:  27.59 kB
+dist/assets/cose-bilkent-JH36ORCC-D3jWolZv.js                 81.26 kB │ gzip:  21.55 kB
+dist/assets/chunk-QR6OTTB3-ha0g_ty7.js                       101.85 kB │ gzip:  24.81 kB
+dist/assets/swimlanes-SLNWSIFB-Bntftt3f.js                   114.11 kB │ gzip:  39.15 kB
+dist/assets/sequenceDiagram-SI44F4Z6-9FfY0hib.js             115.74 kB │ gzip:  30.58 kB
+dist/assets/architectureDiagram-T3A2C74G-CqkusAFJ.js         148.91 kB │ gzip:  41.13 kB
+dist/assets/chunk-I66GZJ75-CEUt2yu6.js                       235.23 kB │ gzip:  37.96 kB
+dist/assets/index-BHgvfCFt.js                                329.74 kB │ gzip: 101.99 kB
+dist/assets/MarkdownRenderer-DmiXWH1z.js                     431.04 kB │ gzip: 129.45 kB
+dist/assets/cytoscape.esm-C2x7inlt.js                        434.92 kB │ gzip: 137.81 kB
+dist/assets/chunk-KEIR6QF5-BICK3FdT.js                       662.09 kB │ gzip: 143.15 kB
+
+✓ built in 400ms
+CLI Building entry: server/index.ts
+CLI Using tsconfig: tsconfig.json
+CLI tsup v8.5.1
+CLI Target: node16
+CLI Cleaning output folder
+ESM Build start
+ESM dist-server/index.js 639.10 KB
+ESM ⚡️ Build success in 58ms

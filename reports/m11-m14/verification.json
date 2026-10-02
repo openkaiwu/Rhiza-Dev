@@ -1,0 +1,145 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "local_m11_m14_engineering_verification",
+  "generatedAt": "2026-10-02T05:09:46.961165+00:00",
+  "branch": "update1002",
+  "baseCommit": "789f54c62362d8d887f0dcc4dc5d0d015ea158cd",
+  "implementationCommits": [
+    "1145401",
+    "21a669814dd7b15892f3ec8d842e102f6c8ee36f"
+  ],
+  "pushed": false,
+  "functionalChecksPassed": true,
+  "formalGatePassed": false,
+  "checks": [
+    {
+      "command": "pnpm run test",
+      "exitCode": 0,
+      "unit": {
+        "files": 92,
+        "passed": 409
+      },
+      "e2e": {
+        "filesPassed": 15,
+        "filesSkipped": 2,
+        "passed": 122,
+        "skipped": 94,
+        "skipReason": "PostgreSQL DATABASE_URL not configured"
+      },
+      "log": "logs/final-tests.log"
+    },
+    {
+      "command": "pnpm vitest run src/App.test.tsx -t 'IME/Shift|old path namespace' --maxWorkers=1",
+      "exitCode": 0,
+      "passed": 2,
+      "reason": "additional keyboard and path cursor coverage",
+      "log": "logs/final-extra-checks.log"
+    },
+    {
+      "command": "pnpm run lint",
+      "exitCode": 0,
+      "log": "logs/final-lint.log"
+    },
+    {
+      "command": "pnpm run build",
+      "exitCode": 0,
+      "includes": "typecheck, Vite and server tsup",
+      "log": "logs/final-build2.log"
+    },
+    {
+      "command": "pnpm run typecheck",
+      "exitCode": 0,
+      "reason": "additional test fixtures",
+      "log": "logs/final-extra-types.log"
+    },
+    {
+      "command": "pnpm run licenses:verify",
+      "exitCode": 0,
+      "packages": 366,
+      "log": "logs/final-licenses.log"
+    },
+    {
+      "command": "pnpm run verify:m02:boundaries",
+      "exitCode": 0
+    },
+    {
+      "command": "pnpm run verify:m04:host-boundary",
+      "exitCode": 0
+    },
+    {
+      "command": "pnpm run m10:legacy-writes",
+      "exitCode": 0,
+      "log": "logs/final-write-boundary.log"
+    },
+    {
+      "command": "pnpm run verify:g0",
+      "exitCode": 1,
+      "classification": "current additive contract drift / immutable commit-bound archived baseline",
+      "characterizationPassed": 13,
+      "evidencePolicy": "Historical G0 snapshots restored byte-for-byte; current additive snapshots kept under M11. No new Gate pass."
+    },
+    {
+      "command": "pnpm run m14:checks",
+      "exitCode": 0,
+      "groupsPassed": [
+        14,
+        1,
+        8
+      ],
+      "log": "logs/m14-final.log"
+    },
+    {
+      "command": "pnpm run g0:hygiene",
+      "exitCode": 0,
+      "log": "logs/final-hygiene.log",
+      "reason": "checks staged delivery artifacts as well as implementation"
+    }
+  ],
+  "uniqueCasesVerified": {
+    "unit": 411,
+    "e2e": 122,
+    "total": 533
+  },
+  "review": {
+    "freshReviewers": 1,
+    "fixPasses": 1,
+    "criticalFixed": 1,
+    "importantFixed": 5,
+    "reReview": false,
+    "evidence": "review.json"
+  },
+  "browser": {
+    "report": "browser/report.json",
+    "viewports": [
+      "1440x900",
+      "390x844"
+    ],
+    "passed": true,
+    "pageErrors": [],
+    "graphInteraction": "browser/graph-performance.json",
+    "metricScope": "zoom event to React DOM commit, excludes compositor/display"
+  },
+  "performance": {
+    "report": "performance.json",
+    "ok": false,
+    "diagnostic": "command-profile.json",
+    "blocker": "Command p95/p99 exceeds 200/500ms; G0 relative profile incomparable"
+  },
+  "rollback": {
+    "compatibleReaderCommit": "1145401",
+    "passed": true,
+    "preservesSchemaAndPurgedData": true,
+    "log": "logs/rollback-current.log"
+  },
+  "deferredExternal": [
+    "real staging migration three consistent runs",
+    "real cross-session complex-project dogfood",
+    "backup expiry validation",
+    "continuous 24h old-write zero-call observation"
+  ],
+  "notes": [
+    "Logs retain assertions/results; ANSI escapes and machine-local absolute paths removed.",
+    "Formal M11-M14 Gates remain pending.",
+    "Performance.json was measured in the pre-1145401 implementation worktree; its commit/dirty provenance is preserved. Diagnostic and final browser graph data identify 21a6698."
+  ]
+}

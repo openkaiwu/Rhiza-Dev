@@ -1,0 +1,2 @@
+$ tsx scripts/architecture-gates/repository-hygiene.ts
+Repository hygiene passed: tracked files contain no prohibited artifacts, secrets, or absolute paths.

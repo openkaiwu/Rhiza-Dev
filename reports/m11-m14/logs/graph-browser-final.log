@@ -1,0 +1,19 @@
+[api] GET /api/workspace 200 302ms request=6cdccf04-c703-4b47-b70f-631e446c8798
+[api] GET / 200 3ms request=726958b6-c6d2-44a1-8f57-7a2388d59ef1
+[api] GET /assets/rolldown-runtime-hePW80VL.js 200 1ms request=b0bab19e-65da-4041-96f0-0a1e576fd738
+[api] GET /assets/index-Cv175PVl.css 200 2ms request=b28ec884-3042-4b92-a866-3f2759536acb
+[api] GET /assets/index-BHgvfCFt.js 200 4ms request=6f4999a7-4c39-4385-8828-22d2ba33d599
+[api] GET /api/v1/workspaces 200 1ms request=d94790c6-bdbf-48c8-a91f-1f2690053864
+[api] GET /assets/newsreader-latin-600-normal-30OJ_TG_.woff2 200 2ms request=c3ed3de9-6f7f-451c-bd9b-ba840566b72d
+[api] GET /assets/manrope-latin-400-normal-PaqtzbVb.woff2 200 3ms request=b49856e5-29dd-4848-a2d6-ae586c8e3d30
+[api] GET /api/workspace 200 306ms request=57487122-2e71-4f2a-8116-935a0016004a
+[api] GET /assets/dm-mono-latin-400-normal-4GdczIuU.woff2 200 2ms request=f56a0539-a0d6-4e93-96cf-31713467a687
+[api] GET /assets/manrope-latin-700-normal-BZp_XxE4.woff2 200 2ms request=36de81dd-7da0-434d-9114-f8b55e10cae0
+[api] GET /assets/manrope-latin-600-normal-4f0koTD-.woff2 200 2ms request=18d510f7-1a85-4faa-8504-4231ba483fe7
+[api] GET /assets/newsreader-latin-500-normal-B66TYsaK.woff2 200 1ms request=f939a285-688b-4623-910f-7e9f84c490c5
+[api] GET /assets/dm-mono-latin-500-normal-DRMDZjhP.woff2 200 2ms request=32cbbf7e-46bc-4b11-9c9f-17e480878a23
+[api] GET /api/graph/neighborhood 200 322ms request=9ee07b0d-e5de-4fb0-922d-c1b6e730156b
+[api] GET /api/graph/neighborhood 200 88ms request=01dec3e3-41fe-4917-83ad-f10367db2b7a
+[api] GET /api/graph/neighborhood 200 104ms request=22712b28-5069-419e-97ad-ecf20c00fe7d
+[api] GET /api/graph/neighborhood 200 88ms request=2266674e-f96b-4480-9cb6-37744834310f
+{"commit":"21a669814dd7b15892f3ec8d842e102f6c8ee36f","kind":"local_browser_graph_interaction","viewport":{"width":1440,"height":900},"objects":300,"profile":{"warmup_count":20,"sample_count":200,"concurrency":1,"external_network":false},"metric":"zoom dispatch to React DOM commit; excludes display compositor","p95":0.5,"p99":1.0999999940395355,"renderedCards":25,"offscreenDom":0,"domainUnchanged":true,"pageErrors":[],"ok":true}

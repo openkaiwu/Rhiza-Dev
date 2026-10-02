@@ -1,0 +1,2 @@
+$ tsx scripts/architecture-gates/verify-m10-write-path.ts
+{"schemaVersion":"1.0.0","ok":true,"calls":[{"entry":"workspace.update","operation":"call","file":"infrastructure/resource-backfill.ts","line":63,"allowed":true},{"entry":"workspace.update","operation":"call","file":"infrastructure/workspace-repository-unit-of-work.ts","line":110,"allowed":true}],"violations":[]}

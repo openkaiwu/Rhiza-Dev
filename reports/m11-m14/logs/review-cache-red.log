@@ -1,0 +1,46 @@
+
+ RUN  v4.1.10 <repo>
+
+ ❯ src/components/graph-viewport.test.ts (3 tests | 1 failed) 9ms
+   × retains a bounded relation until its later object page arrives 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/graph-viewport.test.ts > retains a bounded relation until its later object page arrives
+AssertionError: expected [] to deeply equal [ { id: 'cross-page', …(2) } ]
+
+- Expected
++ Received
+
+- [
+-   {
+-     "id": "cross-page",
+-     "source": {
+-       "objectId": "a",
+-       "objectType": "conversation",
+-       "workspaceId": "w",
+-     },
+-     "target": {
+-       "objectId": "b",
+-       "objectType": "conversation",
+-       "workspaceId": "w",
+-     },
+-   },
+- ]
++ []
+
+ ❯ src/components/graph-viewport.test.ts:22:26
+     20|  const edge={id:'cross-page',source:a.ref,target:b.ref};
+     21|  const first=boundedGraphCache({objects:[a],relations:[edge]});
+     22|  expect(first.relations).toEqual([edge]);
+       |                          ^
+     23|  expect(boundedGraphCache({...first,objects:[...first.objects,b]}).rel…
+     24| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  21:29:24
+   Duration  1.51s (transform 19ms, setup 149ms, import 9ms, tests 9ms, environment 1.25s)

@@ -1,0 +1,36 @@
+
+ RUN  v4.1.10 <repo>
+
+stdout | e2e/m11-graph.e2e.test.ts > scrubs removed Segment content and containment edges from every retained graph namespace
+[api] GET /api/workspace 200 52ms request=16e56d04-a10c-49f6-bb61-14dac5994ce9
+
+stdout | e2e/m11-graph.e2e.test.ts > scrubs removed Segment content and containment edges from every retained graph namespace
+[api] POST /api/graph/nodes 201 266ms request=ef81c70e-c271-4fbf-92c6-e83a989ef123
+
+stdout | e2e/m11-graph.e2e.test.ts > scrubs removed Segment content and containment edges from every retained graph namespace
+[api] PATCH /api/nodes/bd33dd7d-36f6-4846-8519-6018953fe6aa/status 200 307ms request=469c1e42-3b3c-440a-aa37-865c298b1a7e
+
+stdout | e2e/m11-graph.e2e.test.ts > scrubs removed Segment content and containment edges from every retained graph namespace
+[api] POST /api/graph/nodes/bd33dd7d-36f6-4846-8519-6018953fe6aa/purge 200 662ms request=e50c71f2-0ba4-456c-86d7-49c57c6b2e31
+
+ ❯ e2e/m11-graph.e2e.test.ts (3 tests | 1 failed | 2 skipped) 2970ms
+   × scrubs removed Segment content and containment edges from every retained graph namespace 2969ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  e2e/m11-graph.e2e.test.ts > scrubs removed Segment content and containment edges from every retained graph namespace
+AssertionError: expected '[{"workspace_id":"00000000-0000-4000-…' not to contain 'secret segment'
+
+Expected: "secret segment"
+Received: "[{"workspace_id":"00000000-0000-4000-8000-000000000001","projection_version":"graph-v1-1-ecfbfc74f80e-8f628ca4","object_type":"conversation","object_id":"dca7dac6-b64b-4ddd-ad4d-10a886dcbbfe","revision":1,"lifecycle_status":"active","title":"Retained","summary":"尚未补充讨论摘要。","kind":"branch","object_status":"draft","created_at":"2026-10-02T04:32:43.626Z","updated_at":"2026-10-02T04:32:43.626Z","metadata":{}},{"workspace_id":"00000000-0000-4000-8000-000000000001","projection_version":"graph-v1-1-ecfbfc74f80e-8f628ca4","object_type":"conversation","object_id":"bd33dd7d-36f6-4846-8519-6018953fe6aa","revision":4,"lifecycle_status":"tombstoned","title":"[purged]","summary":"","kind":"main","object_status":"tombstoned","created_at":"2026-10-02T04:32:42.909Z","updated_at":"2026-10-02T04:32:44.190Z","metadata":{}},{"workspace_id":"00000000-0000-4000-8000-000000000001","projection_version":"graph-v1-1-ecfbfc74f80e-b577021e","object_type":"segment","object_id":"43a4b7d5-2f02-46d7-94b4-f63f86f2c219","revision":1,"lifecycle_status":"active","title":"secret segment title","summary":"secret segment text","kind":"segment","object_status":"active","created_at":"2026-10-02T04:32:42.909Z","updated_at":"2026-10-02T04:32:42.909Z","metadata":{}},{"workspace_id":"00000000-0000-4000-8000-000000000001","projection_version":"graph-v1-1-ecfbfc74f80e-b577021e","object_type":"conversation","object_id":"bd33dd7d-36f6-4846-8519-6018953fe6aa","revision":1,"lifecycle_status":"tombstoned","title":"[purged]","summary":"","kind":"main","object_status":"tombstoned","created_at":"2026-10-02T04:32:42.909Z","updated_at":"2026-10-02T04:32:42.909Z","metadata":{}},{"workspace_id":"00000000-0000-4000-8000-000000000001","projection_version":"graph-v1-1-ecfbfc74f80e-b577021e","object_type":"message","object_id":"673597a4-e2d2-487e-a93c-b1b460bfd743","revision":1,"lifecycle_status":"tombstoned","title":"[purged]","summary":"","kind":"assistant","object_status":"tombstoned","created_at":"2026-10-02T04:32:42.909Z","updated_at":"2026-10-02T04:32:42.909Z","metadata":{}}]"
+
+ ❯ e2e/m11-graph.e2e.test.ts:47:227
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 skipped (3)
+   Start at  21:32:41
+   Duration  3.61s (transform 263ms, setup 65ms, import 505ms, tests 2.97s, environment 0ms)

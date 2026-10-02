@@ -1,0 +1,68 @@
+{
+  "reviewCount": 1,
+  "fixPasses": 1,
+  "findings": [
+    {
+      "severity": "Critical",
+      "finding": "Retained graph namespaces leaked purged Segment excerpt/title",
+      "tests": "e2e/m11-graph.e2e.test.ts",
+      "regression": "scrubs removed Segment content and containment edges from every retained graph namespace",
+      "red": "logs/review-purge-red2.log",
+      "green": "logs/review-server-green.log",
+      "status": "fixed"
+    },
+    {
+      "severity": "Important",
+      "finding": "Ambiguous Chat/Retry allocated a fresh key and could duplicate external calls",
+      "tests": "src/App.test.tsx; src/components/RunHistory.test.tsx",
+      "regression": "reuses an unresolved attempt identity; retains the logical Retry identity; completed attempts reconcile",
+      "red": "logs/review-client-red.log",
+      "green": "logs/review-client-final.log",
+      "status": "fixed"
+    },
+    {
+      "severity": "Important",
+      "finding": "Delayed HTTP Retry ignored disconnect; cancellation lookup falsely succeeded",
+      "tests": "e2e/m06-runs.e2e.test.ts; src/api.test.ts",
+      "regression": "cancels a disconnected Retry before its delayed preparation can dispatch; reports pending cancellation",
+      "red": "logs/review-cancel-red.log",
+      "green": "logs/review-server-green.log",
+      "status": "fixed"
+    },
+    {
+      "severity": "Important",
+      "finding": "Independent relation pagination dropped later-endpoint edges",
+      "tests": "src/components/graph-viewport.test.ts",
+      "regression": "retains a bounded relation until its later object page arrives",
+      "red": "logs/review-cache-red.log",
+      "green": "logs/m14-final.log",
+      "status": "fixed"
+    },
+    {
+      "severity": "Important",
+      "finding": "Late graph detail/path responses replaced current head and list cursor",
+      "tests": "src/App.test.tsx",
+      "regression": "discards a stale neighborhood; rejects an old path namespace and preserves list cursor",
+      "red": "logs/review-client-red.log",
+      "green": "logs/final-extra-checks.log",
+      "status": "fixed"
+    },
+    {
+      "severity": "Important",
+      "finding": "Old materializers omitted unchanged Segment/contains objects on upgrade",
+      "tests": "e2e/m11-graph.e2e.test.ts",
+      "regression": "upgrades an old materializer namespace once before serving Segment neighborhoods",
+      "red": "logs/review-purge-upgrade-red.log",
+      "green": "logs/review-server-green.log",
+      "status": "fixed"
+    }
+  ],
+  "rulings": [
+    "Use the authorized update1002 checkout; no isolated worktree needed.",
+    "User test-loop budget overrides repeated unchanged suite/benchmark runs.",
+    "Preserve archived G0 evidence; additive current contracts and unresolved performance remain visible.",
+    "Do not expand observational seams into a future Task/Executor/Workflow platform.",
+    "Keep compatible reader floor 1145401; no down migration or restoration of purged content."
+  ],
+  "deferredMinorFindings": []
+}

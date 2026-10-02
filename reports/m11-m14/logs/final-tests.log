@@ -1,0 +1,20 @@
+$ pnpm run test:unit && pnpm run test:e2e
+$ vitest run --exclude 'e2e/**' --maxWorkers=1 --testTimeout=30000
+
+ RUN  v4.1.10 <repo>
+
+
+ Test Files  92 passed (92)
+      Tests  409 passed (409)
+   Start at  21:46:45
+   Duration  64.63s (transform 1.07s, setup 5.23s, import 4.14s, tests 31.42s, environment 17.69s)
+
+$ vitest run e2e --maxWorkers=1 --testTimeout=30000
+
+ RUN  v4.1.10 <repo>
+
+
+ Test Files  15 passed | 2 skipped (17)
+      Tests  122 passed | 94 skipped (216)
+   Start at  21:47:50
+   Duration  167.33s (transform 465ms, setup 966ms, import 2.23s, tests 162.99s, environment 1ms)
