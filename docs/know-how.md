@@ -22,6 +22,7 @@
 
 - 领域状态由 `App` 统一持有，表现组件通过回调修改，避免 Context 数量和预算显示不一致。
 - `AppShell` 只组合 Sidebar、Workspace surface、Context 与 overlay；API 调用、持久化 mutation、streaming 和 reconciliation 必须留在 `App` coordinator/application 边界。
+- Tray 预览要按全部活跃来源的真实正文计算预算，不能沿用旧 CURRENT tokens；确认仅发布本次审阅集合。USER_SELECTED sourceRevision 与已接受推荐的版本冲突都必须阻断执行，不能被兼容规划回退吞掉。分享 Graph 搜索是显式动作，最近访问仍不得持久化查询文本，读取旧查询记录时应清除。
 - 本轮 Context 数量、预算与推荐必须来自服务端 preview，不能由存储列表推算；推荐确认绑定 sourceRevision 与用户理由。历史消息的来源数量只读自身 Manifest，不得使用当前预览补齐。Replay 先预检冻结资源，展示策略可用性与差异，缺失资源不提供执行入口。
 - 多模型协作固定输入后收起配置，在发起讨论内展示结果；内部输出支线不作为独立讨论入口。Partial 后仅显式重试失败模型，保留原冻结输入与预算；证据改变时追加汇总版本，不改写历史。保留引用最新汇总，后续 Chat 只读取已纳入本讨论的消息。
 - Graph 前端通过 `graph-model.ts` 的 UI-facing model 消费数据。M07 bounded API 已作为适配器输入，但 projector cursor、projection table schema、Journal sequence 与 hover/zoom/panel 等 UI-only 状态不得进入 `GraphView` 契约或 Domain relation。

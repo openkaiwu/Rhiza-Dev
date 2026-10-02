@@ -98,6 +98,7 @@ const eventByCommand: Record<string, DomainEventType> = {
   ChangeContextSelection: 'context.selection.changed',
   DecideContextRecommendation: 'context.selection.changed',
   AddContextSource: 'context.source.added',
+  ConfirmContextSelection: 'context.selection.changed',
   CreateGraphNode: 'graph.node.created',
   ActivateNode: 'graph.node.activated',
   ChangeNodeStatus: 'graph.node.status_changed',

@@ -3,6 +3,7 @@ import type { ContextCompiler, ContextVersionVector, IndexedContextPlanningPort 
 import { RunLifecycle } from './run-lifecycle';
 import { resolveContextHistory } from './context-history';
 import { readVerifiedResourceVersion } from './resource-version';
+import { prepareContextSelection, confirmContextSelection } from './context-selection';
 import type { ContextEnvelope, RunMutation } from '../execution-runtime/run';
 import { ApplicationError, applicationError } from '../contracts/application-error';
 import { createLegacyCommandEnvelope } from '../contracts/application';
@@ -172,7 +173,8 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
         : planner.plan(legacyWorkspace!, payload.prompt, payload.attachmentIds, budget);
     }
     catch (error) {
-      if (dependencies.indexedPlanner) throw error;
+      // Reviewed versions are execution guards, not recoverable ranking failures.
+      if (dependencies.indexedPlanner || (error && typeof error === 'object' && 'code' in error && error.code === 'CONTEXT_SELECTION_STALE')) throw error;
       log?.error('[planner] degraded to explicit context', error);
       const items = activeContextSelection(current.mode, current.contextItems);
       plan = { items, diagnostics: { candidateCount: 0, selectedCount: items.length, elapsedMs: 0, fallback: true, budget, usedTokens: items.reduce((sum, item) => sum + item.tokens, 0) } };
@@ -522,6 +524,10 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
           return runs.execute(envelope, run.request, inputFor(run.request), (completion, mutation) => commitRun(run, completion, mutation), options, lineage, run.frozen);
         }
         case 'CancelExecutionRun': return runs.cancel(envelope, (envelope.payload as { runId: string }).runId);
+        case 'ConfirmContextSelection': return mutateWorkspace(current => {
+          const next = confirmContextSelection(current, envelope.payload, planner, budget, id);
+          return { next, value: next };
+        });
         case 'ChangeContextMode': {
           if (!['Auto', 'Assisted', 'Strict'].includes(payload.mode)) throw legacyError('无效的 Context 模式。', 400, 'INVALID_MODE');
           return mutateWorkspace(current => ({ next: { ...current, mode: payload.mode }, value: undefined }));
@@ -599,7 +605,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
   const dispatchQuery = async (envelope: AnyQueryEnvelope): Promise<unknown> => {
     try {
       if (envelope.queryType === 'ListWorkspaces') return workspaceDirectory.list(envelope.actor, Boolean((envelope.payload as { includeArchived?: boolean }).includeArchived));
-      if (envelope.queryType !== 'GetResourceVersion' && envelope.queryType !== 'GetResourceVersionContent')
+      if (!['GetResourceVersion', 'GetResourceVersionContent', 'PreviewContextSelection'].includes(envelope.queryType))
         await ensureDefaultWorkspace(envelope.actor, envelope.workspaceId, envelope.scope);
       await workspaceDirectory.require(envelope.actor, envelope.workspaceId, envelope.scope);
       if (unitOfWork.withWorkspace) return await unitOfWork.withWorkspace(envelope.workspaceId, () => dispatchQueryScoped(envelope));
@@ -609,6 +615,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
   const dispatchQueryScoped = async (envelope: AnyQueryEnvelope): Promise<unknown> => {
     try {
       switch (envelope.queryType) {
+        case 'PreviewContextSelection': return unitOfWork.read(workspace => prepareContextSelection(workspace as WorkspaceData, envelope.payload.sources, planner, budget));
         case 'GetResourceVersion':
         case 'GetResourceVersionContent': {
           const input = envelope.payload;

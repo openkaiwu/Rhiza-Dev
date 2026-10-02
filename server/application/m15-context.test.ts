@@ -17,9 +17,10 @@ function fixture() {
     yield { type: 'RUN_START' as const, requestId: request.requestId, manifestId: request.manifestId, model: 'fixture', provider: 'Fixture' };
     yield { type: 'RUN_END' as const, requestId: request.requestId, text: 'Answer', model: 'fixture', provider: 'Fixture' };
   });
+  const planner = new LegacyContextPlanner(() => `item-${++sequence}`);
   const application = createRhizaApplication({
     unitOfWork: { read: async reader => reader(workspace), execute: execute as import('./ports/workspace-unit-of-work').WorkspaceUnitOfWork['execute'] },
-    planner: new LegacyContextPlanner(() => `item-${++sequence}`),
+    planner,
     runtime: { listModels: async () => [{ id: 'fixture', model: 'fixture', provider: 'Fixture', displayName: 'Fixture', active: true }], generate },
     providers: {} as import('./ports/provider-management').ProviderManagementPort,
     host: {} as import('./ports/host-runtime').HostRuntimePort,
@@ -28,7 +29,7 @@ function fixture() {
   });
   const preview = () => application.query(createLegacyQueryEnvelope('preview', 'GetContextPreview', { query: 'payment' }));
   const decide = (sourceRevision: string, decision: 'accept' | 'reject' = 'accept') => application.execute(createLegacyCommandEnvelope(`decision-${++sequence}`, 'DecideContextRecommendation', { sourceType: 'node', sourceId: 'related', sourceRevision, decision, reason: 'Relevant payment evidence' }));
-  return { application, preview, decide, execute, generate, workspace: () => workspace };
+  return { application, preview, decide, execute, generate, planner, workspace: () => workspace };
 }
 
 describe('M15 version-bound Context decisions', () => {
@@ -81,5 +82,33 @@ describe('M15 version-bound Context decisions', () => {
     const preview = await f.preview();
     expect(preview.recommendations.some(item => item.sourceId === 'related')).toBe(false);
     expect(preview.omissions).toMatchObject([{ sourceId: 'related', code: 'excluded', reason: 'Relevant payment evidence' }]);
+  });
+
+  it.each(['USER_SELECTED', 'AI_RECOMMENDED_ACCEPTED'] as const)('does not dispatch or write a Run when a reviewed %s source changes', async selectionMode => {
+    const f = fixture();
+    if (selectionMode === 'USER_SELECTED') {
+      const preview = await f.application.query(createLegacyQueryEnvelope('tray-preview', 'PreviewContextSelection', { sources: [{ sourceType: 'node', sourceId: 'related' }] }));
+      await f.application.execute(createLegacyCommandEnvelope('tray-confirm', 'ConfirmContextSelection', { expectedNodeId: preview.expectedNodeId, sources: preview.sources }));
+    } else {
+      const source = (await f.preview()).recommendations.find(item => item.sourceId === 'related')!;
+      await f.decide(source.sourceRevision!);
+    }
+    f.workspace().discussionNodes.find(node => node.id === 'related')!.summary += ' changed after review';
+    const before = structuredClone(f.workspace());
+    f.execute.mockClear();
+    await expect(f.application.execute(createLegacyCommandEnvelope('stale-run', 'CreateConversationRun', { prompt: 'Use reviewed facts', operation: 'send', attachmentIds: [], generation: { temperature: 0, topP: 1, maxTokens: 100 } })))
+      .rejects.toMatchObject({ details: { code: 'CONTEXT_SELECTION_STALE', status: 409 } });
+    expect(f.generate).not.toHaveBeenCalled();
+    expect(f.execute).not.toHaveBeenCalled();
+    expect(f.workspace()).toEqual(before);
+  });
+
+  it('retains explicit-context fallback for an ordinary planning failure', async () => {
+    const f = fixture();
+    vi.spyOn(f.planner, 'plan').mockImplementationOnce(() => { throw new Error('injected planner failure'); });
+    const result = await f.application.execute(createLegacyCommandEnvelope('planner-fallback', 'CreateConversationRun', { prompt: 'Use explicit facts', operation: 'send', attachmentIds: [], generation: { temperature: 0, topP: 1, maxTokens: 100 } }));
+    expect(result.manifest.planner?.fallback).toBe(true);
+    expect(f.workspace().messages).toContainEqual(result.assistantMessage);
+    expect(f.generate).toHaveBeenCalledTimes(1);
   });
 });

@@ -71,6 +71,13 @@ export interface ContextPreview {
   usedTokens: number;
   overBudget: boolean;
 }
+
+export interface ContextSourceRef { sourceType: 'node' | 'segment'; sourceId: string }
+export interface ContextSelectionPreview {
+  workspaceId: string; expectedNodeId: string;
+  sources: Array<ContextSourceRef & { sourceRevision: string; title: string; tokens: number }>;
+  budget: number; usedTokens: number; overBudget: boolean; status: 'ready' | 'over_budget';
+}
 export interface ContextRecommendationDecision {
   sourceType: NonNullable<ContextItem['sourceType']>;
   sourceId: string;

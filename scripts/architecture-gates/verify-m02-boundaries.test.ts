@@ -88,6 +88,31 @@ describe('M02 architecture boundary gate', () => {
     await expect(collectM02BoundaryViolations(root, true)).resolves.toEqual([]);
   });
 
+  const previewFacade = (route = '/api/workspace/context/selection/preview', queryType = 'PreviewContextSelection', helper = "const query = <K extends QueryType>(response: unknown, queryType: K, payload: QueryMap[K]['payload']) => application.query({ ...createLegacyQueryEnvelope('query-id', queryType, payload, 'correlation') });", callback = `res.json(await query(res, '${queryType}', { sources: req.body.sources }));`, method = 'post') => ({
+    'server/contracts/application.ts': "export type QueryType = 'PreviewContextSelection' | 'GetWorkspace'; export type QueryMap = Record<QueryType, { payload: unknown }>; export interface Application { execute(command: unknown): Promise<unknown>; query(query: unknown): Promise<unknown>; } export const createLegacyQueryEnvelope = (...args: unknown[]) => ({ args });",
+    'server/http/app.ts': `import express from 'express'; import { createLegacyQueryEnvelope, type Application, type QueryType, type QueryMap } from '../contracts/application'; export function create(application: Application) { ${helper} const router = express.Router(); router.${method}('${route}', async (req, res) => { ${callback} }); return router; }`,
+    'scripts/boundary-gates/boundary-exceptions.json': '{"exceptions":[]}',
+  });
+
+  it('allows the exact Context selection POST preview through the typed injected Application query helper', async () => {
+    const root = await fixture(previewFacade());
+    await expect(collectM02BoundaryViolations(root, true)).resolves.toEqual([]);
+  });
+
+  it.each([
+    ['ordinary mutation POST', previewFacade('/api/workspace/context/selection')],
+    ['a different preview query', previewFacade(undefined, 'GetWorkspace')],
+    ['a different HTTP verb', previewFacade(undefined, undefined, undefined, undefined, 'patch')],
+    ['a fake query-named helper', previewFacade(undefined, undefined, 'const query = async () => undefined;')],
+    ['a fake query receiver', previewFacade(undefined, undefined, "const fake = { query: async () => undefined }; const query = <K extends QueryType>(response: unknown, queryType: K, payload: QueryMap[K]['payload']) => fake.query({ ...createLegacyQueryEnvelope('query-id', queryType, payload, 'correlation') });")],
+    ['an untyped query helper', previewFacade(undefined, undefined, "const query = (response: unknown, queryType: string, payload: unknown) => application.query({ ...createLegacyQueryEnvelope('query-id', queryType, payload, 'correlation') });")],
+    ['a helper ignoring the query type', previewFacade(undefined, undefined, "const query = <K extends QueryType>(response: unknown, queryType: K, payload: QueryMap[K]['payload']) => application.query({ ...createLegacyQueryEnvelope('query-id', 'GetWorkspace', payload, 'correlation') });")],
+    ['a callback-local fake helper shadowing the injected one', previewFacade(undefined, undefined, undefined, "const query = async () => undefined; res.json(await query(res, 'PreviewContextSelection', { sources: req.body.sources }));")],
+  ])('keeps rejecting %s', async (_name, files) => {
+    const root = await fixture(files);
+    await expect(collectM02BoundaryViolations(root, true)).resolves.toContainEqual(expect.objectContaining({ file: 'server/http/app.ts', message: expect.stringContaining('injected Application.execute') }));
+  });
+
   it('blocks legacy routes and the M01 exception registry in strict mode', async () => {
     const root = await fixture({
       'server/app.ts': "import express from 'express'; const app = express(); app.post('/x', () => undefined);",

@@ -269,3 +269,18 @@
 .resource-identity dl { display:grid; grid-template-columns:120px minmax(0,1fr); gap:6px 12px; }
 .resource-identity dd { margin:0; overflow-wrap:anywhere; }
 @media (max-width:760px) { .resource-heading, .resource-row { flex-direction:column; gap:10px; } .resource-heading h1 { font-size:20px; } .resource-text { padding:14px; } .resource-identity dl { grid-template-columns:90px minmax(0,1fr); } }
+
+.graph-layer-controls, .graph-tray-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.graph-layer-controls { padding:4px 18px; font-size:12px; }
+.graph-layer-controls label { display:flex; align-items:center; gap:5px; }
+.graph-layer-controls button, .graph-context-tray button { border:1px solid var(--line); border-radius:6px; padding:7px 10px; background:var(--surface-raised); color:var(--ink-2); font:inherit; font-size:12px; cursor:pointer; }
+.graph-layer-controls button[aria-pressed="true"] { background:var(--accent-soft); color:var(--accent-dark); }
+.graph-context-tray { margin:6px 18px; padding:12px; border:1px dashed var(--accent); border-radius:8px; max-height:28vh; overflow:auto; flex-shrink:0; font-size:13px; }
+.graph-context-tray-content header { display:flex; justify-content:space-between; gap:12px; margin-top:12px; }
+.graph-context-tray-content p { margin:6px 0; color:var(--ink-2); line-height:1.6; }
+.graph-context-tray-content ul { list-style:none; padding:0; }
+.graph-context-tray-content li { display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px 12px; border-bottom:1px solid var(--line); padding:7px 0; overflow-wrap:anywhere; }
+.graph-context-tray-content li span { color:var(--ink-3); font-size:12px; }
+.graph-context-tray-content > .graph-tray-actions { position:sticky; bottom:0; padding-top:8px; background:var(--surface-raised); }
+.graph-context-tray [role="alert"] { color:var(--ink); background:var(--sand); padding:8px; border-radius:6px; }
+@media(max-width:760px) { .graph-context-tray { margin:6px 8px; max-height:32vh; } .graph-layer-controls { padding:4px 8px; } .graph-context-tray-content header { flex-wrap:wrap; } }

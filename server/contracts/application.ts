@@ -97,6 +97,7 @@ export interface CommandMap {
   ChangeContextSelection: { payload: { contextItemId: string; status?: ContextStatus; pinned?: boolean }; result: WorkspaceData };
   DecideContextRecommendation: { payload: { sourceType: NonNullable<import('../domain').ContextItem['sourceType']>; sourceId: string; sourceRevision: string; decision: 'accept' | 'reject'; reason: string }; result: WorkspaceData };
   AddContextSource: { payload: { sourceType: 'node' | 'segment' | 'file'; sourceId: string; status?: ContextStatus }; result: WorkspaceData };
+  ConfirmContextSelection: { payload: import('./context-selection').ConfirmContextSelection; result: WorkspaceData };
   CreateBranch: { payload: { title: string; sourceMessageId?: string; anchorText?: string; anchorStart?: number; anchorEnd?: number; messages?: Array<{ kind: 'user' | 'assistant'; text: string; createdAt?: string }> }; result: WorkspaceData };
   CreateGraphNode: { payload: { title: string; summary?: string; sourceMessageId?: string; x?: number; y?: number }; result: WorkspaceData };
   ExecuteTemporaryConversation: { payload: { prompt: string; sourceNodeId: string; anchorText: string; history?: Array<{ kind: 'user' | 'assistant'; text: string; createdAt?: string }> }; result: { userMessage: StoredMessage; assistantMessage: StoredMessage; model: string } };
@@ -119,6 +120,7 @@ export interface CommandMap {
 }
 
 export interface QueryMap {
+  PreviewContextSelection: { payload: { sources: import('./context-selection').ContextSourceRef[] }; result: import('./context-selection').ContextSelectionPreview };
   GetResourceVersion: { payload: { resourceId: string; versionId: string }; result: ResourceVersionView };
   GetResourceVersionContent: { payload: { resourceId: string; versionId: string }; result: Uint8Array };
   GetGraphBatch: { payload: { batchId: string }; result: import('./graph-batch').GraphBatchResult };

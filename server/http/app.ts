@@ -470,6 +470,15 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
       response.status(201).json({ workspace: await execute(response, 'AddContextSource', { sourceType, sourceId }) });
     } catch (error) { next(error); }
   });
+  app.post('/api/workspace/context/selection/preview', async (request, response, next) => {
+    response.set('Cache-Control', 'no-store');
+    try { response.json(await query(response, 'PreviewContextSelection', { sources: request.body?.sources })); }
+    catch (error) { next(error); }
+  });
+  app.post('/api/workspace/context/selection', async (request, response, next) => {
+    try { response.status(201).json({ workspace: await execute(response, 'ConfirmContextSelection', { expectedNodeId: request.body?.expectedNodeId, sources: request.body?.sources }) }); }
+    catch (error) { next(error); }
+  });
 
   app.post('/api/nodes', async (request, response, next) => {
     try {

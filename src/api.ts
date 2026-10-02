@@ -175,6 +175,8 @@ export const api = {
     if (attachmentIds.length) parameters.set('attachmentIds', attachmentIds.join(','));
     return request<import('./types').ContextPreview>(`/api/workspace/context/preview?${parameters}`);
   },
+  previewContextSelection: (sources: import('./types').ContextSourceRef[]) => request<import('./types').ContextSelectionPreview>('/api/workspace/context/selection/preview', { method: 'POST', body: JSON.stringify({sources}) }),
+  confirmContextSelection: (preview: import('./types').ContextSelectionPreview, key: string) => request<{workspace: WorkspaceSnapshot}>('/api/workspace/context/selection', { method: 'POST', headers: {'Idempotency-Key':key}, body: JSON.stringify({expectedNodeId:preview.expectedNodeId,sources:preview.sources.map(({sourceType,sourceId,sourceRevision})=>({sourceType,sourceId,sourceRevision}))}) }),
   decideContextRecommendation: (decision: import('./types').ContextRecommendationDecision, idempotencyKey: string) => request<{ workspace: WorkspaceSnapshot }>('/api/workspace/context/decisions', {
     method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(decision),
   }),

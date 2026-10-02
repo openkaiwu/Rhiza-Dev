@@ -6,6 +6,7 @@ import { initialContext } from './data';
 import type { CollaborationRecord, ContextManifest, DiscussionNode, Message, ResourceVersionView } from './types';
 
 const mocks = vi.hoisted(() => { const temporary = vi.fn(); return ({
+  previewContextSelection: vi.fn(), confirmContextSelection: vi.fn(),
   batchGraphOperations: vi.fn(), getGraphBatch: vi.fn(), undoGraphBatch: vi.fn(), getPersonalGraphView: vi.fn(), savePersonalGraphView: vi.fn(), listManagedBackups: vi.fn(), getRun: vi.fn(), listRuns: vi.fn(), getWorkspace: vi.fn(), getNodeCollaboration: vi.fn(), listCollaborations: vi.fn(), createCollaboration: vi.fn(), streamCollaboration: vi.fn(),
   getMessageContext: vi.fn(), getManifestContext: vi.fn(), getContextPreview: vi.fn(), decideContextRecommendation: vi.fn(), getResourceVersion: vi.fn(), getResourceVersionContent: vi.fn(),
   getWorkspaceActivity: vi.fn(),
@@ -22,7 +23,7 @@ const mocks = vi.hoisted(() => { const temporary = vi.fn(); return ({
   discoverModels: vi.fn(),
   updateModel: vi.fn(),
   selectModel: vi.fn(),
-  createBranch: vi.fn(), activateNode: vi.fn(), moveNode: vi.fn(), mergeNode: vi.fn(), archiveGraphNode: vi.fn(), restoreGraphNode: vi.fn(),
+  createBranch: vi.fn(), activateNode: vi.fn(), moveNode: vi.fn(), mergeNode: vi.fn(), archiveGraphNode: vi.fn(), restoreGraphNode: vi.fn(), purgeGraphNode: vi.fn(), cancelRun: vi.fn(),
   sendTemporaryMessage: temporary, streamTemporaryMessage: temporary,
   workspaceId: vi.fn(), findAttemptRun: vi.fn(), cancelAttempt: vi.fn(), searchWorkspace: vi.fn(),
   setConversationModel: vi.fn(), setWorkspaceModel: vi.fn(), renameConversation: vi.fn(),
@@ -74,6 +75,7 @@ const projectedGraph = (nodes: readonly DiscussionNode[] = workspace.discussionN
 beforeEach(() => {
   window.history.replaceState(null, '', '/');
   localStorage.clear();
+  mocks.previewContextSelection.mockReset(); mocks.confirmContextSelection.mockReset();
   mocks.getPersonalGraphView.mockResolvedValue({ viewType: 'conversation', revision: 0, source: 'default', ownerScope: { scopeType: 'user', scopeId: 'local' }, positions: [], viewport: { x: 0, y: 0, zoom: 1 }, filters: { objectTypes: ['conversation'], relationTypes: [] } });
   mocks.savePersonalGraphView.mockResolvedValue({ viewType: 'conversation', revision: 1, ownerScope: { scopeType: 'user', scopeId: 'local' } });
   mocks.listManagedBackups.mockResolvedValue({ backups: [], reminder: { due: true, nextAt: null, intervalDays: 7 } });
@@ -855,7 +857,84 @@ it('refuses hidden collaboration execution absent from the recent list and fails
  mocks.getWorkspace.mockResolvedValue({...await mocks.getWorkspace(),workspace:loaded});mocks.listCollaborations.mockRejectedValueOnce(new Error('list unavailable'));
  mocks.getNodeCollaboration.mockClear();mocks.getNodeCollaboration.mockResolvedValueOnce({collaborations:[inlineRecord]}).mockRejectedValueOnce(new Error('ownership unavailable'));
  const activated=mocks.activateNode.mock.calls.length,dispatch=mocks.streamMessage.mock.calls.length;
- render(<App/>);await screen.findByRole('heading',{level:1,name:hidden.title});fireEvent.change(screen.getByLabelText('输入消息'),{target:{value:'Must not target internal'}});fireEvent.click(screen.getByRole('button',{name:'发送'}));
+ render(<App/>);await screen.findByRole('heading',{level:1,name:hidden.title});fireEvent.change(screen.getByLabelText('输入消息'),{target:{value:'Must not target internal'}});await waitFor(()=>expect(screen.getByRole('button',{name:'发送'})).toBeEnabled());fireEvent.click(screen.getByRole('button',{name:'发送'}));
  await screen.findByRole('button',{name:'重试'});expect(mocks.getNodeCollaboration).toHaveBeenCalledWith(hidden.id);expect(mocks.streamMessage).toHaveBeenCalledTimes(dispatch);expect(mocks.activateNode).toHaveBeenCalledTimes(activated);
  fireEvent.click(screen.getByRole('button',{name:'重试'}));await waitFor(()=>expect(mocks.getNodeCollaboration).toHaveBeenCalledTimes(2));expect(mocks.streamMessage).toHaveBeenCalledTimes(dispatch);expect(mocks.activateNode).toHaveBeenCalledTimes(activated);
+});
+
+it('invalidates a pending resource read after a committed Purge despite a same-Workspace refresh', async () => {
+ const archived: DiscussionNode = {...workspace.discussionNodes[0],id:'purge-target',title:'待清除的讨论',status:'archived',kind:'branch'};
+ const initial = {...workspace,discussionNodes:[...workspace.discussionNodes,archived]};
+ const refreshed = {...initial,discussionNodes:initial.discussionNodes.map(node => node.id === workspace.activeNodeId ? {...node,title:'普通刷新后的讨论'} : node)};
+ const payload = await mocks.getWorkspace();
+ mocks.getWorkspace.mockClear().mockResolvedValueOnce({...payload,workspace:initial}).mockResolvedValue({...payload,workspace:refreshed});
+ mocks.getGraphNeighborhood.mockResolvedValue(projectedGraph(initial.discussionNodes));
+ const purge = deferred<{workspace:typeof workspace}>();
+ const oldRead = deferred<ResourceVersionView>();
+ mocks.purgeGraphNode.mockReturnValueOnce(purge.promise);
+ mocks.getResourceVersion.mockClear().mockReturnValueOnce(oldRead.promise).mockRejectedValue(Object.assign(new Error('Resource Purged'),{status:410}));
+ const run = {id:'refresh-run',workspaceId:workspace.projectId,nodeId:workspace.activeNodeId,status:'running',createdAt:'2026-01-01T00:00:00Z',inputHash:'hash',input:{executor:{model:'Refresh model',provider:'Fixture'},request:{prompt:'Refresh request'}},telemetry:{traceCount:0}};
+ mocks.listRuns.mockResolvedValueOnce({runs:[run]}).mockResolvedValue({runs:[]});
+ mocks.cancelRun.mockResolvedValue(undefined);
+ localStorage.setItem('rhiza:onboarding-seen','1');
+ window.history.replaceState(null,'',`/#/workspaces/${workspace.projectId}/graph`);
+ const navigate = (path:string) => act(() => {
+  window.history.pushState(null,'',`/#/workspaces/${workspace.projectId}/${path}`);
+  window.dispatchEvent(new HashChangeEvent('hashchange'));
+ });
+ render(<App/>);
+ fireEvent.click(await screen.findByText('已归档节点'));
+ fireEvent.click(await screen.findByRole('button',{name:'永久清除'}));
+ fireEvent.change(screen.getByLabelText('清除确认文本'),{target:{value:'PURGE purge-target'}});
+ fireEvent.change(screen.getByLabelText('清除原因'),{target:{value:'清除归档讨论及所属资源'}});
+ fireEvent.click(screen.getByRole('button',{name:'确认永久清除'}));
+ await screen.findByRole('button',{name:'正在清除…'});
+ expect(mocks.purgeGraphNode).toHaveBeenCalledWith(archived.id,'PURGE purge-target','清除归档讨论及所属资源');
+
+ // An ordinary Run action refreshes the same Workspace while Purge remains in flight.
+ navigate('runs');
+ const refreshStop = await screen.findByRole('button',{name:'停止'});
+ expect(refreshStop.closest('article')).toHaveTextContent('Refresh model');
+ fireEvent.click(refreshStop);
+ await waitFor(() => expect(mocks.getWorkspace).toHaveBeenCalledTimes(2));
+ navigate(`conversations/${workspace.activeNodeId}`);
+ await screen.findByRole('heading',{level:1,name:'普通刷新后的讨论'});
+ navigate('resources/resource-old/versions/version-old');
+ await screen.findByText('正在校验资源版本…');
+ expect(mocks.getResourceVersion).toHaveBeenCalledExactlyOnceWith('resource-old','version-old');
+
+ await act(async () => {purge.resolve({workspace});await purge.promise;});
+ await screen.findByRole('button',{name:'重新读取资源'});
+ expect(mocks.getResourceVersion.mock.calls).toEqual([['resource-old','version-old'],['resource-old','version-old']]);
+ await act(async () => {oldRead.resolve(resourceFixture);await oldRead.promise;});
+ expect(screen.queryByText('这个精确旧版本的正文')).not.toBeInTheDocument();
+ expect(screen.queryByRole('button',{name:'下载此版本原文'})).not.toBeInTheDocument();
+ expect(JSON.parse(localStorage.getItem('rhiza:recent-locations:v1')??'[]')).not.toEqual(expect.arrayContaining([expect.objectContaining({canonicalLocation:window.location.hash})]));
+ navigate(`conversations/${workspace.activeNodeId}`);
+ expect(await screen.findByRole('heading',{level:1,name:'普通刷新后的讨论'})).toBeInTheDocument();
+});
+
+
+const trayFixture = { workspaceId:workspace.projectId,expectedNodeId:workspace.activeNodeId,sources:[{sourceType:'node' as const,sourceId:workspace.activeNodeId,sourceRevision:'a'.repeat(64),title:'审阅讨论',tokens:20}],budget:32000,usedTokens:100,overBudget:false,status:'ready' as const };
+it('reviews graph sources without activation and reuses the confirmation identity after uncertain transport',async()=>{
+ window.history.replaceState(null,'',`/#/workspaces/${workspace.projectId}/graph`);
+ mocks.previewContextSelection.mockResolvedValue(trayFixture);mocks.confirmContextSelection.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({workspace});
+ const activated=mocks.activateNode.mock.calls.length;render(<App/>);await screen.findByRole('button',{name:'讨论节点：信息架构方向'});
+ fireEvent.click(screen.getByRole('button',{name:'批量选择'}));fireEvent.click(screen.getByRole('checkbox',{name:'选择讨论 信息架构方向'}));fireEvent.click(screen.getByRole('button',{name:'审阅所选来源'}));
+ const confirm=await screen.findByRole('button',{name:'确认加入当前讨论'});expect(mocks.confirmContextSelection).not.toHaveBeenCalled();expect(mocks.activateNode).toHaveBeenCalledTimes(activated);
+ fireEvent.click(confirm);await waitFor(()=>expect(screen.getByRole('button',{name:'确认加入当前讨论'})).toBeEnabled());fireEvent.click(screen.getByRole('button',{name:'确认加入当前讨论'}));
+ await screen.findByText(/已将 1 个来源加入当前讨论/);expect(mocks.confirmContextSelection.mock.calls[0]).toEqual(mocks.confirmContextSelection.mock.calls[1]);expect(mocks.previewContextSelection).toHaveBeenCalledWith([{sourceType:'node',sourceId:workspace.activeNodeId}]);expect(mocks.activateNode).toHaveBeenCalledTimes(activated);
+});
+it('rejects a foreign graph selection preview without offering confirmation',async()=>{
+ window.history.replaceState(null,'',`/#/workspaces/${workspace.projectId}/graph`);mocks.previewContextSelection.mockResolvedValue({...trayFixture,workspaceId:'foreign'});
+ render(<App/>);await screen.findByRole('button',{name:'讨论节点：信息架构方向'});fireEvent.click(screen.getByRole('button',{name:'批量选择'}));fireEvent.click(screen.getByRole('checkbox',{name:'选择讨论 信息架构方向'}));fireEvent.click(screen.getByRole('button',{name:'审阅所选来源'}));
+ await screen.findByText(/无法审阅所选来源/);expect(screen.queryByRole('button',{name:'确认加入当前讨论'})).not.toBeInTheDocument();
+});
+it('uses a new confirmation identity after a definitive conflict is reviewed again',async()=>{
+ window.history.replaceState(null,'',`/#/workspaces/${workspace.projectId}/graph`);
+ mocks.previewContextSelection.mockResolvedValue(trayFixture);mocks.confirmContextSelection.mockRejectedValueOnce(Object.assign(new Error('budget changed'),{status:409})).mockResolvedValueOnce({workspace});
+ render(<App/>);await screen.findByRole('button',{name:'讨论节点：信息架构方向'});fireEvent.click(screen.getByRole('button',{name:'批量选择'}));fireEvent.click(screen.getByRole('checkbox',{name:'选择讨论 信息架构方向'}));fireEvent.click(screen.getByRole('button',{name:'审阅所选来源'}));
+ fireEvent.click(await screen.findByRole('button',{name:'确认加入当前讨论'}));expect(await screen.findByRole('alert')).toHaveTextContent('内容已被其他更改更新');expect(screen.queryByRole('button',{name:'确认加入当前讨论'})).not.toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button',{name:'审阅所选来源'}));fireEvent.click(await screen.findByRole('button',{name:'确认加入当前讨论'}));await screen.findByText(/已将 1 个来源加入当前讨论/);
+ expect(mocks.confirmContextSelection).toHaveBeenCalledTimes(2);expect(mocks.confirmContextSelection.mock.calls[0][0]).toEqual(mocks.confirmContextSelection.mock.calls[1][0]);expect(mocks.confirmContextSelection.mock.calls[0][1]).not.toBe(mocks.confirmContextSelection.mock.calls[1][1]);
 });

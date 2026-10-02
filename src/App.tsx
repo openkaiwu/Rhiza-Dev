@@ -4,6 +4,10 @@ import { WorkspaceForm } from './components/WorkspaceForm';
 import { WorkspaceSearch } from './components/WorkspaceSearch';
 import { MergeDialog } from './components/MergeDialog';
 import { boundedGraphCache } from './components/graph-viewport';
+import { GraphContextTray } from './components/GraphContextTray';
+import type { ContextSelectionPreview, ContextSourceRef } from './types';
+import type { GraphDisplayFilters } from './navigation';
+import type { GraphNodeModel } from './components/graph-model';
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import type { Anchor, Attachment, ContextManifest, ContextMode, ContextPreview, ContextRecommendationDecision, CollaborationInput, CollaborationRecord, ContextStatus, ExecutionRun, DiscussionEdge, DiscussionNode, GraphProjectionResult, Message, GraphBatchItem, GraphBatchResult, GraphViewInput, PersonalGraphView, ManagedBackupList, ProviderCatalog, ProviderPresetInfo, ProviderStatus, Segment, View, WorkspaceActivityItem, WorkspaceSnapshot, WorkspaceRecord } from './types';
 import { api, type ChatRequestOptions } from './api';
@@ -59,6 +63,11 @@ export function App() {
   const [decidingContext, setDecidingContext] = useState(false);
   const decisionInFlight = useRef(false);
   const decisionKeys = useRef(new Map<string, string>());
+  const [trayPreview,setTrayPreview] = useState<ContextSelectionPreview>();
+  const [trayBusy,setTrayBusy] = useState(false), [trayError,setTrayError] = useState(''), [trayNotice,setTrayNotice] = useState('');
+  const trayRequest = useRef(0), trayRunning = useRef(false), trayKeys = useRef(new Map<string,string>());
+  const traySources = useRef<ContextSourceRef[]>([]);
+  const trayTargetRef = useRef(activeNodeId);
   const [focusedRun, setFocusedRun] = useState<ExecutionRun>();
   const [routeRunResolved, setRouteRunResolved] = useState('');
   const [resourceRead, setResourceRead] = useState<{ canonical: string; loading: boolean; data?: import('./types').ResourceVersionView; error?: string }>();
@@ -109,7 +118,7 @@ export function App() {
   const batchUndoKeys = useRef(new Map<string, string>());
   const batchUndoRef = useRef<{ workspaceId?: string; batchId: string; key: string } | undefined>(undefined);
 
-  const graphFiltersRef=useRef<{query?:string;statuses?:string[];updatedAfter?:string}>({});
+  const graphFiltersRef=useRef<{query?:string;statuses?:string[];updatedAfter?:string;objectTypes?:('conversation'|'segment'|'message')[]}>({});
   const graphRequestRef = useRef(0);
   const graphPagesRef = useRef(1);
   const graphCompleteRef = useRef(false);
@@ -306,7 +315,7 @@ export function App() {
       if (current()) setGraphError(presentErrorText(error, { message: '无法加载图谱。', recovery: '请刷新图谱后重试。' }));
     } finally { if (current()) setGraphLoading(false); }
   }, []);
-  const filterGraph=useCallback((filters:{query?:string;statuses?:string[];updatedAfter?:string})=>{if(JSON.stringify(filters)===JSON.stringify(graphFiltersRef.current))return;graphFiltersRef.current=filters;graphPagesRef.current=1;graphCompleteRef.current=false;void loadGraph();},[loadGraph]);
+  const filterGraph=useCallback((filters:{query?:string;statuses?:string[];updatedAfter?:string;objectTypes?:('conversation'|'segment'|'message')[]})=>{if(JSON.stringify(filters)===JSON.stringify(graphFiltersRef.current))return;graphFiltersRef.current=filters;graphPagesRef.current=1;graphCompleteRef.current=false;void loadGraph();},[loadGraph]);
   const graphDetailKeys=useRef(new Set<string>());
   const loadGraphNeighborhood=useCallback((objectId:string)=>{
     if(!graphProjection?.version)return;
@@ -345,7 +354,7 @@ export function App() {
     const original = personalViewRef.current; if (!original) throw new Error('请先读取个人视图。');
     const changes = new Map(Object.entries(presentation.positions).map(([objectId, position]) => [objectId, { objectId, ...position, objectType: graphProjection?.objects.find(item => item.ref.objectId === objectId)?.ref.objectType ?? 'conversation', collapsed: presentation.collapsedIds.includes(objectId) }]));
     const positions = [...original.positions.filter(item => !changes.has(item.objectId)), ...changes.values()] as PersonalGraphView['positions'];
-    await savePersonalInput({ positions, viewport: presentation.viewport ? { x: presentation.viewport.x, y: presentation.viewport.y, zoom: presentation.viewport.scale } : original.viewport, filters: { ...original.filters, relationTypes: presentation.relationFilter ? [presentation.relationFilter.replaceAll('-', '_')] : [] } });
+    await savePersonalInput({ positions, viewport: presentation.viewport ? { x: presentation.viewport.x, y: presentation.viewport.y, zoom: presentation.viewport.scale } : original.viewport, filters: { ...original.filters, ...(presentation.layers ? {objectTypes:presentation.layers} : {objectTypes:[]}), relationTypes: presentation.relationTypes ? presentation.relationTypes.map(type=>type.replaceAll('-','_')) : presentation.relationFilter ? [presentation.relationFilter.replaceAll('-', '_')] : [] } });
   };
   const runGraphBatch = async (operation: 'apply' | 'resume' | 'read' | 'undo', input?: { ids: string[]; operation: 'archive' | 'relate'; relation?: GraphRelation }) => {
     if (batchRunning.current) return;
@@ -577,6 +586,51 @@ export function App() {
     } catch (error) { if (current()) setSyncError(presentErrorText(error, { message: '无法添加 Context 来源。', recovery: '请稍后重试。' })); }
   };
 
+  const previewTray = async (nodes?: GraphNodeModel[]) => {
+    if (workspaceRecord()?.status === 'archived' || trayRunning.current) return;
+    if (nodes) {
+      if (!nodes.length || nodes.length > 100 || nodes.some(node=>node.lifecycle==='tombstoned'||node.status==='archived'||node.objectType==='message')) return;
+      traySources.current = nodes.map(node=>({sourceType:node.objectType==='segment'?'segment':'node',sourceId:node.id}));
+    }
+    if (!traySources.current.length) return;
+    const sources = [...traySources.current], expectedNodeId = activeNodeId, scope = selectedWorkspaceRef.current, request = ++trayRequest.current;
+    const current = () => request===trayRequest.current && scope===selectedWorkspaceRef.current && expectedNodeId===trayTargetRef.current;
+    setTrayBusy(true); setTrayPreview(undefined); setTrayError(''); setTrayNotice('');
+    try {
+      const result = await api.previewContextSelection(sources);
+      if (!current()) return;
+      if (result.workspaceId !== scope || result.expectedNodeId !== expectedNodeId || result.sources.length !== sources.length || result.sources.some((item,index)=>item.sourceId!==sources[index].sourceId||item.sourceType!==sources[index].sourceType)) throw new Error('来源或目标讨论已变化。');
+      setTrayPreview(result);
+    } catch (error) { if (current() && request === trayRequest.current) setTrayError(presentErrorText(error,{message:'无法审阅所选来源。',recovery:'请重新选择并审阅。'})); }
+    finally { if (current() && request === trayRequest.current) setTrayBusy(false); }
+  };
+  const confirmTray = async () => {
+    if (!trayPreview || trayBusy || trayRunning.current || trayPreview.overBudget || trayPreview.status !== 'ready' || workspaceRecord()?.status === 'archived' || trayPreview.expectedNodeId !== activeNodeId || trayPreview.workspaceId !== selectedWorkspaceRef.current) return;
+    const frozen = trayPreview, current = workspaceMutation(), request = trayRequest.current;
+    const identity = JSON.stringify([frozen.workspaceId,frozen.expectedNodeId,frozen.sources.map(({sourceType,sourceId,sourceRevision})=>({sourceType,sourceId,sourceRevision}))]);
+    const key = trayKeys.current.get(identity) ?? crypto.randomUUID(); trayKeys.current.set(identity,key);
+    trayRunning.current = true; setTrayBusy(true); setTrayError('');
+    try {
+      const {workspace} = await api.confirmContextSelection(frozen,key);
+      if (request !== trayRequest.current || frozen.workspaceId !== selectedWorkspaceRef.current || frozen.expectedNodeId !== trayTargetRef.current) return;
+      if (workspace.projectId !== frozen.workspaceId || workspace.activeNodeId !== frozen.expectedNodeId) throw new Error('确认结果身份不匹配。');
+      if(current()) applyWorkspace(workspace); else void loadWorkspace(true);
+      setTrayPreview(undefined); setTrayNotice(`已将 ${frozen.sources.length} 个来源加入当前讨论。下一次回答使用确认后的选择。`); trayKeys.current.delete(identity);
+    } catch (error) {
+      if (current() && request === trayRequest.current) {
+        const status = error && typeof error==='object' && 'status' in error ? error.status : undefined;
+        if ([403,404,409,410].includes(status as number)) { setTrayPreview(undefined); trayKeys.current.delete(identity); }
+        setTrayError(presentErrorText(error,{message:'来源尚未确认加入。',recovery:'请重新审阅；网络结果不确定时可用原确认重试。'}));
+      }
+    } finally { if(request===trayRequest.current) { trayRunning.current=false; setTrayBusy(false); } }
+  };
+  useEffect(() => { trayTargetRef.current=activeNodeId; trayRequest.current++; trayRunning.current=false; traySources.current=[]; setTrayPreview(undefined); setTrayBusy(false); setTrayError(''); setTrayNotice(''); },[currentWorkspaceId,activeNodeId]);
+  const shareGraphFilters = async (graphFilters: GraphDisplayFilters) => {
+    const target:WorkspaceLocation={kind:'graph',workspaceId:currentWorkspaceId,graphFilters}; const canonical=formatLocation(target);
+    navigationNavigate(target);
+    try { await navigator.clipboard.writeText(`${window.location.href.split('#')[0]}${canonical}`); return true; } catch { return false; }
+  };
+
   const ensureExecutionNode = async () => {
     const id = viewedNodeId;
     const node = discussionNodes.find(item => item.id === id);
@@ -665,12 +719,13 @@ export function App() {
     setSyncError('');
   };
   const purgeGraphNode = async (id: string, confirmation: string, reason: string) => {
+    const scope = selectedWorkspaceRef.current;
     const current = workspaceMutation();
     const { workspace } = await api.purgeGraphNode(id, confirmation, reason);
-    if (!current()) return;
+    if (scope !== selectedWorkspaceRef.current) return;
     resourceRequestRef.current++; setResourceRead(undefined); setResourceDownloadBusy(false); setResourceDownloadError('');
     if (routeLocationRef.current.kind === 'resources' && routeLocationRef.current.workspaceId) navigationForget(routeLocationRef.current.workspaceId, formatLocation(routeLocationRef.current));
-    applyWorkspace(workspace);
+    if (current()) applyWorkspace(workspace);
     if (routeLocationRef.current.kind === 'resources') void readResourceLocation(routeLocationRef.current);
     setSyncError('');
   };
@@ -854,7 +909,7 @@ export function App() {
         onActivateNode={id => activateNode(id)} onMerge={mergeNode} onSelectModel={async modelId=>{const current=workspaceMutation();const {workspace}=await api.setConversationModel(activeNode.id,modelId);if(current())applyWorkspace(workspace);}}
         onSettings={openSettings} onOpenContext={() => contextOpen ? closeContext() : openCurrentContext()} onInspectContext={id => void inspectMessageContext(id)} onGraph={() => setView('graph')} onRuns={() => setView('runs')}
       />,
-      graph: <GraphView readOnly={workspaceRecord()?.status === 'archived'} key={currentWorkspaceId} initialPresentation={navigationRestoration?.graph as GraphNavigationPresentation | undefined} onPresentationChange={navigationRememberGraph} focusedObjectId={location.kind === 'graph' ? location.objectId : undefined} onInspectObject={node => navigationNavigate({kind:'graph',workspaceId:currentWorkspaceId,objectType:node.objectType ?? 'conversation',objectId:node.id},true)} personalView={graphPersonal} personalLoading={personalLoading} onSavePersonal={saveGraphPresentation} onReloadPersonal={() => void loadPersonalView()} batch={graphBatch} batchBusy={batchBusy} batchError={batchError} onBatch={(ids, operation, relation) => runGraphBatch('apply', { ids, operation, relation })} onResumeBatch={() => void runGraphBatch('resume')} onReadBatch={() => void runGraphBatch('read')} onUndoBatch={() => void runGraphBatch('undo')} loading={graphLoading} error={graphError} hasMore={!!graphProjection?.nextCursor} onLoadMore={() => void loadGraph(graphProjection?.nextCursor)} onRefresh={() => void loadGraph()} onFilter={filterGraph} onNeighborhood={loadGraphNeighborhood} contextIds={contextItems.filter(item=>item.status==='active').map(item=>item.sourceId??'')} onContext={async(node,remove)=>{if(remove){const item=contextItems.find(item=>item.sourceId===node.id);if(item)await updateStatus(item.id,'excluded');}else await addContextSource(node.objectType==='segment'?'segment':'node',node.id);}} onNavigateObject={async node => { const message = messages.find(item => item.id === node.id); const segment = segments.find(item => item.id === node.id); if (message) navigationNavigate({ kind: 'message', workspaceId: currentWorkspaceId, nodeId: message.nodeId, objectId: message.id }); else if (segment) navigationNavigate({ kind: 'segment', workspaceId: currentWorkspaceId, nodeId: segment.nodeId, objectId: segment.id }); else setRouteReadError('无法访问此位置。'); }} onPath={highlightGraphPath} nodes={graphModel.nodes} edges={graphModel.edges} activeNodeId={activeNode.id} onMove={moveNode} onActivate={id => activateNode(id, true)} onCreateNode={createGraphNode} onArchiveNode={archiveGraphNode} onRestoreNode={restoreGraphNode} onPurgeNode={purgeGraphNode} onCreateEdge={createGraphEdge} onDeleteEdge={deleteGraphEdge}/>,
+      graph: <GraphView contextBusy={trayBusy} onContextSelectionChange={() => { trayRequest.current++;setTrayPreview(undefined);setTrayBusy(false);setTrayError('');setTrayNotice(''); }} displayFilters={location.kind==='graph' && !location.objectId ? location.graphFilters ?? {} : undefined} onShareFilters={shareGraphFilters} onPreviewContext={previewTray} contextTray={<GraphContextTray targetTitle={discussionNodes.find(node=>node.id===activeNodeId)?.title ?? '当前讨论'} preview={trayPreview} busy={trayBusy} readOnly={workspaceRecord()?.status==='archived'} error={trayError} notice={trayNotice} onConfirm={() => void confirmTray()} onRefresh={() => void previewTray()} onClose={() => { trayRequest.current++; setTrayPreview(undefined);setTrayBusy(false);setTrayError('');setTrayNotice(''); }}/>} readOnly={workspaceRecord()?.status === 'archived'} key={currentWorkspaceId} initialPresentation={navigationRestoration?.graph as GraphNavigationPresentation | undefined} onPresentationChange={navigationRememberGraph} focusedObjectId={location.kind === 'graph' ? location.objectId : undefined} onInspectObject={node => navigationNavigate({kind:'graph',workspaceId:currentWorkspaceId,objectType:node.objectType ?? 'conversation',objectId:node.id},true)} personalView={graphPersonal} personalLoading={personalLoading} onSavePersonal={saveGraphPresentation} onReloadPersonal={() => void loadPersonalView()} batch={graphBatch} batchBusy={batchBusy} batchError={batchError} onBatch={(ids, operation, relation) => runGraphBatch('apply', { ids, operation, relation })} onResumeBatch={() => void runGraphBatch('resume')} onReadBatch={() => void runGraphBatch('read')} onUndoBatch={() => void runGraphBatch('undo')} loading={graphLoading} error={graphError} hasMore={!!graphProjection?.nextCursor} onLoadMore={() => void loadGraph(graphProjection?.nextCursor)} onRefresh={() => void loadGraph()} onFilter={filterGraph} onNeighborhood={loadGraphNeighborhood} contextIds={contextItems.filter(item=>item.status==='active').map(item=>item.sourceId??'')} onContext={async(node,remove)=>{if(remove){const item=contextItems.find(item=>item.sourceId===node.id);if(item)await updateStatus(item.id,'excluded');}else await addContextSource(node.objectType==='segment'?'segment':'node',node.id);}} onNavigateObject={async node => { const message = messages.find(item => item.id === node.id); const segment = segments.find(item => item.id === node.id); if (message) navigationNavigate({ kind: 'message', workspaceId: currentWorkspaceId, nodeId: message.nodeId, objectId: message.id }); else if (segment) navigationNavigate({ kind: 'segment', workspaceId: currentWorkspaceId, nodeId: segment.nodeId, objectId: segment.id }); else setRouteReadError('无法访问此位置。'); }} onPath={highlightGraphPath} nodes={graphModel.nodes} edges={graphModel.edges} activeNodeId={activeNode.id} onMove={moveNode} onActivate={id => activateNode(id, true)} onCreateNode={createGraphNode} onArchiveNode={archiveGraphNode} onRestoreNode={restoreGraphNode} onPurgeNode={purgeGraphNode} onCreateEdge={createGraphEdge} onDeleteEdge={deleteGraphEdge}/>,
       state: <StateView items={contextItems} onSource={item => { if (item.sourceType === 'node') void activateNode(item.sourceId!); else if (item.sourceType === 'segment') navigationNavigate({ kind: 'segment', workspaceId: currentWorkspaceId, nodeId: segments.find(segment => segment.id === item.sourceId)?.nodeId ?? item.sourceNodeId, objectId: item.sourceId }); else navigationNavigate({ kind: 'resources', workspaceId: currentWorkspaceId }); }}/>,
       runs: <RunHistory key={currentWorkspaceId} focusedRun={focusedRun} onRefreshFocused={location.objectId ? () => readRunLocation(location) : undefined} readOnly={workspaceRecord()?.status === 'archived'} onInspectContext={id => void inspectMessageContext('', id)} onChanged={() => void loadWorkspace(true).then(() => readRunLocation(location))}/>,
       activity: <ActivityView activity={activity} loading={activityLoading} error={activityError} onRefresh={() => void loadActivity()}/>,

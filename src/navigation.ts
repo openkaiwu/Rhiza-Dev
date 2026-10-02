@@ -1,7 +1,54 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { View } from './types';
 export type LocationKind = 'bootstrap' | 'invalid' | 'chooser' | 'settings' | 'workspace' | 'conversations' | 'conversation' | 'message' | 'segment' | 'collaboration' | 'context' | 'manifest' | 'graph' | 'resources' | 'state' | 'runs' | 'activity' | 'data';
-export interface WorkspaceLocation { kind: LocationKind; workspaceId?: string; nodeId?: string; objectId?: string; objectType?: string; versionId?: string; detail?: 'context' | 'provenance'; sourceIndex?: number }
+export interface GraphDisplayFilters { layers?: ('conversation' | 'segment' | 'message')[]; query?: string; statuses?: string[]; relationTypes?: ('derived-from' | 'references' | 'related-to' | 'merged-into')[]; updatedAfter?: string }
+export interface WorkspaceLocation { kind: LocationKind; workspaceId?: string; nodeId?: string; objectId?: string; objectType?: string; versionId?: string; detail?: 'context' | 'provenance'; sourceIndex?: number; graphFilters?: GraphDisplayFilters }
+const graphLayers = ['conversation', 'segment', 'message'] as const;
+const graphStatuses = ['draft', 'active', 'resolved', 'stale'] as const;
+const graphRelations = ['derived-from', 'references', 'related-to', 'merged-into'] as const;
+function graphList<T extends string>(value: unknown, allowed: readonly T[]): T[] {
+  if (!Array.isArray(value) || !value.length || value.length > allowed.length || new Set(value).size !== value.length || value.some(item => typeof item !== 'string' || !allowed.some(known => known === item))) throw new Error('INVALID_GRAPH_FILTERS');
+  return allowed.filter(item => value.includes(item));
+}
+function normalizeGraphFilters(filters: GraphDisplayFilters): GraphDisplayFilters {
+  if (!filters || typeof filters !== 'object' || Array.isArray(filters) || Object.keys(filters).some(key => !['layers', 'query', 'statuses', 'relationTypes', 'updatedAfter'].includes(key))) throw new Error('INVALID_GRAPH_FILTERS');
+  const normalized: GraphDisplayFilters = {};
+  if (filters.layers !== undefined) normalized.layers = graphList(filters.layers, graphLayers);
+  if (filters.statuses !== undefined) normalized.statuses = graphList(filters.statuses, graphStatuses);
+  if (filters.relationTypes !== undefined) normalized.relationTypes = graphList(filters.relationTypes, graphRelations);
+  if (filters.query !== undefined) {
+    if (typeof filters.query !== 'string' || !filters.query.trim() || filters.query.length > 200 || /\p{Cc}/u.test(filters.query)) throw new Error('INVALID_GRAPH_FILTERS');
+    normalized.query = filters.query.trim();
+  }
+  if (filters.updatedAfter !== undefined) {
+    const date = filters.updatedAfter;
+    if (typeof date !== 'string' || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date) || date.startsWith('0000') || !Number.isFinite(Date.parse(`${date}T00:00:00.000Z`)) || new Date(`${date}T00:00:00.000Z`).toISOString().slice(0, 10) !== date) throw new Error('INVALID_GRAPH_FILTERS');
+    normalized.updatedAfter = date;
+  }
+  return normalized;
+}
+function formatGraphFilters(input?: GraphDisplayFilters): string {
+  const filters = normalizeGraphFilters(input ?? {}), params: [string, string][] = [];
+  if (filters.layers) params.push(['layers', filters.layers.join(',')]);
+  if (filters.query) params.push(['q', filters.query]);
+  if (filters.statuses) params.push(['statuses', filters.statuses.join(',')]);
+  if (filters.relationTypes) params.push(['relations', filters.relationTypes.join(',')]);
+  if (filters.updatedAfter) params.push(['updatedAfter', filters.updatedAfter]);
+  return params.length ? `?${params.map(([key, value]) => `${key}=${encodeURIComponent(value)}`).join('&')}` : '';
+}
+function parseGraphFilters(query: string): GraphDisplayFilters {
+  if (query.length > 2048 || query.split('&').some(part => !part || !part.includes('='))) throw new Error('INVALID_GRAPH_FILTERS');
+  for (const token of query.split('&').flatMap(part => part.split('='))) decodeURIComponent(token);
+  const params = new URLSearchParams(query), keys = ['layers', 'q', 'statuses', 'relations', 'updatedAfter'];
+  if ([...params.keys()].some(key => !keys.includes(key) || params.getAll(key).length !== 1)) throw new Error('INVALID_GRAPH_FILTERS');
+  return normalizeGraphFilters({
+    ...(params.has('layers') ? { layers: graphList(params.get('layers')!.split(','), graphLayers) } : {}),
+    ...(params.has('q') ? { query: params.get('q')! } : {}),
+    ...(params.has('statuses') ? { statuses: graphList(params.get('statuses')!.split(','), graphStatuses) } : {}),
+    ...(params.has('relations') ? { relationTypes: graphList(params.get('relations')!.split(','), graphRelations) } : {}),
+    ...(params.has('updatedAfter') ? { updatedAfter: params.get('updatedAfter')! } : {}),
+  });
+}
 export function formatLocation(l: WorkspaceLocation): string {
   if (l.kind === 'chooser') return '#/workspaces';
   if (l.kind === 'settings') return '#/settings/providers';
@@ -14,7 +61,7 @@ export function formatLocation(l: WorkspaceLocation): string {
     case 'segment': return `${root}/conversations/${node}/segments/${id}`;
     case 'collaboration': return `${root}/conversations/${node}/collaborations/${id}`;
     case 'manifest': return `${root}/context/manifests/${id}${l.sourceIndex !== undefined ? `/sources/${l.sourceIndex}` : ''}`;
-    case 'graph': return `${root}/graph${l.objectId ? `/objects/${encodeURIComponent(l.objectType ?? '')}/${id}${l.versionId ? `?versionId=${encodeURIComponent(l.versionId)}` : ''}` : ''}`;
+    case 'graph': return `${root}/graph${l.objectId ? `/objects/${encodeURIComponent(l.objectType ?? '')}/${id}${l.versionId ? `?versionId=${encodeURIComponent(l.versionId)}` : ''}` : formatGraphFilters(l.graphFilters)}`;
     case 'resources': return `${root}/resources${l.objectId ? `/${id}${l.versionId ? `/versions/${encodeURIComponent(l.versionId)}` : ''}` : ''}`;
     case 'runs': return `${root}/runs${l.objectId ? `/${id}` : ''}`;
     default: return `${root}/${l.kind}`;
@@ -31,7 +78,8 @@ export function parseLocation(hash: string): WorkspaceLocation {
     if (p.length === 1 && !query) return { kind: 'chooser' };
     if (!p[1]) return { kind: 'invalid' }; const base = { workspaceId: p[1] }; const t = p.slice(2);
     if (!t.length && !query) return { ...base, kind: 'workspace' };
-    if (query && !(t[0] === 'graph' && t.length === 4)) return { kind: 'invalid' };
+    if (query && !(t[0] === 'graph' && (t.length === 1 || t.length === 4))) return { kind: 'invalid' };
+    if (t[0] === 'graph' && t.length === 1) return { ...base, kind: 'graph', ...(query ? { graphFilters: parseGraphFilters(query) } : {}) };
     if (t.length === 1 && ['conversations','context','graph','resources','state','runs','activity','data'].includes(t[0])) return { ...base, kind: t[0] as LocationKind };
     if (t[0] === 'conversations') {
       if (t.length === 2) return { ...base, kind: 'conversation', nodeId: t[1] };
@@ -64,14 +112,15 @@ export function readRecents(storage:Pick<Storage,'getItem'>):RecentLocation[] {
     return raw.filter((item):item is RecentLocation=>{
       if(!item||typeof item.workspaceId!=='string'||typeof item.canonicalLocation!=='string'||!Number.isFinite(item.visitedAt)||Object.keys(item).some(key=>!['workspaceId','canonicalLocation','visitedAt'].includes(key)))return false;
       const parsed=parseLocation(item.canonicalLocation),count=counts.get(item.workspaceId)??0;
-      if(parsed.workspaceId!==item.workspaceId||parsed.kind==='invalid'||formatLocation(parsed)!==item.canonicalLocation||seen.has(item.canonicalLocation)||count>=20)return false;
+      if(parsed.workspaceId!==item.workspaceId||parsed.kind==='invalid'||parsed.graphFilters?.query!==undefined||formatLocation(parsed)!==item.canonicalLocation||seen.has(item.canonicalLocation)||count>=20)return false;
       counts.set(item.workspaceId,count+1);seen.add(item.canonicalLocation);return true;
     });
   } catch {return [];}
 }
 export function updateRecents(previous:RecentLocation[],location:WorkspaceLocation,now=Date.now()):RecentLocation[] {
   if(!location.workspaceId||['invalid','bootstrap','settings','chooser'].includes(location.kind))return previous;
-  const canonicalLocation=formatLocation(location);
+  // Search text is explicitly shareable, but never a persisted recent-access fact.
+  const canonicalLocation=formatLocation(location.graphFilters?.query === undefined ? location : { ...location, graphFilters: { ...location.graphFilters, query: undefined } });
   return [{workspaceId:location.workspaceId,canonicalLocation,visitedAt:now},...previous.filter(item=>item.workspaceId===location.workspaceId&&item.canonicalLocation!==canonicalLocation).slice(0,19),...previous.filter(item=>item.workspaceId!==location.workspaceId)].slice(0,2000);
 }
 interface Entry {key:string;canonical:string;parent?:string}

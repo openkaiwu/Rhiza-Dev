@@ -44,6 +44,7 @@ const milestones: Record<string, { checks: Check[]; unverified: string[] }> = {
     checks: [
       { id: 'views', script: 'm18:views:checks' },
       { id: 'batches', script: 'm18:batches:checks' },
+      { id: 'context_tray', files: ['server/application/context-selection.test.ts', 'e2e/m18-context-selection.e2e.test.ts', 'src/components/GraphSelection.test.tsx', 'src/components/GraphContextTray.test.tsx'] },
       { id: 'navigation_ui', files: ['src/navigation.test.ts', 'src/App.test.tsx', 'src/api.test.ts', 'src/components/AppShell.test.tsx', 'src/components/GraphView.test.tsx', 'src/components/RunHistory.test.tsx', 'src/components/BundleControls.test.tsx', 'src/components/CollaborationCard.test.tsx', 'e2e/m15-ui-client.e2e.test.ts'] },
     ],
     unverified: ['production_visual_keyboard_narrow_screen_acceptance', 'm17_formal_dependency_gate'],

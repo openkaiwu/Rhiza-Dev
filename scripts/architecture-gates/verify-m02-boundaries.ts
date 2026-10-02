@@ -181,6 +181,67 @@ function bodyCallsApplicationExecute(body: ts.Node, applicationBindings: Set<str
   return found;
 }
 
+function isContextSelectionPreviewQuery(
+  route: ts.CallExpression,
+  callback: ts.FunctionLikeDeclaration,
+  parsed: ts.SourceFile,
+  parents: Map<ts.Node, ts.Node | undefined>,
+  factories: Map<ts.SignatureDeclaration, Set<string>>,
+): boolean {
+  if (!ts.isPropertyAccessExpression(route.expression) || route.expression.name.text !== 'post'
+    || !ts.isStringLiteral(route.arguments[0]) || route.arguments[0].text !== '/api/workspace/context/selection/preview' || !callback.body) return false;
+  const imported = new Map<string, string>();
+  for (const statement of parsed.statements) {
+    if (!ts.isImportDeclaration(statement) || !isContractsApplicationImport(statement) || !statement.importClause?.namedBindings || !ts.isNamedImports(statement.importClause.namedBindings)) continue;
+    for (const element of statement.importClause.namedBindings.elements) imported.set(element.propertyName?.text ?? element.name.text, element.name.text);
+  }
+  const applicationType = imported.get('Application'), queryType = imported.get('QueryType'), envelope = imported.get('createLegacyQueryEnvelope');
+  if (!applicationType || !queryType || !envelope) return false;
+  let factory: ts.FunctionDeclaration | undefined;
+  for (let current: ts.Node | undefined = route; current; current = parents.get(current)) {
+    if (ts.isFunctionDeclaration(current) && factories.has(current)) { factory = current; break; }
+  }
+  if (!factory?.body) return false;
+  const injected = new Set(factory.parameters.filter(parameter => ts.isIdentifier(parameter.name) && parameter.type && ts.isTypeReferenceNode(parameter.type)
+    && ts.isIdentifier(parameter.type.typeName) && parameter.type.typeName.text === applicationType).map(parameter => (parameter.name as ts.Identifier).text));
+  for (const statement of factory.body.statements) {
+    if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || !declaration.initializer || !ts.isArrowFunction(declaration.initializer)) continue;
+      const helper = declaration.initializer, typeParameter = helper.typeParameters?.[0], typeArgument = helper.parameters[1], payload = helper.parameters[2];
+      if (helper.typeParameters?.length !== 1 || !typeParameter?.constraint || !ts.isTypeReferenceNode(typeParameter.constraint)
+        || !ts.isIdentifier(typeParameter.constraint.typeName) || typeParameter.constraint.typeName.text !== queryType
+        || !typeArgument || !ts.isIdentifier(typeArgument.name) || !typeArgument.type || !ts.isTypeReferenceNode(typeArgument.type)
+        || !ts.isIdentifier(typeArgument.type.typeName) || typeArgument.type.typeName.text !== typeParameter.name.text
+        || !payload || !ts.isIdentifier(payload.name)) continue;
+      const invocation = helper.body;
+      if (!ts.isCallExpression(invocation) || !ts.isPropertyAccessExpression(invocation.expression) || invocation.expression.name.text !== 'query'
+        || !ts.isIdentifier(invocation.expression.expression) || !injected.has(invocation.expression.expression.text)
+        || helper.parameters.some(parameter => ts.isIdentifier(parameter.name) && parameter.name.text === (invocation.expression as ts.PropertyAccessExpression).expression.getText(parsed))
+        || invocation.arguments.length !== 1 || !ts.isObjectLiteralExpression(invocation.arguments[0])) continue;
+      const envelopeSpread = invocation.arguments[0].properties[0];
+      if (!envelopeSpread || !ts.isSpreadAssignment(envelopeSpread) || !ts.isCallExpression(envelopeSpread.expression)
+        || !ts.isIdentifier(envelopeSpread.expression.expression) || envelopeSpread.expression.expression.text !== envelope) continue;
+      const forwarded = envelopeSpread.expression.arguments;
+      if (!forwarded[1] || !ts.isIdentifier(forwarded[1]) || forwarded[1].text !== typeArgument.name.text
+        || !forwarded[2] || !ts.isIdentifier(forwarded[2]) || forwarded[2].text !== payload.name.text) continue;
+      // Resolve this factory's actual const helper; a callback-local function of
+      // the same name must not turn the read-only exception into a bypass.
+      const helperName = declaration.name.text;
+      let shadowed = false, callsPreview = false;
+      const inspect = (node: ts.Node): void => {
+        if ((ts.isVariableDeclaration(node) || ts.isParameter(node) || ts.isFunctionDeclaration(node)) && node.name && ts.isIdentifier(node.name) && node.name.text === helperName) shadowed = true;
+        if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === helperName
+          && node.arguments.length === 3 && ts.isStringLiteral(node.arguments[1]) && node.arguments[1].text === 'PreviewContextSelection') callsPreview = true;
+        ts.forEachChild(node, inspect);
+      };
+      inspect(callback);
+      if (callsPreview && !shadowed) return true;
+    }
+  }
+  return false;
+}
+
 function directPortAliases(parsed: ts.SourceFile): { ports: Set<string>; methods: Set<string> } {
   const ports = new Set<string>();
   const methods = new Set<string>();
@@ -274,7 +335,8 @@ export async function collectM02BoundaryViolations(root = resolve('.'), strict =
         const callback = callbackForRoute(node);
         const applicationBindings = factoryFor(node, parents, factories);
         const helpers = applicationBindings ? approvedExecuteHelpers(parsed, applicationBindings) : new Set<string>();
-        if (!callback?.body || !applicationBindings || !bodyCallsApplicationExecute(callback.body, applicationBindings, helpers)) report(file, `${node.expression.name.text.toUpperCase()} route is not routed through an injected Application.execute`);
+        const previewQuery = relativeFile(root, file) === 'server/http/app.ts' && callback && isContextSelectionPreviewQuery(node, callback, parsed, parents, factories);
+        if (!previewQuery && (!callback?.body || !applicationBindings || !bodyCallsApplicationExecute(callback.body, applicationBindings, helpers))) report(file, `${node.expression.name.text.toUpperCase()} route is not routed through an injected Application.execute`);
       }
       ts.forEachChild(node, visit);
     };

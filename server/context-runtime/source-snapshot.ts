@@ -32,7 +32,7 @@ export function contextSourceSnapshot(workspace: WorkspaceData, sourceType: NonN
 }
 
 export function validateContextConfirmation(item: ContextItem, revision?: string) {
-  if (item.selectionMode === 'AI_RECOMMENDED_ACCEPTED' && item.sourceRevision && item.sourceRevision !== revision) {
+  if (['AI_RECOMMENDED_ACCEPTED', 'USER_SELECTED'].includes(item.selectionMode ?? '') && item.sourceRevision && item.sourceRevision !== revision) {
     throw Object.assign(new Error('来源已变化，请重新确认 Context 推荐。'), { code: 'CONTEXT_SELECTION_STALE', status: 409 });
   }
 }

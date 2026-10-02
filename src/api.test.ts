@@ -116,3 +116,11 @@ it('requests the exact typed graph identity and version within its Workspace', a
  await api.getGraphNeighborhood({objectType:'message',objectId:'m/old',versionId:'v/1',objectTypes:['conversation','segment','message'],depth:2,nodeLimit:200,edgeLimit:800});
  const url=new URL(fetch.mock.calls[0][0],'http://localhost');expect(url.pathname).toBe('/api/v1/workspaces/scope/graph/neighborhood');expect(Object.fromEntries(url.searchParams)).toMatchObject({objectType:'message',objectId:'m/old',versionId:'v/1',objectTypes:'conversation,segment,message',nodeLimit:'200'});expect(fetch).toHaveBeenCalledOnce();
 });
+
+it('scopes read-only graph selection preview and confirms only exact reviewed revisions with a stable key',async()=>{
+ const preview={workspaceId:'scope',expectedNodeId:'target',sources:[{sourceType:'segment' as const,sourceId:'s',sourceRevision:'a'.repeat(64),title:'Source',tokens:12}],budget:100,usedTokens:12,overBudget:false,status:'ready' as const};
+ const fetch=vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(preview),{status:200})).mockResolvedValueOnce(new Response(JSON.stringify({workspace:{projectId:'scope'}}),{status:200}));vi.stubGlobal('fetch',fetch);api.setWorkspace('scope');
+ await api.previewContextSelection([{sourceType:'segment',sourceId:'s'}]);await api.confirmContextSelection(preview,'exact-selection-key');
+ expect(fetch.mock.calls[0][0]).toBe('/api/v1/workspaces/scope/workspace/context/selection/preview');expect(fetch.mock.calls[0][1].headers).not.toHaveProperty('Idempotency-Key');
+ expect(fetch.mock.calls[1][0]).toBe('/api/v1/workspaces/scope/workspace/context/selection');expect(fetch.mock.calls[1][1].headers['Idempotency-Key']).toBe('exact-selection-key');expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({expectedNodeId:'target',sources:[{sourceType:'segment',sourceId:'s',sourceRevision:'a'.repeat(64)}]});expect(fetch).toHaveBeenCalledTimes(2);
+});
