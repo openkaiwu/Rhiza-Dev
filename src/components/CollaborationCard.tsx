@@ -12,6 +12,8 @@ export function CollaborationForm({ prompt, catalog, attachmentIds, busy, onStar
   const [models, setModels] = useState<string[]>(available.slice(0, 2).map(model => model.id));
   const [mode, setMode] = useState<CollaborationMode>('independent-review');
   const [rounds, setRounds] = useState(2);
+  const [tokenLimit, setTokenLimit] = useState(32000);
+  const [timeLimitMs, setTimeLimitMs] = useState(180000);
   const [synthesizer, setSynthesizer] = useState(models[0] ?? '');
   const selected = models.filter(id => available.some(model => model.id === id));
   const valid = question.trim() && selected.length >= 2 && selected.length <= 4 && selected.includes(synthesizer);
@@ -24,8 +26,12 @@ export function CollaborationForm({ prompt, catalog, attachmentIds, busy, onStar
       setModels(next); if (!next.includes(synthesizer)) setSynthesizer(next[0] ?? '');
     }}/><span>{model.displayName}<small>{catalog.providers.find(provider => provider.id === model.providerId)?.name}</small></span></label>)}</div></fieldset>
     {available.length < 2 && <p role="status">至少需要两个已配置模型。<button onClick={onSettings}>配置模型</button></p>}
-    <div className="collaboration-options"><label>协作方式<select aria-label="协作方式" disabled={busy} value={mode} onChange={event => setMode(event.target.value as CollaborationMode)}>{Object.entries(collaborationModes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>汇总模型<select aria-label="汇总模型" disabled={busy} value={synthesizer} onChange={event => setSynthesizer(event.target.value)}>{selected.map(id => <option key={id} value={id}>{available.find(model => model.id === id)?.displayName}</option>)}</select></label>{['peer-review', 'debate'].includes(mode) && <label>轮数<select aria-label="协作轮数" disabled={busy} value={rounds} onChange={event => setRounds(Number(event.target.value))}>{[2, 3, 4, 5].map(value => <option key={value} value={value}>{value} 轮</option>)}</select></label>}</div>
-    <footer><span>{attachmentIds.length ? `${attachmentIds.length} 个附件 · ` : ''}最多 32,000 tokens · 3 分钟</span><button className="primary-button" disabled={busy || !valid} onClick={async () => { if (await onStart({ prompt: question.trim(), mode, modelIds: [...selected], synthesisModelId: synthesizer, attachmentIds: [...attachmentIds], maxRounds: ['peer-review', 'debate'].includes(mode) ? rounds : 1 })) onClose(); }}>{busy ? '协作进行中…' : '开始协作'}</button></footer>
+    <div className="collaboration-options"><label>协作方式<select aria-label="协作方式" disabled={busy} value={mode} onChange={event => setMode(event.target.value as CollaborationMode)}>{Object.entries(collaborationModes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>汇总模型<select aria-label="汇总模型" disabled={busy} value={synthesizer} onChange={event => setSynthesizer(event.target.value)}>{selected.map(id => <option key={id} value={id}>{available.find(model => model.id === id)?.displayName}</option>)}</select></label>{['peer-review', 'debate'].includes(mode) && <label>轮数<select aria-label="协作轮数" disabled={busy} value={rounds} onChange={event => setRounds(Number(event.target.value))}>{[2, 3, 4, 5].map(value => <option key={value} value={value}>{value} 轮</option>)}</select></label>}
+      {/* Synthesis reserves 4,096 tokens; a total cap of 4k is invalid. */}
+      <label>Token 预算<select aria-label="Token 预算" disabled={busy} value={tokenLimit} onChange={event => setTokenLimit(Number(event.target.value))}>{[8000, 16000, 32000].map(value => <option key={value} value={value}>{value / 1000}k tokens</option>)}</select></label>
+      <label>时间预算<select aria-label="时间预算" disabled={busy} value={timeLimitMs} onChange={event => setTimeLimitMs(Number(event.target.value))}>{[30000, 60000, 120000, 180000].map(value => <option key={value} value={value}>{value / 1000} 秒</option>)}</select></label>
+    </div>
+    <footer><span>{attachmentIds.length ? `${attachmentIds.length} 个附件 · ` : ''}最多 {tokenLimit.toLocaleString()} tokens · {timeLimitMs < 60000 ? `${timeLimitMs / 1000} 秒` : `${timeLimitMs / 60000} 分钟`}</span><button className="primary-button" disabled={busy || !valid} onClick={async () => { if (await onStart({ prompt: question.trim(), mode, modelIds: [...selected], synthesisModelId: synthesizer, attachmentIds: [...attachmentIds], maxRounds: ['peer-review', 'debate'].includes(mode) ? rounds : 1, ...(tokenLimit !== 32000 ? { tokenLimit } : {}), ...(timeLimitMs !== 180000 ? { timeLimitMs } : {}) })) onClose(); }}>{busy ? '协作进行中…' : '开始协作'}</button></footer>
   </section>;
 }
 
@@ -45,7 +51,7 @@ export function CollaborationCard({ record, busy, running, retained, streams, on
       <div className="collaboration-title"><span className="collaboration-symbol"><GitCompareArrows size={20}/></span><div><h2>多模型协作</h2><p>{collaborationModes[record.mode]} · {record.participants.length} 位参与者</p></div></div>
       <div className="collaboration-heading-actions"><span className={`collaboration-badge ${record.status}`}>{retained ? '已纳入讨论' : statuses[record.status] ?? record.status}</span><button className="icon-button" aria-label={collapsed ? '展开协作详情' : '收起协作详情'} aria-expanded={!collapsed} onClick={() => setCollapsed(value => !value)}><ChevronDown size={18}/></button></div>
     </header>
-    <div className="collaboration-input"><p className="collaboration-frozen-question">{record.base.prompt}</p><span>同一份冻结输入 · {record.base.contextItems.length} 个来源 · 最多 {record.budget.maxRounds} 轮</span></div>
+    <div className="collaboration-input"><p className="collaboration-frozen-question">{record.base.prompt}</p><span aria-label="冻结协作预算">同一份冻结输入 · {record.base.contextItems.length} 个来源 · 最多 {record.budget.maxRounds} 轮 · {record.budget.usedTokens.toLocaleString()} / {record.budget.tokenLimit.toLocaleString()} tokens · 截止 <time dateTime={record.budget.deadlineAt}>{new Date(record.budget.deadlineAt).toLocaleString()}</time></span></div>
     {!collapsed && <>
       <div className="collaboration-participants" role="group" aria-label="参与模型意见">{record.participants.map((participantId, index) => {
         const attempt = latestAttempts[index];

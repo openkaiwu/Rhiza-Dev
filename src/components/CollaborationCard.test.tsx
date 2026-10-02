@@ -17,6 +17,42 @@ it('limits configured model choices to 2–4 and sends the explicitly selected m
   expect(start).toHaveBeenCalledWith({ prompt: 'Review current answer', mode: 'debate', modelIds: ['a', 'b', 'c', 'd'], synthesisModelId: 'a', maxRounds: 3, attachmentIds: ['file-1'] });
 });
 
+it('sends the selected collaboration budget within backend limits and disables changes while busy', async () => {
+  const start = vi.fn().mockResolvedValue(true); const close = vi.fn();
+  const props = { prompt: 'Review current answer', catalog, attachmentIds: ['file-1'], busy: false, onStart: start, onClose: close, onSettings: vi.fn() };
+  const { rerender } = render(<CollaborationForm {...props}/>);
+  const tokens = screen.getByRole('combobox', { name: 'Token 预算' });
+  const duration = screen.getByRole('combobox', { name: '时间预算' });
+  expect(tokens).toHaveValue('32000'); expect(duration).toHaveValue('180000');
+  expect(within(tokens).getAllByRole('option').map(option => option.getAttribute('value'))).toEqual(['8000', '16000', '32000']);
+  expect(within(duration).getAllByRole('option').map(option => option.getAttribute('value'))).toEqual(['30000', '60000', '120000', '180000']);
+  fireEvent.change(tokens, { target: { value: '8000' } });
+  fireEvent.change(duration, { target: { value: '30000' } });
+  fireEvent.change(screen.getByLabelText('协作方式'), { target: { value: 'second-opinion' } });
+  expect(start).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: '开始协作' }));
+  await waitFor(() => expect(close).toHaveBeenCalledOnce());
+  expect(start).toHaveBeenCalledExactlyOnceWith({ prompt: 'Review current answer', mode: 'second-opinion', modelIds: ['a', 'b'], synthesisModelId: 'a', maxRounds: 1, attachmentIds: ['file-1'], tokenLimit: 8000, timeLimitMs: 30000 });
+  rerender(<CollaborationForm {...props} busy/>);
+  expect(screen.getByRole('combobox', { name: 'Token 预算' })).toBeDisabled();
+  expect(screen.getByRole('combobox', { name: '时间预算' })).toBeDisabled();
+});
+
+it('shows the frozen collaboration budget and absolute deadline even when details are collapsed', () => {
+  const action = vi.fn();
+  const frozen = { ...record, budget: { ...record.budget, tokenLimit: 16000, usedTokens: 1234, deadlineAt: '2026-10-02T00:01:00Z' } };
+  render(<CollaborationCard record={frozen} busy={false} running={false} retained={false} streams={{}} onAction={action} onStop={vi.fn()}/>);
+  const budget = screen.getByLabelText('冻结协作预算');
+  expect(budget).toHaveTextContent(`${(1234).toLocaleString()} / ${(16000).toLocaleString()} tokens`);
+  expect(budget).toHaveTextContent('截止');
+  const deadline = budget.querySelector('time');
+  expect(deadline).toHaveAttribute('datetime', frozen.budget.deadlineAt);
+  expect(deadline).toHaveTextContent(new Date(frozen.budget.deadlineAt).toLocaleString());
+  fireEvent.click(screen.getByRole('button', { name: '收起协作详情' }));
+  expect(budget).toBeVisible();
+  expect(action).not.toHaveBeenCalled();
+});
+
 it('retries only the failed participant and retains a visibly partial result in its initiating conversation', () => {
   const action = vi.fn();
   const { rerender } = render(<CollaborationCard record={record} busy={false} running={false} retained={false} streams={{}} onAction={action} onStop={vi.fn()}/>);

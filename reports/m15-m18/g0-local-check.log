@@ -1,0 +1,61 @@
+$ pnpm run test:g0 && pnpm run benchmark:g0
+$ pnpm run g0:hygiene && pnpm run test:architecture-gates && tsx scripts/architecture-gates/run-characterization.ts
+$ tsx scripts/architecture-gates/repository-hygiene.ts
+Repository hygiene passed: tracked files contain no prohibited artifacts, secrets, or absolute paths.
+$ vitest run scripts/architecture-gates/repository-hygiene.test.ts scripts/architecture-gates/verify-g0.test.ts scripts/architecture-gates/verify-m02-boundaries.test.ts scripts/architecture-gates/verify-milestone-evidence.test.ts
+
+ RUN  v4.1.10 .
+
+
+ Test Files  4 passed (4)
+      Tests  84 passed (84)
+   Start at  14:24:21
+   Duration  2.92s (transform 355ms, setup 320ms, import 890ms, tests 2.44s, environment 1.40s)
+
+
+ RUN  v4.1.10 .
+
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  14:24:25
+   Duration  517ms (transform 153ms, setup 48ms, import 380ms, tests 40ms, environment 0ms)
+
+
+ RUN  v4.1.10 .
+
+
+ Test Files  1 passed (1)
+      Tests  10 passed | 21 skipped (31)
+   Start at  14:24:25
+   Duration  675ms (transform 174ms, setup 47ms, import 406ms, tests 172ms, environment 0ms)
+
+
+ RUN  v4.1.10 .
+
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 1 skipped (2)
+   Start at  14:24:26
+   Duration  3.50s (transform 152ms, setup 48ms, import 370ms, tests 3.03s, environment 0ms)
+
+
+ RUN  v4.1.10 .
+
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 67 skipped (68)
+   Start at  14:24:30
+   Duration  867ms (transform 204ms, setup 47ms, import 254ms, tests 288ms, environment 202ms)
+
+$ tsx scripts/architecture-gates/verify-g0.ts
+┌─────────┬──────────────────────────────────────────┬──────────────┬──────────────┬─────────────┬──────────────────┬──────────┬──────────┬───────┬───────┬───────┬───────┬───────┐
+│ (index) │ metric                                   │ warmup_count │ sample_count │ concurrency │ external_network │ failures │ timeouts │ drops │ p50   │ p95   │ p99   │ max   │
+├─────────┼──────────────────────────────────────────┼──────────────┼──────────────┼─────────────┼──────────────────┼──────────┼──────────┼───────┼───────┼───────┼───────┼───────┤
+│ 0       │ 'workspace_query_latency_ms'             │ 20           │ 200          │ 1           │ false            │ 0        │ 0        │ 0     │ 1.825 │ 2.405 │ 2.631 │ 2.679 │
+│ 1       │ 'workspace_command_latency_ms'           │ 20           │ 200          │ 1           │ false            │ 0        │ 0        │ 0     │ 2.265 │ 2.84  │ 3.298 │ 3.556 │
+│ 2       │ 'legacy_graph_workspace_read_latency_ms' │ 20           │ 200          │ 1           │ false            │ 0        │ 0        │ 0     │ 1.743 │ 2.343 │ 2.523 │ 2.761 │
+│ 3       │ 'context_plan_latency_ms'                │ 20           │ 200          │ 1           │ false            │ 0        │ 0        │ 0     │ 1.966 │ 2.892 │ 3.146 │ 3.294 │
+│ 4       │ 'stream_chat_commit_latency_ms'          │ 20           │ 200          │ 1           │ false            │ 0        │ 0        │ 0     │ 4.414 │ 5.382 │ 6.133 │ 7.068 │
+└─────────┴──────────────────────────────────────────┴──────────────┴──────────────┴─────────────┴──────────────────┴──────────┴──────────┴───────┴───────┴───────┴───────┴───────┘
+fixture registry sha256:372cb0d86406e53beb19c00a211ff8116da581b34cb05d3aa28c055e1d978dc0; characterization 13/13

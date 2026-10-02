@@ -1,0 +1,196 @@
+{
+  "schemaVersion": "1.0.0",
+  "surface": "RHIZA production App/ProviderSettings with isolated in-memory API responses",
+  "network": "no backend/model requests",
+  "cases": [
+    {
+      "caseName": "healthy",
+      "screenName": "desktop",
+      "marker": "RHIZA · 固定视觉样本 healthy · ready · 已阻止 0 次非样本请求",
+      "metrics": {
+        "dialog": 960,
+        "document": 1440,
+        "formDisabled": false,
+        "keyValue": "",
+        "viewport": 1440
+      },
+      "screenshot": "provider-healthy-desktop.jpg"
+    },
+    {
+      "caseName": "degraded",
+      "screenName": "desktop",
+      "marker": "RHIZA · 固定视觉样本 degraded · ready · 已阻止 0 次非样本请求",
+      "metrics": {
+        "dialog": 960,
+        "document": 1440,
+        "formDisabled": false,
+        "keyValue": "",
+        "viewport": 1440
+      },
+      "screenshot": "provider-degraded-desktop.jpg"
+    },
+    {
+      "caseName": "invalid-key",
+      "screenName": "desktop",
+      "marker": "RHIZA · 固定视觉样本 invalid-key · ready · 已阻止 0 次非样本请求",
+      "metrics": {
+        "dialog": 960,
+        "document": 1440,
+        "formDisabled": false,
+        "keyValue": "",
+        "viewport": 1440
+      },
+      "screenshot": "provider-invalid-key-desktop.jpg"
+    },
+    {
+      "caseName": "loading",
+      "screenName": "desktop",
+      "marker": "RHIZA · 固定视觉样本 loading · loading · 已阻止 0 次非样本请求",
+      "metrics": {
+        "dialog": 960,
+        "document": 1440,
+        "formDisabled": true,
+        "keyValue": "",
+        "viewport": 1440
+      },
+      "screenshot": "provider-loading-desktop.jpg"
+    },
+    {
+      "caseName": "empty",
+      "screenName": "desktop",
+      "marker": "RHIZA · 固定视觉样本 empty · ready · 已阻止 0 次非样本请求",
+      "metrics": {
+        "dialog": 960,
+        "document": 1440,
+        "formDisabled": false,
+        "keyValue": "",
+        "viewport": 1440
+      },
+      "screenshot": "provider-empty-desktop.jpg"
+    },
+    {
+      "caseName": "error",
+      "screenName": "desktop",
+      "marker": "RHIZA · 固定视觉样本 error · error · 已阻止 0 次非样本请求",
+      "metrics": {
+        "dialog": 960,
+        "document": 1440,
+        "formDisabled": false,
+        "keyValue": "",
+        "viewport": 1440
+      },
+      "screenshot": "provider-error-desktop.jpg"
+    },
+    {
+      "caseName": "saved",
+      "screenName": "desktop",
+      "marker": "RHIZA · 固定视觉样本 saved · saved · 已阻止 0 次非样本请求",
+      "metrics": {
+        "dialog": 960,
+        "document": 1440,
+        "formDisabled": false,
+        "keyValue": "",
+        "viewport": 1440
+      },
+      "screenshot": "provider-saved-desktop.jpg"
+    },
+    {
+      "caseName": "healthy",
+      "screenName": "narrow",
+      "marker": "RHIZA · 固定视觉样本 healthy · ready · 已阻止 0 次非样本请求",
+      "metrics": {
+        "dialog": 390,
+        "document": 390,
+        "formDisabled": false,
+        "height": 844,
+        "keyValue": "",
+        "viewport": 390
+      },
+      "screenshot": "provider-healthy-narrow.jpg"
+    },
+    {
+      "caseName": "degraded",
+      "screenName": "narrow",
+      "marker": "RHIZA · 固定视觉样本 degraded · ready · 已阻止 0 次非样本请求",
+      "metrics": {
+        "dialog": 390,
+        "document": 390,
+        "formDisabled": false,
+        "height": 844,
+        "keyValue": "",
+        "viewport": 390
+      },
+      "screenshot": "provider-degraded-narrow.jpg"
+    },
+    {
+      "caseName": "invalid-key",
+      "screenName": "narrow",
+      "marker": "RHIZA · 固定视觉样本 invalid-key · ready · 已阻止 0 次非样本请求",
+      "metrics": {
+        "dialog": 390,
+        "document": 390,
+        "formDisabled": false,
+        "height": 844,
+        "keyValue": "",
+        "viewport": 390
+      },
+      "screenshot": "provider-invalid-key-narrow.jpg"
+    },
+    {
+      "caseName": "loading",
+      "screenName": "narrow",
+      "marker": "RHIZA · 固定视觉样本 loading · loading · 已阻止 0 次非样本请求",
+      "metrics": {
+        "dialog": 390,
+        "document": 390,
+        "formDisabled": true,
+        "height": 844,
+        "keyValue": "",
+        "viewport": 390
+      },
+      "screenshot": "provider-loading-narrow.jpg"
+    },
+    {
+      "caseName": "empty",
+      "screenName": "narrow",
+      "marker": "RHIZA · 固定视觉样本 empty · ready · 已阻止 0 次非样本请求",
+      "metrics": {
+        "dialog": 390,
+        "document": 390,
+        "formDisabled": false,
+        "height": 844,
+        "keyValue": "",
+        "viewport": 390
+      },
+      "screenshot": "provider-empty-narrow.jpg"
+    },
+    {
+      "caseName": "error",
+      "screenName": "narrow",
+      "marker": "RHIZA · 固定视觉样本 error · error · 已阻止 0 次非样本请求",
+      "metrics": {
+        "dialog": 390,
+        "document": 390,
+        "formDisabled": false,
+        "height": 844,
+        "keyValue": "",
+        "viewport": 390
+      },
+      "screenshot": "provider-error-narrow.jpg"
+    },
+    {
+      "caseName": "saved",
+      "screenName": "narrow",
+      "marker": "RHIZA · 固定视觉样本 saved · saved · 已阻止 0 次非样本请求",
+      "metrics": {
+        "dialog": 390,
+        "document": 390,
+        "formDisabled": false,
+        "height": 844,
+        "keyValue": "",
+        "viewport": 390
+      },
+      "screenshot": "provider-saved-narrow.jpg"
+    }
+  ]
+}

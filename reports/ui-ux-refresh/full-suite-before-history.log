@@ -1,7 +1,7 @@
 $ pnpm run test:unit && pnpm run test:e2e
 $ vitest run --exclude 'e2e/**' --maxWorkers=1 --testTimeout=30000
 
- RUN  v4.1.10 /Users/wangdongxin/projects/RHIZA
+ RUN  v4.1.10 .
 
 
  Test Files  118 passed (118)
@@ -11,7 +11,7 @@ $ vitest run --exclude 'e2e/**' --maxWorkers=1 --testTimeout=30000
 
 $ vitest run e2e --maxWorkers=1 --testTimeout=30000
 
- RUN  v4.1.10 /Users/wangdongxin/projects/RHIZA
+ RUN  v4.1.10 .
 
 
  Test Files  31 passed | 2 skipped (33)

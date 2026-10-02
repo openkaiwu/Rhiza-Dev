@@ -1,6 +1,6 @@
 # Rhiza UI/UX 实屏验收
 
-实现位置：`/Users/wangdongxin/projects/RHIZA`，运行页面为 http://127.0.0.1:4173 。已直接访问并操作 http://127.0.0.1:4175/preview.html，沿用其紧凑工作台、分层阅读和柔和语义配色，按生产组件与真实行为调整。此报告覆盖本轮 UI 改造，不代表 M15–M18 的全部里程碑验收。
+实现位置：`.`，运行页面为 http://127.0.0.1:4173 。已直接访问并操作 http://127.0.0.1:4175/preview.html，沿用其紧凑工作台、分层阅读和柔和语义配色，按生产组件与真实行为调整。此报告覆盖本轮 UI 改造，不代表 M15–M18 的全部里程碑验收。
 
 ## 改造与验证
 
@@ -41,3 +41,13 @@
 - [设置](15-settings-desktop.jpg) / [数据](16-data-desktop.jpg)
 
 截图均来自实际应用。浏览器验证使用现有本地验收记录，没有新发起真实外部模型调用，也没有做完整辅助技术或 WCAG 合规认证。API、持久化、鉴权、迁移与模型协议保持原有边界。
+
+## Provider 固定状态与协作预算补充验收
+
+沿用 ui-ux-design-suite 已批准紧凑方向，对正式 App/ProviderSettings 使用七种固定内存响应：healthy、degraded、invalid-key、loading、empty、error、saved。主桌面1440×900与窄屏390×844均已检查，范围内 visual verdict = PASS。加载、冲突和保存成功从真实组件操作产生；样本不用真实存储、密钥或后端。具体尺寸、状态和截图见 [机器记录](provider-state-evidence.json)。
+
+窄屏发现并修复：后加载的桌面规则覆盖了纵向布局；22px backdrop 与100vw面板导致裁切；全局 ghost-button 隐藏误伤获取模型与目录同步。修复仅限 Provider 的窄屏组合：全屏弹窗、有限高度供应商列表、单列表单、操作换行、长模型名/ID折行。确认面板范围0–390px、目录无横向溢出、保存/获取模型/批量同步可见，收藏/置顶仍可达。见 [修复前](provider-healthy-narrow-before.jpg)、[表单](provider-healthy-narrow.jpg)、[长目录](provider-models-narrow.jpg)、[无效密钥](provider-invalid-key-detail-narrow.jpg)、[空目录](provider-empty-detail-narrow.jpg)、[保存冲突](provider-error-narrow.jpg)、[保存成功](provider-saved-narrow.jpg)。桌面规则未变。
+
+协作仍在当前对话中：选择2模型、第二意见、8k Token/30秒，完成综合意见后纳入原讨论，再发送后续消息。冻结记录和后续Run输入证明预算已保存、截止时间不重置、纳入消息进入后续历史；刷新后内部输出支线不作为侧栏入口。见 [桌面预算](collaboration-budget-controls-desktop.jpg)、[窄屏预算](collaboration-budget-controls-narrow.jpg)、[纳入结果](collaboration-budget-retained-narrow.jpg)、[继续对话](collaboration-budget-continued-narrow.jpg)。使用隔离 encrypted PGlite 与离线固定 Runtime；不是 live-provider质量证据。
+
+本次定向组件回归9项通过，受影响eslint、typecheck/build通过；完整G0本地命令通过。未重跑无变化全测试或性能采样。其余四模式/Stop/预算耗尽、Bundle/backup/Graph完整固定状态、完整辅助技术与外部正式Gate仍待验。

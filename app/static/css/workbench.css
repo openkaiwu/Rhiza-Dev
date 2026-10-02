@@ -380,7 +380,33 @@
   .collaboration-heading-actions { gap: 2px; }
   .collaboration-card > footer { align-items: flex-start; padding: 10px; }
   .collaboration-models { grid-template-columns: 1fr; }
-  .workbench-shell .provider-settings { width: 100vw; }
+  .workbench-shell .settings-backdrop { padding: 0; place-items: stretch; }
+  .workbench-shell .provider-settings { width: 100%; max-width: 100%; height: 100dvh; max-height: none; border: 0; border-radius: 0; }
+  .workbench-shell .provider-settings .settings-header { flex-shrink: 0; padding-inline: 15px; }
+  .workbench-shell .provider-settings .settings-header > div { min-width: 0; }
+  .workbench-shell .provider-settings .settings-header > button { flex-shrink: 0; }
+  .workbench-shell .provider-settings .settings-body { display: flex; flex-direction: column; overflow-y: auto; }
+  .workbench-shell .provider-settings .provider-list { display: flex; align-items: flex-start; flex: 0 0 auto; gap: 6px; max-height: 136px; padding: 9px; border-right: 0; border-bottom: 1px solid var(--line); overflow: auto; }
+  .workbench-shell .provider-settings .provider-list-title { flex: 0 0 32px; min-height: 40px; padding: 0; align-items: center; justify-content: center; }
+  .workbench-shell .provider-settings .provider-list-title > span { display: none; }
+  .workbench-shell .provider-settings .provider-row { flex: 0 0 200px; width: auto; min-width: 140px; align-self: flex-start; }
+  .workbench-shell .provider-settings .provider-row > span:last-child { min-width: 0; }
+  .workbench-shell .provider-settings .provider-row strong { overflow-wrap: anywhere; }
+  .workbench-shell .provider-settings .settings-main { flex: 0 0 auto; padding: 10px; overflow: visible; }
+  .workbench-shell .provider-settings .field-grid { grid-template-columns: minmax(0, 1fr); }
+  .workbench-shell .provider-settings .field-grid > label { min-width: 0; }
+  .workbench-shell .provider-settings .field-grid .wide { grid-column: auto; }
+  .workbench-shell .provider-settings .field-grid input:not([type="checkbox"]) { font-size: 16px; }
+  .workbench-shell .provider-settings .form-actions { flex-wrap: wrap; }
+  .workbench-shell .provider-settings .form-actions > button { min-height: 36px; }
+  .workbench-shell .provider-settings .form-actions > .ghost-button, .workbench-shell .provider-settings .provider-batch-actions > .ghost-button { display: inline-flex; }
+  .workbench-shell .provider-settings .settings-notice { flex-basis: 100%; margin-left: 0; overflow-wrap: anywhere; }
+  .workbench-shell .provider-settings .model-table { max-height: none; overflow: visible; }
+  .workbench-shell .provider-settings .model-row { grid-template-columns: minmax(0, 1fr) 34px 34px; }
+  .workbench-shell .provider-settings .model-main { min-width: 0; grid-template-columns: 25px minmax(0, 1fr); }
+  .workbench-shell .provider-settings .model-main > span:last-child { min-width: 0; }
+  .workbench-shell .provider-settings .model-main strong, .workbench-shell .provider-settings .model-main small { white-space: normal; overflow-wrap: anywhere; }
+  .workbench-shell .provider-settings .provider-health-notice { overflow-wrap: anywhere; }
   .workbench-shell .state-grid { grid-template-columns: 1fr; padding-inline: 14px; }
   .workbench-shell .activity-timeline { margin: 14px; }
   .record-toolbar { padding: 10px 14px; gap: 8px; }

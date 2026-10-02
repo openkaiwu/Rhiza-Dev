@@ -1,5 +1,5 @@
 
- RUN  v4.1.10 /Users/wangdongxin/projects/RHIZA
+ RUN  v4.1.10 .
 
  ❯ src/components/AppShell.test.tsx (4 tests | 1 failed | 3 skipped) 68ms
    × closes the sidebar after navigation but leaves tree expansion inside the drawer 66ms

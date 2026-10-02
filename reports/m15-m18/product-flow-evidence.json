@@ -4,35 +4,116 @@
   "recordedAt": "2026-10-02T21:17:20.297766+00:00",
   "branch": "update1002",
   "parentCommit": "25be2b5463106f087059c7b68f2b8abd284686f3",
-  "sourceSha256": {
-    "app/static/css/workbench.css": "d354f6be844f93dfb858a23406d28a4c664081fea25c64240900bb32d4e311a2",
-    "src/App.test.tsx": "028509857a2f9e4dfd1b401d28dc3abcb7ee5088fc2efafd85a5379db8e3bd2f",
-    "src/App.tsx": "df8f00f78ac9a7a7777c0b60b013dbc1569cbb66a90efabbc709196485d3267d",
-    "src/api.test.ts": "223c52396212b589d3ede15b8bcf94d72617162b57fb667564d0affa2839f81c",
-    "src/api.ts": "e70503f73d5e93177f4ddd21c48ca80fb8bbd8fbc25b3eeda0ccd375e4c7289a",
-    "src/components/ActivityView.test.tsx": "bff2a4220f5a665fd518621560bb2dfe0958e6162b80b7527c1d2a214d8e6cc4",
-    "src/components/ActivityView.tsx": "e38e9894cbc089612c601bd2aabeec88c8cac6c41d75a242ebbb34fedc78aaec",
-    "src/components/AppShell.test.tsx": "43ecdc7df2406d40fe8108d0684b05052102c317692696d25381751d5aed9de1",
-    "src/components/AppShell.tsx": "bd357b185d5ad82fe453a1267a5a80988faf0fe9c3b3c0f82109fde9e0eac4a7",
-    "src/components/BundleControls.test.tsx": "fde8411e27a44d3e0a8489f52e44b9ca98c174977419436624a2552651867dd1",
-    "src/components/BundleControls.tsx": "f928e63bd110c8a7e607d30eb4c535999f10eca1e8cb0f781e6bcc82d262e9e4",
-    "src/components/ChatView.tsx": "77c2c2fcfa58e47f1523af139941c8d6d4dc1284506fb1768440aa48889391fb",
-    "src/components/CollaborationCard.test.tsx": "069324cf48d828c6dc2958127c95af77b225f41852689856c73006f683716a94",
-    "src/components/CollaborationCard.tsx": "4e476b795319a711c7f1a43666d17e665eca05e431326b1610446a93475de4cb",
-    "src/components/DisclosureMenu.test.tsx": "18bcf52a1a6249cc8f2f63c5de2b895a59d266c28cb521494f1d9589c4967131",
-    "src/components/DisclosureMenu.tsx": "a63d11d4fb0bf4ac820f19ba42e397e62e73584f3d13f664ddf151b6b764c620",
-    "src/components/GraphView.test.tsx": "4f3069d221845ff9399fde1793d068d1c6d3679c04749f557416a44577364002",
-    "src/components/GraphView.tsx": "294d393a686856b8758a7a8d8aa49894dfa36c03df50ed4be728efe85b314139",
-    "src/components/ProviderSettings.test.tsx": "6c370631b1a567b85bf8bc00175bf5e77a84a711a0db759ae4c52b2e04d987f9",
-    "src/components/ProviderSettings.tsx": "2ef52554f6bcd5601a2bda3c7764fca3db0958d9d48b7c8a365b8d4da6c3f2b7",
-    "src/components/RunHistory.test.tsx": "007fe79882678e0b003d71c15353ffdaacc1dc3e0d0ff788bda949b9b8a45ff0",
-    "src/components/RunHistory.tsx": "704a7d698f15b27d141f075a77a5521688c94aed4d2a9c1f070a03190b28cbd5",
-    "src/components/Sidebar.tsx": "dfc52fd20d2a6b61a92e610e98ab2af49580ce24dd9eb0cd33b3286a62e4785c",
-    "src/components/graph-viewport.test.ts": "9240fe346ad27dbaa997e3f288ea6aa546ebc826bdb073be79701e79834cea24",
-    "src/components/graph-viewport.ts": "fa023c412edccf126716863008125cb0bdc42595840ce7fab9c85b59027c7c05",
-    "src/components/message-display.test.ts": "a792d3adc53a2558f665e223b57ee6d6fa050b3f202263ff9853ec509785bab3",
-    "src/components/message-display.ts": "5b1daebd38424f4cccbdaa9f770573856ad1865ac270ec6378abf9d52001bff8"
-  },
+  "sourceSha256": [
+    {
+      "sha256": "d354f6be844f93dfb858a23406d28a4c664081fea25c64240900bb32d4e311a2",
+      "path": "app/static/css/workbench.css"
+    },
+    {
+      "sha256": "028509857a2f9e4dfd1b401d28dc3abcb7ee5088fc2efafd85a5379db8e3bd2f",
+      "path": "src/App.test.tsx"
+    },
+    {
+      "sha256": "df8f00f78ac9a7a7777c0b60b013dbc1569cbb66a90efabbc709196485d3267d",
+      "path": "src/App.tsx"
+    },
+    {
+      "sha256": "223c52396212b589d3ede15b8bcf94d72617162b57fb667564d0affa2839f81c",
+      "path": "src/api.test.ts"
+    },
+    {
+      "sha256": "e70503f73d5e93177f4ddd21c48ca80fb8bbd8fbc25b3eeda0ccd375e4c7289a",
+      "path": "src/api.ts"
+    },
+    {
+      "sha256": "bff2a4220f5a665fd518621560bb2dfe0958e6162b80b7527c1d2a214d8e6cc4",
+      "path": "src/components/ActivityView.test.tsx"
+    },
+    {
+      "sha256": "e38e9894cbc089612c601bd2aabeec88c8cac6c41d75a242ebbb34fedc78aaec",
+      "path": "src/components/ActivityView.tsx"
+    },
+    {
+      "sha256": "43ecdc7df2406d40fe8108d0684b05052102c317692696d25381751d5aed9de1",
+      "path": "src/components/AppShell.test.tsx"
+    },
+    {
+      "sha256": "bd357b185d5ad82fe453a1267a5a80988faf0fe9c3b3c0f82109fde9e0eac4a7",
+      "path": "src/components/AppShell.tsx"
+    },
+    {
+      "sha256": "fde8411e27a44d3e0a8489f52e44b9ca98c174977419436624a2552651867dd1",
+      "path": "src/components/BundleControls.test.tsx"
+    },
+    {
+      "sha256": "f928e63bd110c8a7e607d30eb4c535999f10eca1e8cb0f781e6bcc82d262e9e4",
+      "path": "src/components/BundleControls.tsx"
+    },
+    {
+      "sha256": "77c2c2fcfa58e47f1523af139941c8d6d4dc1284506fb1768440aa48889391fb",
+      "path": "src/components/ChatView.tsx"
+    },
+    {
+      "sha256": "069324cf48d828c6dc2958127c95af77b225f41852689856c73006f683716a94",
+      "path": "src/components/CollaborationCard.test.tsx"
+    },
+    {
+      "sha256": "4e476b795319a711c7f1a43666d17e665eca05e431326b1610446a93475de4cb",
+      "path": "src/components/CollaborationCard.tsx"
+    },
+    {
+      "sha256": "18bcf52a1a6249cc8f2f63c5de2b895a59d266c28cb521494f1d9589c4967131",
+      "path": "src/components/DisclosureMenu.test.tsx"
+    },
+    {
+      "sha256": "a63d11d4fb0bf4ac820f19ba42e397e62e73584f3d13f664ddf151b6b764c620",
+      "path": "src/components/DisclosureMenu.tsx"
+    },
+    {
+      "sha256": "4f3069d221845ff9399fde1793d068d1c6d3679c04749f557416a44577364002",
+      "path": "src/components/GraphView.test.tsx"
+    },
+    {
+      "sha256": "294d393a686856b8758a7a8d8aa49894dfa36c03df50ed4be728efe85b314139",
+      "path": "src/components/GraphView.tsx"
+    },
+    {
+      "sha256": "6c370631b1a567b85bf8bc00175bf5e77a84a711a0db759ae4c52b2e04d987f9",
+      "path": "src/components/ProviderSettings.test.tsx"
+    },
+    {
+      "sha256": "2ef52554f6bcd5601a2bda3c7764fca3db0958d9d48b7c8a365b8d4da6c3f2b7",
+      "path": "src/components/ProviderSettings.tsx"
+    },
+    {
+      "sha256": "007fe79882678e0b003d71c15353ffdaacc1dc3e0d0ff788bda949b9b8a45ff0",
+      "path": "src/components/RunHistory.test.tsx"
+    },
+    {
+      "sha256": "704a7d698f15b27d141f075a77a5521688c94aed4d2a9c1f070a03190b28cbd5",
+      "path": "src/components/RunHistory.tsx"
+    },
+    {
+      "sha256": "dfc52fd20d2a6b61a92e610e98ab2af49580ce24dd9eb0cd33b3286a62e4785c",
+      "path": "src/components/Sidebar.tsx"
+    },
+    {
+      "sha256": "9240fe346ad27dbaa997e3f288ea6aa546ebc826bdb073be79701e79834cea24",
+      "path": "src/components/graph-viewport.test.ts"
+    },
+    {
+      "sha256": "fa023c412edccf126716863008125cb0bdc42595840ce7fab9c85b59027c7c05",
+      "path": "src/components/graph-viewport.ts"
+    },
+    {
+      "sha256": "a792d3adc53a2558f665e223b57ee6d6fa050b3f202263ff9853ec509785bab3",
+      "path": "src/components/message-display.test.ts"
+    },
+    {
+      "sha256": "5b1daebd38424f4cccbdaa9f770573856ad1865ac270ec6378abf9d52001bff8",
+      "path": "src/components/message-display.ts"
+    }
+  ],
   "runtime": {
     "frontend": "http://127.0.0.1:4173",
     "storage": "isolated encrypted PGlite",

@@ -46,6 +46,24 @@
       "endLine": 39,
       "sourceBlobDigest": "1ee48505fef9cec7e4848bf9699bf63c6b035e19d2fd7ece08c5a1db274c639d",
       "kind": "public-config-assignment"
+    },
+    {
+      "ruleRef": "9d881e62cdea6c933acbed58dcbaab2c1b6738e906169d00d1de1427ab34a4f9",
+      "fileRef": "73df6f53901add2b839da4d61f1807b6d4c2957ebd0719ca22c46bf820e3fdf1",
+      "commit": "d62e2d87779d48525e30c028e1a5481c5fd9710c",
+      "line": 11,
+      "endLine": 11,
+      "sourceBlobDigest": "b8caf95db0597a3c84d96fa60c3eb1501b19919292b6ab1027b92f0457d36e6c",
+      "kind": "public-config-assignment"
+    },
+    {
+      "ruleRef": "9d881e62cdea6c933acbed58dcbaab2c1b6738e906169d00d1de1427ab34a4f9",
+      "fileRef": "73df6f53901add2b839da4d61f1807b6d4c2957ebd0719ca22c46bf820e3fdf1",
+      "commit": "d62e2d87779d48525e30c028e1a5481c5fd9710c",
+      "line": 12,
+      "endLine": 12,
+      "sourceBlobDigest": "b8caf95db0597a3c84d96fa60c3eb1501b19919292b6ab1027b92f0457d36e6c",
+      "kind": "public-config-assignment"
     }
   ]
 }

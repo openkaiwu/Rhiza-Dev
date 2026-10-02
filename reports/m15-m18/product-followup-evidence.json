@@ -1,0 +1,136 @@
+{
+  "schemaVersion": "1.0.0",
+  "scope": "collaboration_budget_and_provider_state_followup",
+  "branch": "update1002",
+  "parentCommit": "d62e2d87779d48525e30c028e1a5481c5fd9710c",
+  "recordedAt": "2026-10-02T21:40:41.500841+00:00",
+  "sourceSha256": [
+    {
+      "sha256": "227f3752f6d485c2aa29c5bd3339f3e4ab5ede46f63186220b3fb44ebe195d3d",
+      "path": "src/types.ts"
+    },
+    {
+      "sha256": "9895b5ef08eb91efc5481dc3104955c73acd2ba044522d40b2355c3a9dc0a0d8",
+      "path": "src/components/CollaborationCard.tsx"
+    },
+    {
+      "sha256": "d7a475714558f942adb42cee4f44e4c02d1c66740111a9198f4b97d55a562785",
+      "path": "src/components/CollaborationCard.test.tsx"
+    },
+    {
+      "sha256": "c06ac49278b3d2a88b4fd30c308c411705cde30d4422943f440015cb95e9edab",
+      "path": "src/test/m16-provider-visual.tsx"
+    },
+    {
+      "sha256": "40bc852a99fa8fd4176945d6847c04ffc6315c8a86e18997625a84cbf5f7b714",
+      "path": "scripts/fixtures/m16-provider.html"
+    },
+    {
+      "sha256": "1a3f3b2aa443161af1bf467903a49fd0a2d13e3724ec7fcd9b06d27c35862da0",
+      "path": "app/static/css/workbench.css"
+    },
+    {
+      "sha256": "a8ff4018b2470277de0688c45b3e2ce336344ae0c268623940ae44022f7cd812",
+      "path": "tools/security-history-reviews.json"
+    }
+  ],
+  "checks": {
+    "collaborationBudget": {
+      "command": "pnpm exec vitest run src/components/CollaborationCard.test.tsx --maxWorkers=1 --testTimeout=30000",
+      "exitCode": 0,
+      "passed": 9,
+      "log": "collaboration-budget-check.log"
+    },
+    "lint": {
+      "command": "pnpm exec eslint src/types.ts src/components/CollaborationCard.tsx src/components/CollaborationCard.test.tsx src/test/m16-provider-visual.tsx",
+      "exitCode": 0,
+      "log": "provider-budget-lint.log"
+    },
+    "build": {
+      "command": "pnpm run build",
+      "includes": "typecheck",
+      "exitCode": 0,
+      "finalNarrowStylesPresentInBuiltAsset": true,
+      "log": "provider-budget-build.log"
+    },
+    "fullLocalG0": {
+      "command": "pnpm run verify:g0",
+      "exitCode": 0,
+      "architecturePassed": 84,
+      "characterizationPassed": 13,
+      "metrics": 5,
+      "samplesEach": 200,
+      "failures": 0,
+      "timeouts": 0,
+      "drops": 0,
+      "environment": "Node.js 22.22.2/macOS JSON fixture",
+      "baselineRewritten": false,
+      "comparableM17OrFrozenCIPerformance": false,
+      "log": "g0-local-check.log"
+    },
+    "m16InitialAggregate": {
+      "command": "pnpm --silent run m16:checks",
+      "exitCode": 1,
+      "result": "m16-engineering-checks.json",
+      "groupsPassed": [
+        "providers",
+        "collaboration",
+        "backups",
+        "portability"
+      ],
+      "failedGroup": "security"
+    },
+    "securityScopedRepair": {
+      "command": "pnpm run security:scan",
+      "exitCode": 0,
+      "findingCount": 7,
+      "reviewedFindingCount": 7,
+      "unreviewedFindingCount": 0,
+      "reason": "Two public source SHA256 values verified against immutable Git blobs; exact historical reviews only. Scanner, rules and history unchanged.",
+      "log": "security-history-followup.log"
+    },
+    "m17Aggregate": {
+      "command": "pnpm --silent run m17:checks",
+      "exitCode": 1,
+      "result": "m17-engineering-checks.json",
+      "groupsPassed": [
+        "recovery",
+        "stream_faults",
+        "run_faults",
+        "storage_faults"
+      ],
+      "failedGroup": "performance",
+      "benchmarkRerun": false
+    }
+  },
+  "browser": {
+    "providerStates": "../ui-ux-refresh/provider-state-evidence.json",
+    "fixedCases": 7,
+    "viewportVariants": 2,
+    "visualVerdict": "PASS for the stated fixed Provider states after scoped narrow-layout corrections",
+    "providerFixture": "production App/ProviderSettings; in-memory API and storage; fake endpoints; no backend requests or secrets",
+    "collaborationFlow": "collaboration-budget-browser-proof.json",
+    "desktopViewport": {
+      "width": 1280,
+      "height": 720
+    },
+    "narrowViewport": {
+      "width": 390,
+      "height": 844
+    },
+    "refreshKeepsCollaborationInline": true,
+    "finalProductViewportRestored": true
+  },
+  "formalGate": {
+    "status": "pending",
+    "unverified": [
+      "complete collaboration four-mode/state/Stop/exhaustion visual fixtures",
+      "remaining Bundle/backup/Graph fixed-state visual acceptance",
+      "comparable G0 baseline",
+      "M17 Command p95 budget",
+      "live provider quality/authentication",
+      "production staging/recovery/retention expiry",
+      "long observation/dogfood/new users"
+    ]
+  }
+}

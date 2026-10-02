@@ -1,5 +1,5 @@
 
- RUN  v4.1.10 /Users/wangdongxin/projects/RHIZA
+ RUN  v4.1.10 .
 
  ❯ src/components/RunHistory.test.tsx (9 tests | 2 failed | 7 skipped) 1031ms
    × filters recent runs while keeping the exact focused run and its recovery actions reachable 1023ms

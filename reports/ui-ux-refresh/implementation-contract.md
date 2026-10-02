@@ -4,7 +4,7 @@ The user requests a modern, simple, attractive and space-efficient product UI, u
 
 ## Current evidence and scope
 
-Live application: http://127.0.0.1:4173, served by /Users/wangdongxin/projects/RHIZA. The chat's ff9d checkout predates these features; it is not the implementation target. Existing uncommitted application/resource work is preserved.
+Live application: http://127.0.0.1:4173, served by .. The chat's ff9d checkout predates these features; it is not the implementation target. Existing uncommitted application/resource work is preserved.
 
 - P1: three stacked navigation/header bands reduce the reading area. Use a single shell title bar and disclose location/management actions.
 - P1: workspace management and repeated path metadata dominate the sidebar. Disclose workspace management; retain navigation, switching and recovery.

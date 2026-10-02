@@ -263,7 +263,7 @@ export interface ProvenanceLink {
 }
 
 export type CollaborationMode = 'independent-review' | 'peer-review' | 'debate' | 'second-opinion';
-export interface CollaborationInput { prompt: string; mode: CollaborationMode; modelIds: string[]; synthesisModelId: string; attachmentIds: string[]; maxRounds: number }
+export interface CollaborationInput { prompt: string; mode: CollaborationMode; modelIds: string[]; synthesisModelId: string; attachmentIds: string[]; maxRounds: number; tokenLimit?: number; timeLimitMs?: number }
 export interface CollaborationAttempt { id: string; participantId: string; round: number; attempt: number; status: 'running' | 'completed' | 'failed' | 'canceled' | 'interrupted'; runRef: string; manifestRef: string; outputRef?: string; text?: string; errorCode?: string }
 export interface CollaborationRecord {
   id: string; workspaceId: string; nodeId: string; revision: number; mode: CollaborationMode;

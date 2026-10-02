@@ -1,0 +1,29 @@
+{
+  "storage": "isolated encrypted PGlite",
+  "runtime": "offline fixed responses",
+  "externalModelCalls": false,
+  "collaborationId": "ed0d2ec8-0d33-400b-8b2f-48ffd3cffdd6",
+  "initiatingConversationId": "d1b920c5-1ff0-5379-8382-29e269a596cc",
+  "collaborationOutputNodeId": "193a3bbd-c9d2-44f8-b086-a13fec08dbf2",
+  "continuedRunId": "a2d3cd70-adae-428c-8639-c057954472b8",
+  "budget": {
+    "tokenLimit": 8000,
+    "deadlineAt": "2026-10-02T21:37:51.791Z",
+    "maxRounds": 1,
+    "usedTokens": 60
+  },
+  "checks": {
+    "collaborationCompleted": true,
+    "tokenLimit8000": true,
+    "deadlineFrozen30Seconds": true,
+    "attemptsCompleted": true,
+    "retainedOutputUsedByContinuedChat": true,
+    "continuedChatCompleted": true,
+    "continuedInOriginalConversation": true
+  },
+  "originalFailedFixture": {
+    "collaborationId": "be1908af-b079-4d83-8a68-889a031c56ed",
+    "result": "preserved; fixture scoped to default Workspace and produced invalid synthesis before commit",
+    "corrected": "fixture reads RuntimeRequest.projectId; production code unchanged"
+  }
+}
