@@ -103,9 +103,10 @@
     "m17:performance:status": "tsx scripts/m17-performance-status.ts",
     "security:install": "tsx scripts/security/gitleaks.ts install",
     "security:scan": "tsx scripts/security/gitleaks.ts git .",
-    "security:export": "tsx scripts/security/gitleaks.ts dir",
+    "security:export": "tsx scripts/security/export-scan.ts",
     "security:fixtures": "tsx scripts/security/positive-fixtures.ts",
-    "security:checks": "pnpm vitest run scripts/security/gitleaks.test.ts --maxWorkers=1 && pnpm run security:fixtures && pnpm run security:scan"
+    "security:export:fixtures": "tsx scripts/security/export-fixtures.ts",
+    "security:checks": "pnpm vitest run scripts/security/gitleaks.test.ts scripts/security/export-scan.test.ts server/infrastructure/portable-export-security.test.ts --maxWorkers=1 && pnpm run security:fixtures && pnpm run security:export:fixtures && pnpm run security:scan"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",

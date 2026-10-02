@@ -45,7 +45,7 @@ function manifest(value: ContextManifest): ContextManifest {
 export function stripOperationalMetadata(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripOperationalMetadata);
   if (!value || typeof value !== 'object') return value;
-  return portableBlobReference(Object.fromEntries(Object.entries(value).filter(([key]) => !/^(?:.*(?:secret|credential|password|oauth|apikey|authorization).*|originmetadata|annotations|metadata|endpoint|baseurl|headers|extraheaders|hostdescriptor|absolutepath|filepath|gitremote|username|__proto__|constructor|prototype)$/i.test(key.replaceAll('_', '').replaceAll('-', '')))
+  return portableBlobReference(Object.fromEntries(Object.entries(value).filter(([key]) => !/^(?:.*(?:secret|credential|password|oauth|apikey|authorization).*|(?:access|refresh|auth|bearer|session)token|originmetadata|annotations|metadata|endpoint|baseurl|headers|extraheaders|hostdescriptor|path|absolutepath|filepath|location|geolocation|latitude|longitude|gitremote|username|__proto__|constructor|prototype)$/i.test(key.replaceAll('_', '').replaceAll('-', '')))
     .map(([key, item]) => [key, ['logicalName', 'name'].includes(key) && typeof item === 'string' ? portableName(item) : stripOperationalMetadata(item)])));
 }
 
@@ -87,13 +87,20 @@ export function portableWorkspaceFacts(source: PortableWorkspaceFacts, hash: (in
       actor: select(event.actor, ['actorType', 'actorId']), scope: select(event.scope, ['scopeType', 'scopeId']), payload: stripOperationalMetadata(event.payload) as typeof event.payload })),
   });
   let state: Record<string, unknown> | undefined;
-  for (const event of result.journal) {
+  let originalState: Record<string, unknown> | undefined;
+  for (const [index, event] of result.journal.entries()) {
+    const originalPayload = source.journal[index].payload;
+    const originalSnapshot = originalPayload.snapshot as { state?: Record<string, unknown> } | undefined;
+    if (originalSnapshot?.state) originalState = structuredClone(originalSnapshot.state);
+    if (originalState && originalPayload.stateChanges) applySemanticChanges(originalState, originalPayload.stateChanges as Record<string, unknown>);
     const snapshot = event.payload.snapshot as { state?: Record<string, unknown> } | undefined;
     if (snapshot?.state) state = structuredClone(snapshot.state);
     if (state) {
       if (event.payload.stateChanges) applySemanticChanges(state, event.payload.stateChanges as Record<string, unknown>);
       const checksum = hash(state);
-      if (event.payload.portableStateChecksum !== undefined && event.payload.portableStateChecksum !== checksum) throw bundleError('BUNDLE_EVENT_STATE_MISMATCH');
+      // A legacy portable checksum can bind metadata excluded by a newer exporter. Verify that original history before replacing its checksum.
+      if (event.payload.portableStateChecksum !== undefined && event.payload.portableStateChecksum !== checksum
+        && (!originalState || event.payload.portableStateChecksum !== hash(originalState))) throw bundleError('BUNDLE_EVENT_STATE_MISMATCH');
       event.payload.portableStateChecksum = checksum;
     }
   }
