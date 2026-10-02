@@ -62,6 +62,12 @@ export interface WorkspaceUnitOfWork {
   listCollaborations?(limit?: number): Promise<import('../collaboration-policy').CollaborationRecord[]>;
   activatePortableImport?(importId: string, ownerId: string, facts: import('./portable-workspace').PortableWorkspaceFacts): Promise<void>;
   readPortableWorkspace?(): Promise<import('./portable-workspace').PortableWorkspaceFacts>;
+  beginManagedBackup?(retryOf?: string): ReturnType<import('./managed-backup').ManagedBackupLifecyclePort['begin']>;
+  registerManagedBackup?(archive: { archiveDigest: string; stateDigest: string; sizeBytes: number }): Promise<void>;
+  publishManagedBackup?(retain: () => Promise<void>): Promise<import('./managed-backup').ManagedBackup>;
+  failManagedBackup?(code: string): Promise<import('./managed-backup').ManagedBackup>;
+  listManagedBackups?(ownerId: string): Promise<import('./managed-backup').ManagedBackupList>;
+  downloadManagedBackup?(ownerId: string, backupId: string): Promise<import('./portable-workspace').BundleExport>;
   readProvenance?(outputId: string): Promise<import('../../domain').ProvenanceLink | undefined>;
   readContextHistory?(input: { manifestId: string } | { messageId: string }): Promise<ContextHistoryFacts | undefined>;
   readConversationPreparation?(attachmentIds: string[], sourceMessageId?: string): Promise<ConversationPreparation>;
@@ -77,6 +83,8 @@ export interface WorkspaceUnitOfWork {
   withCommand?<T>(context: CommandFactContext, operation: () => Promise<T>): Promise<T>;
   readActivity?(limit?: number): Promise<WorkspaceActivityItem[]>;
   readGraphProjection?(): Promise<WorkspaceGraphProjection>;
+  readPersonalGraphView?(actor: import('../../contracts/references').ActorRef, viewType: string): Promise<import('../../contracts/personal-graph-view').PersonalGraphView>;
+  savePersonalGraphView?(input: import('../../contracts/personal-graph-view').SavePersonalGraphView): Promise<import('../../contracts/personal-graph-view').PersonalGraphViewReceipt>;
   rebuildGraphProjection?(): Promise<WorkspaceGraphProjection>;
   queryGraphNeighborhood?(input: GraphNeighborhoodInput): Promise<GraphQueryResult>;
   queryGraphPath?(input: GraphPathInput): Promise<GraphQueryResult>;

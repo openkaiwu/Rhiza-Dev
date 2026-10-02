@@ -28,6 +28,8 @@ if (process.env.DATABASE_URL || featureFlags.postgresPersistence) {
 }
 if (!(store instanceof PostgresWorkspaceStore)) throw new Error('Chat execution requires transactional persistence');
 await store.acquireRuntimeOwnership();
+await retainedArchives.cleanupTransient();
+await store.interruptManagedBackups();
 let purgeRecovery = await store.resumePendingPurges();
 while (purgeRecovery.pending) {
   if (!purgeRecovery.completed) throw new Error('PURGE_RECOVERY_INCOMPLETE');

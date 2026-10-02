@@ -17,6 +17,7 @@ import type { HostRuntimePort } from './ports/host-runtime';
 import { WorkspaceDirectory } from '../identity/workspace-directory';
 import { DEFAULT_WORKSPACE_ID, LOCAL_USER_ID } from '../identity/workspace-scope';
 import { completeBundleImport } from './prepare-bundle-import';
+import { createManagedBackup } from './managed-backup-service';
 import { activeContextSelection, estimateTokens } from '../context-runtime/port';
 import { contextSourceSnapshot, validateContextConfirmation } from '../context-runtime/source-snapshot';
 import { assessReplay } from './replay-preflight';
@@ -330,6 +331,17 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
       }
       await ensureDefaultWorkspace(envelope.actor, envelope.workspaceId, envelope.scope);
       const record = await workspaceDirectory.require(envelope.actor, envelope.workspaceId, envelope.scope);
+      if (envelope.commandType === 'CreateManagedBackup') {
+        await workspaceDirectory.requireOwner(envelope.actor, envelope.workspaceId, envelope.scope);
+        if (envelope.actor.actorType !== 'human' || !unitOfWork.withWorkspace || !unitOfWork.withCommand) throw legacyError('备份需要用户身份与事务能力。', 403, 'BACKUP_COMMAND_CONTEXT_REQUIRED');
+        const retryOf = envelope.payload.retryOf;
+        if (retryOf !== undefined && (typeof retryOf !== 'string' || !retryOf || retryOf.length > 200)) throw legacyError('备份重试标识无效。', 400, 'BACKUP_INVALID_RETRY');
+        return await unitOfWork.withWorkspace(envelope.workspaceId, () => unitOfWork.withCommand!(factContext, () => createManagedBackup(dependencies, retryOf)));
+      }
+      if (envelope.commandType === 'SavePersonalGraphView') {
+        if (!unitOfWork.withWorkspace || !unitOfWork.withCommand || !unitOfWork.savePersonalGraphView) throw legacyError('个人视图存储不可用。', 503, 'GRAPH_VIEW_UNAVAILABLE');
+        return await unitOfWork.withWorkspace(envelope.workspaceId, () => unitOfWork.withCommand!(factContext, () => unitOfWork.savePersonalGraphView!(envelope.payload)));
+      }
       if (envelope.commandType === 'PurgeObject') await workspaceDirectory.requireOwner(envelope.actor, envelope.workspaceId, envelope.scope);
       const prior = unitOfWork.withWorkspace && unitOfWork.withCommand && unitOfWork.readCommittedResult
         ? await unitOfWork.withWorkspace(envelope.workspaceId, () => unitOfWork.withCommand!(factContext, () => unitOfWork.readCommittedResult!()))
@@ -553,6 +565,10 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
   const dispatchQueryScoped = async (envelope: AnyQueryEnvelope): Promise<unknown> => {
     try {
     switch (envelope.queryType) {
+      case 'GetPersonalGraphView': {
+        if (!unitOfWork.readPersonalGraphView) throw legacyError('个人视图存储不可用。', 503, 'GRAPH_VIEW_UNAVAILABLE');
+        return await unitOfWork.readPersonalGraphView(envelope.actor, envelope.payload.viewType);
+      }
       case 'GetCollaboration': return collaborations.get(envelope.payload.collaborationId);
       case 'ListCollaborations': {
         const limit = envelope.payload.limit;
@@ -575,6 +591,16 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
         case 'ExportWorkspaceBundle': {
           if (!dependencies.portableBundle || !unitOfWork.readPortableWorkspace) throw legacyError('Bundle 导出不可用。', 503, 'BUNDLE_UNAVAILABLE');
           return dependencies.portableBundle.export(await unitOfWork.readPortableWorkspace());
+        }
+        case 'ListManagedBackups': {
+          await workspaceDirectory.requireOwner(envelope.actor, envelope.workspaceId, envelope.scope);
+          if (!unitOfWork.listManagedBackups) throw legacyError('备份不可用。', 503, 'BACKUP_UNAVAILABLE');
+          return unitOfWork.listManagedBackups(envelope.actor.actorId);
+        }
+        case 'DownloadManagedBackup': {
+          await workspaceDirectory.requireOwner(envelope.actor, envelope.workspaceId, envelope.scope);
+          if (!unitOfWork.downloadManagedBackup) throw legacyError('备份不可用。', 503, 'BACKUP_UNAVAILABLE');
+          return unitOfWork.downloadManagedBackup(envelope.actor.actorId, envelope.payload.backupId);
         }
         case 'GetProvenance': {
           const link = await unitOfWork.readProvenance?.(envelope.payload.outputId);

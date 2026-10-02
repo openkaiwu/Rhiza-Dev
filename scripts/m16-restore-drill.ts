@@ -80,10 +80,26 @@ export async function runRestoreDrill() {
 
     const snapshots: Array<{ facts: PortableWorkspaceFacts; digest: string; path: string; graph: string }> = [];
     stage = 'export';
+    let managedBackupCount = 0;
+    let managedBackupPinned = false;
     for (const [index, id] of ids.entries()) {
       const scoped = source.forWorkspace(id) as PostgresWorkspaceStore;
       const facts = await scoped.readPortableWorkspace();
-      const bundle = await new NodePortableBundle(sourceBlobs, root).export(facts);
+      let bundle;
+      if (index === 0) {
+        const created = (await request(app).post(`/api/v1/workspaces/${id}/backups`).set('Idempotency-Key', 'managed-restore-source').send({}).expect(201)).body;
+        assert(created.status === 'ready' && created.stateDigest === checksum(facts), 'M16_DRILL_BACKUP_NOT_READY');
+        const repeat = (await request(app).post(`/api/v1/workspaces/${id}/backups`).set('Idempotency-Key', 'managed-restore-source').send({}).expect(201)).body;
+        assert(repeat.backupId === created.backupId && repeat.archiveDigest === created.archiveDigest, 'M16_DRILL_BACKUP_DUPLICATED');
+        const pins = await source.retainedImportArchivePins();
+        const reclaimed = await sourceArchives.reclaim(pins, 0, Date.now() + 30 * 86400000);
+        managedBackupPinned = pins.has(created.archiveDigest) && reclaimed.retained === 1 && reclaimed.released === 0;
+        assert(managedBackupPinned, 'M16_DRILL_BACKUP_UNPINNED');
+        bundle = await scoped.managedBackups.download(LOCAL_USER_ID, created.backupId);
+        managedBackupCount++;
+      } else {
+        bundle = await new NodePortableBundle(sourceBlobs, root).export(facts);
+      }
       const path = join(root, `workspace-${index}.rhiza`);
       try { await pipeline(Readable.from(bundle.bytes), createWriteStream(path, { flags: 'wx', mode: 0o600 })); }
       finally { await bundle.dispose(); }
@@ -170,10 +186,10 @@ export async function runRestoreDrill() {
     const reconciliation = await inspectM10Store(target);
     const reconciliationPassed = reconciliation.ok;
     return { schemaVersion: '1.0.0', ok: checksumMismatches === 0 && originalDataUnchanged && reconciliationPassed && corruptArchiveRejected
-      && recoveredWithoutUpload && interruptedPhase === 'blobs-ready' && duplicateIngestions === 0 && restoreModelCalls === 0 && continuedConversation,
+      && recoveredWithoutUpload && interruptedPhase === 'blobs-ready' && duplicateIngestions === 0 && restoreModelCalls === 0 && continuedConversation && managedBackupCount === 1 && managedBackupPinned,
     workspaces: (await target.listWorkspaceIds()).length, checksumMismatches, interruptedPhase, recoveredWithoutUpload,
     duplicateIngestions, restoreModelCalls, corruptArchiveRejected, originalDataUnchanged, reconciliationPassed, reconciliation, counts, continuedConversation, continuedModelCalls,
-    managedBackup: 'pending', externalAcceptance: 'pending' };
+    managedBackup: 'passed', managedBackupCount, managedBackupPinned, externalAcceptance: 'pending' };
   } catch (error) {
     throw Object.assign(new Error('M16_RESTORE_DRILL_FAILED', { cause: error }), { stage,
       code: error && typeof error === 'object' && 'code' in error ? error.code : undefined });

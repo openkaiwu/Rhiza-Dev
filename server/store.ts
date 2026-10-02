@@ -27,6 +27,7 @@ export interface WorkspaceRepository {
   getCollaboration?(id: string): Promise<import('./application/collaboration-policy').CollaborationRecord | undefined>;
   listCollaborations?(limit?: number): Promise<import('./application/collaboration-policy').CollaborationRecord[]>;
   bundleImportCheckpoints?: import('./application/ports/bundle-import').BundleImportCheckpointPort;
+  managedBackups?: import('./application/ports/managed-backup').ManagedBackupLifecyclePort;
   activatePortableImport?(importId: string, ownerId: string, facts: import('./application/ports/portable-workspace').PortableWorkspaceFacts): Promise<void>;
   readPortableWorkspace?(): Promise<import('./application/ports/portable-workspace').PortableWorkspaceFacts>;
   readProvenance?(outputId: string): Promise<import('./domain').ProvenanceLink | undefined>;
@@ -56,6 +57,8 @@ export interface WorkspaceRepository {
   queryGraphTree?(input: GraphTreeInput): Promise<GraphQueryResult>;
   queryGraphChanges?(input: GraphChangesInput): Promise<GraphChangesResult>;
   readGraphProjection?(): Promise<WorkspaceGraphProjection>;
+  readPersonalGraphView?(actor: import('./contracts/references').ActorRef, viewType: string): Promise<import('./contracts/personal-graph-view').PersonalGraphView>;
+  savePersonalGraphView?(context: CommandFactContext, input: import('./contracts/personal-graph-view').SavePersonalGraphView): Promise<import('./contracts/personal-graph-view').PersonalGraphViewReceipt>;
   rebuildGraphProjection?(): Promise<WorkspaceGraphProjection>;
 }
 

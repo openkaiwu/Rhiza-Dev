@@ -65,6 +65,7 @@ export interface CommandMap {
   RetainCollaboration: { payload: { collaborationId: string; targetNodeId: string }; result: { message: StoredMessage } };
   PreviewWorkspaceBundle: { payload: { bytes: AsyncIterable<Uint8Array> }; result: { workspaceId: string; name: string; archiveDigest: string; messages: number; runs: number; resourceVersions: number } };
   ImportWorkspaceBundle: { payload: { bytes: AsyncIterable<Uint8Array> }; result: { workspaceId: string; importId: string } };
+  CreateManagedBackup: { payload: { retryOf?: string }; result: import('./managed-backup').ManagedBackup };
   ReplayExecutionRun: { payload: { runId: string; policy: 'exact' | 'partial' | 'current-model' }; result: CreateConversationRunResult & { replay: { classification: 'exact' | 'partial' | 'current-model'; sourceRunRef: string; sourceManifestRef: string } } };
   CreateWorkspace: { payload: { name: string; workspaceId?: string }; result: WorkspaceRecord };
   RenameWorkspace: { payload: { name: string }; result: WorkspaceRecord };
@@ -102,6 +103,7 @@ export interface CommandMap {
   CreateRelation: { payload: { source: string; target: string; relation: 'derived-from' | 'references' | 'related-to' | 'merged-into'; label?: string }; result: WorkspaceData };
   RemoveRelation: { payload: { edgeId: string }; result: WorkspaceData };
   UpdateGraphLayout: { payload: { positions: Array<{ nodeId: string; x: number; y: number }> }; result: WorkspaceData };
+  SavePersonalGraphView: { payload: import('./personal-graph-view').SavePersonalGraphView; result: import('./personal-graph-view').PersonalGraphViewReceipt };
   CreateMergeRevision: { payload: { sourceNodeId: string; targetNodeId?: string; summary?: string }; result: WorkspaceData };
   RegisterResource: { payload: { name: string; mimeType: string; bytes: Uint8Array }; result: { attachment: LegacyAttachmentView } };
   CreateResourceVersion: { payload: { attachmentId: string; bytes: Uint8Array }; result: { attachment: LegacyAttachmentView } };
@@ -110,11 +112,14 @@ export interface CommandMap {
 }
 
 export interface QueryMap {
+  GetPersonalGraphView: { payload: { viewType: string }; result: import('./personal-graph-view').PersonalGraphView };
   GetCollaboration: { payload: { collaborationId: string }; result: { collaboration: import('./collaboration').CollaborationRecord } };
   ListCollaborations: { payload: { limit?: number }; result: { collaborations: import('./collaboration').CollaborationRecord[] } };
   GetReplayPreflight: { payload: { runId: string }; result: { runId: string; sourceManifestId?: string; missingRefs: string[]; policies: Array<{ policy: 'exact' | 'partial' | 'current-model'; allowed: boolean; code?: string; differences: string[] }> } };
   GetContextPreview: { payload: { query: string; attachmentIds?: string[] }; result: { mode: ContextMode; items: import('../domain').ContextItem[]; recommendations: import('../domain').ContextItem[]; omissions: import('../domain').ContextOmission[]; budget: number; usedTokens: number; overBudget: boolean } };
   ExportWorkspaceBundle: { payload: Empty; result: import('../domain/portable-bundle').BundleExport };
+  ListManagedBackups: { payload: Empty; result: import('./managed-backup').ManagedBackupList };
+  DownloadManagedBackup: { payload: { backupId: string }; result: import('../domain/portable-bundle').BundleExport };
   GetProvenance: { payload: { outputId: string }; result: import('../domain').ProvenanceLink };
   GetContextHistory: { payload: { manifestId: string } | { messageId: string }; result: import('../domain').ContextHistory };
   ListExecutionRuns: { payload: { limit?: number }; result: ExecutionRunView[] };

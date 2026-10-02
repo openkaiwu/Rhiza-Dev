@@ -143,6 +143,14 @@ export class NodeImportArchiveStore {
     } catch (error) { try { await staged?.dispose(); } finally { await rm(directory, { recursive: true, force: true }); } throw error; }
   }
 
+  /** Caller holds the Workspace and archive locks through disposal. No plaintext backup copy is retained. */
+  async download(digest: string): Promise<import('../domain/portable-bundle').BundleExport> {
+    if (!/^[a-f0-9]{64}$/.test(digest)) throw bundleError('BUNDLE_INVALID_ARCHIVE_DIGEST');
+    const retained = await this.descriptor(digest);
+    if (!retained) throw bundleError('BUNDLE_RETAINED_ARCHIVE_MISSING');
+    return { bytes: this.content.readStream(this.identity(retained.contentId), retained.reference), size: retained.reference.size, dispose: async () => {} };
+  }
+
   /** Idempotent crypto-shred; descriptor removal is left to reclaim after the key tombstone is durable. */
   async revoke(digest: string): Promise<void> {
     if (!/^[a-f0-9]{64}$/.test(digest)) throw bundleError('BUNDLE_INVALID_ARCHIVE_DIGEST');
@@ -194,9 +202,8 @@ export class NodeImportArchiveStore {
     } finally { await legacy.dispose(); }
   }
 
-  /** Maintenance only: caller owns the runtime and supplies every live checkpoint pin. */
-  async reclaim(pinnedDigests: ReadonlySet<string>, recoveryWindowMs: number, now = Date.now()) {
-    if (!Number.isSafeInteger(recoveryWindowMs) || recoveryWindowMs < 0) throw new Error('BUNDLE_RECOVERY_WINDOW_INVALID');
+  /** Runtime-owner startup only, before marking abandoned backup operations interrupted. */
+  async cleanupTransient(): Promise<void> {
     const transient = this.transientRoot();
     const abandoned = await readdir(transient, { withFileTypes: true }).catch(error => {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
@@ -207,6 +214,12 @@ export class NodeImportArchiveStore {
         await rm(join(transient, entry.name), { recursive: true, force: true });
       }
     }
+  }
+
+  /** Maintenance only: caller owns the runtime and supplies every live checkpoint pin. */
+  async reclaim(pinnedDigests: ReadonlySet<string>, recoveryWindowMs: number, now = Date.now()) {
+    if (!Number.isSafeInteger(recoveryWindowMs) || recoveryWindowMs < 0) throw new Error('BUNDLE_RECOVERY_WINDOW_INVALID');
+    await this.cleanupTransient();
     const directory = join(this.root, 'retained');
     const names = await readdir(directory).catch(error => {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];

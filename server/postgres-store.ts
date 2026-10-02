@@ -1,4 +1,5 @@
 import { BoundedGraphQueries } from './graph-projection/bounded-queries';
+import { graphViewError, validateGraphViewOwner, validateGraphViewType, validatePersonalGraphView, type GraphViewPosition, type PersonalGraphView, type PersonalGraphViewReceipt, type SavePersonalGraphView } from './contracts/personal-graph-view';
 import { runFrozenResourceIds } from './domain/purge-resources';
 import { collectionChanges, validateWorkspaceReferences } from './infrastructure/workspace-change-set';
 import { observeLegacyWrite } from './infrastructure/legacy-write-observation';
@@ -34,6 +35,7 @@ import { redactPortableHistory, validatePortableHistory } from './application/po
 import { portableWorkspaceFacts } from './application/portable-workspace';
 import { resolveContextHistory } from './application/context-history';
 import { SqlBundleImportCheckpoints } from './infrastructure/bundle-import-checkpoints';
+import { SqlManagedBackups } from './infrastructure/managed-backups';
 import { SealedReceiptContent, type SealedReceiptRef } from './infrastructure/sealed-receipt-content';
 import { SealedRunContent, type SealedRunInputRef } from './infrastructure/sealed-run-content';
 import { SealedJournalContent, type SealedJournalRef } from './infrastructure/sealed-journal-content';
@@ -174,6 +176,18 @@ function relationalSeed(projectId: string): WorkspaceData {
 
 export class PostgresWorkspaceStore implements WorkspaceRepository {
   private readonly transactionContent = new WeakMap<SqlQueryable, PendingContent[]>();
+  get managedBackups() {
+    return new SqlManagedBackups(this.defaultWorkspaceId, operation => this.inTransaction(operation), database => this.readPortableFrom(database),
+      async (database, context) => this.insertCommittedReceipt(database, this.defaultWorkspaceId, context.commandId, context.commandType, null, null,
+        await this.prepareReceiptResult(database, this.defaultWorkspaceId, context.commandId, { backupId: context.commandId })), this.importArchives);
+  }
+  /** Runtime-owner recovery only: never re-dispatch interrupted archive creation automatically. */
+  async interruptManagedBackups(): Promise<number> {
+    return this.inTransaction(async database => {
+      const result = await database.query("UPDATE managed_backups SET status='interrupted',error_code='BACKUP_INTERRUPTED',updated_at=now() WHERE status='running' RETURNING backup_id");
+      return result.rows.length;
+    }, true);
+  }
   get bundleImportCheckpoints() {
     const checkpoints = new SqlBundleImportCheckpoints(this.database);
     return {
@@ -303,7 +317,8 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
   async retainedImportArchivePins(): Promise<ReadonlySet<string>> {
     const result = await this.database.query<{ archive_digest: string }>(`SELECT DISTINCT b.archive_digest FROM bundle_imports b
       WHERE b.updated_at >= now() - ($1::double precision * interval '1 millisecond')
-        AND NOT EXISTS (SELECT 1 FROM purge_checkpoints p WHERE p.workspace_id=b.workspace_id)`, [BUNDLE_IMPORT_RECOVERY_WINDOW_MS]);
+        AND NOT EXISTS (SELECT 1 FROM purge_checkpoints p WHERE p.workspace_id=b.workspace_id)
+      UNION SELECT archive_digest FROM managed_backups WHERE archive_digest IS NOT NULL AND status IN ('running','ready')`, [BUNDLE_IMPORT_RECOVERY_WINDOW_MS]);
     return new Set(result.rows.map(row => row.archive_digest));
   }
 
@@ -388,7 +403,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     return { result: reference ? null : JSON.stringify(value ?? null), reference: reference ? JSON.stringify(reference) : null };
   }
 
-  private async insertCommittedReceipt(database: SqlQueryable, workspaceId: string, commandId: string, commandType: string, firstSequence: number, lastSequence: number, prepared: PreparedReceiptResult) {
+  private async insertCommittedReceipt(database: SqlQueryable, workspaceId: string, commandId: string, commandType: string, firstSequence: number | null, lastSequence: number | null, prepared: PreparedReceiptResult) {
     await database.query(`INSERT INTO command_receipts (workspace_id,command_id,command_type,status,first_sequence,last_sequence,result,result_content_ref)
       VALUES ($1,$2,$3,'committed',$4,$5,$6::jsonb,$7::jsonb)`,
     [workspaceId, commandId, commandType, firstSequence, lastSequence, prepared.result, prepared.reference]);
@@ -1381,6 +1396,11 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
   async readPortableWorkspace(): Promise<import('./application/ports/portable-workspace').PortableWorkspaceFacts> {
     return this.inTransaction(async database => {
       await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
+      return this.readPortableFrom(database);
+    });
+  }
+
+  private async readPortableFrom(database: SqlQueryable): Promise<PortableWorkspaceFacts> {
       const workspace = await this.readFrom(database, true);
       if (!workspace) throw Object.assign(new Error('Workspace not found'), { code: 'WORKSPACE_NOT_FOUND', status: 404 });
       const directory = await database.query<{ workspace_id: string; name: string; status: 'active' | 'archived'; created_by: string; revision: number }>("SELECT workspace_id,name,status,created_by,COALESCE((settings->>'revision')::integer,1) revision FROM workspaces WHERE workspace_id=$1", [this.defaultWorkspaceId]);
@@ -1394,7 +1414,6 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       return { workspace, directory: { workspaceId: record.workspace_id, name: record.name, status: record.status, createdBy: record.created_by, revision: Number(record.revision) },
         members: members.rows.map(member => ({ userId: member.user_id, role: member.role })),
         runs: await Promise.all(runs.rows.map(row => this.decodeRun(row))), provenance: provenance.rows.map(row => asJson<ProvenanceLink>(row.record)), journal: await Promise.all(journal.rows.map(row => this.decodeJournalEvent(row))) };
-    });
   }
 
   async activatePortableImport(importId: string, ownerId: string, facts: PortableWorkspaceFacts): Promise<void> {
@@ -1761,6 +1780,78 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
 
   async readGraphProjection() { return this.materializeGraph(false); }
 
+  private personalGraphLayoutId(actorId: string, viewType: string) {
+    return `personal-v1:${createHash('sha256').update(JSON.stringify([actorId, viewType])).digest('hex')}`;
+  }
+
+  private async requireGraphViewMember(database: SqlQueryable, actor: import('./contracts/references').ActorRef) {
+    validateGraphViewOwner(actor);
+    const member = await database.query('SELECT 1 FROM workspace_members WHERE workspace_id=$1 AND user_id=$2', [this.defaultWorkspaceId, actor.actorId]);
+    if (!member.rows.length) throw graphViewError('WORKSPACE_FORBIDDEN', 403);
+  }
+
+  async readPersonalGraphView(actor: import('./contracts/references').ActorRef, viewType: string): Promise<PersonalGraphView> {
+    validateGraphViewType(viewType);
+    return this.inTransaction(async database => {
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
+      await this.requireGraphViewMember(database, actor);
+      const layoutId = this.personalGraphLayoutId(actor.actorId, viewType);
+      const result = await database.query<{ revision: number; view_state: PersonalGraphView }>('SELECT revision,view_state FROM graph_layouts WHERE workspace_id=$1 AND layout_id=$2 AND view_type=$3 AND owner_scope=$4::jsonb', [this.defaultWorkspaceId, layoutId, viewType, JSON.stringify({ scopeType: 'user', scopeId: actor.actorId })]);
+      const row = result.rows[0];
+      // Positions are an overlay on the shared projection, never a replacement Domain snapshot.
+      const positions = await database.query<{ object_type: GraphViewPosition['objectType']; object_id: string; x: number; y: number; collapsed: boolean }>('SELECT object_type,object_id,x,y,collapsed FROM graph_layout_nodes WHERE workspace_id=$1 AND layout_id=$2 ORDER BY object_type,object_id LIMIT 1000', [this.defaultWorkspaceId, row ? layoutId : 'default']);
+      return { viewType, ownerScope: { scopeType: 'user', scopeId: actor.actorId }, source: row ? 'personal' : 'default', revision: row?.revision ?? 0,
+        viewport: row?.view_state.viewport ?? { x: 0, y: 0, zoom: 1 }, filters: row?.view_state.filters ?? { objectTypes: [], relationTypes: [] },
+        positions: positions.rows.map(position => ({ objectType: position.object_type, objectId: position.object_id, x: position.x, y: position.y, collapsed: position.collapsed })) };
+    });
+  }
+
+  async savePersonalGraphView(context: CommandFactContext, input: SavePersonalGraphView): Promise<PersonalGraphViewReceipt> {
+    if (!context || context.commandType !== 'SavePersonalGraphView' || context.scope.scopeType !== 'workspace' || context.scope.scopeId !== this.defaultWorkspaceId) throw graphViewError('COMMAND_CONTEXT_REQUIRED', 403);
+    validatePersonalGraphView(input); validateGraphViewOwner(context.actor);
+    const requestHash = semanticStateChecksum({ input });
+    const layoutId = this.personalGraphLayoutId(context.actor.actorId, input.viewType);
+    return this.inTransaction(async database => {
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
+      await this.requireGraphViewMember(database, context.actor);
+      const prior = await database.query<Record<string, unknown>>('SELECT * FROM command_receipts WHERE workspace_id=$1 AND command_id=$2', [this.defaultWorkspaceId, context.commandId]);
+      if (prior.rows[0]) {
+        if (prior.rows[0].command_type !== context.commandType) throw graphViewError('COMMAND_ID_CONFLICT', 409);
+        const saved = await this.readReceiptResult<{ receipt: PersonalGraphViewReceipt; requestHash: string }>(prior.rows[0]);
+        if (saved?.requestHash !== requestHash || saved.receipt.ownerScope.scopeId !== context.actor.actorId) throw graphViewError('COMMAND_ID_CONFLICT', 409);
+        return saved.receipt;
+      }
+      const result = await database.query<{ revision: number }>('SELECT revision FROM graph_layouts WHERE workspace_id=$1 AND layout_id=$2 AND owner_scope=$3::jsonb', [this.defaultWorkspaceId, layoutId, JSON.stringify({ scopeType: 'user', scopeId: context.actor.actorId })]);
+      if ((result.rows[0]?.revision ?? 0) !== input.expectedRevision) throw graphViewError('GRAPH_VIEW_REVISION_CONFLICT', 409);
+      const objectQueries = {
+        conversation: 'SELECT id FROM rhiza_nodes WHERE project_id=$1 AND id::text=ANY($2::text[])',
+        segment: 'SELECT s.id FROM rhiza_segments s JOIN rhiza_nodes n ON n.id=s.node_id WHERE n.project_id=$1 AND s.id::text=ANY($2::text[])',
+        message: 'SELECT m.id FROM rhiza_messages m JOIN rhiza_nodes n ON n.id=m.node_id WHERE n.project_id=$1 AND m.id::text=ANY($2::text[])',
+        resource: 'SELECT resource_id FROM rhiza_resources WHERE workspace_id=$1 AND resource_id=ANY($2::text[])',
+        run: 'SELECT run_id FROM execution_runs WHERE workspace_id=$1 AND purged_at IS NULL AND run_id=ANY($2::text[])',
+      } as const;
+      for (const objectType of Object.keys(objectQueries) as GraphViewPosition['objectType'][]) {
+        const ids = input.positions.filter(position => position.objectType === objectType).map(position => position.objectId);
+        if (!ids.length) continue;
+        const found = await database.query(objectQueries[objectType], [this.defaultWorkspaceId, ids]);
+        if (found.rows.length !== ids.length) throw graphViewError('GRAPH_VIEW_OBJECT_NOT_FOUND', 404);
+      }
+      const ownerScope = { scopeType: 'user' as const, scopeId: context.actor.actorId };
+      const receipt = { viewType: input.viewType, ownerScope, revision: input.expectedRevision + 1 };
+      await database.query(`INSERT INTO graph_layouts(workspace_id,layout_id,view_type,owner_scope,revision,view_state)
+        VALUES ($1,$2,$3,$4::jsonb,$5,$6::jsonb) ON CONFLICT(workspace_id,layout_id) DO UPDATE SET revision=EXCLUDED.revision,view_state=EXCLUDED.view_state,updated_at=now()`,
+      [this.defaultWorkspaceId, layoutId, input.viewType, JSON.stringify(ownerScope), receipt.revision, JSON.stringify({ viewport: input.viewport, filters: input.filters })]);
+      for (const position of input.positions) await database.query(`INSERT INTO graph_layout_nodes(workspace_id,layout_id,object_type,object_id,x,y,collapsed)
+        VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(workspace_id,layout_id,object_type,object_id) DO UPDATE SET x=EXCLUDED.x,y=EXCLUDED.y,collapsed=EXCLUDED.collapsed`,
+      [this.defaultWorkspaceId, layoutId, position.objectType, position.objectId, position.x, position.y, position.collapsed]);
+      const count = await database.query<{ count: number }>('SELECT count(*)::integer count FROM graph_layout_nodes WHERE workspace_id=$1 AND layout_id=$2', [this.defaultWorkspaceId, layoutId]);
+      if (count.rows[0].count > 1000) throw graphViewError('GRAPH_VIEW_POSITION_LIMIT', 409);
+      await this.insertCommittedReceipt(database, this.defaultWorkspaceId, context.commandId, context.commandType, null, null,
+        await this.prepareReceiptResult(database, this.defaultWorkspaceId, context.commandId, { receipt, requestHash }));
+      return receipt;
+    });
+  }
+
   async rebuildGraphProjection() { return this.materializeGraph(true); }
 
   private async materializeGraph(force: boolean) {
@@ -2083,14 +2174,17 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
 
     const references: Array<{ family: PurgeContentFamily; entityId: string; reference: unknown }> = [];
     for (const { run, reference } of purgeRuns) references.push({ family: 'run-input', entityId: run.id, reference });
-    const archives = await database.query<{ archive_digest: string }>('SELECT DISTINCT archive_digest FROM bundle_imports WHERE workspace_id=$1 ORDER BY archive_digest', [workspace.projectId]);
+    const archives = await database.query<{ archive_digest: string }>(`SELECT archive_digest FROM bundle_imports WHERE workspace_id=$1
+      UNION SELECT archive_digest FROM managed_backups WHERE workspace_id=$1 AND archive_digest IS NOT NULL ORDER BY archive_digest`, [workspace.projectId]);
     for (const archive of archives.rows) {
       await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:import-archive:' || $1))", [archive.archive_digest]);
       await this.importArchives?.assertNoLegacyPlaintext(archive.archive_digest);
-      const shared = await database.query('SELECT 1 FROM bundle_imports WHERE archive_digest=$1 AND workspace_id<>$2 LIMIT 1', [archive.archive_digest, workspace.projectId]);
+      const shared = await database.query(`SELECT 1 FROM bundle_imports WHERE archive_digest=$1 AND workspace_id<>$2
+        UNION ALL SELECT 1 FROM managed_backups WHERE archive_digest=$1 AND workspace_id<>$2 AND status<>'purged' LIMIT 1`, [archive.archive_digest, workspace.projectId]);
       if (shared.rows.length) throw Object.assign(new Error('PURGE_ARCHIVE_SHARED'), { code: 'PURGE_ARCHIVE_SHARED', status: 409 });
       references.push({ family: 'import-archive', entityId: archive.archive_digest, reference: { digest: archive.archive_digest } });
     }
+    await database.query("UPDATE managed_backups SET status='purged',error_code='BACKUP_PURGED',updated_at=now() WHERE workspace_id=$1 AND status<>'purged'", [workspace.projectId]);
     const collect = async (family: PurgeContentFamily, sql: string, values: unknown[], expectedIds: string[], storeReady: boolean) => {
       if (!expectedIds.length) return;
       const rows = await database.query<{ entity_id: string; content_ref: unknown }>(sql, values);
@@ -2223,8 +2317,12 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     if (options?.purge) {
       const nodeId = options.purge.nodeId;
       if (!previous) throw new Error('PURGE_PREVIOUS_STATE_REQUIRED');
+      if ((await database.query("SELECT 1 FROM managed_backups WHERE workspace_id=$1 AND status='running' LIMIT 1", [workspace.projectId])).rows.length) {
+        throw Object.assign(new Error('Purge must wait for the active backup to finish cleaning its work files.'), { code: 'PURGE_BACKUP_ACTIVE', status: 409 });
+      }
       // Expired checkpoint time does not prove the retained ZIP key was destroyed.
-      const retainedImport = await database.query('SELECT 1 FROM bundle_imports WHERE workspace_id=$1 LIMIT 1', [workspace.projectId]);
+      const retainedImport = await database.query(`SELECT 1 FROM bundle_imports WHERE workspace_id=$1
+        UNION ALL SELECT 1 FROM managed_backups WHERE workspace_id=$1 AND archive_digest IS NOT NULL LIMIT 1`, [workspace.projectId]);
       if (retainedImport.rows.length && !this.importArchives) throw Object.assign(new Error('该 Workspace 的导入恢复归档可能仍保留原始内容，当前不能执行 Purge。'),
         { code: 'PURGE_HAS_RETAINED_ARCHIVE', status: 409 });
       const affectedIds = new Set([nodeId, ...[

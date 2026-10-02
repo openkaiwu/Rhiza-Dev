@@ -172,10 +172,20 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
     catch (error) { next(error); }
   });
 
-  app.get('/api/bundle', async (_request, response, next) => {
+  app.post('/api/backups', async (request, response, next) => {
+    try { response.status(201).json(await execute(response, 'CreateManagedBackup', { retryOf: request.body?.retryOf })); }
+    catch (error) { next(error); }
+  });
+  app.get('/api/backups', async (_request, response, next) => {
+    try { response.json(await query(response, 'ListManagedBackups', {})); }
+    catch (error) { next(error); }
+  });
+  app.get(['/api/bundle', '/api/backups/:backupId/archive'], async (request, response, next) => {
     let bundle: Awaited<ReturnType<typeof query<'ExportWorkspaceBundle'>>> | undefined;
     try {
-      bundle = await query(response, 'ExportWorkspaceBundle', {});
+      bundle = request.params.backupId
+        ? await query(response, 'DownloadManagedBackup', { backupId: String(request.params.backupId) })
+        : await query(response, 'ExportWorkspaceBundle', {});
       response.attachment('workspace.rhiza').type('application/vnd.rhiza.workspace+zip').set('Content-Length', String(bundle.size));
       for await (const bytes of bundle.bytes) {
         if (response.destroyed) break;
@@ -448,6 +458,18 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
       if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x > 5000 || y > 5000) rejectInput('节点坐标无效。', 'INVALID_POSITION');
       response.status(201).json({ workspace: await execute(response, 'CreateGraphNode', { title, summary, x, y }) });
     } catch (error) { next(error); }
+  });
+
+  app.get('/api/graph/views/:viewType', async (request, response, next) => {
+    try { response.json(await query(response, 'GetPersonalGraphView', { viewType: request.params.viewType })); }
+    catch (error) { next(error); }
+  });
+  app.put('/api/graph/views/:viewType', async (request, response, next) => {
+    try { response.json(await execute(response, 'SavePersonalGraphView', {
+      viewType: request.params.viewType, expectedRevision: request.body?.expectedRevision,
+      positions: request.body?.positions, viewport: request.body?.viewport, filters: request.body?.filters,
+    })); }
+    catch (error) { next(error); }
   });
 
   app.get('/api/search', async (request,response,next) => {

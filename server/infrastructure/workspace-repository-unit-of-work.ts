@@ -35,6 +35,22 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
     if (!repository.readPortableWorkspace) throw new Error('PORTABLE_WORKSPACE_UNAVAILABLE');
     return repository.readPortableWorkspace();
   }
+  private backupLifecycle() {
+    const lifecycle = this.runRepository().managedBackups;
+    if (!lifecycle) throw Object.assign(new Error('BACKUP_UNAVAILABLE'), { code: 'BACKUP_UNAVAILABLE', status: 503 });
+    return lifecycle;
+  }
+  private backupCommand() {
+    const context = this.command.getStore();
+    if (!context) throw Object.assign(new Error('COMMAND_CONTEXT_REQUIRED'), { code: 'COMMAND_CONTEXT_REQUIRED', status: 503 });
+    return context;
+  }
+  async beginManagedBackup(retryOf?: string) { return this.backupLifecycle().begin(this.backupCommand(), retryOf); }
+  async registerManagedBackup(archive: { archiveDigest: string; stateDigest: string; sizeBytes: number }) { await this.backupLifecycle().register(this.backupCommand(), archive); }
+  async publishManagedBackup(retain: () => Promise<void>) { return this.backupLifecycle().publish(this.backupCommand(), retain); }
+  async failManagedBackup(code: string) { return this.backupLifecycle().fail(this.backupCommand(), code); }
+  async listManagedBackups(ownerId: string) { return this.backupLifecycle().list(ownerId); }
+  async downloadManagedBackup(ownerId: string, backupId: string) { return this.backupLifecycle().download(ownerId, backupId); }
   async activatePortableImport(importId: string, ownerId: string, facts: import('../application/ports/portable-workspace').PortableWorkspaceFacts) {
     const repository = this.runRepository();
     if (!repository.activatePortableImport) throw new Error('PORTABLE_WORKSPACE_UNAVAILABLE');
@@ -130,6 +146,18 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
 
   async getRunByCommand(commandId: string) { return this.runRepository().getRunByCommand?.(commandId); }
   async searchWorkspace(query: string, limit: number) { return this.runRepository().searchWorkspace?.(query,limit) ?? []; }
+  async readPersonalGraphView(actor: import('../contracts/references').ActorRef, viewType: string) {
+    const target = this.runRepository();
+    if (!target.readPersonalGraphView) throw Object.assign(new Error('GRAPH_VIEW_UNAVAILABLE'), { code: 'GRAPH_VIEW_UNAVAILABLE', status: 503 });
+    return target.readPersonalGraphView(actor, viewType);
+  }
+  async savePersonalGraphView(input: import('../contracts/personal-graph-view').SavePersonalGraphView) {
+    const context = this.command.getStore();
+    if (!context) throw Object.assign(new Error('COMMAND_CONTEXT_REQUIRED'), { code: 'COMMAND_CONTEXT_REQUIRED', status: 503 });
+    const target = this.runRepository();
+    if (!target.savePersonalGraphView) throw Object.assign(new Error('TRANSACTIONAL_PERSISTENCE_REQUIRED'), { code: 'TRANSACTIONAL_PERSISTENCE_REQUIRED', status: 503 });
+    return target.savePersonalGraphView(context, input);
+  }
   async readGraphProjection() {
     const target = this.runRepository();
     if (target.readGraphProjection) return target.readGraphProjection();

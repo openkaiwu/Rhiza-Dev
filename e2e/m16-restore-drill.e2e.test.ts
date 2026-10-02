@@ -12,7 +12,7 @@ it('restores two isolated Workspaces from encrypted recovery archives after an a
     duplicateIngestions: 0, restoreModelCalls: 0, corruptArchiveRejected: true,
     originalDataUnchanged: true, reconciliationPassed: true,
     continuedConversation: true, continuedModelCalls: 1,
-    managedBackup: 'pending', externalAcceptance: 'pending',
+    managedBackup: 'passed', managedBackupCount: 1, managedBackupPinned: true, externalAcceptance: 'pending',
   });
   expect(report.counts.messages).toBeGreaterThanOrEqual(8);
   expect(report.counts.manifests).toBeGreaterThanOrEqual(4);

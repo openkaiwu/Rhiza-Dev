@@ -1,0 +1,93 @@
+{
+  "schemaVersion": "1.0.0",
+  "status": "backend_verified; production UI and formal gates pending",
+  "observedAt": "2026-10-02T14:28:08.706849+00:00",
+  "baseCommit": "38603f9350f0a195c4b538ecf3b574acc3521893",
+  "verificationSubject": "Uncommitted managed-backup and personal-graph metadata changes; fixture hashes identify the tested worktree. This is not a clean-commit or whole-branch acceptance report.",
+  "fixtures": [
+    {
+      "path": "server/application/managed-backup-service.ts",
+      "sha256": "056ab464c8e6882dcab4a6ef043170e8e3396c5c0fac4071abeaf207bf6b488e"
+    },
+    {
+      "path": "server/infrastructure/managed-backups.ts",
+      "sha256": "e8f3bb11cff9d0d2458d1b5c82a5c92efd79220b691d68c94f22b4a6b9ae90f9"
+    },
+    {
+      "path": "server/contracts/personal-graph-view.ts",
+      "sha256": "803bc4965428b52335cf48e7e46ba3115ed38c953a2b9a2a8ac0b3794431cd6b"
+    },
+    {
+      "path": "server/postgres-store.ts",
+      "sha256": "200b8d4585438b53705434517bc5398245838a5b7600aa878f0a638350946ff7"
+    },
+    {
+      "path": "scripts/m16-restore-drill.ts",
+      "sha256": "163d9ad63bc45eed7180175f4e4c10a191d29dc698efdefcbf7b38196948acf8"
+    },
+    {
+      "path": "e2e/m16-managed-backups.e2e.test.ts",
+      "sha256": "9936db174dd6a25241d52c7ecaac5fbebe0d7f4bd23323192e17731ed8de8f01"
+    },
+    {
+      "path": "e2e/m18-personal-graph-view.e2e.test.ts",
+      "sha256": "3ecbafaf6e26cd3c3765ae1408fe3a292b7c61ae823f552dba47cc44992a1e0d"
+    },
+    {
+      "path": "e2e/m16-restore-drill.e2e.test.ts",
+      "sha256": "de1d5a044e72a51e8344b77864898101c0a2dcc2d113f6732d77647a2bdb9f62"
+    }
+  ],
+  "assertions": {
+    "managedBackupLifecycle": "passed",
+    "actualAttachmentHistoryRestore": "passed",
+    "failedPublicationAndExplicitRetry": "passed",
+    "readyArchivePinBeyondRecoveryWindow": "passed",
+    "activeBackupPurgeProtection": "passed",
+    "purgeRevocationAndIndependentWorkspaceCopy": "passed",
+    "managedBackupAndBundleTwoWorkspaceRecovery": "passed",
+    "continuedConversationAndIdempotentReceipt": "passed",
+    "personalActorWorkspaceViewIsolation": "passed",
+    "personalMetadataLeavesHistoryAndSharedGraphUnchanged": "passed",
+    "personalMetadataReceiptRollbackAndReopen": "passed",
+    "downMigrationPreservesRetainedMetadata": "passed"
+  },
+  "verification": [
+    {
+      "command": "pnpm vitest run e2e/m16-managed-backups.e2e.test.ts --maxWorkers=1 --testTimeout=30000",
+      "result": "All four cases passed across bounded targeted runs; no unchanged whole-file rerun.",
+      "evidence": [
+        ".superpowers/sdd/2026-10-02-m15-m18/m16-backup-confirmation.log",
+        ".superpowers/sdd/2026-10-02-m15-m18/m16-backup-roundtrip.log",
+        ".superpowers/sdd/2026-10-02-m15-m18/managed-drill-rollback-green.log"
+      ]
+    },
+    {
+      "command": "pnpm vitest run e2e/m18-personal-graph-view.e2e.test.ts e2e/m16-restore-drill.e2e.test.ts --maxWorkers=1 --testTimeout=30000",
+      "result": "Actor/view case and receipt rollback/reopen case passed in targeted runs; actual two-Workspace CLI drill passed.",
+      "evidence": [
+        ".superpowers/sdd/2026-10-02-m15-m18/m18-view-confirmation.log",
+        ".superpowers/sdd/2026-10-02-m15-m18/managed-drill-rollback-green.log"
+      ]
+    },
+    {
+      "command": "pnpm vitest run scripts/migrate.test.ts e2e/postgres-schema.e2e.test.ts server/infrastructure/workspace-repository-unit-of-work.test.ts e2e/m16-collaboration.e2e.test.ts e2e/m09-default-bundle.e2e.test.ts --maxWorkers=1 --testTimeout=30000",
+      "result": "13 shared regressions passed; ordered migration expectation updated for 0038/0039/0040, then migrate.test.ts passed once.",
+      "evidence": [
+        ".superpowers/sdd/2026-10-02-m15-m18/managed-backup-shared-regression.log"
+      ]
+    },
+    {
+      "command": "pnpm run typecheck; targeted ESLint; verify:m02:boundaries; verify:m04:host-boundary; m10:legacy-writes",
+      "result": "passed; type-only composition cycle removed before boundary confirmation"
+    }
+  ],
+  "remaining": {
+    "productionBackupRestoreUI": "pending preview approval and implementation",
+    "personalGraphUI": "pending preview approval and implementation",
+    "optionalBundleResourcesAndMapping": "pending implementation",
+    "externalDisasterAndRetentionAcceptance": "pending",
+    "M16M17M18FormalGates": "pending",
+    "finalWholeBranchVerification": "pending"
+  }
+}
