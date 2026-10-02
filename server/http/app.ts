@@ -183,9 +183,12 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
   app.get(['/api/bundle', '/api/backups/:backupId/archive'], async (request, response, next) => {
     let bundle: Awaited<ReturnType<typeof query<'ExportWorkspaceBundle'>>> | undefined;
     try {
+      const includeResources = request.query.includeResources;
+      if (includeResources !== undefined && includeResources !== 'true' && includeResources !== 'false') rejectInput('文件导出选项无效。', 'BUNDLE_INVALID_EXPORT_OPTION');
+      if (request.params.backupId && includeResources !== undefined) rejectInput('托管备份始终包含文件。', 'BUNDLE_INVALID_EXPORT_OPTION');
       bundle = request.params.backupId
         ? await query(response, 'DownloadManagedBackup', { backupId: String(request.params.backupId) })
-        : await query(response, 'ExportWorkspaceBundle', {});
+        : await query(response, 'ExportWorkspaceBundle', includeResources === undefined ? {} : { includeResources: includeResources === 'true' });
       response.attachment('workspace.rhiza').type('application/vnd.rhiza.workspace+zip').set('Content-Length', String(bundle.size));
       for await (const bytes of bundle.bytes) {
         if (response.destroyed) break;

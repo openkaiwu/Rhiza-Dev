@@ -21,9 +21,12 @@ export class NodeBundleImport implements BundleImportArchivePort {
         size += chunk.length;
         callback(size > BUNDLE_LIMITS.maxArchiveBytes ? bundleError('BUNDLE_QUOTA_EXCEEDED') : null, chunk);
       } }), createWriteStream(path, { flags: 'wx', mode: 0o600 }));
-      const staged = await stagePortableWorkspace(path, BUNDLE_LIMITS, transient);
-      return { facts: staged.facts, archiveDigest: staged.archiveDigest,
-        retain: () => new NodeImportArchiveStore(this.archiveRoot).retain(path, staged.archiveDigest),
+      const staged = await stagePortableWorkspace(path, BUNDLE_LIMITS, transient, { allowExternal: true });
+      return { facts: staged.facts, assessment: staged.assessment, archiveDigest: staged.archiveDigest,
+        retain: () => {
+          if (staged.assessment.missingResources.length) throw bundleError('BUNDLE_EXTERNAL_CONTENT_REQUIRED');
+          return new NodeImportArchiveStore(this.archiveRoot).retain(path, staged.archiveDigest);
+        },
         ingest: () => ingestPortableWorkspace(staged, this.blobs),
         dispose: async () => { try { await staged.dispose(); } finally { await rm(directory, { recursive: true, force: true }); } } };
     } catch (error) { await rm(directory, { recursive: true, force: true }); throw error; }

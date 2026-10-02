@@ -1,5 +1,5 @@
 import type { PortableWorkspaceFacts } from '../application/ports/portable-workspace';
-import type { BundleIndex } from '../domain/portable-bundle';
+import type { BundleIndex, BundleContentAssessment, ExternalResourceDescriptor } from '../domain/portable-bundle';
 import { BUNDLE_LIMITS, bundleError, type BundleLimits } from '../domain/portable-bundle';
 import { randomUUID } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
@@ -15,7 +15,7 @@ import { stageBundleArchive, type StagedBundleArchive } from './bundle-archive';
 import { semanticStateChecksum } from './workspace-semantic-checksum';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
-import { portableWorkspaceSchema, portableWorkspaceV2Schema, portableCollaborationSchema, portableSemanticDeltaSchema } from '../domain/portable-workspace-schema';
+import { portableWorkspaceSchema, portableWorkspaceV2Schema, portableWorkspaceV3Schema, portableCollaborationSchema, portableSemanticDeltaSchema } from '../domain/portable-workspace-schema';
 import { validatePortableCollaborations } from '../application/portable-collaboration';
 import journalSchema from '../contracts/domain-event-envelope.schema.json';
 import { validatePortableReferences } from '../application/portable-references';
@@ -24,20 +24,23 @@ import { applySemanticChanges } from '../domain-journal';
 import type { BlobStorePort } from '../application/ports/host-runtime';
 
 interface PortableDocument {
+  schemaVersion: BundleContentAssessment['documentVersion'];
   facts: PortableWorkspaceFacts;
   runtimeSnapshots: Array<{ id: string; runRef: string; digest: string }>;
   providerEndpoints: Array<{ id: string; runRef: string; providerType: string; configurationVersion: string | null }>;
   modelSpecs: Array<{ id: string; runRef: string; model: string; provider: string }>;
+  externalResources?: ExternalResourceDescriptor[];
 }
 const ajv = new Ajv2020({ strict: true });
 addFormats(ajv); ajv.addSchema(journalSchema);
 // Only the locally shipped schema is executable; schemas included in archives are documentation.
 const validateDocument = ajv.compile<PortableDocument>(portableWorkspaceSchema);
 const validateDocumentV2 = ajv.compile<PortableDocument>(portableWorkspaceV2Schema);
+const validateDocumentV3 = ajv.compile<PortableDocument>(portableWorkspaceV3Schema);
 const validateCollaboration = ajv.compile(portableCollaborationSchema);
 const validateSemanticFields = ajv.compile(portableSemanticDeltaSchema);
 
-export interface StagedPortableWorkspace extends StagedBundleArchive { facts: PortableWorkspaceFacts }
+export interface StagedPortableWorkspace extends StagedBundleArchive { facts: PortableWorkspaceFacts; assessment: BundleContentAssessment }
 
 interface RetainedArchiveRef { version: 1; contentId: string; reference: SealedContentRef }
 
@@ -259,6 +262,7 @@ export class NodeImportArchiveStore {
 
 /** Re-running after interruption re-verifies existing content; it never replaces corrupt blobs. */
 export async function ingestPortableBlobs(staged: StagedPortableWorkspace, blobs: BlobStorePort): Promise<string[]> {
+  if (staged.assessment.missingResources.length) throw bundleError('BUNDLE_EXTERNAL_CONTENT_REQUIRED');
   if (!blobs.putStream) throw bundleError('BUNDLE_STREAMING_STORAGE_REQUIRED');
   const refs: string[] = [];
   for (const entry of staged.index.entries) {
@@ -273,6 +277,7 @@ export async function ingestPortableBlobs(staged: StagedPortableWorkspace, blobs
 
 /** Rebind portable content-addressed blobs to target-scoped ResourceVersion identities. */
 export async function ingestPortableWorkspace(staged: StagedPortableWorkspace, blobs: BlobStorePort): Promise<PortableWorkspaceFacts> {
+  if (staged.assessment.missingResources.length) throw bundleError('BUNDLE_EXTERNAL_CONTENT_REQUIRED');
   if (!blobs.putStream) throw bundleError('BUNDLE_STREAMING_STORAGE_REQUIRED');
   const facts = structuredClone(staged.facts);
   const byVersion = new Map(facts.workspace.resourceVersions.map(version => [version.id, version]));
@@ -348,7 +353,7 @@ export async function ingestPortableWorkspace(staged: StagedPortableWorkspace, b
 }
 
 /** Owns temporary files until the caller activates or abandons the import. No live store writes. */
-export async function stagePortableWorkspace(path: string, limits: BundleLimits = BUNDLE_LIMITS, stagingRoot = tmpdir()): Promise<StagedPortableWorkspace> {
+export async function stagePortableWorkspace(path: string, limits: BundleLimits = BUNDLE_LIMITS, stagingRoot = tmpdir(), options: { allowExternal?: boolean } = {}): Promise<StagedPortableWorkspace> {
   const staged = await stageBundleArchive(path, limits, stagingRoot);
   try {
     const chunks: Buffer[] = [];
@@ -372,13 +377,25 @@ export async function stagePortableWorkspace(path: string, limits: BundleLimits 
         }
       }
     }
-    return { ...staged, facts: decodePortableDocument(value, staged.index) };
+    const { facts, ...assessment } = assessPortableDocument(value, staged.index);
+    if (assessment.missingResources.length && !options.allowExternal) throw bundleError('BUNDLE_EXTERNAL_CONTENT_REQUIRED');
+    return { ...staged, facts, assessment };
   } catch (error) { await staged.dispose(); throw error; }
 }
 
 export function decodePortableDocument(value: unknown, index: BundleIndex): PortableWorkspaceFacts {
-  const v2 = !!value && typeof value === 'object' && 'schemaVersion' in value && value.schemaVersion === '2.0.0';
-  if (v2 ? !validateDocumentV2(value) : !validateDocument(value)) throw bundleError('BUNDLE_INVALID_DOCUMENT');
+  const assessment = assessPortableDocument(value, index);
+  if (assessment.missingResources.length) throw bundleError('BUNDLE_EXTERNAL_CONTENT_REQUIRED');
+  return assessment.facts;
+}
+
+/** One schema/history/content assessment for export, preview, hydration and execution. */
+export function assessPortableDocument(value: unknown, index: BundleIndex): BundleContentAssessment & { facts: PortableWorkspaceFacts } {
+  const version = value && typeof value === 'object' && 'schemaVersion' in value ? value.schemaVersion : undefined;
+  if (version !== undefined && !['1.0.0', '2.0.0', '3.0.0'].includes(String(version))) throw bundleError('BUNDLE_UNSUPPORTED_DOCUMENT');
+  const v2 = version === '2.0.0' || version === '3.0.0';
+  const validate = version === '3.0.0' ? validateDocumentV3 : v2 ? validateDocumentV2 : validateDocument;
+  if (!validate(value)) throw bundleError('BUNDLE_INVALID_DOCUMENT');
   const document = value as PortableDocument;
   const { facts, runtimeSnapshots, providerEndpoints, modelSpecs } = document;
   for (const event of facts.journal) {
@@ -389,7 +406,8 @@ export function decodePortableDocument(value: unknown, index: BundleIndex): Port
   }
   validatePortableReferences(facts);
   validatePortableCollaborations(facts, semanticStateChecksum);
-  validatePortableContent(facts, index);
+  const externalResources = document.externalResources ?? [];
+  const missingResources = validatePortableContent(facts, index, externalResources);
   validatePortableHistory(facts, semanticStateChecksum);
   const byRun = <T extends { runRef: string }>(items: T[]) => {
     const result = new Map(items.map(item => [item.runRef, item]));
@@ -406,21 +424,37 @@ export function decodePortableDocument(value: unknown, index: BundleIndex): Port
       throw bundleError('BUNDLE_DESCRIPTOR_MISMATCH');
     }
   }
-  return structuredClone(facts);
+  return { facts: structuredClone(facts), documentVersion: document.schemaVersion, externalResources: structuredClone(externalResources),
+    missingResources: structuredClone(missingResources), executionRequirements: facts.runs.map(run => ({ runRef: run.id,
+      modelSpecRef: run.input.executor.modelSpecRef, providerEndpointRef: run.input.executor.providerEndpointRef,
+      endpointVersion: run.input.request.modelSnapshot?.endpointVersion ?? null, credentialRequired: true })) };
 }
 
 /** Run after archive digest verification and document schema decoding, before activation. */
-export function validatePortableContent(facts: PortableWorkspaceFacts, index: BundleIndex): void {
+export function validatePortableContent(facts: PortableWorkspaceFacts, index: BundleIndex, externalResources: ExternalResourceDescriptor[] = []): ExternalResourceDescriptor[] {
   if (facts.workspace.projectId !== index.workspaceId) throw bundleError('BUNDLE_WORKSPACE_MISMATCH');
   const entries = new Map(index.entries.map(entry => [entry.path, entry]));
+  const versions = new Map(facts.workspace.resourceVersions.map(version => [version.id, version]));
+  const external = new Map<string, ExternalResourceDescriptor>();
+  const digests = new Set<string>(); let expanded = index.entries.reduce((total, entry) => total + entry.size, 0);
+  for (const descriptor of externalResources) {
+    const version = versions.get(descriptor.resourceVersionId);
+    if (!version || version.purgedAt || external.has(version.id) || !Number.isSafeInteger(descriptor.size) || descriptor.size < 0 || version.resourceId !== descriptor.resourceId
+      || version.digest !== descriptor.digest || version.size !== descriptor.size || version.mediaType !== descriptor.mediaType
+      || entries.has(`blobs/sha256/${version.digest}`)) throw bundleError('BUNDLE_EXTERNAL_DESCRIPTOR_MISMATCH');
+    if (!digests.has(descriptor.digest)) { expanded += descriptor.size; digests.add(descriptor.digest); }
+    if (descriptor.size > BUNDLE_LIMITS.maxSingleEntryBytes || expanded > BUNDLE_LIMITS.maxExpandedBytes) throw bundleError('BUNDLE_QUOTA_EXCEEDED');
+    external.set(version.id, descriptor);
+  }
   const requireBlob = (digest: string, size?: number) => {
     const entry = entries.get(`blobs/sha256/${digest}`);
     if (!entry || entry.digest !== `sha256:${digest}`) throw bundleError('BUNDLE_MISSING_CONTENT');
     if (size !== undefined && entry.size !== size) throw bundleError('BUNDLE_SIZE_MISMATCH');
   };
-  for (const version of facts.workspace.resourceVersions) if (!version.purgedAt) requireBlob(version.digest, version.size);
+  for (const version of facts.workspace.resourceVersions) if (!version.purgedAt && !external.has(version.id)) requireBlob(version.digest, version.size);
   for (const run of facts.runs) {
     if (semanticStateChecksum({ ...run.input }) !== run.inputHash) throw bundleError('BUNDLE_RUNTIME_DIGEST_MISMATCH');
     requireBlob(run.inputHash);
   }
+  return [...external.values()];
 }

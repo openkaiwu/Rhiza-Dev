@@ -27,7 +27,8 @@ describe('portable export DTO', () => {
     const index = { workspaceId: workspace.projectId, entries: [] } as unknown as BundleIndex;
     expect(() => validatePortableContent(exported, index)).not.toThrow();
     const putStream = vi.fn();
-    const staged = { facts: exported, index, files: new Map() } as unknown as StagedPortableWorkspace;
+    const assessment = { documentVersion: '1.0.0', externalResources: [], missingResources: [], executionRequirements: [] };
+    const staged = { facts: exported, index, files: new Map(), assessment } as unknown as StagedPortableWorkspace;
     const ingested = await ingestPortableWorkspace(staged, { putStream } as unknown as BlobStorePort);
     expect(ingested.workspace.resourceVersions).toEqual(workspace.resourceVersions);
     expect(putStream).not.toHaveBeenCalled();
@@ -98,7 +99,8 @@ describe('portable export DTO', () => {
         return { digestAlgorithm: 'sha256' as const, digest, size: bytes.length, blobRef: sealedRef };
       });
       const index = { entries: [{ path: `blobs/sha256/${digest}`, size: bytes.length }] } as BundleIndex;
-      const ingested = await ingestPortableWorkspace({ facts, index, files: new Map([[`blobs/sha256/${digest}`, path]]) } as unknown as StagedPortableWorkspace,
+      const ingested = await ingestPortableWorkspace({ facts, index, files: new Map([[`blobs/sha256/${digest}`, path]]),
+        assessment: { documentVersion: '1.0.0', externalResources: [], missingResources: [], executionRequirements: [] } } as unknown as StagedPortableWorkspace,
         { putStream } as unknown as BlobStorePort);
       expect(ingested.workspace.resourceVersions[0]!.blobRef).toBe(sealedRef);
       expect(ingested.runs[0]!.input.request.attachments?.[0]?.blobRef).toBe(sealedRef);

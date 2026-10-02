@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "1.0.0",
+  "status": "partial backend verified; INH-130 incomplete",
+  "observedAt": "2026-10-02T14:43:33.576551+00:00",
+  "baseCommit": "fce29d2cb8468eb73dd2574b9224e5fd97ef3416",
+  "verificationSubject": "tested uncommitted Bundle content changes; not whole-branch or formal acceptance",
+  "fixtures": [
+    {
+      "path": "server/infrastructure/portable-content.ts",
+      "sha256": "b49971a72142e45d30d77f8660294ff926be612985a41f4b53563b5e46ae850e"
+    },
+    {
+      "path": "server/infrastructure/portable-bundle.ts",
+      "sha256": "41caf576191d20b1360078f7f98ecca0fb6bc04b211dd3076da32271dd5a8556"
+    },
+    {
+      "path": "server/infrastructure/node-bundle-import.ts",
+      "sha256": "3891a0f0213e32779d0b32151a388b1afe6d441bf87bd89ffa5313ef0cfb5b8c"
+    },
+    {
+      "path": "server/infrastructure/portable-external-resources.test.ts",
+      "sha256": "2cb6bdb0c565765fbb7e8108c33e07d7f47073e29dd61d4717e719491b61bbbc"
+    },
+    {
+      "path": "e2e/m16-external-bundle.e2e.test.ts",
+      "sha256": "85c06885ce56e39203be1f54c616f2d954fb8c125be7d81effcf5a7a91c36970"
+    },
+    {
+      "path": "scripts/security/export-scan.test.ts",
+      "sha256": "7bab4dea3a44accd08013cc68f43d4dfb982f90bae37572d44566c7bf01ffb27"
+    }
+  ],
+  "passed": [
+    "thin export preserves exact immutable facts and mandatory Run envelopes",
+    "strict descriptor/history validation and quotas",
+    "preview/import assessment parity",
+    "no preflight target facts/receipt/checkpoint/retained-key writes",
+    "incomplete import refuses before mutation",
+    "default full import remains idempotent",
+    "12 affected shared/HTTP regressions",
+    "typecheck, targeted lint, M02/M04",
+    "M09 complete portable archive compatibility E2E",
+    "updated managed Backup/Bundle clean restore CLI E2E",
+    "thin security adapter control with only executable mocked",
+    "both ingest helpers reject missing exact bytes without Blob writes"
+  ],
+  "remaining": [
+    "exact-file hydration transport and complete retained recovery artifact",
+    "explicit model/endpoint mapping and local credential readiness",
+    "production UI approval/implementation and desktop/narrow acceptance",
+    "final whole-branch verification and formal gates"
+  ]
+}

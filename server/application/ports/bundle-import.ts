@@ -18,6 +18,7 @@ export interface BundleImportCheckpointPort {
 }
 export interface StagedBundleImport {
   facts: import('./portable-workspace').PortableWorkspaceFacts;
+  assessment: import('../../domain/portable-bundle').BundleContentAssessment;
   archiveDigest: string;
   retain(): Promise<void>;
   ingest(): Promise<import('./portable-workspace').PortableWorkspaceFacts>;

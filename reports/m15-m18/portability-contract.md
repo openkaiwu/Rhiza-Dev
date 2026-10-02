@@ -1,12 +1,12 @@
-# M16 portability implementation contract — draft
+# M16 portability implementation contract
 
-Status: **pending implementation**. This document records a proposed implementation contract derived from the current code and the live INH-130 issue. It is neither user approval nor evidence that the feature, visual acceptance or M16 Gate has passed.
+Status: **partial backend implementation**. Optional resource export, explicit inner v3 descriptors, strict shared assessment, bounded missing/execution-requirement preflight and refusal before incomplete activation are implemented and verified. Exact-file hydration, explicit local endpoint/model mapping, production UI and formal M16 acceptance remain pending. This document is not preview approval or a completed Gate.
 
 ## Verified scope and current seams
 
 [INH-130](https://linear.app/inhandy/issue/INH-130/m16bundle-ux-exportimport-preflightexternal-descriptors-与安全提示), read on 2026-10-02, is Backlog. Its scope explicitly includes choosing whether an export contains blobs, external descriptors, import preflight for missing references/endpoint mapping/credential requirements, identical preflight and execution rules, and no secret disclosure. Its visual acceptance is separate and outstanding. Task 5 of `docs/superpowers/plans/2026-10-02-m15-m18.md` additionally requires exact omitted-file content before activation, old Bundle readability and semantic roundtrip checks.
 
-Current implementation:
+Baseline seams inspected before implementation (historical context):
 
 - `server/infrastructure/portable-bundle.ts`, `NodePortableBundle.export`: always exports every non-Purged ResourceVersion. It also embeds Run envelopes and emits endpoint/model descriptors. Endpoint credentials are represented by `credential_ref: null` and `credential_required: true`.
 - `server/domain/portable-workspace-schema.ts`: inner v1/v2 reject unknown fields. No external-resource descriptor schema exists.
@@ -17,7 +17,7 @@ Current implementation:
 - `server/application/create-application.ts`, `activeModel`, and `server/application/replay-preflight.ts`, `assessReplay`: execution resolves local model IDs, not only endpoints. Existing SetWorkspaceModel and SetConversationModel commands change future preferences through Application/UoW. Historical snapshots remain immutable.
 - `server/provider-service.ts` and `docs/provider-catalog-contract.md`: ProviderStore/SecretVault remain the installation-wide authority; no Workspace-local duplicate credential registry should be introduced.
 
-## Proposed portable document contract
+## Implemented portable document contract
 
 Keep the outer Bundle v1 index and strict ZIP validation unchanged. Default full exports retain their current inner v1/v2 behavior. Thin exports use an explicit new inner v3 document accepted by the new reader; old readers reject the unsupported inner version rather than silently accepting incomplete history.
 
@@ -68,3 +68,11 @@ Portable Exact Replay remains blocked by `portable_input_reference`/configuratio
 | History and security | Manifest/Provenance/Journal checksums roundtrip; historical model/endpoint IDs remain unchanged; no operational path or secret enters descriptors or reports. |
 
 Reuse fixtures in `server/infrastructure/portable-attachment-history.test.ts`, `portable-workspace.test.ts`, `portable-export-security.test.ts`, `e2e/m09-default-bundle.e2e.test.ts` and `e2e/m16-restore-drill.e2e.test.ts`. Derive execution from the existing package configuration: `pnpm vitest run <affected files> --maxWorkers=1 --testTimeout=30000`, followed by typecheck and applicable M02/M04 boundaries. No tests were run for this read-only contract review. Production UI changes and desktop/narrow visual acceptance remain subject to the existing preview workflow.
+
+## Current callable surface and evidence
+
+`GET /api/v1/workspaces/:workspaceId/bundle?includeResources=false` exports a thin v3 Bundle; absent/true keeps the compatible full export. Managed backups always remain full. Invalid option values fail. Existing `POST /api/bundle/preview` now returns documentVersion, canImport, missingResourceCount, at most 1000 exact missing descriptors, explicit truncation, and at most 1000 historical execution requirements. It does not yet assess or persist target mappings. Missing bytes produce external_content_required; existing import rejects BUNDLE_EXTERNAL_CONTENT_REQUIRED before creating a checkpoint or retained/keyed copy. The content assessment, owner check, immutable history checks and private cleanup are shared by preview and import.
+
+Two adapter cases pass for multiple versions/shared digest, Context-source bytes, tombstones, mandatory Run envelopes, semantic equality, forged/duplicate/unknown/wrong descriptors, missing undeclared bytes, unsupported versions and combined quotas. Actual HTTP case plus eleven existing export/history/security regressions pass (12 total); typecheck, affected lint, M02 and M04 pass. Thin export scanner validates the real document and scans embedded bytes, reporting omittedResourceVersions rather than claiming absent files were scanned. Its executable is replaced only in the adapter control test; production Gitleaks controls remain the existing separate commands.
+
+The hydration operation described above is still a required remaining unit. There is no implemented upload API for supplying external files yet; do not represent this partial content-preflight implementation as completion of INH-130.

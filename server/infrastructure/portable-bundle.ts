@@ -8,19 +8,20 @@ import { portableDocumentVersion, portableWorkspaceFacts } from '../application/
 import { validatePortableReferences } from '../application/portable-references';
 import type { PortableBundlePort, PortableWorkspaceFacts, BundleExport } from '../application/ports/portable-workspace';
 import type { BlobStorePort } from '../application/ports/host-runtime';
-import { BUNDLE_MEDIA_TYPE, BUNDLE_LIMITS, bundleError, type BundleDescriptor, type BundleIndex } from '../domain/portable-bundle';
+import { BUNDLE_MEDIA_TYPE, BUNDLE_LIMITS, bundleError, type BundleDescriptor, type BundleIndex, type BundleExportOptions } from '../domain/portable-bundle';
 import { canonicalJson } from '../domain/canonical-json';
 import { semanticStateChecksum } from './workspace-semantic-checksum';
 import { describeBundleFile, writeBundleArchive } from './bundle-archive';
 import indexSchema from '../contracts/bundle-index.schema.json';
-import { decodePortableDocument } from './portable-content';
-import { portableWorkspaceSchema, portableWorkspaceV2Schema } from '../domain/portable-workspace-schema';
+import { assessPortableDocument } from './portable-content';
+import { portableWorkspaceSchema, portableWorkspaceV2Schema, portableWorkspaceV3Schema } from '../domain/portable-workspace-schema';
 import journalSchema from '../contracts/domain-event-envelope.schema.json';
 
 export class NodePortableBundle implements PortableBundlePort {
   constructor(private readonly blobs: BlobStorePort, private readonly stagingRoot = tmpdir()) {}
 
-  async export(source: PortableWorkspaceFacts): Promise<BundleExport> {
+  async export(source: PortableWorkspaceFacts, options: BundleExportOptions = {}): Promise<BundleExport> {
+    if (options.includeResources !== undefined && typeof options.includeResources !== 'boolean') throw bundleError('BUNDLE_INVALID_EXPORT_OPTION');
     const facts = portableWorkspaceFacts(source, input => semanticStateChecksum(input as Record<string, unknown>));
     validatePortableReferences(facts);
     await mkdir(this.stagingRoot, { recursive: true, mode: 0o700 });
@@ -46,19 +47,25 @@ export class NodePortableBundle implements PortableBundlePort {
       await add('schemas/portable-workspace-v1.json', portableWorkspaceSchema, 'application/schema+json');
       const v2 = portableDocumentVersion(facts) === '2.0.0';
       if (v2) await add('schemas/portable-workspace-v2.json', portableWorkspaceV2Schema, 'application/schema+json');
+      const thin = options.includeResources === false;
+      if (thin) await add('schemas/portable-workspace-v3.json', portableWorkspaceV3Schema, 'application/schema+json');
       await add('schemas/domain-event-envelope-v1.json', journalSchema, 'application/schema+json');
       const runtimeSnapshots = facts.runs.map(run => ({ id: `run:${run.id}:input:${run.originInputHash ?? run.inputHash}`, runRef: run.id, digest: `sha256:${run.inputHash}` }));
       const providerEndpoints = facts.runs.map(run => ({ id: run.input.executor.providerEndpointRef, runRef: run.id, providerType: run.input.executor.provider,
         configurationVersion: run.input.request.modelSnapshot?.endpointVersion ?? null, credential_ref: null, credential_required: true }));
       const modelSpecs = facts.runs.map(run => ({ id: run.input.executor.modelSpecRef, runRef: run.id, model: run.input.executor.model, provider: run.input.executor.provider }));
-      const document = { schemaVersion: v2 ? '2.0.0' : '1.0.0', facts, runtimeSnapshots, providerEndpoints, modelSpecs };
+      const runDigests = new Set(facts.runs.map(run => run.inputHash));
+      const externalResources = facts.workspace.resourceVersions.filter(version => !version.purgedAt && !runDigests.has(version.digest))
+        .map(version => ({ resourceId: version.resourceId, resourceVersionId: version.id, digest: version.digest, size: version.size, mediaType: version.mediaType }));
+      const document = { schemaVersion: thin ? '3.0.0' : v2 ? '2.0.0' : '1.0.0', facts, runtimeSnapshots, providerEndpoints, modelSpecs,
+        ...(thin ? { externalResources } : {}) };
       await add('workspace.json', document);
       for (const run of facts.runs) {
         const name = `blobs/sha256/${run.inputHash}`;
         if (!files.has(name)) await add(name, run.input, 'application/vnd.rhiza.context-envelope.v1+json');
       }
       for (const version of source.workspace.resourceVersions) {
-        if (version.purgedAt) continue;
+        if (version.purgedAt || thin) continue;
         const name = `blobs/sha256/${version.digest}`;
         if (files.has(name)) continue;
         reserve(version.size);
@@ -75,7 +82,7 @@ export class NodePortableBundle implements PortableBundlePort {
       }
       const destination = join(directory, 'workspace.rhiza');
       const index: BundleIndex = { mediaType: BUNDLE_MEDIA_TYPE, formatVersion: '1.0.0', workspaceId: facts.workspace.projectId, root: 'workspace.json', entries };
-      decodePortableDocument(document, index);
+      assessPortableDocument(document, index);
       await writeBundleArchive(index, files, destination);
       const size = (await stat(destination)).size;
       if (size > BUNDLE_LIMITS.maxArchiveBytes) throw bundleError('BUNDLE_QUOTA_EXCEEDED');

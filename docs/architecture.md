@@ -34,11 +34,13 @@ Purge 事务在登记密钥前逐项对账被删 Node、Message、Manifest、Seg
 
 Purge 事务还会清空被删 Node/Message 在所有已保存 Graph projection namespace 中的 title、summary、metadata，并清空其关系标签；同事务清理对应 Context candidate index 行。Graph 查询随后按当前状态重新物化 active namespace。旧 projection version 不能作为可保留的正文副本；此处理不替代其他资源/备份边界的剩余 Purge 工作。
 
-Bundle 导出通过 `/api/v1/workspaces/:workspaceId/bundle` 读取同一事务中的完整 Workspace、Run、Provenance 与 Journal；Application 构造去除运行环境位置和凭据元数据的 portable DTO，Node adapter 以 ZIP 和 SHA-256 描述符输出冻结内容。去除 endpoint 配置后重新计算 portable inputHash，并用 originInputHash 保留原执行引用；该快照不能直接声明 Exact Replay。Domain 定义 portable Workspace v1 schema；Node 解码器使用本地固定 schema 校验字段、引用闭合、内容摘要与每个 Run 的描述符身份，归档携带的 schema 仅作文档。Journal payload 继续使用现有 envelope schema，逐事件历史一致性恢复仍需实现。空目标导入保留原逻辑身份，既有目标拒绝覆盖；同一已激活 checkpoint 的重复调用幂等。`POST /api/bundle/import` 接收 `application/vnd.rhiza.workspace+zip` 流，经 ImportWorkspaceBundle Command 完成导入；当前仅接受归档中的 owner 身份，不执行跨用户身份映射。`Idempotency-Key` 用于重试，归档保存在独立 imports 目录以支持恢复。
+Bundle 导出通过 `/api/v1/workspaces/:workspaceId/bundle` 读取同一事务中的完整 Workspace、Run、Provenance 与 Journal；Application 构造去除运行环境位置和凭据元数据的 portable DTO，Node adapter 以 ZIP 和 SHA-256 描述符输出冻结内容。去除 endpoint 配置后重新计算 portable inputHash，并用 originInputHash 保留原执行引用；该快照不能直接声明 Exact Replay。Domain 定义 portable Workspace v1 schema；Node 解码器使用本地固定 schema 校验字段、引用闭合、内容摘要与每个 Run 的描述符身份，归档携带的 schema 仅作文档。Journal payload 继续使用现有 envelope schema；导入前逐事件验证 portable state checksum 与重放后的最终状态，目标加密 Blob 引用按精确历史版本绑定。空目标导入保留原逻辑身份，既有目标拒绝覆盖；同一已激活 checkpoint 的重复调用幂等。`POST /api/bundle/import` 接收 `application/vnd.rhiza.workspace+zip` 流，经 ImportWorkspaceBundle Command 完成导入；当前仅接受归档中的 owner 身份，不执行跨用户身份映射。`Idempotency-Key` 用于重试，归档保存在独立 imports 目录以支持恢复。
 
 当前仓库不是 LibreChat fork。按 V4.2 基线，现有 `server/provider-*` 承担当前 API 配置的 Runtime Adapter 职责；`librechat-data-provider` 提供共享 Model Spec 与文件策略，Rhiza 的 Project、Node、Edge、Context 与 State 语义保持独立。后续迁移仍应扩展 Runtime 能力，而不是让 LibreChat Conversation/Mongo schema 进入 Rhiza Domain。旧映射仅见 `docs/archive/librechat-migration.md`，不定义当前架构。
 
 `POST /api/bundle/preview` 经 `PreviewWorkspaceBundle` Command 复用导入校验并检查归档 owner，返回名称、逻辑身份、归档摘要及消息/Run/资源版本数量。预检只使用临时 staging，结束后清理，不保留归档、不创建业务回执、Journal、checkpoint 或目标 Workspace。UI 先展示预检摘要，再由用户确认导入；正式导入重新校验并在事务中检查目标冲突。预检不是目标可激活的承诺。
+
+Bundle 外层 index/ZIP 继续为 v1，默认完整导出保持内层 v1/v2；`GET .../bundle?includeResources=false` 使用显式内层 v3，将实际省略的非 Purged ResourceVersion 写为无路径/URL/密钥的 externalResources 描述。Run envelope 始终携带，事实与历史 checksum 不因省略文件改变。唯一 assessment 验证 schema、引用、Journal、Run 身份和已携带字节；重复/伪造/未声明缺失描述失败。预检返回有界 missingResources/执行配置需求及 canImport；canImport 仅表达内容齐全，尚不代表目标模型配置就绪。缺失外部字节的正式导入在 checkpoint/归档保留/Blob 写入前拒绝，adapter retain/ingest 也独立拒绝。完整恢复归档仍需满足所有内容；精确文件补齐和目标端点映射还待接线。
 
 ## 2. Tech Stack
 

@@ -30,7 +30,8 @@ it('imports the exact historical attachment version after the current attachment
     const entries = workspace.resourceVersions.map(version => ({ path: `blobs/sha256/${version.digest}`, digest: `sha256:${version.digest}` as const, size: 1, mediaType: 'text/plain' }));
     const files = new Map<string,string>();
     for (const [index, entry] of entries.entries()) { const path = join(root, `blob-${index}`); await writeFile(path, index ? 'B' : 'A'); files.set(entry.path,path); }
-    const staged: StagedPortableWorkspace = { directory: root, index: { mediaType: BUNDLE_MEDIA_TYPE, formatVersion: '1.0.0', workspaceId: workspace.projectId, root: 'workspace.json', entries }, files, facts, archiveDigest: 'c'.repeat(64), dispose: async () => undefined };
+    const staged: StagedPortableWorkspace = { directory: root, index: { mediaType: BUNDLE_MEDIA_TYPE, formatVersion: '1.0.0', workspaceId: workspace.projectId, root: 'workspace.json', entries }, files, facts,
+      assessment: { documentVersion: '1.0.0', externalResources: [], missingResources: [], executionRequirements: [] }, archiveDigest: 'c'.repeat(64), dispose: async () => undefined };
     const blobs = NodeEncryptedBlobStore.atDirectory(join(root,'target'));
     const imported = await ingestPortableWorkspace(staged, blobs);
     const frozen = imported.runs[0].input.request.attachments![0];

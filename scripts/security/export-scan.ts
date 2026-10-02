@@ -5,10 +5,11 @@ import { scanSecrets } from './gitleaks';
 
 /** Gitleaks does not expand .rhiza by extension. Validate and scan the actual portable bytes. */
 export async function scanWorkspaceBundle(target: string) {
-  const staged = await stagePortableWorkspace(resolve(target));
+  const staged = await stagePortableWorkspace(resolve(target), undefined, undefined, { allowExternal: true });
   try {
     const report = await scanSecrets(staged.directory, 'dir');
-    return { ...report, scope: 'bundle' as const, validated: true, expandedEntries: staged.index.entries.length + 1 };
+    return { ...report, scope: 'bundle' as const, validated: true, expandedEntries: staged.index.entries.length + 1,
+      omittedResourceVersions: staged.assessment.missingResources.length };
   } finally { await staged.dispose(); }
 }
 

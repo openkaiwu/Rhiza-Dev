@@ -124,3 +124,9 @@ export const portableCollaborationSchema = object({ id, workspaceId: id, nodeId:
 // The outer Bundle remains v1. Old readers explicitly reject this new inner document version.
 export const portableWorkspaceV2Schema = { ...portableWorkspaceSchema, $id: 'https://rhiza.dev/schemas/portable-workspace/v2',
   properties: { ...portableWorkspaceSchema.properties, schemaVersion: { const: '2.0.0' } } };
+
+// Transport descriptors never alter facts or Journal checksums. ZIP entries still describe physical bytes only.
+export const portableWorkspaceV3Schema = { ...portableWorkspaceV2Schema, $id: 'https://rhiza.dev/schemas/portable-workspace/v3',
+  required: [...portableWorkspaceV2Schema.required, 'externalResources'],
+  properties: { ...portableWorkspaceV2Schema.properties, schemaVersion: { const: '3.0.0' },
+    externalResources: { ...array(object({ resourceId: id, resourceVersionId: id, digest, size: integer, mediaType: id })), maxItems: 100_000 } } };

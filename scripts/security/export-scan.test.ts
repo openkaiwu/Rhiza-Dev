@@ -2,9 +2,14 @@
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createWriteStream } from 'node:fs';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { exportSecurityFixture } from './export-fixture';
 import { scanWorkspaceBundle } from './export-scan';
+import { NodePortableBundle } from '../../server/infrastructure/portable-bundle';
+import { NodeFilesystemBlobStore } from '../../server/infrastructure/node-host-runtime';
 
 const detector = vi.hoisted(() => ({ target: '', mode: '', fail: false, privateDirectory: false, calls: 0 }));
 // Replace only the external executable. Real Bundle export, staging, validation and cleanup still run.
@@ -19,6 +24,20 @@ vi.mock('./gitleaks', () => ({ scanSecrets: async (target: string, mode: string)
     findingCount: found ? 1 : 0, findings: found ? [{ ruleRef: 'a'.repeat(64), fileRef: 'b'.repeat(64), line: 1 }] : [] };
 } }));
 beforeEach(() => Object.assign(detector, { target: '', mode: '', fail: false, privateDirectory: false, calls: 0 }));
+
+it('scans the remaining real document in a thin Bundle and reports omitted versions without treating them as scanned bytes', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rhiza-export-thin-scan-'));
+  try {
+    const fixture = await exportSecurityFixture(root, { text: 'synthetic-detector-control', attachmentText: 'External bytes' });
+    const exported = await new NodePortableBundle(new NodeFilesystemBlobStore(join(root, 'source')), root).export(fixture.facts, { includeResources: false });
+    const path = join(root, 'thin.rhiza');
+    try { await pipeline(Readable.from(exported.bytes), createWriteStream(path)); } finally { await exported.dispose(); }
+    const result = await scanWorkspaceBundle(path);
+    expect(result).toMatchObject({ validated: true, omittedResourceVersions: 1, ok: false, findingCount: 1 });
+    expect(detector.calls).toBe(1); expect(detector.privateDirectory).toBe(true);
+    await expect(stat(detector.target)).rejects.toMatchObject({ code: 'ENOENT' });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 it('scans validated expanded .rhiza content privately and removes it after returning the safe finding report', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rhiza-export-scan-test-'));

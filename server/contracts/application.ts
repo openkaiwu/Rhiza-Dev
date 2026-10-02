@@ -63,7 +63,10 @@ export interface CommandMap {
   RunCollaboration: { payload: { collaborationId: string }; result: CommandMap['StopCollaboration']['result'] };
   SynthesizeCollaboration: { payload: { collaborationId: string }; result: CommandMap['InvokeCollaboration']['result'] };
   RetainCollaboration: { payload: { collaborationId: string; targetNodeId: string }; result: { message: StoredMessage } };
-  PreviewWorkspaceBundle: { payload: { bytes: AsyncIterable<Uint8Array> }; result: { workspaceId: string; name: string; archiveDigest: string; messages: number; runs: number; resourceVersions: number } };
+  PreviewWorkspaceBundle: { payload: { bytes: AsyncIterable<Uint8Array> }; result: { workspaceId: string; name: string; archiveDigest: string; messages: number; runs: number; resourceVersions: number;
+    documentVersion: import('../domain/portable-bundle').BundleContentAssessment['documentVersion']; canImport: boolean; reasons: string[];
+    missingResourceCount: number; missingResources: import('../domain/portable-bundle').ExternalResourceDescriptor[]; missingResourcesTruncated: boolean;
+    executionRequirementCount: number; executionRequirements: import('../domain/portable-bundle').BundleExecutionRequirement[]; executionRequirementsTruncated: boolean } };
   ImportWorkspaceBundle: { payload: { bytes: AsyncIterable<Uint8Array> }; result: { workspaceId: string; importId: string } };
   CreateManagedBackup: { payload: { retryOf?: string }; result: import('./managed-backup').ManagedBackup };
   ReplayExecutionRun: { payload: { runId: string; policy: 'exact' | 'partial' | 'current-model' }; result: CreateConversationRunResult & { replay: { classification: 'exact' | 'partial' | 'current-model'; sourceRunRef: string; sourceManifestRef: string } } };
@@ -117,7 +120,7 @@ export interface QueryMap {
   ListCollaborations: { payload: { limit?: number }; result: { collaborations: import('./collaboration').CollaborationRecord[] } };
   GetReplayPreflight: { payload: { runId: string }; result: { runId: string; sourceManifestId?: string; missingRefs: string[]; policies: Array<{ policy: 'exact' | 'partial' | 'current-model'; allowed: boolean; code?: string; differences: string[] }> } };
   GetContextPreview: { payload: { query: string; attachmentIds?: string[] }; result: { mode: ContextMode; items: import('../domain').ContextItem[]; recommendations: import('../domain').ContextItem[]; omissions: import('../domain').ContextOmission[]; budget: number; usedTokens: number; overBudget: boolean } };
-  ExportWorkspaceBundle: { payload: Empty; result: import('../domain/portable-bundle').BundleExport };
+  ExportWorkspaceBundle: { payload: import('../domain/portable-bundle').BundleExportOptions; result: import('../domain/portable-bundle').BundleExport };
   ListManagedBackups: { payload: Empty; result: import('./managed-backup').ManagedBackupList };
   DownloadManagedBackup: { payload: { backupId: string }; result: import('../domain/portable-bundle').BundleExport };
   GetProvenance: { payload: { outputId: string }; result: import('../domain').ProvenanceLink };

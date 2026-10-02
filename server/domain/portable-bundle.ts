@@ -23,6 +23,28 @@ export interface BundleExport {
   dispose(): Promise<void>;
 }
 
+export interface BundleExportOptions { includeResources?: boolean }
+export interface ExternalResourceDescriptor {
+  resourceId: string;
+  resourceVersionId: string;
+  digest: string;
+  size: number;
+  mediaType: string;
+}
+export interface BundleExecutionRequirement {
+  runRef: string;
+  modelSpecRef: string;
+  providerEndpointRef: string;
+  endpointVersion: string | null;
+  credentialRequired: true;
+}
+export interface BundleContentAssessment {
+  documentVersion: '1.0.0' | '2.0.0' | '3.0.0';
+  externalResources: ExternalResourceDescriptor[];
+  missingResources: ExternalResourceDescriptor[];
+  executionRequirements: BundleExecutionRequirement[];
+}
+
 export function bundleError(code: string): Error & { code: string; status: number } {
   return Object.assign(new Error(code), { code, status: 400 });
 }

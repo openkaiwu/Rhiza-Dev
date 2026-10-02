@@ -296,9 +296,13 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
         const staged = await dependencies.bundleImport.receive(envelope.payload.bytes);
         try {
           if (!staged.facts.members.some(member => member.userId === envelope.actor.actorId && member.role === 'owner')) throw legacyError('当前用户不是归档中的 Workspace owner。', 403, 'BUNDLE_IMPORT_FORBIDDEN');
-          const { facts } = staged;
+          const { facts, assessment } = staged;
           return { workspaceId: facts.workspace.projectId, name: facts.directory.name, archiveDigest: staged.archiveDigest,
-            messages: facts.workspace.messages.length, runs: facts.runs.length, resourceVersions: facts.workspace.resourceVersions.length };
+            messages: facts.workspace.messages.length, runs: facts.runs.length, resourceVersions: facts.workspace.resourceVersions.length,
+            documentVersion: assessment.documentVersion, canImport: assessment.missingResources.length === 0,
+            reasons: assessment.missingResources.length ? ['external_content_required'] : [],
+            missingResourceCount: assessment.missingResources.length, missingResources: assessment.missingResources.slice(0, 1000), missingResourcesTruncated: assessment.missingResources.length > 1000,
+            executionRequirementCount: assessment.executionRequirements.length, executionRequirements: assessment.executionRequirements.slice(0, 1000), executionRequirementsTruncated: assessment.executionRequirements.length > 1000 };
         } finally { await staged.dispose(); }
       }
       if (envelope.commandType === 'ImportWorkspaceBundle') {
@@ -307,6 +311,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
         const staged = await dependencies.bundleImport.receive(envelope.payload.bytes);
         try {
           if (!staged.facts.members.some(member => member.userId === envelope.actor.actorId && member.role === 'owner')) throw legacyError('当前用户不是归档中的 Workspace owner。', 403, 'BUNDLE_IMPORT_FORBIDDEN');
+          if (staged.assessment.missingResources.length) throw legacyError('请提供归档描述的精确历史文件后再导入。', 400, 'BUNDLE_EXTERNAL_CONTENT_REQUIRED');
           const identity = { importId: envelope.commandId, ownerId: envelope.actor.actorId, workspaceId: staged.facts.workspace.projectId,
             archiveDigest: staged.archiveDigest, stateDigest: dependencies.hashPortableFacts(staged.facts) };
           await dependencies.bundleImportCheckpoints.begin(identity);
@@ -590,7 +595,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
         }
         case 'ExportWorkspaceBundle': {
           if (!dependencies.portableBundle || !unitOfWork.readPortableWorkspace) throw legacyError('Bundle 导出不可用。', 503, 'BUNDLE_UNAVAILABLE');
-          return dependencies.portableBundle.export(await unitOfWork.readPortableWorkspace());
+          return dependencies.portableBundle.export(await unitOfWork.readPortableWorkspace(), envelope.payload);
         }
         case 'ListManagedBackups': {
           await workspaceDirectory.requireOwner(envelope.actor, envelope.workspaceId, envelope.scope);
