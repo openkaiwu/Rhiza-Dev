@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { App } from './App';
 import { contextHistoryFixture } from './test/context-history-fixture';
 import { initialContext } from './data';
-import type { CollaborationRecord, ContextManifest, DiscussionNode, Message, ResourceVersionView } from './types';
+import type { CollaborationRecord, ContextManifest, DiscussionNode, Message, PersonalGraphView, ResourceVersionView } from './types';
 
 const mocks = vi.hoisted(() => { const temporary = vi.fn(); return ({
   previewWorkspaceBundle: vi.fn(), importWorkspaceBundle: vi.fn(),
@@ -292,6 +292,49 @@ describe('Rhiza MVP', () => {
     fireEvent.click(screen.getByText(/Context Manifest · manifest/));
     expect(screen.getByText('Test Provider / history-model')).toBeInTheDocument();
     expect(screen.getByText('当前讨论节点始终进入本轮上下文。')).toBeInTheDocument();
+  });
+
+  it('does not let a slow personal-view read roll back a committed save', async () => {
+    const original: PersonalGraphView = { viewType: 'conversation', revision: 5, source: 'personal', ownerScope: { scopeType: 'user', scopeId: 'local' }, positions: [{ objectType: 'conversation', objectId: workspace.activeNodeId, x: 350, y: 150, collapsed: false }], viewport: { x: 10, y: 20, zoom: 0.8 }, filters: { objectTypes: ['conversation'], relationTypes: [] } };
+    const lateRead = deferred<PersonalGraphView>();
+    const saved = deferred<{ viewType: string; revision: number; ownerScope: PersonalGraphView['ownerScope'] }>();
+    mocks.getPersonalGraphView.mockReset().mockResolvedValueOnce(original).mockReturnValueOnce(lateRead.promise);
+    mocks.savePersonalGraphView.mockReset().mockReturnValueOnce(saved.promise).mockResolvedValue({ viewType: original.viewType, revision: 7, ownerScope: original.ownerScope });
+    render(<App/>);
+    fireEvent.click(await screen.findByRole('button', { name: '对话图谱' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '保存个人视图' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: '放大图谱' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存个人视图' }));
+    await waitFor(() => expect(mocks.savePersonalGraphView).toHaveBeenCalledOnce());
+    expect(mocks.savePersonalGraphView.mock.calls[0][1]).toBe(5);
+    const firstKey = mocks.savePersonalGraphView.mock.calls[0][2];
+    fireEvent.click(screen.getByRole('button', { name: '当前讨论' }));
+    fireEvent.click(await screen.findByRole('button', { name: '对话图谱' }));
+    await waitFor(() => expect(mocks.getPersonalGraphView).toHaveBeenCalledTimes(2));
+    await act(async () => saved.resolve({ viewType: original.viewType, revision: 6, ownerScope: original.ownerScope }));
+    await act(async () => lateRead.resolve(original));
+    await waitFor(() => expect(screen.getByRole('button', { name: '保存个人视图' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: '保存个人视图' }));
+    await waitFor(() => expect(mocks.savePersonalGraphView).toHaveBeenCalledTimes(2));
+    expect(mocks.savePersonalGraphView.mock.calls[1][1]).toBe(6);
+    expect(mocks.savePersonalGraphView.mock.calls[1][2]).not.toBe(firstKey);
+  });
+
+  it('finishes a personal-view read after a same-Workspace background refresh', async () => {
+    const view: PersonalGraphView = { viewType: 'conversation', revision: 5, source: 'personal', ownerScope: { scopeType: 'user', scopeId: 'local' }, positions: [], viewport: { x: 0, y: 0, zoom: 1 }, filters: { objectTypes: ['conversation'], relationTypes: [] } };
+    const pending = deferred<PersonalGraphView>();
+    mocks.getWorkspace.mockClear();
+    mocks.getPersonalGraphView.mockReset().mockReturnValueOnce(pending.promise);
+    render(<App/>);
+    fireEvent.click(await screen.findByRole('button', { name: '对话图谱' }));
+    await waitFor(() => expect(mocks.getPersonalGraphView).toHaveBeenCalledOnce());
+    expect(screen.getByRole('button', { name: '保存个人视图' })).toBeDisabled();
+    fireEvent(window, new Event('online'));
+    await waitFor(() => expect(mocks.getWorkspace).toHaveBeenCalledTimes(2));
+    await act(async () => pending.resolve(view));
+    await waitFor(() => expect(screen.getByRole('button', { name: '保存个人视图' })).toBeEnabled());
+    fireEvent.click(screen.getByLabelText('图谱视图操作'));
+    expect(screen.getByRole('button', { name: '重新读取个人视图' })).toBeEnabled();
   });
 
   it('navigates between graph and project state views', async () => {

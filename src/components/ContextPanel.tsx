@@ -32,7 +32,8 @@ export function ContextPanel({ readOnly = false, onSelectHistorySource, onResour
   const [tab, setTab] = useState<'active' | 'recommended'>('active');
   const [reasons, setReasons] = useState<Record<string, string>>({});
   if (history && onBackToCurrent && onRetryHistory) return <ContextHistoryPanel history={history} onSelectSource={onSelectHistorySource} onResourceVersion={onResourceVersion} onBack={onBackToCurrent} onRetry={onRetryHistory} onClose={onClose}/>;
-  const selected = preview?.items ?? [];
+  const showingSavedSelection = !preview && !loading && Boolean(error);
+  const selected = preview?.items ?? (showingSavedSelection ? items.filter(item => item.status === 'active') : []);
   const recommendations = preview?.recommendations ?? [];
   const budget = preview?.budget ?? 32_000;
   const tokens = preview?.usedTokens ?? 0;
@@ -54,14 +55,15 @@ export function ContextPanel({ readOnly = false, onSelectHistorySource, onResour
     <div className="context-tabs" role="tablist" aria-label="上下文来源"><button role="tab" aria-selected={tab === 'active'} onClick={() => setTab('active')}>生效 {selected.length}</button><button role="tab" aria-selected={tab === 'recommended'} onClick={() => setTab('recommended')}>待确认 {recommendations.length}</button></div>
     <div className="context-scroll">
       <section className="context-group" role="tabpanel" aria-label={tab === 'active' ? '生效来源' : '待确认来源'}>
+        {tab === 'active' && showingSavedSelection && <p className="context-history-notice" role="status">当前预览不可用。以下为已保存的来源；可先排除相关来源，再重新预览。新版本仍需确认。</p>}
         {(tab === 'active' ? selected : recommendations).map(item => {
-          const stored = items.find(source => source.sourceType === item.sourceType && source.sourceId === item.sourceId);
-          const identity = `${item.sourceType}:${item.sourceId}:${item.sourceRevision}`;
+          const stored = showingSavedSelection && tab === 'active' ? item : items.find(source => source.sourceType === item.sourceType && source.sourceId === item.sourceId);
+          const identity = showingSavedSelection && tab === 'active' ? `saved:${item.id}` : `${item.sourceType}:${item.sourceId}:${item.sourceRevision}`;
           const reason = reasons[identity] ?? '';
           return <article className={`context-item ${tab}`} key={identity}>
-            <div className="context-item-main"><span className="file-icon">{icon(item)}</span><div><strong>{item.title}</strong><p>{item.detail}</p><small>{item.tokens.toLocaleString()} tokens{item.pinned ? ' · 已固定' : ''}</small></div></div>
+            <div className="context-item-main"><span className="file-icon">{icon(item)}</span><div><strong>{item.title}</strong><p>{item.detail}</p><small>{showingSavedSelection ? '已保存估算 · ' : ''}{item.tokens.toLocaleString()} tokens{item.pinned ? ' · 已固定' : ''}</small></div></div>
             {item.reason && <div className="why"><Sparkles size={12}/><span>{item.reason}</span></div>}
-            {tab === 'recommended' ? <><label className="context-decision-reason">确认理由<input aria-label={`确认理由 ${item.title}`} value={reason} maxLength={500} onChange={event => setReasons(current => ({ ...current, [identity]: event.target.value }))} placeholder="说明采用或排除的原因"/></label><div className="context-actions">{(['accept', 'reject'] as const).map(decision => <button key={decision} disabled={readOnly || loading || deciding || !reason.trim() || !item.sourceRevision || !item.sourceId || !item.sourceType || !onDecision} onClick={() => { if (item.sourceType && item.sourceId && item.sourceRevision) void onDecision?.({ sourceType: item.sourceType, sourceId: item.sourceId, sourceRevision: item.sourceRevision, decision, reason: reason.trim() }); }}>{decision === 'accept' ? <Check size={13}/> : <EyeOff size={13}/>} {decision === 'accept' ? '加入本轮' : '排除'}</button>)}</div></> : stored && <div className="context-actions"><button disabled={readOnly || loading || deciding} onClick={() => onPin(stored.id, !stored.pinned)}>{stored.pinned ? <PinOff size={13}/> : <LockKeyhole size={13}/>} {stored.pinned ? '取消固定' : '固定'}</button><button disabled={readOnly || loading || deciding} onClick={() => onStatus(stored.id, 'excluded')}><EyeOff size={13}/>排除</button></div>}
+            {tab === 'recommended' ? <><label className="context-decision-reason">确认理由<input aria-label={`确认理由 ${item.title}`} value={reason} maxLength={500} onChange={event => setReasons(current => ({ ...current, [identity]: event.target.value }))} placeholder="说明采用或排除的原因"/></label><div className="context-actions">{(['accept', 'reject'] as const).map(decision => <button key={decision} disabled={readOnly || loading || deciding || !reason.trim() || !item.sourceRevision || !item.sourceId || !item.sourceType || !onDecision} onClick={() => { if (item.sourceType && item.sourceId && item.sourceRevision) void onDecision?.({ sourceType: item.sourceType, sourceId: item.sourceId, sourceRevision: item.sourceRevision, decision, reason: reason.trim() }); }}>{decision === 'accept' ? <Check size={13}/> : <EyeOff size={13}/>} {decision === 'accept' ? '加入本轮' : '排除'}</button>)}</div></> : stored && <div className="context-actions">{!showingSavedSelection && <button disabled={readOnly || loading || deciding} onClick={() => onPin(stored.id, !stored.pinned)}>{stored.pinned ? <PinOff size={13}/> : <LockKeyhole size={13}/>} {stored.pinned ? '取消固定' : '固定'}</button>}<button disabled={readOnly || loading || deciding} onClick={() => onStatus(stored.id, 'excluded')}><EyeOff size={13}/>排除</button></div>}
           </article>;
         })}
         {!loading && preview && !(tab === 'active' ? selected : recommendations).length && <p className="context-empty">{tab === 'active' ? '本轮没有额外来源。' : '没有待确认的推荐。'}</p>}

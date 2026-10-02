@@ -1,0 +1,9 @@
+$ pnpm run typecheck && vite build && tsup server/index.ts --format esm --platform node --out-dir dist-server --clean
+$ tsc -b
+src/test/m18-graph-visual.tsx(142,1): error TS2322: Type '(id: string) => Promise<FixedBatch | undefined>' is not assignable to type '(id: string) => Promise<GraphBatchResult>'.
+  Type 'Promise<FixedBatch | undefined>' is not assignable to type 'Promise<GraphBatchResult>'.
+    Type 'FixedBatch | undefined' is not assignable to type 'GraphBatchResult'.
+      Type 'undefined' is not assignable to type 'GraphBatchResult'.
+src/test/m18-graph-visual.tsx(145,82): error TS18048: 'batch' is possibly 'undefined'.
+[ELIFECYCLE] Command failed with exit code 2.
+[ELIFECYCLE] Command failed with exit code 2.

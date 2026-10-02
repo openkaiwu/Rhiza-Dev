@@ -1,0 +1,121 @@
+{
+  "schemaVersion": "1.0.0",
+  "scope": "approved production UI state hardening",
+  "branch": "update1002",
+  "parentCommit": "54106bc5ea9c5ee8a6f2505034ffdfa2db6347d0",
+  "recordedAt": "2026-10-02T21:59:50.895660+00:00",
+  "sourceSha256": [
+    {
+      "path": "src/App.tsx",
+      "sha256": "3efd4ce71b150aaac46c38a91ada3fa4e603452a49e3743b3575d532d1e59a7b"
+    },
+    {
+      "path": "src/App.test.tsx",
+      "sha256": "99790fdf799408a72920eef96ffd16fd3ac7c34d9258c0d7ef5fd539d22e7b87"
+    },
+    {
+      "path": "src/components/CollaborationCard.tsx",
+      "sha256": "88649e54d3be8b3b6b3c316d7efa809302b7f690a2269aa5f8a4dca8163e4e9a"
+    },
+    {
+      "path": "src/components/CollaborationCard.test.tsx",
+      "sha256": "c274c8a3fb6a02cbd62939e48005a8922d81e23a3bc881561b6689d2559a973c"
+    },
+    {
+      "path": "src/components/ContextPanel.tsx",
+      "sha256": "f8a21e8add025ad896d32d9721e8735e961d6c5e2fdeecba23e204dc5120a07b"
+    },
+    {
+      "path": "src/components/ContextPanel.test.tsx",
+      "sha256": "0865e570287505ba5b01cfea856eccb6f792924b56dbf5d1c14273ca9164ad7f"
+    },
+    {
+      "path": "src/components/GraphView.tsx",
+      "sha256": "19ec1c73faef009857158c84b751f6834f35cc08e3c227bdf41a0dc4c0210e94"
+    },
+    {
+      "path": "src/components/GraphView.test.tsx",
+      "sha256": "77085d47513cb0765bf51acf0e201e939fba2f4afb63213614378187dd8a79ba"
+    },
+    {
+      "path": "src/types.ts",
+      "sha256": "a5dd7fa21ea67b0453b6aa9f02acc2cd8949086defd5117f64903493bdfedbf4"
+    },
+    {
+      "path": "app/static/css/workbench.css",
+      "sha256": "b6fda7917b0e868b6ad235a62fd9fa60534262791a21d9e9f72290716ab6fdc9"
+    },
+    {
+      "path": "src/test/m16-collaboration-visual.tsx",
+      "sha256": "dbd75ef64881142efc54053187e7e6dc5a1806253c1ab73721bbb9723dae0958"
+    },
+    {
+      "path": "src/test/m16-data-visual.tsx",
+      "sha256": "f45b8bdda791ba1699ff91a49ee5f45cd059cf12ff85666d660b68442118b9c3"
+    },
+    {
+      "path": "src/test/m18-graph-visual.tsx",
+      "sha256": "6cbfe01be02bc880712ce652b55f0beeab97618686e3914763ef6d8632a892e0"
+    },
+    {
+      "path": "scripts/fixtures/m16-collaboration.html",
+      "sha256": "cca1fc9795802bc88a092eec36851a4f9cba72c5e10fe6ff92d519e0044a390f"
+    },
+    {
+      "path": "scripts/fixtures/m16-data.html",
+      "sha256": "dc8e22a0c2ceb9aad291fee90632aaa80341b8583a7610a37276e0b58db59890"
+    },
+    {
+      "path": "scripts/fixtures/m18-graph.html",
+      "sha256": "509909f1e78dd76ebcf0542c40fa460405e68168a90d3f609c21e3c8cc465bba"
+    }
+  ],
+  "implemented": [
+    "budget-ended collaboration guidance and generation action guards",
+    "responsive long model choices and retry labels",
+    "explicit removal of saved Context sources when current preview fails; no automatic acceptance",
+    "personal Graph view revision monotonicity and Workspace scope epochs",
+    "real nested Graph batch step failures with bounded safe diagnostics",
+    "readable batch controls/results and scrollable Graph workspace"
+  ],
+  "checks": {
+    "regression": {
+      "command": "pnpm exec vitest run src/App.test.tsx src/components/CollaborationCard.test.tsx src/components/ContextPanel.test.tsx src/components/GraphView.test.tsx --maxWorkers=1 --testTimeout=30000",
+      "passed": 96,
+      "exitCode": 0,
+      "log": "ui-state-regression.log"
+    },
+    "lint": {
+      "command": "pnpm run lint",
+      "exitCode": 0,
+      "log": "ui-state-lint.log"
+    },
+    "build": {
+      "command": "pnpm run build",
+      "exitCode": 0,
+      "includes": "typecheck",
+      "log": "ui-state-build-final.log",
+      "initialFailure": "Two optional-value narrowing errors in the new Graph visual fixture; retained in ui-state-build.log. Explicit return of the fail-closed branch repaired the types."
+    }
+  },
+  "visualEvidence": {
+    "collaboration": "../ui-ux-refresh/collaboration-state-evidence.json",
+    "data": "../ui-ux-refresh/data-state-evidence.json",
+    "graph": "../ui-ux-refresh/graph-state-evidence.json",
+    "contract": "Fixed responses use production React components with isolated browser storage and fail-closed network. These are UI evidence, not backend transaction, ZIP integrity or provider-quality evidence. Existing real encrypted PGlite/offline-runtime proofs remain separate."
+  },
+  "review": {
+    "independentReview": "No remaining actionable blocker after personal-view loading and ABA repair",
+    "criticalDefectFound": false
+  },
+  "formalGate": {
+    "status": "pending",
+    "remaining": [
+      "M17 Command p95 242.41ms > 200ms; performance benchmark not rerun",
+      "Comparable frozen CI G0 environment",
+      "Live Provider quality/authentication",
+      "Production staging/recovery and retention expiry",
+      "Long observation, dogfood and new-user acceptance"
+    ]
+  }
+}

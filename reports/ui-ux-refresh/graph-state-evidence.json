@@ -1,0 +1,329 @@
+{
+  "scope": "production App/GraphView with fixed isolated responses; not transaction or history verification",
+  "captures": [
+    {
+      "sample": "tray-ready",
+      "size": "desktop",
+      "path": "reports/ui-ux-refresh/graph-tray-ready-desktop.jpg",
+      "metrics": {
+        "fixture": "RHIZA · 固定图谱 tray-ready · exact sources previewed · 已阻止 0 次非样本请求；不是事务证据",
+        "overflow": [
+          {
+            "class": "graph-context-tray",
+            "scrollWidth": 1182,
+            "width": 1182
+          },
+          {
+            "class": "graph-batch-controls",
+            "scrollWidth": 1182,
+            "width": 1182
+          }
+        ],
+        "scrollWidth": 1440,
+        "tray": "审阅所选来源\n拖动所选来源 · 2\n上下文来源\n\n用于当前讨论：产品交付主线\n\n取消选择\n用户访谈与付款证据\n讨论 · 版本 aaaaaaaa · 340 tokens\n历史引用与跨工作区验证\n讨论 · 版本 bbbbbbbb · 590 tokens\n\n确认后预算：1,450 / 32,000 tokens\n\n重新审阅\n确认加入当前讨论",
+        "width": 1440
+      },
+      "ax": "Browser tab: 12, Title: \"RHIZA M18 图谱 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m18-graph.html?case=tray-ready#/workspaces/m18-graph-visual-workspace/graph\".\nThere has been no change in the accessibility tree.\nThe focused UI element is 138 button 审阅所选来源"
+    },
+    {
+      "sample": "tray-ready",
+      "size": "narrow",
+      "path": "reports/ui-ux-refresh/graph-tray-ready-narrow.jpg",
+      "metrics": {
+        "fixture": "RHIZA · 固定图谱 tray-ready · exact sources previewed · 已阻止 0 次非样本请求；不是事务证据",
+        "overflow": [
+          {
+            "class": "graph-context-tray",
+            "scrollWidth": 372,
+            "width": 372
+          },
+          {
+            "class": "graph-batch-controls",
+            "scrollWidth": 372,
+            "width": 372
+          }
+        ],
+        "scrollWidth": 390,
+        "tray": "审阅所选来源\n拖动所选来源 · 2\n上下文来源\n\n用于当前讨论：产品交付主线\n\n取消选择\n用户访谈与付款证据\n讨论 · 版本 aaaaaaaa · 340 tokens\n历史引用与跨工作区验证\n讨论 · 版本 bbbbbbbb · 590 tokens\n\n确认后预算：1,450 / 32,000 tokens\n\n重新审阅\n确认加入当前讨论",
+        "width": 390
+      },
+      "ax": "Browser tab: 12, Title: \"RHIZA M18 图谱 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m18-graph.html?case=tray-ready#/workspaces/m18-graph-visual-workspace/graph\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 3-5, 11-34, 103, 112-113, 123-128, 131-136, 156-160\n+\t\t195 button (collapsed) Description: 打开工作区菜单, Secondary Actions: Expand\n~\t\t35 text RHIZA · 图谱固定视觉验收\n+\t\t196 button (collapsed) Description: 位置与导航, Secondary Actions: Expand\n+\t\t\t197 text 位置与导航\n+\t\t\t198 button (collapsed) Description: 图谱视图操作, Secondary Actions: Expand\n+\t\t\t\t199 text 图谱视图操作\n+\t\t200 container 主要导航\n+\t\t\t201 button 对话\n+\t\t\t202 button 图谱\n+\t\t\t203 button 历史\n+\t\t\t204 button (collapsed) 工作区, Secondary Actions: Expand\nThe focused UI element is 138 button 审阅所选来源"
+    },
+    {
+      "sample": "tray-over-budget",
+      "size": "desktop",
+      "path": "reports/ui-ux-refresh/graph-tray-over-budget-desktop.jpg",
+      "metrics": {
+        "fixture": "RHIZA · 固定图谱 tray-over-budget · over budget; confirmation blocked · 已阻止 0 次非样本请求；不是事务证据",
+        "overflow": [
+          {
+            "class": "graph-context-tray",
+            "scrollWidth": 1182,
+            "width": 1182
+          },
+          {
+            "class": "graph-batch-controls",
+            "scrollWidth": 1182,
+            "width": 1182
+          }
+        ],
+        "scrollWidth": 1440,
+        "tray": "审阅所选来源\n拖动所选来源 · 2\n上下文来源\n\n用于当前讨论：产品交付主线\n\n取消选择\n用户访谈与付款证据\n讨论 · 版本 aaaaaaaa · 19,000 tokens\n历史引用与跨工作区验证\n讨论 · 版本 bbbbbbbb · 19,000 tokens\n\n确认后预算：38,000 / 32,000 tokens\n\n所选来源超出预算。请减少选择后重新审阅，当前不会写入。\n\n重新审阅\n确认加入当前讨论",
+        "width": 1440
+      },
+      "ax": "Browser tab: 12, Title: \"RHIZA M18 图谱 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m18-graph.html?case=tray-over-budget#/workspaces/m18-graph-visual-workspace/graph\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 139\n+\t\t\t\t\t180 button 取消选择\n+\t\t\t\t181 content list\n+\t\t\t\t\t182 container\n+\t\t\t\t\t\t183 text 用户访谈与付款证据 讨论  · 版本  aaaaaaaa  ·  19,000  tokens\n+\t\t\t\t\t184 container\n+\t\t\t\t\t\t185 text 历史引用与跨工作区验证 讨论  · 版本  bbbbbbbb  ·  19,000  tokens\n+\t\t\t\t186 container\n+\t\t\t\t\t187 text 确认后预算： 38,000  /  32,000  tokens\n+\t\t\t\t188 text 所选来源超出预算。请减少选择后重新审阅，当前不会写入。\n+\t\t\t\t189 container\n+\t\t\t\t\t190 button 重新审阅\n+\t\t\t\t\t191 button (disabled) 确认加入当前讨论\nThe focused UI element is 134 button 审阅所选来源"
+    },
+    {
+      "sample": "tray-over-budget",
+      "size": "narrow",
+      "path": "reports/ui-ux-refresh/graph-tray-over-budget-narrow.jpg",
+      "metrics": {
+        "fixture": "RHIZA · 固定图谱 tray-over-budget · over budget; confirmation blocked · 已阻止 0 次非样本请求；不是事务证据",
+        "overflow": [
+          {
+            "class": "graph-context-tray",
+            "scrollWidth": 372,
+            "width": 372
+          },
+          {
+            "class": "graph-batch-controls",
+            "scrollWidth": 372,
+            "width": 372
+          }
+        ],
+        "scrollWidth": 390,
+        "tray": "审阅所选来源\n拖动所选来源 · 2\n上下文来源\n\n用于当前讨论：产品交付主线\n\n取消选择\n用户访谈与付款证据\n讨论 · 版本 aaaaaaaa · 19,000 tokens\n历史引用与跨工作区验证\n讨论 · 版本 bbbbbbbb · 19,000 tokens\n\n确认后预算：38,000 / 32,000 tokens\n\n所选来源超出预算。请减少选择后重新审阅，当前不会写入。\n\n重新审阅\n确认加入当前讨论",
+        "width": 390
+      },
+      "ax": "Browser tab: 12, Title: \"RHIZA M18 图谱 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m18-graph.html?case=tray-over-budget#/workspaces/m18-graph-visual-workspace/graph\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 4-6, 12-35, 104, 113-114, 119-124, 127-132, 152-156\n+\t\t192 button (collapsed) Description: 打开工作区菜单, Secondary Actions: Expand\n~\t\t36 text RHIZA · 图谱固定视觉验收\n+\t\t193 button (collapsed) Description: 位置与导航, Secondary Actions: Expand\n+\t\t\t194 text 位置与导航\n+\t\t\t195 button (collapsed) Description: 图谱视图操作, Secondary Actions: Expand\n+\t\t\t\t196 text 图谱视图操作\n+\t\t197 container 主要导航\n+\t\t\t198 button 对话\n+\t\t\t199 button 图谱\n+\t\t\t200 button 历史\n+\t\t\t201 button (collapsed) 工作区, Secondary Actions: Expand\nThe focused UI element is 134 button 审阅所选来源"
+    },
+    {
+      "sample": "batch-partial",
+      "size": "desktop",
+      "path": "reports/ui-ux-refresh/graph-batch-partial-desktop.jpg",
+      "metrics": {
+        "batch": "批量操作部分完成，请检查每项结果\n每项结果 · 2\n用户访谈与付款证据 · 已完成\n历史引用与跨工作区验证 · 失败 · GRAPH_BATCH_STEP_FAILED\n读取批次结果\n继续原批次\n撤销已完成项",
+        "fixture": "RHIZA · 固定图谱 batch-partial · partial results; manual resume available · 已阻止 0 次非样本请求；不是事务证据",
+        "overflow": [
+          {
+            "class": "graph-context-tray",
+            "scrollWidth": 1182,
+            "width": 1182
+          },
+          {
+            "class": "graph-batch-controls",
+            "scrollWidth": 1182,
+            "width": 1182
+          },
+          {
+            "class": "graph-batch-result",
+            "scrollWidth": 1182,
+            "width": 1182
+          }
+        ],
+        "scrollWidth": 1440,
+        "tray": "审阅所选来源\n拖动所选来源 · 2\n上下文来源\n\n用于当前讨论：产品交付主线\n\n将所选讨论或片段拖到这里，或使用“审阅所选来源”。审阅后再确认加入。",
+        "width": 1440
+      },
+      "ax": "Browser tab: 12, Title: \"RHIZA M18 图谱 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m18-graph.html?case=batch-partial#/workspaces/m18-graph-visual-workspace/graph\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 181-183\n~\t\t38 button (collapsed) Description: 上下文 0, Secondary Actions: Expand\n+\t\t\t188 text 上下文\n+\t\t\t189 text 0\n+\t\t\t\t190 container\n+\t\t\t\t\t191 button (expanded) 每项结果 · 2, Secondary Actions: Collapse\n+\t\t\t\t\t\t192 text 每项结果 · \n+\t\t\t\t\t\t193 text 2\n+\t\t\t\t\t194 content list\n+\t\t\t\t\t\t195 container\n+\t\t\t\t\t\t\t196 AXListMarker • \n+\t\t\t\t\t\t\t197 text 用户访谈与付款证据  ·  已完成\n+\t\t\t\t\t\t198 container\n+\t\t\t\t\t\t\t199 AXListMarker • \n+\t\t\t\t\t\t\t200 text 历史引用与跨工作区验证  ·  失败  · GRAPH_BATCH_STEP_FAILED\nThe focused UI element is 191 button (expanded) 每项结果 · 2, Secondary Actions: Collapse"
+    },
+    {
+      "sample": "batch-partial",
+      "size": "narrow",
+      "path": "reports/ui-ux-refresh/graph-batch-partial-narrow.jpg",
+      "metrics": {
+        "batch": "批量操作部分完成，请检查每项结果\n每项结果 · 2\n用户访谈与付款证据 · 已完成\n历史引用与跨工作区验证 · 失败 · GRAPH_BATCH_STEP_FAILED\n读取批次结果\n继续原批次\n撤销已完成项",
+        "fixture": "RHIZA · 固定图谱 batch-partial · partial results; manual resume available · 已阻止 0 次非样本请求；不是事务证据",
+        "overflow": [
+          {
+            "class": "graph-context-tray",
+            "scrollWidth": 372,
+            "width": 372
+          },
+          {
+            "class": "graph-batch-controls",
+            "scrollWidth": 372,
+            "width": 372
+          },
+          {
+            "class": "graph-batch-result",
+            "scrollWidth": 372,
+            "width": 372
+          }
+        ],
+        "scrollWidth": 390,
+        "tray": "审阅所选来源\n拖动所选来源 · 2\n上下文来源\n\n用于当前讨论：产品交付主线\n\n将所选讨论或片段拖到这里，或使用“审阅所选来源”。审阅后再确认加入。",
+        "width": 390
+      },
+      "ax": "Browser tab: 12, Title: \"RHIZA M18 图谱 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m18-graph.html?case=batch-partial#/workspaces/m18-graph-visual-workspace/graph\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 4-6, 12-25, 29-35, 104, 113-114, 119-124, 127-132\n+\t\t201 button (collapsed) Description: 打开工作区菜单, Secondary Actions: Expand\n~\t\t36 text RHIZA · 图谱固定视觉验收\n+\t\t202 button (collapsed) Description: 位置与导航, Secondary Actions: Expand\n+\t\t\t203 text 位置与导航\n+\t\t\t204 button (collapsed) Description: 图谱视图操作, Secondary Actions: Expand\n+\t\t\t\t205 text 图谱视图操作\n+\t\t206 container 主要导航\n+\t\t\t207 button 对话\n+\t\t\t208 button 图谱\n+\t\t\t209 button 历史\n+\t\t\t210 button (collapsed) 工作区, Secondary Actions: Expand\nThe focused UI element is 191 button (expanded) 每项结果 · 2, Secondary Actions: Collapse"
+    },
+    {
+      "sample": "batch-resumed",
+      "size": "narrow",
+      "path": "reports/ui-ux-refresh/graph-batch-resumed-narrow.jpg",
+      "metrics": {
+        "batch": "批量操作完成\n每项结果 · 2\n用户访谈与付款证据 · 已完成\n历史引用与跨工作区验证 · 已完成\n读取批次结果\n撤销已完成项",
+        "fixture": "RHIZA · 固定图谱 batch-partial · fixed batch completed · 已阻止 0 次非样本请求；不是事务证据",
+        "overflow": [
+          {
+            "class": "graph-context-tray",
+            "scrollWidth": 372,
+            "width": 372
+          },
+          {
+            "class": "graph-batch-controls",
+            "scrollWidth": 372,
+            "width": 372
+          },
+          {
+            "class": "graph-batch-result",
+            "scrollWidth": 372,
+            "width": 372
+          }
+        ],
+        "scrollWidth": 390,
+        "tray": "审阅所选来源\n拖动所选来源 · 2\n上下文来源\n\n用于当前讨论：产品交付主线\n\n将所选讨论或片段拖到这里，或使用“审阅所选来源”。审阅后再确认加入。",
+        "width": 390
+      },
+      "ax": "Browser tab: 12, Title: \"RHIZA M18 图谱 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m18-graph.html?case=batch-partial#/workspaces/m18-graph-visual-workspace/graph\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 173-178, 185, 188-189, 202-205\n~\t\t38 button (collapsed) Description: 上下文, Secondary Actions: Expand\n+\t\t211 container\n+\t\t\t212 button (collapsed) Description: 位置与导航, Secondary Actions: Expand\n+\t\t\t\t213 text 位置与导航\n~\t\t\t\t43 text 1  个可见讨论节点 ·  1  条语义关系 · 滚轮缩放，空白处拖拽画布 当前讨论 进行中 已合并\n+\t\t\t214 container\n+\t\t\t\t215 button (collapsed) Description: 图谱视图操作, Secondary Actions: Expand\n+\t\t\t\t\t216 text 图谱视图操作\n~\t\t\t\t180 text 批量操作完成\n~\t\t\t\t\t\t\t200 text 历史引用与跨工作区验证  ·  已完成\n~\t\t\t\t\t84 text 1\n~\t\t\t\t116 button (collapsed) 已归档节点 2, Secondary Actions: Expand\n~\t\t\t\t\t118 text 2\nThe focused UI element is 1 AXWebArea RHIZA M18 图谱 · 固定视觉验收, URL: 127.0.0.1:4173/scripts/fixtures/m18-graph.html?case=batch-partial#/workspaces/m18-graph-visual-workspace/graph"
+    },
+    {
+      "sample": "batch-resumed-readable",
+      "size": "narrow",
+      "path": "reports/ui-ux-refresh/graph-batch-resumed-readable-narrow.jpg",
+      "metrics": {
+        "batch": "批量操作完成\n每项结果 · 2\n用户访谈与付款证据 · 已完成\n历史引用与跨工作区验证 · 已完成\n读取批次结果\n撤销已完成项",
+        "fixture": "RHIZA · 固定图谱 batch-partial · fixed batch completed · 已阻止 0 次非样本请求；不是事务证据",
+        "overflow": [
+          {
+            "class": "graph-context-tray",
+            "scrollWidth": 372,
+            "width": 372
+          },
+          {
+            "class": "graph-batch-controls",
+            "scrollWidth": 372,
+            "width": 372
+          },
+          {
+            "class": "graph-batch-result",
+            "scrollWidth": 372,
+            "width": 372
+          }
+        ],
+        "scrollWidth": 390,
+        "tray": "审阅所选来源\n拖动所选来源 · 2\n上下文来源\n\n用于当前讨论：产品交付主线\n\n将所选讨论或片段拖到这里，或使用“审阅所选来源”。审阅后再确认加入。",
+        "width": 390
+      },
+      "ax": "Browser tab: 12, Title: \"RHIZA M18 图谱 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m18-graph.html?case=batch-partial#/workspaces/m18-graph-visual-workspace/graph\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\n~\t\t38 button (collapsed) Description: 上下文 0, Secondary Actions: Expand\n+\t\t\t217 text 上下文\n+\t\t\t218 text 0\nThe focused UI element is 184 button 读取批次结果"
+    },
+    {
+      "sample": "undo-conflict",
+      "size": "desktop",
+      "path": "reports/ui-ux-refresh/graph-undo-conflict-desktop.jpg",
+      "metrics": {
+        "batch": "批量操作部分完成，请检查每项结果\n每项结果 · 2\n用户访谈与付款证据 · 已完成\n历史引用与跨工作区验证 · 失败 · GRAPH_BATCH_ITEM_CHANGED\n读取批次结果\n继续原批次",
+        "fixture": "RHIZA · 固定图谱 undo-conflict · Undo conflict; original per-item results retained · 已阻止 0 次非样本请求；不是事务证据",
+        "overflow": [
+          {
+            "class": "graph-context-tray",
+            "scrollWidth": 1182,
+            "width": 1182
+          },
+          {
+            "class": "graph-batch-controls",
+            "scrollWidth": 1182,
+            "width": 1182
+          },
+          {
+            "class": "graph-batch-result",
+            "scrollWidth": 1182,
+            "width": 1182
+          }
+        ],
+        "scrollWidth": 1440,
+        "tray": "审阅所选来源\n拖动所选来源 · 2\n上下文来源\n\n用于当前讨论：产品交付主线\n\n将所选讨论或片段拖到这里，或使用“审阅所选来源”。审阅后再确认加入。",
+        "width": 1440
+      },
+      "ax": "Browser tab: 12, Title: \"RHIZA M18 图谱 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m18-graph.html?case=undo-conflict#/workspaces/m18-graph-visual-workspace/graph\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 169-171\n~\t\t38 button (collapsed) Description: 上下文 0, Secondary Actions: Expand\n+\t\t\t188 text 上下文\n+\t\t\t189 text 0\n+\t\t\t\t190 container\n+\t\t\t\t\t191 button (expanded) 每项结果 · 2, Secondary Actions: Collapse\n+\t\t\t\t\t\t192 text 每项结果 · \n+\t\t\t\t\t\t193 text 2\n+\t\t\t\t\t194 content list\n+\t\t\t\t\t\t195 container\n+\t\t\t\t\t\t\t196 AXListMarker • \n+\t\t\t\t\t\t\t197 text 用户访谈与付款证据  ·  已完成\n+\t\t\t\t\t\t198 container\n+\t\t\t\t\t\t\t199 AXListMarker • \n+\t\t\t\t\t\t\t200 text 历史引用与跨工作区验证  ·  失败  · GRAPH_BATCH_ITEM_CHANGED\nThe focused UI element is 191 button (expanded) 每项结果 · 2, Secondary Actions: Collapse"
+    },
+    {
+      "sample": "undo-conflict",
+      "size": "narrow",
+      "path": "reports/ui-ux-refresh/graph-undo-conflict-narrow.jpg",
+      "metrics": {
+        "batch": "批量操作部分完成，请检查每项结果\n每项结果 · 2\n用户访谈与付款证据 · 已完成\n历史引用与跨工作区验证 · 失败 · GRAPH_BATCH_ITEM_CHANGED\n读取批次结果\n继续原批次",
+        "fixture": "RHIZA · 固定图谱 undo-conflict · Undo conflict; original per-item results retained · 已阻止 0 次非样本请求；不是事务证据",
+        "overflow": [
+          {
+            "class": "graph-context-tray",
+            "scrollWidth": 372,
+            "width": 372
+          },
+          {
+            "class": "graph-batch-controls",
+            "scrollWidth": 372,
+            "width": 372
+          },
+          {
+            "class": "graph-batch-result",
+            "scrollWidth": 372,
+            "width": 372
+          }
+        ],
+        "scrollWidth": 390,
+        "tray": "审阅所选来源\n拖动所选来源 · 2\n上下文来源\n\n用于当前讨论：产品交付主线\n\n将所选讨论或片段拖到这里，或使用“审阅所选来源”。审阅后再确认加入。",
+        "width": 390
+      },
+      "ax": "Browser tab: 12, Title: \"RHIZA M18 图谱 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m18-graph.html?case=undo-conflict#/workspaces/m18-graph-visual-workspace/graph\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 4-6, 12-25, 32-35, 104, 113-114, 119-124, 127-132, 173-175, 177-181\n+\t\t201 button (collapsed) Description: 打开工作区菜单, Secondary Actions: Expand\n~\t\t36 text RHIZA · 图谱固定视觉验收\n+\t\t202 button (collapsed) Description: 位置与导航, Secondary Actions: Expand\n+\t\t\t203 text 位置与导航\n+\t\t\t204 button (collapsed) Description: 图谱视图操作, Secondary Actions: Expand\n+\t\t\t\t205 text 图谱视图操作\n+\t\t206 container 主要导航\n+\t\t\t207 button 对话\n+\t\t\t208 button 图谱\n+\t\t\t209 button 历史\n+\t\t\t210 button (collapsed) 工作区, Secondary Actions: Expand\nThe focused UI element is 191 button (expanded) 每项结果 · 2, Secondary Actions: Collapse"
+    },
+    {
+      "sample": "personal-read-error",
+      "size": "narrow",
+      "path": "reports/ui-ux-refresh/graph-personal-read-error-narrow.jpg",
+      "metrics": {
+        "fixture": "RHIZA · 固定图谱 personal-conflict · personal read unavailable · 已阻止 0 次非样本请求；不是事务证据",
+        "overflow": [],
+        "scrollWidth": 390,
+        "width": 390
+      },
+      "ax": "Browser tab: 12, Title: \"RHIZA M18 图谱 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m18-graph.html?case=personal-conflict#/workspaces/m18-graph-visual-workspace/graph\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 8-9, 19-20, 82-84\n~\t\t7 button (collapsed) Description: 上下文 0, Secondary Actions: Expand\n+\t\t\t82 text 上下文\n+\t\t\t83 text 0\n+\t\t84 container\n+\t\t\t85 button (collapsed) Description: 位置与导航, Secondary Actions: Expand\n+\t\t\t\t86 text 位置与导航\n+\t\t\t87 container\n+\t\t\t\t88 button (collapsed) Description: 图谱视图操作, Secondary Actions: Expand\n+\t\t\t\t\t89 text 图谱视图操作\nThe focused UI element is 1 AXWebArea RHIZA M18 图谱 · 固定视觉验收, URL: 127.0.0.1:4173/scripts/fixtures/m18-graph.html?case=personal-conflict#/workspaces/m18-graph-visual-workspace/graph"
+    },
+    {
+      "sample": "personal-read-error",
+      "size": "desktop",
+      "path": "reports/ui-ux-refresh/graph-personal-read-error-desktop.jpg",
+      "metrics": {
+        "fixture": "RHIZA · 固定图谱 personal-conflict · personal read unavailable · 已阻止 0 次非样本请求；不是事务证据",
+        "overflow": [],
+        "scrollWidth": 1440,
+        "width": 1440
+      },
+      "ax": "Browser tab: 12, Title: \"RHIZA M18 图谱 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m18-graph.html?case=personal-conflict#/workspaces/m18-graph-visual-workspace/graph\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 4, 58-62, 77-81, 87-89\n+\t\t84 text 根系\n+\t\t85 text Rhiza\n+\t\t86 button 模型与 API 设置\n+\t\t87 button (collapsed) Description: 工作区菜单, Help: 根 RHIZA · 图谱固定视觉验收 讨论与知识空间 工作区菜单, Secondary Actions: Expand\n+\t\t\t88 text 根\n+\t\t\t89 text RHIZA · 图谱固定视觉验收\n+\t\t\t90 text 讨论与知识空间\n+\t\t\t91 text 工作区菜单\n+\t\t92 button 搜索或运行命令 ⌘ K\n+\t\t\t93 text 搜索或运行命令\n+\t\t\t94 text ⌘ K\n+\t\t95 container 工作区导航\n+\t\t\t96 button 当前讨论\n+\t\t\t97 button 对话图谱\n+\t\t\t98 button 知识状态\n+\t\t\t99 button 执行历史\n+\t\t\t100 button 活动时间线\n+\t\t101 text 讨论节点\n+\t\t102 button 聚焦当前路径\n+\t\t103 button 产品交付主线 0, Help: 产品交付主线\n+\t\t\t104 text 产品交付主线\n+\t\t\t105 text 0\n+\t\t106 button 用户访谈与付款证据 0, Help: 用户访谈与付款证据\n+\t\t\t107 text 用户访谈与付款证据\n+\t\t\t108 text 0\n+\t\t109 button 历史引用与跨工作区验证 0, Help: 历史引用与跨工作区验证\n+\t\t\t110 text 历史引用与跨工作区验证\n+\t\t\t111 text 0\n+\t\t112 button 数据与备份\n+\t\t113 button 模型与设置\n+\t\t114 button 帮助与快捷键\n+\t\t115 button (expanded) Description: 收起导航, Secondary Actions: Collapse\n~\t\t5 text RHIZA · 图谱固定视觉验收 /\n+\t\t116 button (collapsed) Description: 位置与导航, Secondary Actions: Expand\n+\t\t\t117 text 位置与导航\n+\t\t\t118 button (collapsed) Description: 图谱视图操作, Secondary Actions: Expand\n+\t\t\t\t119 text 图谱视图操作\n+\t\t\t\t120 container\n+\t\t\t\t\t121 button Description: 讨论节点：产品交付主线, Help: 拖拽移动，点击打开讨论\n+\t\t\t\t\t\t122 text MAIN NODE\n+\t\t\t\t\t\t123 text 产品交付主线\n+\t\t\t\t\t\t124 text 在当前讨论继续，先审阅关联来源再发送。\n+\t\t\t\t\t\t125 button Description: 归档节点 产品交付主线, Help: 归档节点\n+\t\t\t\t\t126 button Description: 讨论节点：用户访谈与付款证据, Help: 拖拽移动，点击打开讨论\n+\t\t\t\t\t\t127 text DISCUSSION NODE\n+\t\t\t\t\t\t128 text 用户访谈与付款证据\n+\t\t\t\t\t\t129 text 证据来源已保存；版本和预算须经确认。\n+\t\t\t\t\t\t130 button Description: 归档节点 用户访谈与付款证据, Help: 归档节点\n+\t\t\t\t\t131 button Description: 讨论节点：历史引用与跨工作区验证, Help: 拖拽移动，点击打开讨论\n+\t\t\t\t\t\t132 text DISCUSSION NODE\n+\t\t\t\t\t\t133 text 历史引用与跨工作区验证\n+\t\t\t\t\t\t134 text 失败结果保留，用户选择手动继续或撤销。\n+\t\t\t\t\t\t135 button Description: 归档节点 历史引用与跨工作区验证, Help: 归档节点\n+\t\t\t\t136 container 图谱概览\n+\t\t\t\t137 container\n+\t\t\t\t\t138 text PAN / ZOOM 空白平移 · 滚轮缩放 · Shift 框选 / 多选\nThe focused UI element is 1 AXWebArea RHIZA M18 图谱 · 固定视觉验收, URL: 127.0.0.1:4173/scripts/fixtures/m18-graph.html?case=personal-conflict#/workspaces/m18-graph-visual-workspace/graph"
+    },
+    {
+      "sample": "personal-save-conflict",
+      "size": "desktop",
+      "path": "reports/ui-ux-refresh/graph-personal-save-conflict-desktop.jpg",
+      "metrics": {
+        "fixture": "RHIZA · 固定图谱 personal-conflict · personal revision conflict; no save · 已阻止 0 次非样本请求；不是事务证据",
+        "overflow": [],
+        "scrollWidth": 1440,
+        "width": 1440
+      },
+      "ax": "Browser tab: 12, Title: \"RHIZA M18 图谱 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m18-graph.html?case=personal-conflict#/workspaces/m18-graph-visual-workspace/graph\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\n+\t\t\t151 text 内容已被其他更改更新。请刷新工作区后重试。\nThe focused UI element is 18 button 保存个人视图"
+    },
+    {
+      "sample": "personal-save-conflict",
+      "size": "narrow",
+      "path": "reports/ui-ux-refresh/graph-personal-save-conflict-narrow.jpg",
+      "metrics": {
+        "fixture": "RHIZA · 固定图谱 personal-conflict · personal revision conflict; no save · 已阻止 0 次非样本请求；不是事务证据",
+        "overflow": [],
+        "scrollWidth": 390,
+        "width": 390
+      },
+      "ax": "Browser tab: 12, Title: \"RHIZA M18 图谱 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m18-graph.html?case=personal-conflict#/workspaces/m18-graph-visual-workspace/graph\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 84-86, 92-115, 120-150\n+\t\t152 button (collapsed) Description: 打开工作区菜单, Secondary Actions: Expand\n~\t\t5 text RHIZA · 图谱固定视觉验收\n+\t\t153 button (collapsed) Description: 位置与导航, Secondary Actions: Expand\n+\t\t\t154 text 位置与导航\n+\t\t\t155 button (collapsed) Description: 图谱视图操作, Secondary Actions: Expand\n+\t\t\t\t156 text 图谱视图操作\n+\t\t\t\t157 button Description: 讨论节点：产品交付主线, Help: 拖拽移动，点击打开讨论\n+\t\t\t\t\t158 text MAIN NODE\n+\t\t\t\t\t159 text 产品交付主线\n+\t\t\t\t\t160 text 在当前讨论继续，先审阅关联来源再发送。\n+\t\t\t\t\t161 button Description: 归档节点 产品交付主线, Help: 归档节点\n+\t\t162 container 主要导航\n+\t\t\t163 button 对话\n+\t\t\t164 button 图谱\n+\t\t\t165 button 历史\n+\t\t\t166 button (collapsed) 工作区, Secondary Actions: Expand\nThe focused UI element is 18 button 保存个人视图"
+    }
+  ]
+}

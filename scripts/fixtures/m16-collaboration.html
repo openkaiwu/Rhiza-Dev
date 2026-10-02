@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <title>RHIZA M16 协作 · 固定视觉验收</title>
+    <style>
+      #fixture-controls { position: fixed; z-index: 100; left: 10px; bottom: 8px; max-width: calc(100vw - 20px); padding: 5px 8px; border: 1px solid #cfd5cd; border-radius: 5px; background: #fff; color: #4b554c; font: 10px/1.4 sans-serif; }
+      #fixture-controls label, #fixture-controls button { margin-right: 6px; }
+      #fixture-controls select, #fixture-controls button { padding: 3px 6px; border: 1px solid #cfd5cd; border-radius: 3px; background: #f5f6f1; color: inherit; font: inherit; }
+      #fixture-status { display: block; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <aside id="fixture-controls" aria-label="固定视觉验收工具">
+      <label>样本状态 <select id="fixture-case" aria-label="固定协作样本状态"></select></label>
+      <label>模式 <select id="fixture-mode" aria-label="固定协作样本模式"></select></label>
+      <button id="fixture-stream" type="button" hidden>展示固定流式片段</button>
+      <button id="fixture-release" type="button" hidden>释放固定流</button>
+      <span id="fixture-status" role="status">RHIZA · 固定视觉样本，不是业务端到端验收</span>
+    </aside>
+    <script type="module" src="/src/test/m16-collaboration-visual.tsx"></script>
+  </body>
+</html>

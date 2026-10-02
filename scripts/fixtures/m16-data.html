@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <title>RHIZA M16 数据与备份 · 固定视觉验收</title>
+    <style>
+      #fixture-controls { position: fixed; z-index: 100; left: 8px; bottom: 8px; max-width: calc(100vw - 16px); padding: 5px 8px; border: 1px solid #cfd5cd; border-radius: 5px; background: #fff; color: #4b554c; font: 10px/1.4 sans-serif; }
+      #fixture-controls button { margin: 3px 4px 0 0; padding: 3px 6px; border: 1px solid #cfd5cd; border-radius: 3px; background: #f5f6f1; color: inherit; font: inherit; }
+      #fixture-controls p { margin: 0; }
+      #fixture-controls[hidden], #fixture-controls [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <aside id="fixture-controls" aria-label="固定视觉验收工具">
+      <p id="fixture-status" role="status">RHIZA · 固定视觉响应；不是 ZIP / 恢复工程验证</p>
+      <button id="fixture-archive" type="button">载入固定归档</button>
+      <button id="fixture-resource" type="button" hidden>载入精确历史文件</button>
+      <button id="fixture-wrong-resource" type="button" hidden>载入错误历史文件</button>
+      <button id="fixture-release" type="button" hidden>释放固定加载</button>
+      <button id="fixture-hide" type="button">隐藏样本工具</button>
+    </aside>
+    <script type="module" src="/src/test/m16-data-visual.tsx"></script>
+  </body>
+</html>

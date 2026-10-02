@@ -38,11 +38,13 @@ export function CollaborationForm({ prompt, catalog, attachmentIds, busy, onStar
 export function CollaborationCard({ record, busy, running, retained, streams, onAction, onStop, onInspectContext, onOpenRun }: { record: CollaborationRecord; busy: boolean; running: boolean; retained: boolean; streams: Record<string, { participantId: string; round: number; text: string }>; onAction: (operation: 'retry' | 'synthesize' | 'retain' | 'refresh', attemptId?: string) => void; onStop: () => void; onInspectContext?: (manifestId: string) => void; onOpenRun?: (runId: string) => void }) {
   const [collapsed, setCollapsed] = useState(false);
   const modelName = (id: string) => record.models?.find(model => model.id === id)?.displayName ?? (id === '@synthesis' ? '综合意见' : id);
-  const availableRetry = ['running', 'interrupted', 'partial', 'failed'].includes(record.status) && !record.cancelRequestedAt && Date.parse(record.budget.deadlineAt) > Date.now();
+  const retryableStatus = ['running', 'interrupted', 'partial', 'failed'].includes(record.status);
+  const budgetEnded = record.status === 'budget-exhausted' || (!retained && !record.cancelRequestedAt && retryableStatus && Date.parse(record.budget.deadlineAt) <= Date.now());
+  const availableRetry = retryableStatus && !record.cancelRequestedAt && !budgetEnded;
   const synthesisAttempt = record.attempts.filter(attempt => attempt.participantId === '@synthesis').at(-1);
   const synthesisProgress = Object.values(streams).filter(item => item.participantId === '@synthesis').at(-1);
   const synthesisState = synthesisAttempt?.status ?? (synthesisProgress || record.status === 'synthesizing' ? 'running' : 'waiting');
-  const canSynthesize = ['running', 'interrupted'].includes(record.status) && !record.synthesis && record.attempts.some(attempt => attempt.participantId !== '@synthesis' && attempt.status === 'completed') && !record.attempts.some(attempt => attempt.status === 'running') && (!synthesisAttempt || record.attempts.some(attempt => attempt.participantId !== '@synthesis' && attempt === record.attempts.at(-1) && attempt.status === 'completed'));
+  const canSynthesize = ['running', 'interrupted'].includes(record.status) && !record.cancelRequestedAt && !budgetEnded && !record.synthesis && record.attempts.some(attempt => attempt.participantId !== '@synthesis' && attempt.status === 'completed') && !record.attempts.some(attempt => attempt.status === 'running') && (!synthesisAttempt || record.attempts.some(attempt => attempt.participantId !== '@synthesis' && attempt === record.attempts.at(-1) && attempt.status === 'completed'));
   const latestAttempts = record.participants.map(id => record.attempts.filter(attempt => attempt.participantId === id).at(-1));
   const completed = latestAttempts.filter(attempt => attempt?.status === 'completed').length;
   const incomplete = latestAttempts.filter(attempt => attempt && ['failed', 'interrupted', 'canceled'].includes(attempt.status)).length;
@@ -52,14 +54,15 @@ export function CollaborationCard({ record, busy, running, retained, streams, on
       <div className="collaboration-heading-actions"><span className={`collaboration-badge ${record.status}`}>{retained ? '已纳入讨论' : statuses[record.status] ?? record.status}</span><button className="icon-button" aria-label={collapsed ? '展开协作详情' : '收起协作详情'} aria-expanded={!collapsed} onClick={() => setCollapsed(value => !value)}><ChevronDown size={18}/></button></div>
     </header>
     <div className="collaboration-input"><p className="collaboration-frozen-question">{record.base.prompt}</p><span aria-label="冻结协作预算">同一份冻结输入 · {record.base.contextItems.length} 个来源 · 最多 {record.budget.maxRounds} 轮 · {record.budget.usedTokens.toLocaleString()} / {record.budget.tokenLimit.toLocaleString()} tokens · 截止 <time dateTime={record.budget.deadlineAt}>{new Date(record.budget.deadlineAt).toLocaleString()}</time></span></div>
+    {budgetEnded && <p role="status" aria-label="协作预算提示">本次协作已达到预算边界。已有意见与来源仍保留；如需继续，请调整预算重新发起。</p>}
     {!collapsed && <>
       <div className="collaboration-participants" role="group" aria-label="参与模型意见">{record.participants.map((participantId, index) => {
         const attempt = latestAttempts[index];
         const progress = Object.values(streams).filter(item => item.participantId === participantId).at(-1);
-        const state = progress ? 'running' : attempt?.status ?? (record.status === 'canceled' ? 'canceled' : 'waiting');
+        const state = progress ? 'running' : attempt?.status ?? (record.status === 'canceled' ? 'canceled' : budgetEnded ? 'not-dispatched' : 'waiting');
         return <article key={participantId} className={`participant-result ${state}`}>
-          <header><span className="participant-avatar">{String.fromCharCode(65 + index)}</span><strong>{modelName(participantId)}</strong><span className={`collaboration-badge ${state}`}>{progress ? '正在生成' : attempt ? statuses[attempt.status] ?? attempt.status : record.status === 'canceled' ? '未执行' : '等待执行'}</span></header>
-          {(attempt?.text || progress?.text) ? <details open><summary>查看意见{attempt && <span>第 {attempt.round} 轮</span>}</summary><MarkdownContent content={progress?.text ?? attempt?.text ?? ''}/></details> : <p className="participant-placeholder">{state === 'running' ? '正在基于冻结的对话和来源给出意见…' : ['failed', 'interrupted'].includes(state) ? '本轮未取得完整意见，可复用原始输入重试。' : state === 'canceled' ? '已停止，本轮未取得完整意见。' : '等待模型开始评审。'}</p>}
+          <header><span className="participant-avatar">{String.fromCharCode(65 + index)}</span><strong>{modelName(participantId)}</strong><span className={`collaboration-badge ${state}`}>{progress ? '正在生成' : attempt ? statuses[attempt.status] ?? attempt.status : ['canceled', 'not-dispatched'].includes(state) ? '未执行' : '等待执行'}</span></header>
+          {(attempt?.text || progress?.text) ? <details open><summary>查看意见{attempt && <span>第 {attempt.round} 轮</span>}</summary><MarkdownContent content={progress?.text ?? attempt?.text ?? ''}/></details> : <p className="participant-placeholder">{state === 'running' ? '正在基于冻结的对话和来源给出意见…' : ['failed', 'interrupted'].includes(state) ? availableRetry ? '本轮未取得完整意见，可复用原始输入重试。' : '本轮未取得完整意见，可查看执行记录。' : state === 'canceled' ? '已停止，本轮未取得完整意见。' : state === 'not-dispatched' ? '因预算结束未执行。' : '等待模型开始评审。'}</p>}
           {attempt?.errorCode && <details className="participant-diagnostics"><summary>失败详情</summary><p>{attempt.errorCode}</p></details>}
           <div className="collaboration-participant-actions">{attempt && ['failed', 'interrupted', 'canceled'].includes(attempt.status) && availableRetry && <button disabled={busy || retained} onClick={() => onAction('retry', attempt.id)}><RotateCcw size={14}/>重试 {modelName(participantId)}</button>}{attempt && onOpenRun && <button onClick={() => onOpenRun(attempt.runRef)}>执行记录</button>}</div>
         </article>;
@@ -67,7 +70,7 @@ export function CollaborationCard({ record, busy, running, retained, streams, on
       {!record.synthesis && (synthesisAttempt || synthesisProgress || record.status === 'synthesizing') && <div className="collaboration-synthesis" aria-label="综合意见">
         <h3><GitCompareArrows size={16}/>综合意见</h3>
         <p role="status" aria-label="汇总状态">{statuses[synthesisState] ?? synthesisState}</p>
-        {(synthesisProgress?.text || synthesisAttempt?.text) ? <MarkdownContent content={synthesisProgress?.text ?? synthesisAttempt?.text ?? ''}/> : <p className="participant-placeholder">{synthesisState === 'running' ? '正在汇总参与模型的意见…' : ['failed', 'interrupted'].includes(synthesisState) ? '未取得完整综合意见，可复用原始输入重试。' : synthesisState === 'canceled' ? '汇总已停止。' : '等待汇总模型开始。'}</p>}
+        {(synthesisProgress?.text || synthesisAttempt?.text) ? <MarkdownContent content={synthesisProgress?.text ?? synthesisAttempt?.text ?? ''}/> : <p className="participant-placeholder">{synthesisState === 'running' ? '正在汇总参与模型的意见…' : ['failed', 'interrupted'].includes(synthesisState) ? availableRetry ? '未取得完整综合意见，可复用原始输入重试。' : '未取得完整综合意见，可查看执行记录。' : synthesisState === 'canceled' ? '汇总已停止。' : '等待汇总模型开始。'}</p>}
         {synthesisAttempt?.errorCode && <details className="participant-diagnostics"><summary>汇总失败详情</summary><p>{synthesisAttempt.errorCode}</p></details>}
         <div className="collaboration-participant-actions">{synthesisAttempt && ['failed', 'interrupted', 'canceled'].includes(synthesisAttempt.status) && availableRetry && <button disabled={busy || retained} onClick={() => onAction('retry', synthesisAttempt.id)}><RotateCcw size={14}/>重试 {modelName('@synthesis')}</button>}{synthesisAttempt && onOpenRun && <button onClick={() => onOpenRun(synthesisAttempt.runRef)}>汇总执行记录</button>}</div>
       </div>}

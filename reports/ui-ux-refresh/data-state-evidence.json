@@ -1,0 +1,1616 @@
+{
+  "scope": "production App/BundleControls with fixed isolated memory responses; not real ZIP or persistence evidence",
+  "captures": [
+    {
+      "sample": "backup-ready",
+      "size": "desktop",
+      "path": "reports/ui-ux-refresh/data-backup-ready-desktop.jpg",
+      "metrics": {
+        "actions": [
+          {
+            "disabled": false,
+            "label": "×"
+          },
+          {
+            "disabled": false,
+            "label": "导出"
+          },
+          {
+            "disabled": false,
+            "label": "导入与恢复"
+          },
+          {
+            "disabled": false,
+            "label": "托管备份"
+          },
+          {
+            "disabled": false,
+            "label": "立即备份"
+          },
+          {
+            "disabled": false,
+            "label": "刷新备份"
+          },
+          {
+            "disabled": false,
+            "label": "恢复预检"
+          }
+        ],
+        "alerts": [],
+        "dialogScrollWidth": 838,
+        "dialogWidth": 840,
+        "fixture": "RHIZA · backup-ready · ready · 导入 0 / 偏好 0 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证",
+        "scrollWidth": 1440,
+        "width": 1440
+      },
+      "ax": "Browser tab: 11, Title: \"RHIZA M16 数据与备份 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m16-data.html?case=backup-ready#/workspaces/m16-data-visual-source-workspace/data\".\nThere has been no change in the accessibility tree.\nThe focused UI element is 11 tab (selected, settable, boolean) 托管备份, Value: 1"
+    },
+    {
+      "sample": "backup-ready",
+      "size": "narrow",
+      "path": "reports/ui-ux-refresh/data-backup-ready-narrow.jpg",
+      "metrics": {
+        "actions": [
+          {
+            "disabled": false,
+            "label": "×"
+          },
+          {
+            "disabled": false,
+            "label": "导出"
+          },
+          {
+            "disabled": false,
+            "label": "导入与恢复"
+          },
+          {
+            "disabled": false,
+            "label": "托管备份"
+          },
+          {
+            "disabled": false,
+            "label": "立即备份"
+          },
+          {
+            "disabled": false,
+            "label": "刷新备份"
+          },
+          {
+            "disabled": false,
+            "label": "恢复预检"
+          }
+        ],
+        "alerts": [],
+        "dialogScrollWidth": 388,
+        "dialogWidth": 390,
+        "fixture": "RHIZA · backup-ready · ready · 导入 0 / 偏好 0 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证",
+        "scrollWidth": 390,
+        "width": 390
+      },
+      "ax": "Browser tab: 11, Title: \"RHIZA M16 数据与备份 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m16-data.html?case=backup-ready#/workspaces/m16-data-visual-source-workspace/data\".\nThere has been no change in the accessibility tree.\nThe focused UI element is 11 tab (selected, settable, boolean) 托管备份, Value: 1"
+    },
+    {
+      "sample": "backup-restore-preflight",
+      "size": "narrow",
+      "path": "reports/ui-ux-refresh/data-backup-restore-preflight-narrow.jpg",
+      "metrics": {
+        "actions": [
+          {
+            "disabled": false,
+            "label": "×"
+          },
+          {
+            "disabled": false,
+            "label": "导出"
+          },
+          {
+            "disabled": false,
+            "label": "导入与恢复"
+          },
+          {
+            "disabled": false,
+            "label": "托管备份"
+          },
+          {
+            "disabled": false,
+            "label": "预检所选归档"
+          },
+          {
+            "disabled": false,
+            "label": "打开模型设置"
+          },
+          {
+            "disabled": true,
+            "label": "导入所选归档"
+          }
+        ],
+        "alerts": [],
+        "dialogScrollWidth": 388,
+        "dialogWidth": 390,
+        "fixture": "RHIZA · backup-ready · preflight complete · 导入 0 / 偏好 0 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证",
+        "scrollWidth": 390,
+        "width": 390
+      },
+      "ax": "Browser tab: 11, Title: \"RHIZA M16 数据与备份 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m16-data.html?case=backup-ready#/workspaces/m16-data-visual-source-workspace/data\".\n1 AXWebArea RHIZA M16 数据与备份 · 固定视觉验收, URL: 127.0.0.1:4173/scripts/fixtures/m16-data.html?case=backup-ready#/workspaces/m16-data-visual-source-workspace/data\n\t2 container 数据与备份\n\t\t3 container\n\t\t\t4 heading 数据与备份, Value: 2, ID: workspace-data-title\n\t\t\t\t5 text 数据与备份\n\t\t\t6 text RHIZA · 数据与备份固定视觉验收  ·  m16-data-visual-source-workspace\n\t\t\t7 button 关闭数据与备份\n\t\t8 container\n\t\t\t9 tab group 数据操作\n\t\t\t\t10 tab (selectable, settable, boolean) 导出, Value: 0\n\t\t\t\t11 tab (selected, settable, boolean) 导入与恢复, Value: 1\n\t\t\t\t12 tab (selectable, settable, boolean) 托管备份, Value: 0\n\t\t\t13 container 导入工作区\n\t\t\t\t14 heading 导入前检查, Value: 3\n\t\t\t\t\t15 text 导入前检查\n\t\t\t\t16 text 保留原身份，仅限归档 owner；已有工作区不会覆盖。导入和预检不会执行模型。\n\t\t\t\t17 container\n\t\t\t\t\t18 text 选择 .rhiza 归档\n\t\t\t\t\t19 button 选择 .rhiza 归档\n\t\t\t\t20 container\n\t\t\t\t\t21 text 研究工作区-历史附件与执行记录-20261002.rhiza  ·  0.0  KiB\n\t\t\t\t22 button 预检所选归档\n\t\t\t\t23 container 归档预检结果\n\t\t\t\t\t24 heading 长期研究与产品决策 · 历史附件、来源与执行归档, Value: 4\n\t\t\t\t\t\t25 text 长期研究与产品决策 · 历史附件、来源与执行归档\n\t\t\t\t\t26 container\n\t\t\t\t\t\t27 text 128  条消息 ·  16  次执行 ·  5  个资源版本\n\t\t\t\t\t28 container\n\t\t\t\t\t\t29 text 工作区： m16-data-visual-source-workspace\n\t\t\t\t\t\t30 text 归档校验： 9b574e92e6a398a4f93d65af2d61abb5f962676cc8caabc45c47aa01033a337c\n\t\t\t\t\t31 container\n\t\t\t\t\t\t32 button (expanded) 继续对话的模型配置 · 1 项, Secondary Actions: Collapse\n\t\t\t\t\t\t\t33 text 继续对话的模型配置 · \n\t\t\t\t\t\t\t34 text 1\n\t\t\t\t\t\t\t35 text  项\n\t\t\t\t\t\t36 text 密钥不会随归档迁移。映射只用于后续配置，不改写历史；Exact Replay 仍需原执行配置。 historical/research-model-20261002  ·  8  次执行\n\t\t\t\t\t\t37 text 请选择本机模型\n\t\t\t\t\t\t38 pop up button (collapsed, settable) Description: 映射模型 historical/research-model-20261002 historical-research-endpoint, Value: 保留历史，稍后配置, Secondary Actions: Expand\n\t\t\t\t\t\t\t39 menu\n\t\t\t\t\t\t\t\t40 (selected) 保留历史，稍后配置\n\t\t\t\t\t\t\t\t41 本机 Alpha · 后续对话 · 本机固定模型目录 · 研究与架构评审长名称供应商\n\t\t\t\t\t\t\t\t42 研究与架构评审模型 · LongModelNameForOverflowVerification20261002 · 本机固定模型目录 · 研究与架构评审长名称供应商\n\t\t\t\t\t\t43 button 打开模型设置\n\t\t\t\t\t44 checkbox (settable, integer) Description: 我已确认工作区身份、归档内容及密钥需重新配置, Value: 0\n\t\t\t\t\t45 button (disabled) 导入所选归档\n\t\t\t46 text 恢复归档校验完成。已有工作区不会覆盖；可下载后在空实例中恢复。\n\nThe focused UI element is 1 AXWebArea RHIZA M16 数据与备份 · 固定视觉验收, URL: 127.0.0.1:4173/scripts/fixtures/m16-data.html?case=backup-ready#/workspaces/m16-data-visual-source-workspace/data"
+    },
+    {
+      "sample": "backup-failed",
+      "size": "narrow",
+      "path": "reports/ui-ux-refresh/data-backup-failed-narrow.jpg",
+      "metrics": {
+        "actions": [
+          {
+            "disabled": false,
+            "label": "×"
+          },
+          {
+            "disabled": false,
+            "label": "导出"
+          },
+          {
+            "disabled": false,
+            "label": "导入与恢复"
+          },
+          {
+            "disabled": false,
+            "label": "托管备份"
+          },
+          {
+            "disabled": false,
+            "label": "立即备份"
+          },
+          {
+            "disabled": false,
+            "label": "刷新备份"
+          },
+          {
+            "disabled": false,
+            "label": "重试备份"
+          },
+          {
+            "disabled": false,
+            "label": "重试备份"
+          },
+          {
+            "disabled": false,
+            "label": "载入固定归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入精确历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "载入错误历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "释放固定加载"
+          },
+          {
+            "disabled": false,
+            "label": "隐藏样本工具"
+          }
+        ],
+        "alerts": [],
+        "dialogScrollWidth": 388,
+        "dialogWidth": 390,
+        "fixture": "RHIZA · backup-failed · ready · 导入 0 / 偏好 0 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证",
+        "scrollWidth": 390,
+        "width": 390
+      },
+      "ax": "Browser tab: 11, Title: \"RHIZA M16 数据与备份 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m16-data.html?case=backup-failed#/workspaces/m16-data-visual-source-workspace/data\".\nThere has been no change in the accessibility tree.\nThe focused UI element is 11 tab (selected, settable, boolean) 托管备份, Value: 1"
+    },
+    {
+      "sample": "backup-failed",
+      "size": "desktop",
+      "path": "reports/ui-ux-refresh/data-backup-failed-desktop.jpg",
+      "metrics": {
+        "actions": [
+          {
+            "disabled": false,
+            "label": "×"
+          },
+          {
+            "disabled": false,
+            "label": "导出"
+          },
+          {
+            "disabled": false,
+            "label": "导入与恢复"
+          },
+          {
+            "disabled": false,
+            "label": "托管备份"
+          },
+          {
+            "disabled": false,
+            "label": "立即备份"
+          },
+          {
+            "disabled": false,
+            "label": "刷新备份"
+          },
+          {
+            "disabled": false,
+            "label": "重试备份"
+          },
+          {
+            "disabled": false,
+            "label": "重试备份"
+          },
+          {
+            "disabled": false,
+            "label": "载入固定归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入精确历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "载入错误历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "释放固定加载"
+          },
+          {
+            "disabled": false,
+            "label": "隐藏样本工具"
+          }
+        ],
+        "alerts": [],
+        "dialogScrollWidth": 838,
+        "dialogWidth": 840,
+        "fixture": "RHIZA · backup-failed · ready · 导入 0 / 偏好 0 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证",
+        "scrollWidth": 1440,
+        "width": 1440
+      },
+      "ax": "Browser tab: 11, Title: \"RHIZA M16 数据与备份 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m16-data.html?case=backup-failed#/workspaces/m16-data-visual-source-workspace/data\".\nThere has been no change in the accessibility tree.\nThe focused UI element is 11 tab (selected, settable, boolean) 托管备份, Value: 1"
+    },
+    {
+      "sample": "backup-response-lost",
+      "size": "desktop",
+      "path": "reports/ui-ux-refresh/data-backup-response-lost-desktop.jpg",
+      "metrics": {
+        "actions": [
+          {
+            "disabled": false,
+            "label": "×"
+          },
+          {
+            "disabled": false,
+            "label": "导出"
+          },
+          {
+            "disabled": false,
+            "label": "导入与恢复"
+          },
+          {
+            "disabled": false,
+            "label": "托管备份"
+          },
+          {
+            "disabled": false,
+            "label": "立即备份"
+          },
+          {
+            "disabled": false,
+            "label": "刷新备份"
+          },
+          {
+            "disabled": false,
+            "label": "重试备份"
+          },
+          {
+            "disabled": false,
+            "label": "重试备份"
+          },
+          {
+            "disabled": false,
+            "label": "载入固定归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入精确历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "载入错误历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "释放固定加载"
+          },
+          {
+            "disabled": false,
+            "label": "隐藏样本工具"
+          }
+        ],
+        "alerts": [],
+        "dialogScrollWidth": 838,
+        "dialogWidth": 840,
+        "fixture": "RHIZA · backup-failed · backup committed; response interrupted · 导入 0 / 偏好 0 / 备份 1 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证",
+        "scrollWidth": 1440,
+        "width": 1440
+      },
+      "ax": "Browser tab: 11, Title: \"RHIZA M16 数据与备份 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m16-data.html?case=backup-failed#/workspaces/m16-data-visual-source-workspace/data\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 19\n+\t\t43 text 操作未完成。请检查后重试。\n+\t\t\t44 text RHIZA · backup-failed · backup committed; response interrupted · 导入 0 / 偏好 0 / 备份 1 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证\nThe focused UI element is 37 button 重试备份"
+    },
+    {
+      "sample": "backup-recovered",
+      "size": "desktop",
+      "path": "reports/ui-ux-refresh/data-backup-recovered-desktop.jpg",
+      "metrics": {
+        "actions": [
+          {
+            "disabled": false,
+            "label": "×"
+          },
+          {
+            "disabled": false,
+            "label": "导出"
+          },
+          {
+            "disabled": false,
+            "label": "导入与恢复"
+          },
+          {
+            "disabled": false,
+            "label": "托管备份"
+          },
+          {
+            "disabled": false,
+            "label": "立即备份"
+          },
+          {
+            "disabled": false,
+            "label": "刷新备份"
+          },
+          {
+            "disabled": false,
+            "label": "恢复预检"
+          },
+          {
+            "disabled": false,
+            "label": "重试备份"
+          },
+          {
+            "disabled": false,
+            "label": "重试备份"
+          },
+          {
+            "disabled": false,
+            "label": "载入固定归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入精确历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "载入错误历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "释放固定加载"
+          },
+          {
+            "disabled": false,
+            "label": "隐藏样本工具"
+          }
+        ],
+        "alerts": [],
+        "dialogScrollWidth": 838,
+        "dialogWidth": 840,
+        "fixture": "RHIZA · backup-failed · backup receipt recovered · 导入 0 / 偏好 0 / 备份 1 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证",
+        "scrollWidth": 1440,
+        "width": 1440
+      },
+      "ax": "Browser tab: 11, Title: \"RHIZA M16 数据与备份 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m16-data.html?case=backup-failed#/workspaces/m16-data-visual-source-workspace/data\".\n1 AXWebArea RHIZA M16 数据与备份 · 固定视觉验收, URL: 127.0.0.1:4173/scripts/fixtures/m16-data.html?case=backup-failed#/workspaces/m16-data-visual-source-workspace/data\n\t2 container 数据与备份\n\t\t3 container\n\t\t\t4 heading 数据与备份, Value: 2, ID: workspace-data-title\n\t\t\t\t5 text 数据与备份\n\t\t\t6 text RHIZA · 数据与备份固定视觉验收  ·  m16-data-visual-source-workspace\n\t\t\t7 button 关闭数据与备份\n\t\t25 container\n\t\t\t26 tab group 数据操作\n\t\t\t\t27 tab (selectable, settable, boolean) 导出, Value: 0\n\t\t\t\t28 tab (selectable, settable, boolean) 导入与恢复, Value: 0\n\t\t\t\t29 tab (selected, settable, boolean) 托管备份, Value: 1\n\t\t\t30 container 托管备份\n\t\t\t\t31 heading 本机加密备份, Value: 3\n\t\t\t\t\t32 text 本机加密备份\n\t\t\t\t33 text 完整保留附件与历史，备份位于当前实例。清除操作会同步处置受影响的托管副本；已下载副本需自行管理。\n\t\t\t\t34 text 下次提醒：2026/10/8 17:00:00\n\t\t\t\t35 button 立即备份\n\t\t\t\t36 button 刷新备份\n\t\t\t\t37 content list\n\t\t\t\t\t38 container\n\t\t\t\t\t\t39 text 可恢复\n\t\t\t\t\t\t40 text 2026/10/1 17:00:00\n\t\t\t\t\t\t41 text 位置： managed://encrypted-workspace-archives/m16-data-visual-source-workspace/long-logical-backup-location-for-overflow-verification/m16-backup-created-1 12.00  MiB\n\t\t\t\t\t\t42 link Description: 下载恢复归档, Value: 127.0.0.1:4173/api/v1/workspaces/m16-data-visual-source-workspace/backups/m16-backup-created-1/archive\n\t\t\t\t\t\t43 button 恢复预检\n\t\t\t\t\t44 container\n\t\t\t\t\t\t45 text 失败\n\t\t\t\t\t\t46 text 2026/10/1 17:00:00\n\t\t\t\t\t\t47 text 位置： managed://encrypted-workspace-archives/m16-data-visual-source-workspace/long-logical-backup-location-for-overflow-verification/m16-backup-failed 备份位置不可用，请检查本机存储空间或权限后重试。\n\t\t\t\t\t\t48 button 重试备份\n\t\t\t\t\t49 container\n\t\t\t\t\t\t50 text 已中断\n\t\t\t\t\t\t51 text 2026/10/1 17:00:00\n\t\t\t\t\t\t52 text 位置： managed://encrypted-workspace-archives/m16-data-visual-source-workspace/long-logical-backup-location-for-overflow-verification/m16-backup-interrupted\n\t\t\t\t\t\t53 button 重试备份\n\t\t\t54 text 重试已完成，请查看状态。\n\t\t18 container Description: 固定视觉验收工具, ID: fixture-controls\n\t\t\t55 text RHIZA · backup-failed · backup receipt recovered · 导入 0 / 偏好 0 / 备份 1 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证\n\t\t\t20 button 载入固定归档, ID: fixture-archive\n\t\t\t21 button 载入精确历史文件, ID: fixture-resource\n\t\t\t22 button 载入错误历史文件, ID: fixture-wrong-resource\n\t\t\t23 button 释放固定加载, ID: fixture-release\n\t\t\t24 button 隐藏样本工具, ID: fixture-hide\n\nThe focused UI element is 48 button 重试备份"
+    },
+    {
+      "sample": "missing",
+      "size": "desktop",
+      "path": "reports/ui-ux-refresh/data-missing-desktop.jpg",
+      "metrics": {
+        "actions": [
+          {
+            "disabled": false,
+            "label": "×"
+          },
+          {
+            "disabled": false,
+            "label": "导出"
+          },
+          {
+            "disabled": false,
+            "label": "导入与恢复"
+          },
+          {
+            "disabled": false,
+            "label": "托管备份"
+          },
+          {
+            "disabled": false,
+            "label": "预检所选归档"
+          },
+          {
+            "disabled": true,
+            "label": "校验并补齐历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "打开模型设置"
+          },
+          {
+            "disabled": false,
+            "label": "载入固定归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入精确历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "载入错误历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "释放固定加载"
+          },
+          {
+            "disabled": false,
+            "label": "隐藏样本工具"
+          }
+        ],
+        "alerts": [
+          "缺少 1 个历史文件，导入已阻止。"
+        ],
+        "dialogScrollWidth": 838,
+        "dialogWidth": 840,
+        "fixture": "RHIZA · missing · missing resource; import blocked · 导入 0 / 偏好 0 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证",
+        "scrollWidth": 1440,
+        "width": 1440
+      },
+      "ax": "Browser tab: 11, Title: \"RHIZA M16 数据与备份 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m16-data.html?case=missing#/workspaces/m16-data-visual-source-workspace/data\".\nThere has been no change in the accessibility tree.\nThe focused UI element is 1 AXWebArea RHIZA M16 数据与备份 · 固定视觉验收, URL: 127.0.0.1:4173/scripts/fixtures/m16-data.html?case=missing#/workspaces/m16-data-visual-source-workspace/data"
+    },
+    {
+      "sample": "missing",
+      "size": "narrow",
+      "path": "reports/ui-ux-refresh/data-missing-narrow.jpg",
+      "metrics": {
+        "actions": [
+          {
+            "disabled": false,
+            "label": "×"
+          },
+          {
+            "disabled": false,
+            "label": "导出"
+          },
+          {
+            "disabled": false,
+            "label": "导入与恢复"
+          },
+          {
+            "disabled": false,
+            "label": "托管备份"
+          },
+          {
+            "disabled": false,
+            "label": "预检所选归档"
+          },
+          {
+            "disabled": true,
+            "label": "校验并补齐历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "打开模型设置"
+          },
+          {
+            "disabled": false,
+            "label": "载入固定归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入精确历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "载入错误历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "释放固定加载"
+          },
+          {
+            "disabled": false,
+            "label": "隐藏样本工具"
+          }
+        ],
+        "alerts": [
+          "缺少 1 个历史文件，导入已阻止。"
+        ],
+        "dialogScrollWidth": 388,
+        "dialogWidth": 390,
+        "fixture": "RHIZA · missing · missing resource; import blocked · 导入 0 / 偏好 0 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证",
+        "scrollWidth": 390,
+        "width": 390
+      },
+      "ax": "Browser tab: 11, Title: \"RHIZA M16 数据与备份 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m16-data.html?case=missing#/workspaces/m16-data-visual-source-workspace/data\".\nThere has been no change in the accessibility tree.\nThe focused UI element is 1 AXWebArea RHIZA M16 数据与备份 · 固定视觉验收, URL: 127.0.0.1:4173/scripts/fixtures/m16-data.html?case=missing#/workspaces/m16-data-visual-source-workspace/data"
+    },
+    {
+      "sample": "wrong-resource",
+      "size": "narrow",
+      "path": "reports/ui-ux-refresh/data-wrong-resource-narrow.jpg",
+      "metrics": {
+        "actions": [
+          {
+            "disabled": false,
+            "label": "×"
+          },
+          {
+            "disabled": false,
+            "label": "导出"
+          },
+          {
+            "disabled": false,
+            "label": "导入与恢复"
+          },
+          {
+            "disabled": false,
+            "label": "托管备份"
+          },
+          {
+            "disabled": false,
+            "label": "预检所选归档"
+          },
+          {
+            "disabled": false,
+            "label": "校验并补齐历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "打开模型设置"
+          },
+          {
+            "disabled": false,
+            "label": "载入固定归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入精确历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "载入错误历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "释放固定加载"
+          },
+          {
+            "disabled": false,
+            "label": "隐藏样本工具"
+          }
+        ],
+        "alerts": [
+          "缺少 1 个历史文件，导入已阻止。"
+        ],
+        "dialogScrollWidth": 388,
+        "dialogWidth": 390,
+        "fixture": "RHIZA · missing · historical bytes rejected · 导入 0 / 偏好 0 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证",
+        "scrollWidth": 390,
+        "width": 390
+      },
+      "ax": "Browser tab: 11, Title: \"RHIZA M16 数据与备份 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m16-data.html?case=missing#/workspaces/m16-data-visual-source-workspace/data\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\n~\t\t\t68 text 提交的内容需要调整。请检查输入后再试。\n~\t\t\t69 text RHIZA · missing · historical bytes rejected · 导入 0 / 偏好 0 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证\nThe focused UI element is 54 button 校验并补齐历史文件"
+    },
+    {
+      "sample": "hydrated",
+      "size": "narrow",
+      "path": "reports/ui-ux-refresh/data-hydrated-narrow.jpg",
+      "metrics": {
+        "actions": [
+          {
+            "disabled": false,
+            "label": "×"
+          },
+          {
+            "disabled": false,
+            "label": "导出"
+          },
+          {
+            "disabled": false,
+            "label": "导入与恢复"
+          },
+          {
+            "disabled": false,
+            "label": "托管备份"
+          },
+          {
+            "disabled": false,
+            "label": "预检所选归档"
+          },
+          {
+            "disabled": false,
+            "label": "打开模型设置"
+          },
+          {
+            "disabled": true,
+            "label": "导入所选归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入固定归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入精确历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "载入错误历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "释放固定加载"
+          },
+          {
+            "disabled": false,
+            "label": "隐藏样本工具"
+          }
+        ],
+        "alerts": [],
+        "dialogScrollWidth": 388,
+        "dialogWidth": 390,
+        "fixture": "RHIZA · missing · preflight complete · 导入 0 / 偏好 0 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证",
+        "scrollWidth": 390,
+        "width": 390
+      },
+      "ax": "Browser tab: 11, Title: \"RHIZA M16 数据与备份 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m16-data.html?case=missing#/workspaces/m16-data-visual-source-workspace/data\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 50-69\n~\t\t\t\t\t\t49 button (expanded) 继续对话的模型配置 · 1 项, Secondary Actions: Collapse\n+\t\t\t\t\t\t\t50 text 继续对话的模型配置 · \n+\t\t\t\t\t\t\t51 text 1\n+\t\t\t\t\t\t\t52 text  项\n+\t\t\t\t\t\t53 text 密钥不会随归档迁移。映射只用于后续配置，不改写历史；Exact Replay 仍需原执行配置。 historical/research-model-20261002  ·  8  次执行\n+\t\t\t\t\t\t54 text 请选择本机模型\n+\t\t\t\t\t\t55 pop up button (collapsed, settable) Description: 映射模型 historical/research-model-20261002 historical-research-endpoint, Value: 保留历史，稍后配置, Secondary Actions: Expand\n+\t\t\t\t\t\t\t56 menu\n+\t\t\t\t\t\t\t\t57 (selected) 保留历史，稍后配置\n+\t\t\t\t\t\t\t\t58 本机 Alpha · 后续对话 · 本机固定模型目录 · 研究与架构评审长名称供应商\n+\t\t\t\t\t\t\t\t59 研究与架构评审模型 · LongModelNameForOverflowVerification20261002 · 本机固定模型目录 · 研究与架构评审长名称供应商\n+\t\t\t\t\t\t60 button 打开模型设置\n+\t\t\t\t\t61 checkbox (settable, integer) Description: 我已确认工作区身份、归档内容及密钥需重新配置, Value: 0\n+\t\t\t\t\t62 button (disabled) 导入所选归档\n+\t\t\t63 text 历史文件校验并补齐成功。请确认后导入。\n+\t\t\t64 text RHIZA · missing · preflight complete · 导入 0 / 偏好 0 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证\nThe focused UI element is 1 AXWebArea RHIZA M16 数据与备份 · 固定视觉验收, URL: 127.0.0.1:4173/scripts/fixtures/m16-data.html?case=missing#/workspaces/m16-data-visual-source-workspace/data"
+    },
+    {
+      "sample": "warnings",
+      "size": "narrow",
+      "path": "reports/ui-ux-refresh/data-warnings-narrow.jpg",
+      "metrics": {
+        "actions": [
+          {
+            "disabled": false,
+            "label": "×"
+          },
+          {
+            "disabled": false,
+            "label": "导出"
+          },
+          {
+            "disabled": false,
+            "label": "导入与恢复"
+          },
+          {
+            "disabled": false,
+            "label": "托管备份"
+          },
+          {
+            "disabled": false,
+            "label": "预检所选归档"
+          },
+          {
+            "disabled": false,
+            "label": "打开模型设置"
+          },
+          {
+            "disabled": true,
+            "label": "导入所选归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入固定归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入精确历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "载入错误历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "释放固定加载"
+          },
+          {
+            "disabled": false,
+            "label": "隐藏样本工具"
+          }
+        ],
+        "alerts": [],
+        "dialogScrollWidth": 388,
+        "dialogWidth": 390,
+        "fixture": "RHIZA · warnings · preflight complete · 导入 0 / 偏好 0 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证",
+        "scrollWidth": 390,
+        "width": 390
+      },
+      "ax": "Browser tab: 11, Title: \"RHIZA M16 数据与备份 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m16-data.html?case=warnings#/workspaces/m16-data-visual-source-workspace/data\".\n1 AXWebArea RHIZA M16 数据与备份 · 固定视觉验收, URL: 127.0.0.1:4173/scripts/fixtures/m16-data.html?case=warnings#/workspaces/m16-data-visual-source-workspace/data\n\t2 container 数据与备份\n\t\t3 container\n\t\t\t4 heading 数据与备份, Value: 2, ID: workspace-data-title\n\t\t\t\t5 text 数据与备份\n\t\t\t6 text RHIZA · 数据与备份固定视觉验收  ·  m16-data-visual-source-workspace\n\t\t\t7 button 关闭数据与备份\n\t\t22 container\n\t\t\t23 tab group 数据操作\n\t\t\t\t24 tab (selectable, settable, boolean) 导出, Value: 0\n\t\t\t\t25 tab (selected, settable, boolean) 导入与恢复, Value: 1\n\t\t\t\t26 tab (selectable, settable, boolean) 托管备份, Value: 0\n\t\t\t27 container 导入工作区\n\t\t\t\t28 heading 导入前检查, Value: 3\n\t\t\t\t\t29 text 导入前检查\n\t\t\t\t30 text 保留原身份，仅限归档 owner；已有工作区不会覆盖。导入和预检不会执行模型。\n\t\t\t\t31 container\n\t\t\t\t\t32 text 选择 .rhiza 归档\n\t\t\t\t\t33 button 选择 .rhiza 归档\n\t\t\t\t34 container\n\t\t\t\t\t35 text 研究工作区-历史附件与执行记录-20261002.rhiza  ·  0.0  KiB\n\t\t\t\t36 button 预检所选归档\n\t\t\t\t37 container 归档预检结果\n\t\t\t\t\t38 heading 长期研究与产品决策 · 历史附件、来源与执行归档, Value: 4\n\t\t\t\t\t\t39 text 长期研究与产品决策 · 历史附件、来源与执行归档\n\t\t\t\t\t40 container\n\t\t\t\t\t\t41 text 128  条消息 ·  16  次执行 ·  5  个资源版本\n\t\t\t\t\t42 container\n\t\t\t\t\t\t43 text 工作区： m16-data-visual-imported-workspace-with-preserved-historical-identity-20261002\n\t\t\t\t\t\t44 text 归档校验： 9b574e92e6a398a4f93d65af2d61abb5f962676cc8caabc45c47aa01033a337c\n\t\t\t\t\t45 container\n\t\t\t\t\t\t46 button (expanded) 继续对话的模型配置 · 2 项, Secondary Actions: Collapse\n\t\t\t\t\t\t\t47 text 继续对话的模型配置 · \n\t\t\t\t\t\t\t48 text 2\n\t\t\t\t\t\t\t49 text  项\n\t\t\t\t\t\t50 text 密钥不会随归档迁移。映射只用于后续配置，不改写历史；Exact Replay 仍需原执行配置。 historical/model-reference-with-a-long-unbroken-identifier-and-version-20261002  ·  12  次执行\n\t\t\t\t\t\t51 text 需要配置密钥\n\t\t\t\t\t\t52 pop up button (collapsed, settable) Value: 保留历史，稍后配置, Secondary Actions: Expand, Description: 映射模型 historical/model-reference-with-a-long-unbroken-identifier-and-version-20261002 historical-endpoint-reference-credential-required\n\t\t\t\t\t\t\t53 menu\n\t\t\t\t\t\t\t\t54 (selected) 保留历史，稍后配置\n\t\t\t\t\t\t\t\t55 本机 Alpha · 后续对话 · 本机固定模型目录 · 研究与架构评审长名称供应商\n\t\t\t\t\t\t\t\t56 研究与架构评审模型 · LongModelNameForOverflowVerification20261002 · 本机固定模型目录 · 研究与架构评审长名称供应商\n\t\t\t\t\t\t57 text historical/review-model  ·  4  次执行\n\t\t\t\t\t\t58 text 请选择本机模型\n\t\t\t\t\t\t59 pop up button (collapsed, settable) Description: 映射模型 historical/review-model historical-secondary-endpoint, Value: 保留历史，稍后配置, Secondary Actions: Expand\n\t\t\t\t\t\t\t60 menu\n\t\t\t\t\t\t\t\t61 (selected) 保留历史，稍后配置\n\t\t\t\t\t\t\t\t62 本机 Alpha · 后续对话 · 本机固定模型目录 · 研究与架构评审长名称供应商\n\t\t\t\t\t\t\t\t63 研究与架构评审模型 · LongModelNameForOverflowVerification20261002 · 本机固定模型目录 · 研究与架构评审长名称供应商\n\t\t\t\t\t\t64 button 打开模型设置\n\t\t\t\t\t65 checkbox (settable, integer) Description: 我已确认工作区身份、归档内容及密钥需重新配置, Value: 0\n\t\t\t\t\t66 button (disabled) 导入所选归档\n\t\t\t67 text 归档校验通过。请确认内容和安全提示后导入。\n\t\t18 container Description: 固定视觉验收工具, ID: fixture-controls\n\t\t\t68 text RHIZA · warnings · preflight complete · 导入 0 / 偏好 0 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证\n\t\t\t20 button 载入固定归档, ID: fixture-archive\n\t\t\t21 button 隐藏样本工具, ID: fixture-hide\n\nThe focused UI element is 1 AXWebArea RHIZA M16 数据与备份 · 固定视觉验收, URL: 127.0.0.1:4173/scripts/fixtures/m16-data.html?case=warnings#/workspaces/m16-data-visual-source-workspace/data"
+    },
+    {
+      "sample": "warnings",
+      "size": "desktop",
+      "path": "reports/ui-ux-refresh/data-warnings-desktop.jpg",
+      "metrics": {
+        "actions": [
+          {
+            "disabled": false,
+            "label": "×"
+          },
+          {
+            "disabled": false,
+            "label": "导出"
+          },
+          {
+            "disabled": false,
+            "label": "导入与恢复"
+          },
+          {
+            "disabled": false,
+            "label": "托管备份"
+          },
+          {
+            "disabled": false,
+            "label": "预检所选归档"
+          },
+          {
+            "disabled": false,
+            "label": "打开模型设置"
+          },
+          {
+            "disabled": true,
+            "label": "导入所选归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入固定归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入精确历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "载入错误历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "释放固定加载"
+          },
+          {
+            "disabled": false,
+            "label": "隐藏样本工具"
+          }
+        ],
+        "alerts": [],
+        "dialogScrollWidth": 838,
+        "dialogWidth": 840,
+        "fixture": "RHIZA · warnings · preflight complete · 导入 0 / 偏好 0 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证",
+        "scrollWidth": 1440,
+        "width": 1440
+      },
+      "ax": "Browser tab: 11, Title: \"RHIZA M16 数据与备份 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m16-data.html?case=warnings#/workspaces/m16-data-visual-source-workspace/data\".\nThere has been no change in the accessibility tree.\nThe focused UI element is 1 AXWebArea RHIZA M16 数据与备份 · 固定视觉验收, URL: 127.0.0.1:4173/scripts/fixtures/m16-data.html?case=warnings#/workspaces/m16-data-visual-source-workspace/data"
+    },
+    {
+      "sample": "preflight-error",
+      "size": "narrow",
+      "path": "reports/ui-ux-refresh/data-preflight-error-narrow.jpg",
+      "metrics": {
+        "actions": [
+          {
+            "disabled": false,
+            "label": "×"
+          },
+          {
+            "disabled": false,
+            "label": "导出"
+          },
+          {
+            "disabled": false,
+            "label": "导入与恢复"
+          },
+          {
+            "disabled": false,
+            "label": "托管备份"
+          },
+          {
+            "disabled": false,
+            "label": "预检所选归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入固定归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入精确历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "载入错误历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "释放固定加载"
+          },
+          {
+            "disabled": false,
+            "label": "隐藏样本工具"
+          }
+        ],
+        "alerts": [],
+        "dialogScrollWidth": 388,
+        "dialogWidth": 390,
+        "fixture": "RHIZA · preflight-error · preflight rejected · 导入 0 / 偏好 0 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证",
+        "scrollWidth": 390,
+        "width": 390
+      },
+      "ax": "Browser tab: 11, Title: \"RHIZA M16 数据与备份 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m16-data.html?case=preflight-error#/workspaces/m16-data-visual-source-workspace/data\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\nRemoved element IDs: 32\n+\t\t32 text 提交的内容需要调整。请检查输入后再试。\n+\t\t\t33 text RHIZA · preflight-error · preflight rejected · 导入 0 / 偏好 0 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证\nThe focused UI element is 31 button 预检所选归档"
+    },
+    {
+      "sample": "preflight-error",
+      "size": "desktop",
+      "path": "reports/ui-ux-refresh/data-preflight-error-desktop.jpg",
+      "metrics": {
+        "actions": [
+          {
+            "disabled": false,
+            "label": "×"
+          },
+          {
+            "disabled": false,
+            "label": "导出"
+          },
+          {
+            "disabled": false,
+            "label": "导入与恢复"
+          },
+          {
+            "disabled": false,
+            "label": "托管备份"
+          },
+          {
+            "disabled": false,
+            "label": "预检所选归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入固定归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入精确历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "载入错误历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "释放固定加载"
+          },
+          {
+            "disabled": false,
+            "label": "隐藏样本工具"
+          }
+        ],
+        "alerts": [],
+        "dialogScrollWidth": 838,
+        "dialogWidth": 840,
+        "fixture": "RHIZA · preflight-error · preflight rejected · 导入 0 / 偏好 0 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证",
+        "scrollWidth": 1440,
+        "width": 1440
+      },
+      "ax": "Browser tab: 11, Title: \"RHIZA M16 数据与备份 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m16-data.html?case=preflight-error#/workspaces/m16-data-visual-source-workspace/data\".\nThere has been no change in the accessibility tree.\nThe focused UI element is 31 button 预检所选归档"
+    },
+    {
+      "sample": "fixture-toolbar-blocked-import-click",
+      "size": "narrow",
+      "path": null,
+      "metrics": {
+        "actions": [
+          {
+            "disabled": false,
+            "label": "×"
+          },
+          {
+            "disabled": false,
+            "label": "导出"
+          },
+          {
+            "disabled": false,
+            "label": "导入与恢复"
+          },
+          {
+            "disabled": false,
+            "label": "托管备份"
+          },
+          {
+            "disabled": false,
+            "label": "预检所选归档"
+          },
+          {
+            "disabled": false,
+            "label": "打开模型设置"
+          },
+          {
+            "disabled": false,
+            "label": "导入所选归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入固定归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入精确历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "载入错误历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "释放固定加载"
+          },
+          {
+            "disabled": false,
+            "label": "隐藏样本工具"
+          }
+        ],
+        "alerts": [],
+        "dialogScrollWidth": 388,
+        "dialogWidth": 390,
+        "fixture": "RHIZA · imported · preflight complete · 导入 0 / 偏好 0 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证",
+        "scrollWidth": 390,
+        "width": 390
+      },
+      "ax": "Browser tab: 11, Title: \"RHIZA M16 数据与备份 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m16-data.html?case=imported#/workspaces/m16-data-visual-source-workspace/data\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\n~\t\t\t\t\t58 checkbox (settable, integer) Description: 我已确认工作区身份、归档内容及密钥需重新配置, Value: 1\n~\t\t\t\t\t59 button 导入所选归档\nThe focused UI element is 1 AXWebArea RHIZA M16 数据与备份 · 固定视觉验收, URL: 127.0.0.1:4173/scripts/fixtures/m16-data.html?case=imported#/workspaces/m16-data-visual-source-workspace/data",
+      "note": "Fixture toolbar initially intercepted the import click. Hidden through its UI; later imported-target-read-failed capture shows the actual result. No backend call."
+    },
+    {
+      "sample": "imported-target-read-failed",
+      "size": "narrow",
+      "path": "reports/ui-ux-refresh/data-imported-target-read-failed-narrow.jpg",
+      "metrics": {
+        "actions": [
+          {
+            "disabled": false,
+            "label": "×"
+          },
+          {
+            "disabled": false,
+            "label": "导出"
+          },
+          {
+            "disabled": false,
+            "label": "导入与恢复"
+          },
+          {
+            "disabled": false,
+            "label": "托管备份"
+          },
+          {
+            "disabled": false,
+            "label": "重新读取导入目标"
+          },
+          {
+            "disabled": true,
+            "label": "应用后续模型"
+          },
+          {
+            "disabled": false,
+            "label": "打开导入的工作区"
+          },
+          {
+            "disabled": false,
+            "label": "选择其他归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入固定归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入精确历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "载入错误历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "释放固定加载"
+          },
+          {
+            "disabled": false,
+            "label": "隐藏样本工具"
+          }
+        ],
+        "alerts": [
+          "归档已导入。无法读取后续配置目标，请重新读取或打开历史。重新读取导入目标"
+        ],
+        "dialogScrollWidth": 388,
+        "dialogWidth": 390,
+        "fixture": "RHIZA · imported · imported; target read interrupted · 导入 1 / 偏好 0 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证",
+        "scrollWidth": 390,
+        "width": 390
+      },
+      "ax": "Browser tab: 11, Title: \"RHIZA M16 数据与备份 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m16-data.html?case=imported#/workspaces/m16-data-visual-source-workspace/data\".\nThere has been no change in the accessibility tree.\nThe focused UI element is 1 AXWebArea RHIZA M16 数据与备份 · 固定视觉验收, URL: 127.0.0.1:4173/scripts/fixtures/m16-data.html?case=imported#/workspaces/m16-data-visual-source-workspace/data"
+    },
+    {
+      "sample": "imported-target-read-failed",
+      "size": "desktop",
+      "path": "reports/ui-ux-refresh/data-imported-target-read-failed-desktop.jpg",
+      "metrics": {
+        "actions": [
+          {
+            "disabled": false,
+            "label": "×"
+          },
+          {
+            "disabled": false,
+            "label": "导出"
+          },
+          {
+            "disabled": false,
+            "label": "导入与恢复"
+          },
+          {
+            "disabled": false,
+            "label": "托管备份"
+          },
+          {
+            "disabled": false,
+            "label": "重新读取导入目标"
+          },
+          {
+            "disabled": true,
+            "label": "应用后续模型"
+          },
+          {
+            "disabled": false,
+            "label": "打开导入的工作区"
+          },
+          {
+            "disabled": false,
+            "label": "选择其他归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入固定归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入精确历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "载入错误历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "释放固定加载"
+          },
+          {
+            "disabled": false,
+            "label": "隐藏样本工具"
+          }
+        ],
+        "alerts": [
+          "归档已导入。无法读取后续配置目标，请重新读取或打开历史。重新读取导入目标"
+        ],
+        "dialogScrollWidth": 838,
+        "dialogWidth": 840,
+        "fixture": "RHIZA · imported · imported; target read interrupted · 导入 1 / 偏好 0 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证",
+        "scrollWidth": 1440,
+        "width": 1440
+      },
+      "ax": "Browser tab: 11, Title: \"RHIZA M16 数据与备份 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m16-data.html?case=imported#/workspaces/m16-data-visual-source-workspace/data\".\n1 AXWebArea RHIZA M16 数据与备份 · 固定视觉验收, URL: 127.0.0.1:4173/scripts/fixtures/m16-data.html?case=imported#/workspaces/m16-data-visual-source-workspace/data\n\t2 container 数据与备份\n\t\t3 container\n\t\t\t4 heading 数据与备份, Value: 2, ID: workspace-data-title\n\t\t\t\t5 text 数据与备份\n\t\t\t6 text RHIZA · 数据与备份固定视觉验收  ·  m16-data-visual-source-workspace\n\t\t\t7 button 关闭数据与备份\n\t\t8 tab group 数据操作\n\t\t\t9 tab (selectable, settable, boolean) 导出, Value: 0\n\t\t\t10 tab (selected, settable, boolean) 导入与恢复, Value: 1\n\t\t\t11 tab (selectable, settable, boolean) 托管备份, Value: 0\n\t\t12 container 导入后继续对话\n\t\t\t13 heading 历史已导入, Value: 3\n\t\t\t\t14 text 历史已导入\n\t\t\t15 container\n\t\t\t\t16 text 工作区： m16-data-visual-imported-workspace-with-preserved-historical-identity-20261002\n\t\t\t17 container\n\t\t\t\t18 text 历史数据已恢复，后续对话模型尚未配置。 历史 Run、Manifest 和 Exact Replay 配置保持原身份。\n\t\t\t19 container\n\t\t\t\t20 text 导入后的模型 用于工作区和当前讨论的后续对话；其他讨论的独立偏好保持原值。\n\t\t\t\t21 pop up button (collapsed, settable) Description: 导入后的模型, Value: 请选择本机模型, Secondary Actions: Expand\n\t\t\t\t\t22 menu\n\t\t\t\t\t\t23 (selected) 请选择本机模型\n\t\t\t\t\t\t24 本机 Alpha · 后续对话\n\t\t\t\t\t\t25 研究与架构评审模型 · LongModelNameForOverflowVerification20261002\n\t\t\t26 container\n\t\t\t\t27 text 归档已导入。无法读取后续配置目标，请重新读取或打开历史。\n\t\t\t\t28 button 重新读取导入目标\n\t\t\t29 container\n\t\t\t\t30 text 工作区模型： 待确认\n\t\t\t31 button (disabled) 应用后续模型\n\t\t\t32 button 打开导入的工作区\n\t\t\t33 button 选择其他归档\n\t\t34 text 归档已导入。请单独确认后续对话模型，或直接打开历史。\n\nThe focused UI element is 1 AXWebArea RHIZA M16 数据与备份 · 固定视觉验收, URL: 127.0.0.1:4173/scripts/fixtures/m16-data.html?case=imported#/workspaces/m16-data-visual-source-workspace/data"
+    },
+    {
+      "sample": "preference-response-lost",
+      "size": "desktop",
+      "path": "reports/ui-ux-refresh/data-preference-response-lost-desktop.jpg",
+      "metrics": {
+        "actions": [
+          {
+            "disabled": false,
+            "label": "×"
+          },
+          {
+            "disabled": false,
+            "label": "导出"
+          },
+          {
+            "disabled": false,
+            "label": "导入与恢复"
+          },
+          {
+            "disabled": false,
+            "label": "托管备份"
+          },
+          {
+            "disabled": false,
+            "label": "应用后续模型"
+          },
+          {
+            "disabled": false,
+            "label": "打开导入的工作区"
+          },
+          {
+            "disabled": false,
+            "label": "选择其他归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入固定归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入精确历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "载入错误历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "释放固定加载"
+          },
+          {
+            "disabled": false,
+            "label": "隐藏样本工具"
+          }
+        ],
+        "alerts": [],
+        "dialogScrollWidth": 838,
+        "dialogWidth": 840,
+        "fixture": "RHIZA · imported · discussion committed; response interrupted · 导入 1 / 偏好 2 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证",
+        "scrollWidth": 1440,
+        "width": 1440
+      },
+      "ax": "Browser tab: 11, Title: \"RHIZA M16 数据与备份 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m16-data.html?case=imported#/workspaces/m16-data-visual-source-workspace/data\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\n~\t\t\t\t30 text 工作区模型： 已保存  · 当前讨论模型：待确认\n~\t\t34 text 归档已导入。模型设置未完成，请重试此步骤；无需重新导入。\nThe focused UI element is 31 button 应用后续模型"
+    },
+    {
+      "sample": "imported-configured",
+      "size": "desktop",
+      "path": "reports/ui-ux-refresh/data-imported-configured-desktop.jpg",
+      "metrics": {
+        "actions": [
+          {
+            "disabled": false,
+            "label": "×"
+          },
+          {
+            "disabled": false,
+            "label": "导出"
+          },
+          {
+            "disabled": false,
+            "label": "导入与恢复"
+          },
+          {
+            "disabled": false,
+            "label": "托管备份"
+          },
+          {
+            "disabled": true,
+            "label": "应用后续模型"
+          },
+          {
+            "disabled": false,
+            "label": "打开导入的工作区"
+          },
+          {
+            "disabled": false,
+            "label": "选择其他归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入固定归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入精确历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "载入错误历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "释放固定加载"
+          },
+          {
+            "disabled": false,
+            "label": "隐藏样本工具"
+          }
+        ],
+        "alerts": [],
+        "dialogScrollWidth": 838,
+        "dialogWidth": 840,
+        "fixture": "RHIZA · imported · preference receipt recovered · 导入 1 / 偏好 2 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证",
+        "scrollWidth": 1440,
+        "width": 1440
+      },
+      "ax": "Browser tab: 11, Title: \"RHIZA M16 数据与备份 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m16-data.html?case=imported#/workspaces/m16-data-visual-source-workspace/data\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\n~\t\t\t\t30 text 工作区模型： 已保存  · 当前讨论模型：已保存\n~\t\t\t31 button (disabled) 应用后续模型\n~\t\t34 text 工作区与当前讨论的后续模型已保存，尚未实际调用模型。\nThe focused UI element is 1 AXWebArea RHIZA M16 数据与备份 · 固定视觉验收, URL: 127.0.0.1:4173/scripts/fixtures/m16-data.html?case=imported#/workspaces/m16-data-visual-source-workspace/data"
+    },
+    {
+      "sample": "imported-configured",
+      "size": "narrow",
+      "path": "reports/ui-ux-refresh/data-imported-configured-narrow.jpg",
+      "metrics": {
+        "actions": [
+          {
+            "disabled": false,
+            "label": "×"
+          },
+          {
+            "disabled": false,
+            "label": "导出"
+          },
+          {
+            "disabled": false,
+            "label": "导入与恢复"
+          },
+          {
+            "disabled": false,
+            "label": "托管备份"
+          },
+          {
+            "disabled": true,
+            "label": "应用后续模型"
+          },
+          {
+            "disabled": false,
+            "label": "打开导入的工作区"
+          },
+          {
+            "disabled": false,
+            "label": "选择其他归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入固定归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入精确历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "载入错误历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "释放固定加载"
+          },
+          {
+            "disabled": false,
+            "label": "隐藏样本工具"
+          }
+        ],
+        "alerts": [],
+        "dialogScrollWidth": 388,
+        "dialogWidth": 390,
+        "fixture": "RHIZA · imported · preference receipt recovered · 导入 1 / 偏好 2 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证",
+        "scrollWidth": 390,
+        "width": 390
+      },
+      "ax": "Browser tab: 11, Title: \"RHIZA M16 数据与备份 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m16-data.html?case=imported#/workspaces/m16-data-visual-source-workspace/data\".\n1 AXWebArea RHIZA M16 数据与备份 · 固定视觉验收, URL: 127.0.0.1:4173/scripts/fixtures/m16-data.html?case=imported#/workspaces/m16-data-visual-source-workspace/data\n\t2 container 数据与备份\n\t\t3 container\n\t\t\t4 heading 数据与备份, Value: 2, ID: workspace-data-title\n\t\t\t\t5 text 数据与备份\n\t\t\t6 text RHIZA · 数据与备份固定视觉验收  ·  m16-data-visual-source-workspace\n\t\t\t7 button 关闭数据与备份\n\t\t8 container\n\t\t\t9 tab group 数据操作\n\t\t\t\t10 tab (selectable, settable, boolean) 导出, Value: 0\n\t\t\t\t11 tab (selected, settable, boolean) 导入与恢复, Value: 1\n\t\t\t\t12 tab (selectable, settable, boolean) 托管备份, Value: 0\n\t\t\t13 container 导入后继续对话\n\t\t\t\t14 heading 历史已导入, Value: 3\n\t\t\t\t\t15 text 历史已导入\n\t\t\t\t16 container\n\t\t\t\t\t17 text 工作区： m16-data-visual-imported-workspace-with-preserved-historical-identity-20261002\n\t\t\t\t18 container\n\t\t\t\t\t19 text 历史数据已恢复，后续对话模型尚未配置。 历史 Run、Manifest 和 Exact Replay 配置保持原身份。\n\t\t\t\t20 container\n\t\t\t\t\t21 text 导入后的模型 用于工作区和当前讨论的后续对话；其他讨论的独立偏好保持原值。\n\t\t\t\t\t22 pop up button (collapsed, settable) Description: 导入后的模型, Value: 本机 Alpha · 后续对话, Secondary Actions: Expand\n\t\t\t\t\t\t23 menu\n\t\t\t\t\t\t\t24 请选择本机模型\n\t\t\t\t\t\t\t25 (selected) 本机 Alpha · 后续对话\n\t\t\t\t\t\t\t26 研究与架构评审模型 · LongModelNameForOverflowVerification20261002\n\t\t\t\t27 container\n\t\t\t\t\t28 text 当前讨论： 恢复的历史讨论 · 单独确认后续模型\n\t\t\t\t29 container\n\t\t\t\t\t30 text 工作区模型： 已保存  · 当前讨论模型：已保存\n\t\t\t\t31 button (disabled) 应用后续模型\n\t\t\t\t32 button 打开导入的工作区\n\t\t\t\t33 button 选择其他归档\n\t\t\t34 text 工作区与当前讨论的后续模型已保存，尚未实际调用模型。\n\nThe focused UI element is 1 AXWebArea RHIZA M16 数据与备份 · 固定视觉验收, URL: 127.0.0.1:4173/scripts/fixtures/m16-data.html?case=imported#/workspaces/m16-data-visual-source-workspace/data"
+    },
+    {
+      "sample": "backup-loading",
+      "size": "narrow",
+      "path": "reports/ui-ux-refresh/data-backup-loading-narrow.jpg",
+      "metrics": {
+        "actions": [
+          {
+            "disabled": false,
+            "label": "×"
+          },
+          {
+            "disabled": false,
+            "label": "导出"
+          },
+          {
+            "disabled": false,
+            "label": "导入与恢复"
+          },
+          {
+            "disabled": false,
+            "label": "托管备份"
+          },
+          {
+            "disabled": false,
+            "label": "立即备份"
+          },
+          {
+            "disabled": true,
+            "label": "刷新备份"
+          },
+          {
+            "disabled": false,
+            "label": "载入固定归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入精确历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "载入错误历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "释放固定加载"
+          },
+          {
+            "disabled": false,
+            "label": "隐藏样本工具"
+          }
+        ],
+        "alerts": [],
+        "dialogScrollWidth": 388,
+        "dialogWidth": 390,
+        "fixture": "RHIZA · backup-loading · reading backups · 导入 0 / 偏好 0 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证",
+        "scrollWidth": 390,
+        "width": 390
+      },
+      "ax": "Browser tab: 11, Title: \"RHIZA M16 数据与备份 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m16-data.html?case=backup-loading#/workspaces/m16-data-visual-source-workspace/data\".\n1 AXWebArea RHIZA M16 数据与备份 · 固定视觉验收, URL: 127.0.0.1:4173/scripts/fixtures/m16-data.html?case=backup-loading#/workspaces/m16-data-visual-source-workspace/data\n\t2 container 数据与备份\n\t\t3 container\n\t\t\t4 heading 数据与备份, Value: 2, ID: workspace-data-title\n\t\t\t\t5 text 数据与备份\n\t\t\t6 text RHIZA · 数据与备份固定视觉验收  ·  m16-data-visual-source-workspace\n\t\t\t7 button 关闭数据与备份\n\t\t8 tab group 数据操作\n\t\t\t9 tab (selectable, settable, boolean) 导出, Value: 0\n\t\t\t10 tab (selectable, settable, boolean) 导入与恢复, Value: 0\n\t\t\t11 tab (selected, settable, boolean) 托管备份, Value: 1\n\t\t22 container 托管备份\n\t\t\t23 heading 本机加密备份, Value: 3\n\t\t\t\t24 text 本机加密备份\n\t\t\t25 text 完整保留附件与历史，备份位于当前实例。清除操作会同步处置受影响的托管副本；已下载副本需自行管理。\n\t\t\t26 text 正在读取备份…\n\t\t\t27 button 立即备份\n\t\t\t28 button (disabled) 刷新备份\n\t\t18 container Description: 固定视觉验收工具, ID: fixture-controls\n\t\t\t19 text RHIZA · backup-loading · reading backups · 导入 0 / 偏好 0 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证\n\t\t\t20 button 释放固定加载, ID: fixture-release\n\t\t\t21 button 隐藏样本工具, ID: fixture-hide\n\nThe focused UI element is 11 tab (selected, settable, boolean) 托管备份, Value: 1"
+    },
+    {
+      "sample": "backup-loading",
+      "size": "desktop",
+      "path": "reports/ui-ux-refresh/data-backup-loading-desktop.jpg",
+      "metrics": {
+        "actions": [
+          {
+            "disabled": false,
+            "label": "×"
+          },
+          {
+            "disabled": false,
+            "label": "导出"
+          },
+          {
+            "disabled": false,
+            "label": "导入与恢复"
+          },
+          {
+            "disabled": false,
+            "label": "托管备份"
+          },
+          {
+            "disabled": false,
+            "label": "立即备份"
+          },
+          {
+            "disabled": true,
+            "label": "刷新备份"
+          },
+          {
+            "disabled": false,
+            "label": "载入固定归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入精确历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "载入错误历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "释放固定加载"
+          },
+          {
+            "disabled": false,
+            "label": "隐藏样本工具"
+          }
+        ],
+        "alerts": [],
+        "dialogScrollWidth": 838,
+        "dialogWidth": 840,
+        "fixture": "RHIZA · backup-loading · reading backups · 导入 0 / 偏好 0 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证",
+        "scrollWidth": 1440,
+        "width": 1440
+      },
+      "ax": "Browser tab: 11, Title: \"RHIZA M16 数据与备份 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m16-data.html?case=backup-loading#/workspaces/m16-data-visual-source-workspace/data\".\nThere has been no change in the accessibility tree.\nThe focused UI element is 11 tab (selected, settable, boolean) 托管备份, Value: 1"
+    },
+    {
+      "sample": "backup-empty",
+      "size": "desktop",
+      "path": "reports/ui-ux-refresh/data-backup-empty-desktop.jpg",
+      "metrics": {
+        "actions": [
+          {
+            "disabled": false,
+            "label": "×"
+          },
+          {
+            "disabled": false,
+            "label": "导出"
+          },
+          {
+            "disabled": false,
+            "label": "导入与恢复"
+          },
+          {
+            "disabled": false,
+            "label": "托管备份"
+          },
+          {
+            "disabled": false,
+            "label": "立即备份"
+          },
+          {
+            "disabled": false,
+            "label": "刷新备份"
+          },
+          {
+            "disabled": false,
+            "label": "载入固定归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入精确历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "载入错误历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "释放固定加载"
+          },
+          {
+            "disabled": false,
+            "label": "隐藏样本工具"
+          }
+        ],
+        "alerts": [],
+        "dialogScrollWidth": 838,
+        "dialogWidth": 840,
+        "fixture": "RHIZA · backup-loading · fixed loading released · 导入 0 / 偏好 0 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证",
+        "scrollWidth": 1440,
+        "width": 1440
+      },
+      "ax": "Browser tab: 11, Title: \"RHIZA M16 数据与备份 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m16-data.html?case=backup-loading#/workspaces/m16-data-visual-source-workspace/data\".\n1 AXWebArea RHIZA M16 数据与备份 · 固定视觉验收, URL: 127.0.0.1:4173/scripts/fixtures/m16-data.html?case=backup-loading#/workspaces/m16-data-visual-source-workspace/data\n\t2 container 数据与备份\n\t\t3 container\n\t\t\t4 heading 数据与备份, Value: 2, ID: workspace-data-title\n\t\t\t\t5 text 数据与备份\n\t\t\t6 text RHIZA · 数据与备份固定视觉验收  ·  m16-data-visual-source-workspace\n\t\t\t7 button 关闭数据与备份\n\t\t8 tab group 数据操作\n\t\t\t9 tab (selectable, settable, boolean) 导出, Value: 0\n\t\t\t10 tab (selectable, settable, boolean) 导入与恢复, Value: 0\n\t\t\t11 tab (selected, settable, boolean) 托管备份, Value: 1\n\t\t22 container 托管备份\n\t\t\t23 heading 本机加密备份, Value: 3\n\t\t\t\t24 text 本机加密备份\n\t\t\t25 text 完整保留附件与历史，备份位于当前实例。清除操作会同步处置受影响的托管副本；已下载副本需自行管理。\n\t\t\t26 text 建议创建备份：尚无近期可恢复备份。\n\t\t\t27 button 立即备份\n\t\t\t28 button 刷新备份\n\t\t\t29 text 还没有托管备份。\n\t\t18 container Description: 固定视觉验收工具, ID: fixture-controls\n\t\t\t30 text RHIZA · backup-loading · fixed loading released · 导入 0 / 偏好 0 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证\n\t\t\t21 button 隐藏样本工具, ID: fixture-hide\n\nThe focused UI element is 1 AXWebArea RHIZA M16 数据与备份 · 固定视觉验收, URL: 127.0.0.1:4173/scripts/fixtures/m16-data.html?case=backup-loading#/workspaces/m16-data-visual-source-workspace/data"
+    },
+    {
+      "sample": "backup-creating",
+      "size": "desktop",
+      "path": "reports/ui-ux-refresh/data-backup-creating-desktop.jpg",
+      "metrics": {
+        "actions": [
+          {
+            "disabled": false,
+            "label": "×"
+          },
+          {
+            "disabled": true,
+            "label": "导出"
+          },
+          {
+            "disabled": true,
+            "label": "导入与恢复"
+          },
+          {
+            "disabled": true,
+            "label": "托管备份"
+          },
+          {
+            "disabled": true,
+            "label": "立即备份"
+          },
+          {
+            "disabled": true,
+            "label": "刷新备份"
+          },
+          {
+            "disabled": false,
+            "label": "载入固定归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入精确历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "载入错误历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "释放固定加载"
+          },
+          {
+            "disabled": false,
+            "label": "隐藏样本工具"
+          }
+        ],
+        "alerts": [],
+        "dialogScrollWidth": 838,
+        "dialogWidth": 840,
+        "fixture": "RHIZA · backup-loading · creating backup · 导入 0 / 偏好 0 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证",
+        "scrollWidth": 1440,
+        "width": 1440
+      },
+      "ax": "Browser tab: 11, Title: \"RHIZA M16 数据与备份 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m16-data.html?case=backup-loading#/workspaces/m16-data-visual-source-workspace/data\".\n1 AXWebArea RHIZA M16 数据与备份 · 固定视觉验收, URL: 127.0.0.1:4173/scripts/fixtures/m16-data.html?case=backup-loading#/workspaces/m16-data-visual-source-workspace/data\n\t2 container 数据与备份\n\t\t3 container\n\t\t\t4 heading 数据与备份, Value: 2, ID: workspace-data-title\n\t\t\t\t5 text 数据与备份\n\t\t\t6 text RHIZA · 数据与备份固定视觉验收  ·  m16-data-visual-source-workspace\n\t\t\t7 button 关闭数据与备份\n\t\t8 tab group 数据操作\n\t\t\t9 tab (selectable, disabled, settable, boolean) 导出, Value: 0\n\t\t\t10 tab (selectable, disabled, settable, boolean) 导入与恢复, Value: 0\n\t\t\t11 tab (selected, disabled, settable, boolean) 托管备份, Value: 1\n\t\t22 container 托管备份\n\t\t\t23 heading 本机加密备份, Value: 3\n\t\t\t\t24 text 本机加密备份\n\t\t\t25 text 完整保留附件与历史，备份位于当前实例。清除操作会同步处置受影响的托管副本；已下载副本需自行管理。\n\t\t\t26 text 建议创建备份：尚无近期可恢复备份。\n\t\t\t27 button (disabled) 立即备份\n\t\t\t28 button (disabled) 刷新备份\n\t\t\t29 text 还没有托管备份。\n\t\t30 text 正在创建完整备份…\n\t\t18 container Description: 固定视觉验收工具, ID: fixture-controls\n\t\t\t31 text RHIZA · backup-loading · creating backup · 导入 0 / 偏好 0 / 备份 0 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证\n\t\t\t32 button 释放固定加载, ID: fixture-release\n\t\t\t21 button 隐藏样本工具, ID: fixture-hide\n\nThe focused UI element is 1 AXWebArea RHIZA M16 数据与备份 · 固定视觉验收, URL: 127.0.0.1:4173/scripts/fixtures/m16-data.html?case=backup-loading#/workspaces/m16-data-visual-source-workspace/data"
+    },
+    {
+      "sample": "backup-created",
+      "size": "desktop",
+      "path": "reports/ui-ux-refresh/data-backup-created-desktop.jpg",
+      "metrics": {
+        "actions": [
+          {
+            "disabled": false,
+            "label": "×"
+          },
+          {
+            "disabled": false,
+            "label": "导出"
+          },
+          {
+            "disabled": false,
+            "label": "导入与恢复"
+          },
+          {
+            "disabled": false,
+            "label": "托管备份"
+          },
+          {
+            "disabled": false,
+            "label": "立即备份"
+          },
+          {
+            "disabled": false,
+            "label": "刷新备份"
+          },
+          {
+            "disabled": false,
+            "label": "恢复预检"
+          },
+          {
+            "disabled": false,
+            "label": "载入固定归档"
+          },
+          {
+            "disabled": false,
+            "label": "载入精确历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "载入错误历史文件"
+          },
+          {
+            "disabled": false,
+            "label": "释放固定加载"
+          },
+          {
+            "disabled": false,
+            "label": "隐藏样本工具"
+          }
+        ],
+        "alerts": [],
+        "dialogScrollWidth": 838,
+        "dialogWidth": 840,
+        "fixture": "RHIZA · backup-loading · backup ready · 导入 0 / 偏好 0 / 备份 1 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证",
+        "scrollWidth": 1440,
+        "width": 1440
+      },
+      "ax": "Browser tab: 11, Title: \"RHIZA M16 数据与备份 · 固定视觉验收\", URL: \"http://127.0.0.1:4173/scripts/fixtures/m16-data.html?case=backup-loading#/workspaces/m16-data-visual-source-workspace/data\".\n1 AXWebArea RHIZA M16 数据与备份 · 固定视觉验收, URL: 127.0.0.1:4173/scripts/fixtures/m16-data.html?case=backup-loading#/workspaces/m16-data-visual-source-workspace/data\n\t2 container 数据与备份\n\t\t3 container\n\t\t\t4 heading 数据与备份, Value: 2, ID: workspace-data-title\n\t\t\t\t5 text 数据与备份\n\t\t\t6 text RHIZA · 数据与备份固定视觉验收  ·  m16-data-visual-source-workspace\n\t\t\t7 button 关闭数据与备份\n\t\t8 tab group 数据操作\n\t\t\t9 tab (selectable, settable, boolean) 导出, Value: 0\n\t\t\t10 tab (selectable, settable, boolean) 导入与恢复, Value: 0\n\t\t\t11 tab (selected, settable, boolean) 托管备份, Value: 1\n\t\t22 container 托管备份\n\t\t\t23 heading 本机加密备份, Value: 3\n\t\t\t\t24 text 本机加密备份\n\t\t\t25 text 完整保留附件与历史，备份位于当前实例。清除操作会同步处置受影响的托管副本；已下载副本需自行管理。\n\t\t\t26 text 下次提醒：2026/10/8 17:00:00\n\t\t\t27 button 立即备份\n\t\t\t28 button 刷新备份\n\t\t\t31 content list\n\t\t\t\t32 container\n\t\t\t\t\t33 text 可恢复\n\t\t\t\t\t34 text 2026/10/1 17:00:00\n\t\t\t\t\t35 text 位置： managed://encrypted-workspace-archives/m16-data-visual-source-workspace/long-logical-backup-location-for-overflow-verification/m16-backup-created-1 12.00  MiB\n\t\t\t\t\t36 link Description: 下载恢复归档, Value: 127.0.0.1:4173/api/v1/workspaces/m16-data-visual-source-workspace/backups/m16-backup-created-1/archive\n\t\t\t\t\t37 button 恢复预检\n\t\t30 text 备份操作已完成，请查看状态。\n\t\t18 container Description: 固定视觉验收工具, ID: fixture-controls\n\t\t\t38 text RHIZA · backup-loading · backup ready · 导入 0 / 偏好 0 / 备份 1 · 阻止请求 0 · 固定响应，非 ZIP/恢复验证\n\t\t\t21 button 隐藏样本工具, ID: fixture-hide\n\nThe focused UI element is 1 AXWebArea RHIZA M16 数据与备份 · 固定视觉验收, URL: 127.0.0.1:4173/scripts/fixtures/m16-data.html?case=backup-loading#/workspaces/m16-data-visual-source-workspace/data"
+    }
+  ]
+}

@@ -185,7 +185,7 @@
 .participant-result .markdown-content { margin-top: 8px; font-size: 13px; max-height: 360px; overflow: auto; }
 .participant-placeholder { font-size: 12px; color: var(--ink-2); }
 .collaboration-participant-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
-.collaboration-participant-actions button { border: 0; padding: 6px 0; color: var(--accent-dark); }
+.collaboration-participant-actions button { border: 0; padding: 6px 0; color: var(--accent-dark); min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: left; }
 .collaboration-frozen { margin-top: 14px; font-size: 12px; color: var(--ink-2); }
 .collaboration-frozen summary { display: flex; gap: 12px; justify-content: space-between; cursor: pointer; padding: 8px 0; }
 .collaboration-frozen summary span { font-size: 11px; color: var(--ink-3); }
@@ -201,11 +201,12 @@
 .collaboration-missing, .collaboration-error { padding: 10px; border-radius: 6px; background: var(--sand); line-height: 1.7; }
 .collaboration-question { display: block; }
 .collaboration-question textarea { display: block; width: 100%; padding: 12px; margin-top: 6px; font: inherit; line-height: 1.7; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
-.collaboration-form fieldset { border: 0; margin: 16px 0; padding: 0; }
+.collaboration-form fieldset { border: 0; margin: 16px 0; padding: 0; min-width: 0; }
 .collaboration-form legend { width: 100%; margin-bottom: 10px; color: var(--ink); }
 .collaboration-form legend span { float: right; color: var(--ink-3); font-size: 11px; }
 .collaboration-models { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; max-height: 240px; overflow-y: auto; }
 .collaboration-models label { display: flex; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--line-soft); border-radius: 6px; }
+.collaboration-models label > span { min-width: 0; overflow-wrap: anywhere; }
 .collaboration-models label:has(input:checked) { border-color: var(--sage); background: var(--accent-soft); }
 .collaboration-models small { display: block; font-size: 11px; color: var(--ink-3); margin-top: 3px; }
 .collaboration-options { display: flex; flex-wrap: wrap; gap: 12px; }
@@ -284,6 +285,7 @@
 .activity-event > time { padding-top: 3px; color: var(--ink-3); white-space: nowrap; }
 .workbench-shell .activity-timeline li { align-items: start; }
 /* Geometry is shared by node CSS, edge endpoints, selection and viewport culling. */
+.workbench-shell .graph-view { overflow-y: auto; }
 .workbench-shell .graph-canvas { min-height: 180px; min-width: 0; margin: 8px 0 0; border: 0; border-top: 1px solid var(--line-soft); border-radius: 0; background: var(--surface); overflow: hidden; }
 .workbench-shell .graph-canvas::after { display: none; }
 .workbench-shell .graph-header .eyebrow { display: none; }
@@ -480,7 +482,7 @@
 .graph-tools { padding: 0 18px; font-size: 12px; }
 .graph-tools summary { cursor: pointer; padding: 6px 0; }
 .graph-tools .graph-filters { padding: 8px 0; }
-.graph-batch-controls, .graph-batch-result { margin: 6px 18px; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px; font-size: 12px; overflow-wrap: anywhere; max-height: 26vh; overflow: auto; }
+.graph-batch-controls, .graph-batch-result { margin: 6px 18px; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px; font-size: 12px; overflow-wrap: anywhere; max-height: 26vh; overflow: auto; flex-shrink: 0; }
 .graph-batch-controls > span { display: block; }
 .graph-batch-controls .data-check { margin: 8px 0; }
 .graph-batch-result details { margin: 8px 0; }

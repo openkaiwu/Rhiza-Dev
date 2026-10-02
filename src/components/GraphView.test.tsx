@@ -118,6 +118,33 @@ it('restores personal positions/zoom and saves collapse/filter state through the
   expect(screen.getByLabelText('图谱视图操作').closest('details')).not.toHaveAttribute('open');
 });
 
+it('shows real nested Undo step conflicts per item while preserving manual recovery and legacy codes', () => {
+  const target = { ...node, id: 'target', title: '变化后的节点', x: 550 };
+  const resume = vi.fn();
+  const batch = {
+    batchId: 'undo-batch', workspaceId: 'workspace', status: 'partial' as const,
+    outcomes: [
+      { itemId: 'root', status: 'succeeded' as const, undoable: false,
+        steps: [{ commandId: 'undo-root', status: 'succeeded' as const }] },
+      { itemId: 'target', status: 'partial' as const, undoable: false,
+        steps: [{ commandId: 'undo-target-restore', status: 'succeeded' as const },
+          { commandId: 'undo-target-status', status: 'failed' as const, code: 'GRAPH_BATCH_ITEM_CHANGED', retryable: false }] },
+      { itemId: 'legacy-item', status: 'failed' as const, undoable: false, code: 'NODE_NOT_FOUND' },
+      { itemId: 'unknown-item', status: 'failed' as const, undoable: false,
+        steps: [{ commandId: 'unsafe-code', status: 'failed' as const, code: 'private prompt and parameters' }] },
+    ],
+  };
+  render(<GraphView nodes={[node, target]} edges={[]} activeNodeId="root" {...callbacks()} batch={batch} onResumeBatch={resume}/>);
+  fireEvent.click(screen.getByText('每项结果 · 4'));
+  expect(screen.getByText(/变化后的节点 · 部分完成/)).toHaveTextContent('GRAPH_BATCH_ITEM_CHANGED');
+  expect(screen.getByText(/legacy-item · 失败/)).toHaveTextContent('NODE_NOT_FOUND');
+  expect(screen.getByText(/unknown-item · 失败/)).toHaveTextContent('请读取批次结果');
+  expect(screen.queryByText(/private prompt and parameters/)).not.toBeInTheDocument();
+  expect(resume).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: '继续原批次' }));
+  expect(resume).toHaveBeenCalledOnce();
+});
+
 it('marquee and modifier selection stay bounded to conversations without opening or moving them', async () => {
  const handlers=callbacks();const target={...node,id:'target',title:'Second',x:540};const onBatch=vi.fn().mockResolvedValue(undefined);
  render(<GraphView nodes={[node,target,{...node,id:'message',title:'Message',objectType:'message',x:450}]} edges={[]} activeNodeId="root" {...handlers} onBatch={onBatch}/>);

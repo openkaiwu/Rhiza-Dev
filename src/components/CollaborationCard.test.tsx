@@ -132,3 +132,23 @@ it('displays synthesis stream fragments in a separate area before and after the 
   expect(screen.queryByRole('button', { name: '重试 综合意见' })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: '汇总执行记录' })).toBeEnabled();
 });
+
+it.each(['expired', 'exhausted'] as const)('explains an %s budget without offering another generation', budgetState => {
+  const action = vi.fn(); const openRun = vi.fn();
+  const limited: CollaborationRecord = {
+    ...record, synthesis: undefined,
+    status: budgetState === 'expired' ? 'interrupted' : 'budget-exhausted',
+    budget: { ...record.budget, deadlineAt: budgetState === 'expired' ? '2020-01-01T00:00:00Z' : record.budget.deadlineAt },
+    attempts: budgetState === 'exhausted' ? [record.attempts[0]] : record.attempts,
+  };
+  render(<CollaborationCard record={limited} busy={false} running={false} retained={false} streams={{}} onAction={action} onStop={vi.fn()} onOpenRun={openRun}/>);
+  expect(screen.getByRole('status', { name: '协作预算提示' })).toHaveTextContent('调整预算重新发起');
+  expect(screen.queryByRole('button', { name: '汇总当前意见' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /重试/ })).not.toBeInTheDocument();
+  expect(screen.queryByText(/可复用原始输入重试/)).not.toBeInTheDocument();
+  expect(screen.getByText('A completed')).toBeVisible();
+  if (budgetState === 'exhausted') expect(screen.getByText('因预算结束未执行。')).toBeVisible();
+  fireEvent.click(screen.getAllByRole('button', { name: '执行记录' })[0]);
+  expect(openRun).toHaveBeenCalledWith('run-a');
+  expect(action).not.toHaveBeenCalled();
+});

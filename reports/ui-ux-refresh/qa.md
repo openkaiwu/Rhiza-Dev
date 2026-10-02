@@ -51,3 +51,16 @@
 协作仍在当前对话中：选择2模型、第二意见、8k Token/30秒，完成综合意见后纳入原讨论，再发送后续消息。冻结记录和后续Run输入证明预算已保存、截止时间不重置、纳入消息进入后续历史；刷新后内部输出支线不作为侧栏入口。见 [桌面预算](collaboration-budget-controls-desktop.jpg)、[窄屏预算](collaboration-budget-controls-narrow.jpg)、[纳入结果](collaboration-budget-retained-narrow.jpg)、[继续对话](collaboration-budget-continued-narrow.jpg)。使用隔离 encrypted PGlite 与离线固定 Runtime；不是 live-provider质量证据。
 
 本次定向组件回归9项通过，受影响eslint、typecheck/build通过；完整G0本地命令通过。未重跑无变化全测试或性能采样。其余四模式/Stop/预算耗尽、Bundle/backup/Graph完整固定状态、完整辅助技术与外部正式Gate仍待验。
+
+
+## 最终状态与恢复收口（2026-10-02）
+
+延续已批准的紧凑工作台，不增加主导航页面。正式 App/Card/BundleControls/GraphView 的固定响应入口分别为 `scripts/fixtures/m16-collaboration.html`、`m16-data.html`、`m18-graph.html`。它们使用隔离内存存储并拒绝未启用请求，未读取用户库或调用外部模型。固定样本只证明界面状态，不能替代真实 ZIP、事务、历史或 Provider 验证。
+
+- 协作：四模式 × configure/running/partial/stopped/completed/synthesis/exhausted × 1440×900、390×844 已采集。共享布局检查及流式停止、汇总、分歧/备选披露可操作；冻结预算在收起后保留。预算结束不再引导无法执行的重试或汇总，保留已有意见与执行记录。长模型名导致 fieldset 的 min-content 溢出、长重试按钮溢出均已修复，受影响窄屏确认无局部横向溢出。初始失败测量保留在原始 observations，最终矩阵按同组合最后一次记录解释。证据：[协作状态](collaboration-state-evidence.json)，其中截图展示首屏与卡片标题；下方内容通过实际滚动、披露和动作验证，代表性分歧截图为 `collaboration-debate-disagreements-desktop.jpg`。
+- 数据：warnings/missing/preflight-error/imported 与 backup-loading/ready/failed 的桌面/窄屏，及错误文件→精确补齐、导入目标读取恢复、未来模型分步响应丢失→同身份恢复、备份失败→回执恢复均已检查。长身份/摘要/位置换行，缺文件和未确认状态不能导入；没有重复导入或自动修改历史。样本工具最初受弹窗隔离或遮挡，仅修改 fixture 挂接及 hidden 样式，隐藏工具后执行真实组件动作。证据：[数据状态](data-state-evidence.json)。这里的计数是内存样本，真实幂等性继续由已有 PGlite/HTTP 证据支持。
+- 图谱：正常/超预算 Tray、部分批次/手动继续、Undo 版本冲突及个人视图读取/保存失败的桌面/窄屏已检查。固定过预算样本的确认按钮禁用；真正的失败 step 代码现在显示，既有顶层 code 仍兼容。发现批次区被 flex 压成窄条，已用局部不收缩和图谱纵向滚动修复，并确认逐项结果可读。证据：[图谱状态](graph-state-evidence.json)、`graph-batch-resumed-readable-narrow.jpg`、`graph-undo-conflict-narrow.jpg`。手机同时打开 Tray 与批量面板时需要纵向滚动，画布控制与列表仍可达。
+- Context：已确认来源变化导致预览失败时，明确显示已存来源并可排除，使用原有 scoped 状态命令；不静默接受新版本、不开放 pin/confirm。新增回归验证排除后恢复预览，以及只读 Workspace 不可变更。
+- 个人视图：慢 GET 不覆盖新 revision，scope epoch 拒绝 A→B→A 旧回包；同 Workspace 后台刷新不会冻结 loading。独立审查发现该后台刷新反例后修复并定向确认。
+
+本次有界视觉 verdict：PASS（以上固定状态与代表性实际交互）。这是对既有设计目标的局部功能/布局验收，不是完整 WCAG、live-provider、线上灾难恢复或整里程碑 Gate。自动检查来自 package.json：四个受影响测试文件 96/96、`pnpm run lint`、最终 `pnpm run build`（含 typecheck）通过；日志见 `../m15-m18/ui-state-*.log`。既有统一全套结果保持原证据，不因这次 UI 小修重复运行后端/性能测试。M17 Command p95 242.41ms 超过 200ms，正式门禁仍未通过；真实业务环境、保留到期、长期观察及用户验收继续单列。

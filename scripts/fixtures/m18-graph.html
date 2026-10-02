@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <title>RHIZA M18 图谱 · 固定视觉验收</title>
+    <style>
+      #fixture-controls { position: fixed; z-index: 100; left: 8px; bottom: 8px; max-width: calc(100vw - 16px); padding: 5px 8px; border: 1px solid #cfd5cd; border-radius: 5px; background: #fff; color: #4b554c; font: 10px/1.4 sans-serif; }
+      #fixture-controls p { margin: 0; }
+      #fixture-controls button { margin-top: 3px; padding: 3px 6px; border: 1px solid #cfd5cd; border-radius: 3px; background: #f5f6f1; color: inherit; font: inherit; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <aside id="fixture-controls" aria-label="固定视觉验收工具">
+      <p id="fixture-status" role="status">RHIZA · 固定图谱状态；不是业务事务证据</p>
+      <button id="fixture-hide" type="button">隐藏样本工具</button>
+    </aside>
+    <script type="module" src="/src/test/m18-graph-visual.tsx"></script>
+  </body>
+</html>

@@ -108,6 +108,8 @@ export function App() {
   const personalViewRef = useRef<PersonalGraphView | undefined>(undefined);
   const [personalLoading, setPersonalLoading] = useState(false);
   const personalRequestRef = useRef(0);
+  // Same-Workspace background reads must not invalidate personal-view completion.
+  const personalScopeRef = useRef(0);
   const personalSaving = useRef(false);
   const personalSaveKeys = useRef(new Map<string, string>());
   const [graphBatch, setGraphBatch] = useState<GraphBatchResult>();
@@ -334,20 +336,21 @@ export function App() {
   useEffect(() => { if (view === 'graph' && boot === 'ready') void loadGraph(); }, [view, boot, currentWorkspaceId, discussionNodes, loadGraph]);
   useEffect(() => { if (api.listWorkspaces) void api.listWorkspaces(true).then(result => setWorkspaces(result.workspaces)).catch(() => undefined); }, []);
   const loadPersonalView = useCallback(async () => {
-    const scope = selectedWorkspaceRef.current; const request = ++personalRequestRef.current;
+    const scope = selectedWorkspaceRef.current; const generation = personalScopeRef.current; const request = ++personalRequestRef.current;
+    const current = () => scope === selectedWorkspaceRef.current && generation === personalScopeRef.current && request === personalRequestRef.current;
     setPersonalLoading(true);
-    try { const result = await api.getPersonalGraphView(); if (scope === selectedWorkspaceRef.current && request === personalRequestRef.current) { personalViewRef.current = result; setPersonalView(result); } }
-    catch (error) { if (scope === selectedWorkspaceRef.current && request === personalRequestRef.current) setGraphError(presentErrorText(error, { message: '无法读取个人视图。', recovery: '请重新读取后再保存。' })); }
-    finally { if (scope === selectedWorkspaceRef.current && request === personalRequestRef.current) setPersonalLoading(false); }
+    try { const result = await api.getPersonalGraphView(); if (current() && (!personalViewRef.current || result.revision >= personalViewRef.current.revision)) { personalViewRef.current = result; setPersonalView(result); } }
+    catch (error) { if (current()) setGraphError(presentErrorText(error, { message: '无法读取个人视图。', recovery: '请重新读取后再保存。' })); }
+    finally { if (current()) setPersonalLoading(false); }
   }, []);
-  useEffect(() => { personalRequestRef.current++; personalViewRef.current = undefined; setPersonalView(undefined); setGraphBatch(undefined); setBatchError(''); batchInputRef.current = undefined; batchUndoRef.current = undefined; setBatchBusy(false); }, [currentWorkspaceId]);
+  useEffect(() => { personalScopeRef.current++; personalRequestRef.current++; personalViewRef.current = undefined; setPersonalView(undefined); setGraphBatch(undefined); setBatchError(''); batchInputRef.current = undefined; batchUndoRef.current = undefined; setBatchBusy(false); }, [currentWorkspaceId]);
   useEffect(() => { if (view === 'graph' && boot === 'ready') void loadPersonalView(); }, [view, boot, currentWorkspaceId, loadPersonalView]);
   const savePersonalInput = async (input: GraphViewInput) => {
-    const original = personalViewRef.current; const scope = selectedWorkspaceRef.current;
+    const original = personalViewRef.current; const scope = selectedWorkspaceRef.current; const generation = personalScopeRef.current;
     if (!original || personalSaving.current) throw new Error('个人视图尚未就绪或保存仍在进行。');
     const identity = JSON.stringify([scope, original.revision, input]); const key = personalSaveKeys.current.get(identity) ?? crypto.randomUUID(); personalSaveKeys.current.set(identity, key);
     personalSaving.current = true;
-    try { const receipt = await api.savePersonalGraphView(input, original.revision, key); if (scope !== selectedWorkspaceRef.current) return; const next = { ...original, ...input, ...receipt, source: 'personal' as const }; personalViewRef.current = next; setPersonalView(next); personalSaveKeys.current.delete(identity); }
+    try { const receipt = await api.savePersonalGraphView(input, original.revision, key); if (scope !== selectedWorkspaceRef.current || generation !== personalScopeRef.current) return; personalSaveKeys.current.delete(identity); if (personalViewRef.current && receipt.revision < personalViewRef.current.revision) return; const next = { ...original, ...input, ...receipt, source: 'personal' as const }; personalViewRef.current = next; setPersonalView(next); }
     finally { personalSaving.current = false; }
   };
   const saveGraphPresentation = async (presentation: GraphPersonalPresentation) => {
@@ -417,6 +420,7 @@ export function App() {
     resourceRequestRef.current++; setResourceRead(undefined); setResourceDownloadBusy(false); setResourceDownloadError('');
     setContextPreview(undefined); setPreviewError(''); setDecidingContext(false); setFocusedRun(undefined); setRouteRunResolved('');
     const generation = ++workspaceGenerationRef.current;
+    if (selectedWorkspaceRef.current !== workspaceId) personalScopeRef.current++;
     selectedWorkspaceRef.current = workspaceId;
     graphRequestRef.current += 1; graphPagesRef.current = 1; graphCompleteRef.current = false; setGraphProjection(undefined); setGraphError('');
     setMessages([]); setDiscussionNodes([]); setContextItems([]); setAttachments([]); setDiscussionEdges([]); setSegments([]); setManifests([]); setActivity([]); setActiveNodeId('');
