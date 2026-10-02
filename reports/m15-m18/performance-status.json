@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "1.0.0",
+  "ok": false,
+  "assertions": {
+    "frozen_profile": true,
+    "command_p95": false,
+    "command_p99": false,
+    "graph_p95": true,
+    "graph_p99": true,
+    "context_p95": true,
+    "trace_count": true,
+    "trace_regression": true
+  },
+  "metrics": {
+    "command": {
+      "p95": 405.91608300000007,
+      "p99": 558.1581660000011
+    },
+    "graph": {
+      "p95": 21.547124999997322,
+      "p99": 25.033416000005673
+    },
+    "context": {
+      "p95": 7.1152080000028946
+    },
+    "traceRegression": 0.630610637812401
+  },
+  "g0Relative": "pending"
+}
