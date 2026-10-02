@@ -1,12 +1,12 @@
 # M18 Workspace navigation contract
 
-Status: implementation specification; production navigation is not wired. The concrete UI preview still requires approval. This document does not close INH-290, INH-148 or the M17/M18 Gates.
+Status: approved specification implemented in the formal product, including scoped canonical routes, exact historical versions, guarded recent locations and Back restoration. Production evidence is in the [UI audit](../reports/m15-m18/design/audit.md). Full visual acceptance and the M17/M18 Gates remain pending; this document alone does not close INH-290 or INH-148.
 
 Scope: [INH-290](https://linear.app/inhandy/issue/INH-290/m18ia-contract-workspace-navigation-route-view-hierarchy-semantics) supplies the navigation semantics for [INH-148](https://linear.app/inhandy/issue/INH-148/m18ia-workspace-中心导航面包屑与最近访问). It complements the [compact workbench contract](../reports/m15-m18/design/contract.md); it does not choose another visual style or change Domain, Kernel, HTTP, Bundle or persisted object identities. INH-290's dependency on M17 Final Gate remains unmet.
 
 ## 1. Evidence and vocabulary
 
-The following is current implementation evidence, not proof of this specification's completion:
+The following records the pre-implementation baseline used to design this contract. The implemented behavior and its verification are recorded in the UI audit:
 
 | Surface | Current source and behavior | Consequence for implementation |
 | --- | --- | --- |

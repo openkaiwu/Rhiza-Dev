@@ -3,11 +3,11 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { App } from './App';
 import { contextHistoryFixture } from './test/context-history-fixture';
 import { initialContext } from './data';
-import type { CollaborationRecord, ContextManifest, DiscussionNode, Message } from './types';
+import type { CollaborationRecord, ContextManifest, DiscussionNode, Message, ResourceVersionView } from './types';
 
 const mocks = vi.hoisted(() => { const temporary = vi.fn(); return ({
   batchGraphOperations: vi.fn(), getGraphBatch: vi.fn(), undoGraphBatch: vi.fn(), getPersonalGraphView: vi.fn(), savePersonalGraphView: vi.fn(), listManagedBackups: vi.fn(), getRun: vi.fn(), listRuns: vi.fn(), getWorkspace: vi.fn(), getNodeCollaboration: vi.fn(), listCollaborations: vi.fn(), createCollaboration: vi.fn(), streamCollaboration: vi.fn(),
-  getMessageContext: vi.fn(), getManifestContext: vi.fn(), getContextPreview: vi.fn(), decideContextRecommendation: vi.fn(),
+  getMessageContext: vi.fn(), getManifestContext: vi.fn(), getContextPreview: vi.fn(), decideContextRecommendation: vi.fn(), getResourceVersion: vi.fn(), getResourceVersionContent: vi.fn(),
   getWorkspaceActivity: vi.fn(),
   getGraphNeighborhood: vi.fn(), getGraphPath: vi.fn(),
   setMode: vi.fn(),
@@ -53,6 +53,7 @@ const providerCatalog = {
   models: [{ id: 'model-1', providerId: 'p1', modelId: 'test-model', displayName: 'test-model', favorite: false, pinned: false, createdAt: '' }],
   activeModelId: 'model-1',
 };
+const resourceFixture: ResourceVersionView = { resource: { id:'resource-old',workspaceId:workspace.projectId,kind:'file',title:'历史说明' }, version: { id:'version-old',resourceId:'resource-old',version:1,digestAlgorithm:'sha256',digest:'a'.repeat(64),canonicalization:'raw-v1',mediaType:'text/plain',size:12,createdAt:'2026-01-01T00:00:00Z' }, preview:{kind:'text',text:'这个精确旧版本的正文'} };
 const presets = { openai: { name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', allowNoKey: false } };
 const deferred = <T,>() => {
   let resolve!: (value: T) => void;
@@ -755,6 +756,47 @@ it('continues the initiating discussion when sending from collaboration frozen e
  expect(screen.getByRole('heading',{level:1,name:'信息架构方向'})).toBeInTheDocument();
  fireEvent.change(screen.getByLabelText('输入消息'),{target:{value:'Continue using review evidence'}});fireEvent.click(screen.getByRole('button',{name:'发送'}));
  await waitFor(()=>expect(mocks.streamMessage).toHaveBeenCalledOnce());expect(mocks.activateNode).toHaveBeenCalledExactlyOnceWith(workspace.activeNodeId);
+});
+
+it('reads an exact old resource version absent from the current attachment list without activating a discussion', async () => {
+ window.history.replaceState(null,'',`/#/workspaces/${workspace.projectId}/resources/resource-old/versions/version-old`);
+ mocks.getResourceVersion.mockClear();mocks.getResourceVersion.mockResolvedValue(resourceFixture);const activated=mocks.activateNode.mock.calls.length;
+ render(<App/>);await screen.findByText('这个精确旧版本的正文');expect(mocks.getResourceVersion).toHaveBeenCalledWith('resource-old','version-old');expect(mocks.activateNode).toHaveBeenCalledTimes(activated);
+ await waitFor(()=>expect(JSON.parse(localStorage.getItem('rhiza:recent-locations:v1')??'[]')).toEqual(expect.arrayContaining([expect.objectContaining({canonicalLocation:window.location.hash})])));
+});
+
+it('rejects foreign resource identities without rendering their body or storing a successful recent location', async () => {
+ window.history.replaceState(null,'',`/#/workspaces/${workspace.projectId}/resources/resource-old/versions/version-old`);
+ mocks.getResourceVersion.mockResolvedValue({...resourceFixture,resource:{...resourceFixture.resource,workspaceId:'foreign-workspace'}});
+ render(<App/>);await screen.findByRole('button',{name:'重新读取资源'});expect(screen.queryByText('这个精确旧版本的正文')).not.toBeInTheDocument();expect(screen.queryByRole('button',{name:'下载此版本原文'})).not.toBeInTheDocument();expect(JSON.parse(localStorage.getItem('rhiza:recent-locations:v1')??'[]')).toEqual([]);
+});
+
+it('discards a late resource body after switching Workspace', async () => {
+ const pending=deferred<ResourceVersionView>();mocks.getResourceVersion.mockReturnValueOnce(pending.promise);
+ mocks.listWorkspaces.mockResolvedValue({workspaces:[{workspaceId:workspace.projectId,name:'First',status:'active',createdBy:'local',revision:1},{workspaceId:'second-workspace',name:'Second',status:'active',createdBy:'local',revision:1}]});
+ mocks.getScopedWorkspace.mockResolvedValue({workspace:{...workspace,projectId:'second-workspace',messages:[],manifests:[]}});
+ window.history.replaceState(null,'',`/#/workspaces/${workspace.projectId}/resources/resource-old/versions/version-old`);
+ render(<App/>);await screen.findByText('正在校验资源版本…');fireEvent.change(await screen.findByRole('combobox',{name:'切换工作区'}),{target:{value:'second-workspace'}});
+ await waitFor(()=>expect(mocks.getScopedWorkspace).toHaveBeenCalledWith('second-workspace'));
+ await act(async()=>{pending.resolve(resourceFixture);await pending.promise;});expect(screen.queryByText('这个精确旧版本的正文')).not.toBeInTheDocument();
+ expect(JSON.parse(localStorage.getItem('rhiza:recent-locations:v1')??'[]')).not.toEqual(expect.arrayContaining([expect.objectContaining({canonicalLocation:`#/workspaces/${workspace.projectId}/resources/resource-old/versions/version-old`})]));
+});
+
+it('retries a missing resource read explicitly and keeps its exact version identity', async () => {
+ window.history.replaceState(null,'',`/#/workspaces/${workspace.projectId}/resources/resource-old/versions/version-old`);
+ mocks.getResourceVersion.mockClear();mocks.getResourceVersion.mockRejectedValueOnce(new Error('missing')).mockResolvedValueOnce(resourceFixture);
+ render(<App/>);fireEvent.click(await screen.findByRole('button',{name:'重新读取资源'}));await screen.findByText('这个精确旧版本的正文');expect(mocks.getResourceVersion.mock.calls).toEqual([['resource-old','version-old'],['resource-old','version-old']]);
+});
+
+it.each([403,404,409,410])('clears previously verified resource text when download reports permanent invalidation (%s)', async status => {
+ window.history.replaceState(null,'',`/#/workspaces/${workspace.projectId}/resources/resource-old/versions/version-old`);
+ mocks.getResourceVersion.mockResolvedValue(resourceFixture);
+ mocks.getResourceVersionContent.mockRejectedValueOnce(Object.assign(new Error('Resource unavailable'),{status}));
+ render(<App/>);await screen.findByText('这个精确旧版本的正文');
+ await waitFor(()=>expect(JSON.parse(localStorage.getItem('rhiza:recent-locations:v1')??'[]')).toEqual(expect.arrayContaining([expect.objectContaining({canonicalLocation:window.location.hash})])));
+ fireEvent.click(screen.getByRole('button',{name:'下载此版本原文'}));await screen.findByRole('button',{name:'重新读取资源'});
+ expect(screen.queryByText('这个精确旧版本的正文')).not.toBeInTheDocument();expect(screen.queryByRole('button',{name:'下载此版本原文'})).not.toBeInTheDocument();
+ expect(JSON.parse(localStorage.getItem('rhiza:recent-locations:v1')??'[]')).not.toEqual(expect.arrayContaining([expect.objectContaining({canonicalLocation:window.location.hash})]));
 });
 
 it('keeps an archived Segment location read-only under an active discussion', async () => {

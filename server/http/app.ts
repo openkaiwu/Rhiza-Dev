@@ -192,6 +192,19 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
     catch (error) { next(error); }
   });
 
+  app.get('/api/resources/:resourceId/versions/:versionId', async (request, response, next) => {
+    response.set('Cache-Control', 'no-store').set('X-Content-Type-Options', 'nosniff');
+    try { response.json(await query(response, 'GetResourceVersion', { resourceId: String(request.params.resourceId), versionId: String(request.params.versionId) })); }
+    catch (error) { next(error); }
+  });
+  app.get('/api/resources/:resourceId/versions/:versionId/content', async (request, response, next) => {
+    response.set('Cache-Control', 'no-store').set('X-Content-Type-Options', 'nosniff');
+    try {
+      const bytes = await query(response, 'GetResourceVersionContent', { resourceId: String(request.params.resourceId), versionId: String(request.params.versionId) });
+      response.attachment('resource-version.bin').type('application/octet-stream').send(Buffer.from(bytes));
+    } catch (error) { next(error); }
+  });
+
   app.post('/api/backups', async (request, response, next) => {
     try { response.status(201).json(await execute(response, 'CreateManagedBackup', { retryOf: request.body?.retryOf })); }
     catch (error) { next(error); }

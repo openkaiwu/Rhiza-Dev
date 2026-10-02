@@ -19,6 +19,10 @@ export interface ContextHistoryFacts {
   resources: WorkspaceData['resources'];
   versions: WorkspaceData['resourceVersions'];
 }
+export interface ResourceVersionFacts {
+  resource: import('../../domain').Resource;
+  version: import('../../domain').ResourceVersion;
+}
 import type { CommandFactContext, WorkspaceActivityItem } from '../../domain-journal';
 import type { WorkspaceRecord } from '../../contracts/application';
 import type { GraphChangesInput, GraphChangesResult, GraphNeighborhoodInput, GraphPathInput, GraphQueryResult, GraphTreeInput, WorkspaceGraphProjection } from '../../contracts/graph-projection';
@@ -70,6 +74,8 @@ export interface WorkspaceUnitOfWork {
   downloadManagedBackup?(ownerId: string, backupId: string): Promise<import('./portable-workspace').BundleExport>;
   readProvenance?(outputId: string): Promise<import('../../domain').ProvenanceLink | undefined>;
   readContextHistory?(input: { manifestId: string } | { messageId: string }): Promise<ContextHistoryFacts | undefined>;
+  /** Keep verified Blob reads within the repository's content and Workspace read boundary. */
+  readResourceVersion?<T>(input: { resourceId: string; versionId: string }, reader: (facts: ResourceVersionFacts) => Promise<T>): Promise<T | undefined>;
   readConversationPreparation?(attachmentIds: string[], sourceMessageId?: string): Promise<ConversationPreparation>;
   readonly tracksRuns?: boolean;
   listRuns?(limit?: number): Promise<import('../../execution-runtime/run').ExecutionRun[]>;

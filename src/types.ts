@@ -1,4 +1,9 @@
 export type View = 'chat' | 'graph' | 'state' | 'activity' | 'runs';
+export interface ResourceVersionView {
+  resource: { id: string; workspaceId: string; kind: string; title?: string };
+  version: { id: string; resourceId: string; version: number; digestAlgorithm: string; digest: string; canonicalization: string; mediaType: string; size: number; createdAt: string };
+  preview: { kind: 'text'; text: string } | { kind: 'binary' | 'too_large' };
+}
 export interface WorkspaceActivityItem {
   id: string; sequence: number; type: string; title: string; detail: string; occurredAt: string; aggregateType: string; aggregateId: string;
 }

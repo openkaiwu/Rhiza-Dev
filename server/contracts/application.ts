@@ -119,6 +119,8 @@ export interface CommandMap {
 }
 
 export interface QueryMap {
+  GetResourceVersion: { payload: { resourceId: string; versionId: string }; result: ResourceVersionView };
+  GetResourceVersionContent: { payload: { resourceId: string; versionId: string }; result: Uint8Array };
   GetGraphBatch: { payload: { batchId: string }; result: import('./graph-batch').GraphBatchResult };
   GetPersonalGraphView: { payload: { viewType: string }; result: import('./personal-graph-view').PersonalGraphView };
   GetCollaboration: { payload: { collaborationId: string }; result: { collaboration: import('./collaboration').CollaborationRecord } };
@@ -145,6 +147,12 @@ export interface QueryMap {
   GetGraphPath: { payload: GraphPathInput; result: GraphQueryResult };
   GetGraphTree: { payload: GraphTreeInput; result: GraphQueryResult };
   GetGraphChanges: { payload: GraphChangesInput; result: GraphChangesResult };
+}
+
+export interface ResourceVersionView {
+  resource: { id: string; workspaceId: string; kind: import('../domain').Resource['kind']; title?: string };
+  version: Omit<import('../domain').ResourceVersion, 'blobRef' | 'purgedAt'>;
+  preview: { kind: 'text'; text: string } | { kind: 'binary' | 'too_large' };
 }
 
 /** Convenience factory for hosts that still use the M01 local workspace. */

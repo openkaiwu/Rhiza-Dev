@@ -12,6 +12,7 @@ import { Sidebar } from './components/Sidebar';
 import { ChatView } from './components/ChatView';
 import { GraphView, type GraphNavigationPresentation } from './components/GraphView';
 import { StateView } from './components/StateView';
+import { ResourceView } from './components/ResourceView';
 import type { ContextHistoryState } from './components/ContextHistoryPanel';
 import { ContextPanel } from './components/ContextPanel';
 import { ProviderSettings, type ProviderFormState } from './components/ProviderSettings';
@@ -60,6 +61,10 @@ export function App() {
   const decisionKeys = useRef(new Map<string, string>());
   const [focusedRun, setFocusedRun] = useState<ExecutionRun>();
   const [routeRunResolved, setRouteRunResolved] = useState('');
+  const [resourceRead, setResourceRead] = useState<{ canonical: string; loading: boolean; data?: import('./types').ResourceVersionView; error?: string }>();
+  const resourceRequestRef = useRef(0);
+  const [resourceDownloadBusy, setResourceDownloadBusy] = useState(false);
+  const [resourceDownloadError, setResourceDownloadError] = useState('');
   const [collaborations, setCollaborations] = useState<CollaborationRecord[]>([]);
   const [collaborationError, setCollaborationError] = useState('');
   const [collaborationBusy, setCollaborationBusy] = useState('');
@@ -400,6 +405,7 @@ export function App() {
   const switchWorkspace = async (workspaceId: string) => {
     setDataOpen(false); setContextOpen(false); setLoadedWorkspaceId(undefined); setRouteReadError('');
     historyRequestRef.current++; setContextHistory(undefined);
+    resourceRequestRef.current++; setResourceRead(undefined); setResourceDownloadBusy(false); setResourceDownloadError('');
     setContextPreview(undefined); setPreviewError(''); setDecidingContext(false); setFocusedRun(undefined); setRouteRunResolved('');
     const generation = ++workspaceGenerationRef.current;
     selectedWorkspaceRef.current = workspaceId;
@@ -662,7 +668,10 @@ export function App() {
     const current = workspaceMutation();
     const { workspace } = await api.purgeGraphNode(id, confirmation, reason);
     if (!current()) return;
+    resourceRequestRef.current++; setResourceRead(undefined); setResourceDownloadBusy(false); setResourceDownloadError('');
+    if (routeLocationRef.current.kind === 'resources' && routeLocationRef.current.workspaceId) navigationForget(routeLocationRef.current.workspaceId, formatLocation(routeLocationRef.current));
     applyWorkspace(workspace);
+    if (routeLocationRef.current.kind === 'resources') void readResourceLocation(routeLocationRef.current);
     setSyncError('');
   };
   const createGraphEdge = async (input: { source: string; target: string; relation: 'derived-from' | 'references' | 'related-to' | 'merged-into'; label: string }) => {
@@ -711,6 +720,40 @@ export function App() {
       setFocusedRun(run); setRouteRunResolved(canonical);
     } catch { if (current() && routeLocationRef.current === target) setRouteReadError('无法访问此执行记录。'); }
   };
+  const readResourceLocation = async (target: WorkspaceLocation) => {
+    if (target.kind !== 'resources' || !target.objectId || !target.versionId) return;
+    const canonical = formatLocation(target), request = ++resourceRequestRef.current;
+    const current = () => request === resourceRequestRef.current && selectedWorkspaceRef.current === target.workspaceId && formatLocation(routeLocationRef.current) === canonical;
+    setResourceRead({canonical,loading:true}); setResourceDownloadError('');
+    try {
+      const data = await api.getResourceVersion(target.objectId,target.versionId);
+      if (!current()) return;
+      if (data.resource.workspaceId !== target.workspaceId || data.resource.id !== target.objectId || data.version.resourceId !== target.objectId || data.version.id !== target.versionId) throw new Error('资源身份不匹配');
+      setResourceRead({canonical,loading:false,data});
+    } catch (error) { if (current()) setResourceRead({canonical,loading:false,error:presentErrorText(error,{message:'无法读取此资源版本。',recovery:'缺失、已清除或校验失败的版本不能替换为当前内容。'})}); }
+  };
+  const downloadResourceVersion = async () => {
+    const target = location, canonical = formatLocation(target), request = resourceRequestRef.current;
+    if (resourceDownloadBusy || !target.objectId || !target.versionId || resourceRead?.canonical !== canonical || !resourceRead.data) return;
+    const current = () => request === resourceRequestRef.current && selectedWorkspaceRef.current === target.workspaceId && formatLocation(routeLocationRef.current) === canonical;
+    setResourceDownloadBusy(true); setResourceDownloadError('');
+    try {
+      const blob = await api.getResourceVersionContent(target.objectId,target.versionId);
+      if (!current()) return;
+      const url = URL.createObjectURL(blob), link = document.createElement('a');
+      try { link.href=url; link.download='resource.bin'; link.click(); } finally { URL.revokeObjectURL(url); }
+    } catch (error) {
+      if (current()) {
+        const message = presentErrorText(error,{message:'无法下载此版本原文。',recovery:'请重新读取资源后再试。'});
+        const status = error && typeof error === 'object' && 'status' in error ? error.status : undefined;
+        if ([403,404,409,410].includes(status as number)) {
+          resourceRequestRef.current++; setResourceRead({canonical,loading:false,error:message}); setResourceDownloadBusy(false);
+          if (target.workspaceId) navigationForget(target.workspaceId,canonical);
+        } else setResourceDownloadError(message);
+      }
+    }
+    finally { if (current()) setResourceDownloadBusy(false); }
+  };
   const resolveLocation = useEffectEvent(() => {
     if (boot === 'loading') return;
     if (location.workspaceId && location.workspaceId !== currentWorkspaceId) { void switchWorkspace(location.workspaceId); return; }
@@ -718,6 +761,7 @@ export function App() {
     if (location.workspaceId && loadedWorkspaceId !== location.workspaceId) return;
     setRouteReadError(''); setRouteGraphObject(undefined); setRouteGraphResolved(''); historyRequestRef.current++;
     setContextOpen(false); setDataOpen(false); setSettingsOpen(false); setContextHistory(undefined); setFocusedRun(undefined); setRouteRunResolved('');
+    resourceRequestRef.current++; setResourceRead(undefined); setResourceDownloadBusy(false); setResourceDownloadError('');
     const targetView: View = ['graph','state','activity','runs'].includes(location.kind) ? location.kind as View : 'chat';
     setRenderedView(targetView);
     if (location.kind === 'settings') void readSettings();
@@ -726,6 +770,7 @@ export function App() {
     if (location.kind === 'manifest') void readMessageContext('', location.objectId);
     if (location.kind === 'message' && location.detail === 'context' && messages.some(message => message.id === location.objectId && message.nodeId === location.nodeId)) void readMessageContext(location.objectId!);
     if (location.kind === 'runs' && location.objectId) void readRunLocation(location);
+    if (location.kind === 'resources' && location.objectId && location.versionId) void readResourceLocation(location);
     if (location.kind === 'graph' && location.objectId) {
       const target = location; const current = workspaceMutation(); const canonical = formatLocation(target);
       const accept = (object: import('./types').GraphProjectedObject | undefined) => {
@@ -745,7 +790,7 @@ export function App() {
   if (scopedReady && location.kind === 'message' && !messages.some(message => message.id === location.objectId && message.nodeId === location.nodeId)) locationError = '无法访问此消息版本。';
   if (scopedReady && location.kind === 'segment' && !segments.some(segment => segment.id === location.objectId && segment.nodeId === location.nodeId)) locationError = '无法访问此片段。';
   if (scopedReady && location.kind === 'collaboration' && !collaborations.some(record => record.id === location.objectId && record.base.nodeId === location.nodeId)) locationError = '无法访问此协作记录。';
-  if (scopedReady && location.kind === 'resources' && location.objectId && !attachments.some(item => item.resourceId === location.objectId && (!location.versionId || item.resourceVersionId === location.versionId)) && !manifests.some(manifest => manifest.contextItems.some(item => item.resourceId === location.objectId && (!location.versionId || item.resourceVersionId === location.versionId)))) locationError = '无法访问此资源版本。';
+  if (scopedReady && location.kind === 'resources' && location.objectId && !location.versionId && !attachments.some(item => item.resourceId === location.objectId) && !manifests.some(manifest => manifest.contextItems.some(item => item.resourceId === location.objectId))) locationError = '无法访问此资源。';
   if (contextHistory?.error && location.kind === 'manifest') locationError = '无法读取此历史上下文。';
   if (contextHistory?.data && location.kind === 'manifest' && (contextHistory.data.manifest.projectId !== currentWorkspaceId || (location.sourceIndex !== undefined && !contextHistory.data.manifest.contextItems[location.sourceIndex]))) locationError = '无法访问此冻结来源。';
   useEffect(() => {
@@ -754,8 +799,12 @@ export function App() {
     if (location.kind === 'manifest' && !contextHistory?.data) return;
     if (location.kind === 'graph' && location.objectId && routeGraphResolved !== formatLocation(location)) return;
     if (location.kind === 'runs' && location.objectId && routeRunResolved !== formatLocation(location)) return;
+    if (location.kind === 'resources' && location.versionId) {
+      if (resourceRead?.canonical !== formatLocation(location) || resourceRead.loading) return;
+      if (!resourceRead.data) { if(location.workspaceId) navigationForget(location.workspaceId,formatLocation(location)); return; }
+    }
     navigationRecord(location); if (location.workspaceId) lastLocations.current.set(location.workspaceId, location);
-  }, [navigationEntryKey, location, boot, scopedReady, locationError, contextHistory?.data, routeGraphResolved, routeRunResolved, navigationRecord, navigationForget]);
+  }, [navigationEntryKey, location, boot, scopedReady, locationError, contextHistory?.data, routeGraphResolved, routeRunResolved, resourceRead, navigationRecord, navigationForget]);
   useEffect(() => {
     if (boot !== 'ready' || !scopedReady || locationError) return;
     const frame = requestAnimationFrame(() => {
@@ -775,12 +824,14 @@ export function App() {
 
   const closeOnboarding = () => { localStorage.setItem('rhiza:onboarding-seen', '1'); setOnboardingOpen(false); };
   const runCommand = (action: () => void) => { setPaletteOpen(false); action(); };
+  const resourceSources = location.kind === 'resources' ? manifests.flatMap(manifest => manifest.contextItems.flatMap((item,sourceIndex) => item.resourceId && item.resourceVersionId ? [{resourceId:item.resourceId,versionId:item.resourceVersionId,title:item.title,manifestId:manifest.id,sourceIndex}] : [])) : [];
+  const resourceState = resourceRead?.canonical === formatLocation(location) ? resourceRead : undefined;
   const locationTitle = location.kind === 'graph' ? `图谱${routeGraphObject ? ` · ${routeGraphObject.ref.objectType} · ${routeGraphObject.title}` : ''}` : location.detail === 'context' || location.kind === 'manifest' ? `历史上下文${location.sourceIndex !== undefined ? ` · 来源 ${location.sourceIndex + 1}` : ''}` : location.kind === 'message' ? `消息版本 · ${location.objectId?.slice(0,8)}` : location.kind === 'segment' ? segments.find(segment=>segment.id===location.objectId)?.title ?? '片段' : location.kind === 'collaboration' ? '协作记录' : ({state:'知识来源',runs:'执行历史',activity:'活动时间线',resources:'资源',data:'数据与备份',context:'当前上下文',settings:'模型与 API 设置',conversations:'讨论'} as Record<string,string>)[location.kind] ?? '';
 
   return <AppShell
     view={view}
     navigationSurface={<nav className="workspace-breadcrumbs" aria-label="位置导航"><button onClick={() => navigationCanBack ? window.history.back() : navigationNavigate({kind:'chooser'})}>返回</button><button onClick={() => navigationNavigate({ kind: 'chooser' })}>工作区</button>{location.workspaceId && <button onClick={() => navigationNavigate({ kind: 'workspace', workspaceId: location.workspaceId })}>{scopedReady ? workspaceRecord()?.name ?? '当前工作区' : '工作区'}</button>}{scopedReady && (location.nodeId || location.kind === 'manifest') && activeNode.id && <button aria-label={`讨论：${activeNode.title}`} onClick={() => navigationNavigate({kind:'conversation',workspaceId:currentWorkspaceId,nodeId:activeNode.id})}>{activeNode.title}</button>}<span aria-current="location">{locationTitle}</span><button onClick={() => { void navigator.clipboard?.writeText(`${window.location.origin}${window.location.pathname}${formatLocation(location)}`); }}>复制链接</button></nav>}
-    primarySurface={location.kind === 'runs' && location.objectId && !locationError && routeRunResolved !== formatLocation(location) ? <main id="workspace-main" className="workspace-empty" aria-busy="true"><h1>正在读取执行记录…</h1></main> : location.kind === 'manifest' && !locationError && !contextHistory?.data ? <main id="workspace-main" className="workspace-empty"><h1>历史上下文</h1><p>正在核实冻结记录…</p></main> : location.kind === 'manifest' && !locationError && !activeNode.id ? <main id="workspace-main" className="workspace-empty"><h1>历史上下文</h1><p>所属讨论当前不可用。此处只展示已授权的冻结来源记录。</p></main> : location.kind === 'graph' && location.objectId && !locationError && routeGraphResolved !== formatLocation(location) ? <main id="workspace-main" className="workspace-empty" aria-busy="true"><h1>正在读取图谱对象…</h1></main> : routeGraphObject && !['conversation','segment','message'].includes(routeGraphObject.ref.objectType) ? <main id="workspace-main" className="workspace landing-view"><h1>{routeGraphObject.title}</h1><p>{routeGraphObject.ref.objectType} · {routeGraphObject.lifecycle}</p><p>此类型当前仅提供图谱元数据。可返回图谱继续浏览。</p></main> : locationError || !scopedReady ? <main id="workspace-main" className="workspace-empty"><h1>{locationError || (syncError ? '无法访问此位置' : '正在加载工作区…')}</h1><p>{scopedReady ? '目标可能已归档、清除或无权访问。可返回原位置或选择工作区。' : syncError}</p><button onClick={() => location.workspaceId && void switchWorkspace(location.workspaceId)}>重新读取</button><button onClick={() => navigationNavigate({ kind: 'chooser' })}>选择工作区</button></main> : ['workspace','conversations','chooser'].includes(location.kind) ? <main id="workspace-main" tabIndex={-1} className="workspace landing-view"><h1>{location.kind === 'chooser' ? '选择工作区' : location.kind === 'conversations' ? '讨论' : workspaceRecord()?.name ?? '工作区'}</h1>{location.kind === 'chooser' ? workspaces.map(item => <button key={item.workspaceId} onClick={() => openWorkspace(item.workspaceId)}>{item.name}{item.status === 'archived' ? ' · 已归档' : ''}</button>) : <><div className="landing-actions"><button onClick={() => setView('graph')}>打开图谱 / 创建讨论</button><button onClick={() => navigationNavigate({ kind:'resources', workspaceId:currentWorkspaceId })}>附件与历史资源</button><button onClick={() => navigationNavigate({ kind:'data', workspaceId:currentWorkspaceId })}>数据与备份</button></div><h2>讨论</h2>{discussionNodes.filter(node => !collaborations.some(record => record.nodeId === node.id)).map(node => <button key={node.id} onClick={() => void activateNode(node.id)}>{node.title}{node.status === 'archived' ? ' · 已归档，只读' : ''}</button>)}<h2>最近访问</h2><button onClick={() => currentWorkspaceId && navigationForget(currentWorkspaceId)}>清空最近访问</button>{navigationRecents.filter(item => item.workspaceId === currentWorkspaceId).map(item => { const target = parseLocation(item.canonicalLocation); const node = discussionNodes.find(node => node.id === target.nodeId); const label = node?.title ?? ({ graph:'对话图谱', context:'当前上下文', manifest:'历史上下文', runs:'执行历史', data:'数据与备份', state:'知识来源', resources:'资源', activity:'活动时间线', workspace:'工作区', conversations:'讨论' } as Record<string,string>)[target.kind]; return label ? <button key={item.canonicalLocation} onClick={() => navigationNavigate(target)}>{label}{target.objectId ? ` · ${target.kind === 'message' ? '消息版本' : target.objectId.slice(0,8)}` : ''}</button> : null; })}</>}</main> : location.kind === 'resources' ? <main id="workspace-main" tabIndex={-1} className="workspace landing-view"><h1>附件与历史资源</h1><p>附件列表与冻结来源元数据。历史内容请从对应 Manifest 查看；没有独立资源内容读取接口时不替换为当前版本。</p>{attachments.filter(item => !location.objectId || item.resourceId === location.objectId && (!location.versionId || item.resourceVersionId === location.versionId)).map(item => <article key={item.id}><strong>{item.name}</strong><p>{item.mimeType} · {item.size.toLocaleString()} bytes</p><small>{item.resourceVersionId ?? '未记录版本身份'}</small></article>)}{location.objectId && !attachments.some(item => item.resourceId === location.objectId && (!location.versionId || item.resourceVersionId === location.versionId)) && <p role="status">此历史资源版本不在当前附件列表，请使用冻结 Manifest 来源链接核实；不能读取替代内容。</p>}<h2>冻结来源</h2>{manifests.flatMap(manifest => manifest.contextItems.map((item,index) => ({manifest,item,index}))).filter(({item}) => item.resourceVersionId && (!location.objectId || item.resourceId === location.objectId) && (!location.versionId || item.resourceVersionId === location.versionId)).map(({manifest,item,index}) => <button key={`${manifest.id}:${index}`} onClick={() => navigationNavigate({kind:'manifest',workspaceId:currentWorkspaceId,objectId:manifest.id,sourceIndex:index})}>{item.title} · {item.resourceVersionId?.slice(0,8)} · 查看冻结来源</button>)}</main> : undefined}
+    primarySurface={location.kind === 'runs' && location.objectId && !locationError && routeRunResolved !== formatLocation(location) ? <main id="workspace-main" className="workspace-empty" aria-busy="true"><h1>正在读取执行记录…</h1></main> : location.kind === 'manifest' && !locationError && !contextHistory?.data ? <main id="workspace-main" className="workspace-empty"><h1>历史上下文</h1><p>正在核实冻结记录…</p></main> : location.kind === 'manifest' && !locationError && !activeNode.id ? <main id="workspace-main" className="workspace-empty"><h1>历史上下文</h1><p>所属讨论当前不可用。此处只展示已授权的冻结来源记录。</p></main> : location.kind === 'graph' && location.objectId && !locationError && routeGraphResolved !== formatLocation(location) ? <main id="workspace-main" className="workspace-empty" aria-busy="true"><h1>正在读取图谱对象…</h1></main> : routeGraphObject && !['conversation','segment','message'].includes(routeGraphObject.ref.objectType) ? <main id="workspace-main" className="workspace landing-view"><h1>{routeGraphObject.title}</h1><p>{routeGraphObject.ref.objectType} · {routeGraphObject.lifecycle}</p><p>此类型当前仅提供图谱元数据。可返回图谱继续浏览。</p></main> : locationError || !scopedReady ? <main id="workspace-main" className="workspace-empty"><h1>{locationError || (syncError ? '无法访问此位置' : '正在加载工作区…')}</h1><p>{scopedReady ? '目标可能已归档、清除或无权访问。可返回原位置或选择工作区。' : syncError}</p><button onClick={() => location.workspaceId && void switchWorkspace(location.workspaceId)}>重新读取</button><button onClick={() => navigationNavigate({ kind: 'chooser' })}>选择工作区</button></main> : ['workspace','conversations','chooser'].includes(location.kind) ? <main id="workspace-main" tabIndex={-1} className="workspace landing-view"><h1>{location.kind === 'chooser' ? '选择工作区' : location.kind === 'conversations' ? '讨论' : workspaceRecord()?.name ?? '工作区'}</h1>{location.kind === 'chooser' ? workspaces.map(item => <button key={item.workspaceId} onClick={() => openWorkspace(item.workspaceId)}>{item.name}{item.status === 'archived' ? ' · 已归档' : ''}</button>) : <><div className="landing-actions"><button onClick={() => setView('graph')}>打开图谱 / 创建讨论</button><button onClick={() => navigationNavigate({ kind:'resources', workspaceId:currentWorkspaceId })}>附件与历史资源</button><button onClick={() => navigationNavigate({ kind:'data', workspaceId:currentWorkspaceId })}>数据与备份</button></div><h2>讨论</h2>{discussionNodes.filter(node => !collaborations.some(record => record.nodeId === node.id)).map(node => <button key={node.id} onClick={() => void activateNode(node.id)}>{node.title}{node.status === 'archived' ? ' · 已归档，只读' : ''}</button>)}<h2>最近访问</h2><button onClick={() => currentWorkspaceId && navigationForget(currentWorkspaceId)}>清空最近访问</button>{navigationRecents.filter(item => item.workspaceId === currentWorkspaceId).map(item => { const target = parseLocation(item.canonicalLocation); const node = discussionNodes.find(node => node.id === target.nodeId); const label = node?.title ?? ({ graph:'对话图谱', context:'当前上下文', manifest:'历史上下文', runs:'执行历史', data:'数据与备份', state:'知识来源', resources:'资源', activity:'活动时间线', workspace:'工作区', conversations:'讨论' } as Record<string,string>)[target.kind]; return label ? <button key={item.canonicalLocation} onClick={() => navigationNavigate(target)}>{label}{target.objectId ? ` · ${target.kind === 'message' ? '消息版本' : target.objectId.slice(0,8)}` : ''}</button> : null; })}</>}</main> : location.kind === 'resources' ? <ResourceView attachments={attachments} sources={resourceSources} resourceId={location.objectId} versionId={location.versionId} data={resourceState?.data} loading={Boolean(location.versionId && (!resourceState || resourceState.loading))} error={resourceState?.error} downloadBusy={resourceDownloadBusy} downloadError={resourceDownloadError} onVersion={(resourceId,versionId) => navigationNavigate({kind:'resources',workspaceId:currentWorkspaceId,objectId:resourceId,versionId})} onManifest={(manifestId,sourceIndex) => navigationNavigate({kind:'manifest',workspaceId:currentWorkspaceId,objectId:manifestId,sourceIndex})} onRetry={() => void readResourceLocation(location)} onDownload={() => void downloadResourceVersion()}/> : undefined}
     hasDiscussionNodes={discussionNodes.length > 0}
     contextOpen={contextOpen && !locationError && scopedReady}
     networkNotice={workspaceRecord()?.status==='archived'?'工作区已归档，可在工作区菜单恢复。':networkNotice}
@@ -808,7 +859,7 @@ export function App() {
       runs: <RunHistory key={currentWorkspaceId} focusedRun={focusedRun} onRefreshFocused={location.objectId ? () => readRunLocation(location) : undefined} readOnly={workspaceRecord()?.status === 'archived'} onInspectContext={id => void inspectMessageContext('', id)} onChanged={() => void loadWorkspace(true).then(() => readRunLocation(location))}/>,
       activity: <ActivityView activity={activity} loading={activityLoading} error={activityError} onRefresh={() => void loadActivity()}/>,
     }}
-    contextSurface={location.kind === 'context' && viewedNodeId !== activeNodeId ? <aside className="context-panel"><h2>当前执行上下文</h2><p>当前浏览讨论尚未成为执行讨论。</p><button onClick={() => void ensureExecutionNode().catch(error => setSyncError(presentErrorText(error,{message:'无法继续讨论。',recovery:'请重新读取后重试。'})))}>继续此讨论</button></aside> : <ContextPanel readOnly={locationReadOnly} key={currentWorkspaceId} preview={contextPreview} loading={previewLoading} error={previewError} deciding={decidingContext} onRefresh={() => setPreviewRevision(value => value + 1)} onDecision={decideContext} onClose={closeContext} history={contextHistory ? {...contextHistory,sourceIndex:location.kind==='manifest'?location.sourceIndex:undefined} : undefined} onSelectHistorySource={index => navigationNavigate({kind:'manifest',workspaceId:currentWorkspaceId,objectId:contextHistory?.data?.manifest.id,sourceIndex:index})} onBackToCurrent={openCurrentContext} onRetryHistory={() => { if (contextHistory) void readMessageContext(contextHistory.messageId, contextHistory.manifestId); }} items={contextItems} mode={mode} nodes={discussionNodes} segments={segments} attachments={attachments} onMode={updateMode} onStatus={updateStatus} onPin={updatePin} onAddSource={addContextSource}/>}
+    contextSurface={location.kind === 'context' && viewedNodeId !== activeNodeId ? <aside className="context-panel"><h2>当前执行上下文</h2><p>当前浏览讨论尚未成为执行讨论。</p><button onClick={() => void ensureExecutionNode().catch(error => setSyncError(presentErrorText(error,{message:'无法继续讨论。',recovery:'请重新读取后重试。'})))}>继续此讨论</button></aside> : <ContextPanel readOnly={locationReadOnly} key={currentWorkspaceId} preview={contextPreview} loading={previewLoading} error={previewError} deciding={decidingContext} onRefresh={() => setPreviewRevision(value => value + 1)} onDecision={decideContext} onClose={closeContext} history={contextHistory ? {...contextHistory,sourceIndex:location.kind==='manifest'?location.sourceIndex:undefined} : undefined} onResourceVersion={(resourceId,versionId) => navigationNavigate({kind:'resources',workspaceId:currentWorkspaceId,objectId:resourceId,versionId})} onSelectHistorySource={index => navigationNavigate({kind:'manifest',workspaceId:currentWorkspaceId,objectId:contextHistory?.data?.manifest.id,sourceIndex:index})} onBackToCurrent={openCurrentContext} onRetryHistory={() => { if (contextHistory) void readMessageContext(contextHistory.messageId, contextHistory.manifestId); }} items={contextItems} mode={mode} nodes={discussionNodes} segments={segments} attachments={attachments} onMode={updateMode} onStatus={updateStatus} onPin={updatePin} onAddSource={addContextSource}/>}
     overlayLayer={<>
       {workspaceForm&&<WorkspaceForm key={currentWorkspaceId} rename={workspaceForm==='rename'} initialName={workspaceForm==='rename'?workspaceRecord()?.name:undefined} onSave={workspaceForm==='rename'?renameWorkspace:createWorkspace} onClose={()=>setWorkspaceForm(undefined)}/>}
       {mergeSource&&discussionNodes.find(node=>node.id===mergeSource)&&<MergeDialog source={discussionNodes.find(node=>node.id===mergeSource)!} nodes={discussionNodes} latestReply={[...messages].reverse().find(message=>message.nodeId===mergeSource&&message.kind==='assistant')?.text??''} onClose={()=>setMergeSource(undefined)} onSave={async(targetNodeId,summary)=>{const current=workspaceMutation();const {workspace}=await api.mergeNode(mergeSource,targetNodeId,summary);if(current())applyWorkspace(workspace);}}/>}

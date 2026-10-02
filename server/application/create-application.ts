@@ -2,6 +2,7 @@ import { purgeResourceIds, runFrozenResourceIds } from '../domain/purge-resource
 import type { ContextCompiler, ContextVersionVector, IndexedContextPlanningPort } from '../context-runtime/contracts';
 import { RunLifecycle } from './run-lifecycle';
 import { resolveContextHistory } from './context-history';
+import { readVerifiedResourceVersion } from './resource-version';
 import type { ContextEnvelope, RunMutation } from '../execution-runtime/run';
 import { ApplicationError, applicationError } from '../contracts/application-error';
 import { createLegacyCommandEnvelope } from '../contracts/application';
@@ -598,7 +599,8 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
   const dispatchQuery = async (envelope: AnyQueryEnvelope): Promise<unknown> => {
     try {
       if (envelope.queryType === 'ListWorkspaces') return workspaceDirectory.list(envelope.actor, Boolean((envelope.payload as { includeArchived?: boolean }).includeArchived));
-      await ensureDefaultWorkspace(envelope.actor, envelope.workspaceId, envelope.scope);
+      if (envelope.queryType !== 'GetResourceVersion' && envelope.queryType !== 'GetResourceVersionContent')
+        await ensureDefaultWorkspace(envelope.actor, envelope.workspaceId, envelope.scope);
       await workspaceDirectory.require(envelope.actor, envelope.workspaceId, envelope.scope);
       if (unitOfWork.withWorkspace) return await unitOfWork.withWorkspace(envelope.workspaceId, () => dispatchQueryScoped(envelope));
       return await dispatchQueryScoped(envelope);
@@ -607,6 +609,16 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
   const dispatchQueryScoped = async (envelope: AnyQueryEnvelope): Promise<unknown> => {
     try {
       switch (envelope.queryType) {
+        case 'GetResourceVersion':
+        case 'GetResourceVersionContent': {
+          const input = envelope.payload;
+          if ([input.resourceId, input.versionId].some(value => typeof value !== 'string' || !value.trim() || value.length > 2000))
+            throw legacyError('资源版本标识无效。', 400, 'INVALID_RESOURCE_VERSION');
+          if (!unitOfWork.readResourceVersion) throw legacyError('资源版本读取不可用。', 503, 'RESOURCE_VERSION_UNAVAILABLE');
+          const result = await unitOfWork.readResourceVersion(input, facts => readVerifiedResourceVersion(facts, { ...input, workspaceId: envelope.workspaceId }, host.blobs));
+          if (!result) throw legacyError('资源版本不存在。', 404, 'RESOURCE_VERSION_NOT_FOUND');
+          return envelope.queryType === 'GetResourceVersionContent' ? result.bytes : result.view;
+        }
         case 'GetGraphBatch': return await graphBatches.get(envelope);
       case 'GetPersonalGraphView': {
         if (!unitOfWork.readPersonalGraphView) throw legacyError('个人视图存储不可用。', 503, 'GRAPH_VIEW_UNAVAILABLE');

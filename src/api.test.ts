@@ -7,6 +7,17 @@ afterEach(() => {
   vi.unstubAllGlobals();vi.useRealTimers();
 });
 
+it('reads and downloads the exact scoped resource version without command context or fallback', async () => {
+  const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({resource:{id:'resource/1'},version:{id:'old/1'}})))
+    .mockResolvedValueOnce(new Response('original bytes',{headers:{'Content-Type':'application/octet-stream'}}))
+    .mockResolvedValueOnce(new Response(JSON.stringify({error:{code:'RESOURCE_VERSION_PURGED',message:'已清除'}}),{status:410}));
+  vi.stubGlobal('fetch',fetch); api.setWorkspace('scope/1');
+  await api.getResourceVersion('resource/1','old/1'); const blob = await api.getResourceVersionContent('resource/1','old/1'); expect(await blob.text()).toBe('original bytes');
+  expect(fetch.mock.calls[0]).toEqual(['/api/v1/workspaces/scope%2F1/resources/resource%2F1/versions/old%2F1',{headers:{'Content-Type':'application/json'}}]);
+  expect(fetch.mock.calls[1]).toEqual(['/api/v1/workspaces/scope%2F1/resources/resource%2F1/versions/old%2F1/content']);
+  await expect(api.getResourceVersionContent('resource/1','old/1')).rejects.toMatchObject({code:'RESOURCE_VERSION_PURGED',status:410}); expect(fetch).toHaveBeenCalledTimes(3);
+});
+
 it('previews current Context and Replay without mutations, then confirms the exact reviewed source in the same Workspace', async () => {
   const fetch = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ items: [], recommendations: [], policies: [] }), { status: 200 }));
   vi.stubGlobal('fetch', fetch);

@@ -79,6 +79,16 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
     const manifest = workspace.manifests.find(item => item.id === manifestId);
     return manifest ? { manifest, resources: workspace.resources, versions: workspace.resourceVersions } : undefined;
   }
+  async readResourceVersion<T>(input: { resourceId: string; versionId: string }, reader: (facts: import('../application/ports/workspace-unit-of-work').ResourceVersionFacts) => Promise<T>): Promise<T | undefined> {
+    const target = this.runRepository();
+    if (target.readResourceVersion) return target.readResourceVersion(input, reader);
+    if (!this.options.fixture) throw Object.assign(new Error('Resource version reads are unavailable'), { code: 'RESOURCE_VERSION_UNAVAILABLE', status: 503 });
+    return this.read(async workspace => {
+      const resource = workspace.resources.find(item => item.id === input.resourceId && item.workspaceId === workspace.projectId);
+      const version = workspace.resourceVersions.find(item => item.id === input.versionId && item.resourceId === resource?.id);
+      return resource && version ? reader({ resource, version }) : undefined;
+    });
+  }
   async readConversationPreparation(attachmentIds: string[], sourceMessageId?: string) {
     const target = this.runRepository();
     if (!target.readConversationPreparation) throw new Error('CONVERSATION_PREPARATION_UNAVAILABLE');

@@ -14,6 +14,11 @@ function fixture(options: { indexedPlanning?: boolean; failMutation?: boolean; c
   const application = createRhizaApplication({
     unitOfWork: {
       read: async reader => { if (options.indexedPlanning) throw new Error('aggregate read forbidden'); return reader(workspace); },
+      readResourceVersion: async (input, reader) => {
+        const resource = workspace.resources.find(item => item.id === input.resourceId);
+        const version = workspace.resourceVersions.find(item => item.id === input.versionId && item.resourceId === resource?.id);
+        return resource && version ? reader({ resource, version }) : undefined;
+      },
       readConversationPreparation: async attachmentIds => ({ projectId: workspace.projectId, activeNodeId: workspace.activeNodeId, node: workspace.discussionNodes.find(node => node.id === workspace.activeNodeId), mode: workspace.mode, contextItems: workspace.contextItems, messages: workspace.messages.filter(message => message.nodeId === workspace.activeNodeId), attachments: workspace.attachments.filter(item => attachmentIds.includes(item.id)) }),
       execute: async mutation => { commits.push(mutation.policy.kind); if (options.failMutation) throw new Error('workspace write failed'); const result = await mutation.apply(workspace); workspace = result.next; return { workspace, value: result.value }; },
       readCommittedResult: async <T,>() => options.committedRun ? { found: true as const, value: options.committedRun as unknown as T } : { found: false as const },
@@ -58,6 +63,52 @@ function fixture(options: { indexedPlanning?: boolean; failMutation?: boolean; c
 }
 
 describe('Rhiza Application', () => {
+  it('reads the exact frozen ResourceVersion without exposing storage references or writing facts', async () => {
+    const workspace = createSeedWorkspace();
+    workspace.projectId = DEFAULT_WORKSPACE_ID;
+    const bytes = new TextEncoder().encode(JSON.stringify({ schemaVersion: '1.0.0', content: 'Frozen original\n正文' }));
+    workspace.resources = [{ id: 'resource-old', workspaceId: workspace.projectId, kind: 'context-source', logicalName: 'Frozen context', createdAt: workspace.updatedAt }];
+    workspace.resourceVersions = [1, 2].map(version => ({ id: `version-${version}`, resourceId: 'resource-old', version,
+      digestAlgorithm: 'sha256', digest: 'a'.repeat(64), canonicalization: 'raw-v1', mediaType: 'application/vnd.rhiza.context+json',
+      size: bytes.length, blobRef: `sha256/aa/${'a'.repeat(64)}`, createdAt: workspace.updatedAt }));
+    const { application, commits, runtimeCalls } = fixture({ initialWorkspace: workspace, blobRead: async () => bytes });
+    const envelope = createLegacyQueryEnvelope('read-version', 'GetResourceVersion', { resourceId: 'resource-old', versionId: 'version-1' });
+    const result = await application.query(envelope);
+    expect(result).toEqual({ resource: { id: 'resource-old', workspaceId: workspace.projectId, kind: 'context-source', title: 'Frozen context' },
+      version: { id: 'version-1', resourceId: 'resource-old', version: 1, digestAlgorithm: 'sha256', digest: 'a'.repeat(64), canonicalization: 'raw-v1',
+        mediaType: 'application/vnd.rhiza.context+json', size: bytes.length, createdAt: workspace.updatedAt }, preview: { kind: 'text', text: 'Frozen original\n正文' } });
+    expect(await application.query(createLegacyQueryEnvelope('download-version', 'GetResourceVersionContent', envelope.payload))).toEqual(bytes);
+    await expect(application.query({ ...envelope, payload: { ...envelope.payload, resourceId: 'different-resource' } })).rejects.toMatchObject({ details: { code: 'RESOURCE_VERSION_NOT_FOUND', status: 404 } });
+    workspace.resourceVersions[0].purgedAt = workspace.updatedAt;
+    await expect(application.query(envelope)).rejects.toMatchObject({ details: { code: 'RESOURCE_VERSION_PURGED', status: 410 } });
+    expect(commits).toEqual([]); expect(runtimeCalls).toEqual([]);
+  });
+
+  it('bounds resource text previews and refuses mismatched scope, reference, size and damaged content', async () => {
+    const workspace = createSeedWorkspace();
+    workspace.projectId = DEFAULT_WORKSPACE_ID;
+    let bytes = new TextEncoder().encode('x'.repeat(256 * 1024 + 1));
+    workspace.resources = [{ id: 'bounded-resource', workspaceId: workspace.projectId, kind: 'attachment', logicalName: 'bounded.txt', createdAt: workspace.updatedAt }];
+    workspace.resourceVersions = [{ id: 'bounded-version', resourceId: 'bounded-resource', version: 1, digestAlgorithm: 'sha256', digest: 'b'.repeat(64),
+      canonicalization: 'raw-v1', mediaType: 'text/plain', size: bytes.length, blobRef: `sha256/bb/${'b'.repeat(64)}`, createdAt: workspace.updatedAt }];
+    const { application, commits, runtimeCalls } = fixture({ initialWorkspace: workspace, blobRead: async () => bytes });
+    const envelope = createLegacyQueryEnvelope('bounded-read', 'GetResourceVersion', { resourceId: 'bounded-resource', versionId: 'bounded-version' });
+    expect((await application.query(envelope)).preview).toEqual({ kind: 'too_large' });
+    workspace.resourceVersions[0].mediaType = 'image/png';
+    expect((await application.query(envelope)).preview).toEqual({ kind: 'binary' });
+    workspace.resources[0].workspaceId = 'foreign';
+    await expect(application.query(envelope)).rejects.toMatchObject({ details: { code: 'RESOURCE_VERSION_NOT_FOUND', status: 404 } });
+    workspace.resources[0].workspaceId = workspace.projectId;
+    workspace.resourceVersions[0].blobRef = `sealed-v1/foreign/bounded-version/${'b'.repeat(64)}/${'b'.repeat(64)}/${bytes.length}`;
+    await expect(application.query(envelope)).rejects.toMatchObject({ details: { code: 'RESOURCE_CONTENT_INVALID', status: 409 } });
+    workspace.resourceVersions[0].blobRef = `sha256/bb/${'b'.repeat(64)}`;
+    bytes = new Uint8Array([0]);
+    await expect(application.query(envelope)).rejects.toMatchObject({ details: { code: 'RESOURCE_CONTENT_INVALID', status: 409 } });
+    workspace.resourceVersions[0].size = 1; workspace.resourceVersions[0].mediaType = 'application/vnd.rhiza.context+json';
+    await expect(application.query(envelope)).rejects.toMatchObject({ details: { code: 'RESOURCE_CONTENT_INVALID', status: 409 } });
+    expect(commits).toEqual([]); expect(runtimeCalls).toEqual([]);
+  });
+
   it('hydrates only for the archive human owner, disposes staging, and does not write facts or dispatch a model', async () => {
     const workspace = createSeedWorkspace();
     const facts = { workspace, directory: { workspaceId: workspace.projectId, name: 'Hydration', status: 'active' as const, createdBy: LOCAL_USER_ID, revision: 1 },

@@ -5,7 +5,7 @@ export interface ContextHistoryState { messageId: string; sourceIndex?: number; 
 const missingLabels = { missing_resource: '来源记录缺失', missing_version: '来源版本缺失', missing_blob: '冻结内容缺失', digest_mismatch: '内容校验失败', legacy_unversioned: '旧记录未保存来源版本' };
 const modes = { CURRENT: '当前讨论', USER_SELECTED: '手动选择', AI_RECOMMENDED_ACCEPTED: '已接受推荐', AUTO_RETRIEVED: '自动检索' };
 
-export function ContextHistoryPanel({ history, onBack, onRetry, onClose, onSelectSource }: { history: ContextHistoryState; onSelectSource?: (index: number) => void; onBack: () => void; onRetry: () => void; onClose?: () => void }) {
+export function ContextHistoryPanel({ history, onBack, onRetry, onClose, onSelectSource, onResourceVersion }: { history: ContextHistoryState; onSelectSource?: (index: number) => void; onResourceVersion?: (resourceId: string, versionId: string) => void; onBack: () => void; onRetry: () => void; onClose?: () => void }) {
   const manifest = history.data?.manifest;
   const budget = manifest?.planner?.budget;
   return <aside className="context-panel context-history" aria-label="历史上下文">
@@ -29,6 +29,7 @@ export function ContextHistoryPanel({ history, onBack, onRetry, onClose, onSelec
             <p className="context-decision">{item.reason}</p>
             {resolution?.status === 'resolved' ? <details open={history.sourceIndex === index ? true : undefined}><summary>查看冻结内容 · v{resolution.resourceVersion.version}</summary><pre className="context-frozen-text">{resolution.content || '（空内容）'}</pre></details> : <p className="context-source-missing" role="status">{resolution ? missingLabels[resolution.status] : '来源解析结果缺失'}。保留原选择记录。</p>}
             <details className="context-version"><summary>来源版本与校验信息</summary><dl><dt>来源类型</dt><dd>{item.sourceType}</dd><dt>来源 ID</dt><dd>{item.sourceId}</dd><dt>ResourceVersion</dt><dd>{item.resourceVersionId || '未记录'}</dd><dt>SHA-256</dt><dd>{item.digest || '未记录'}</dd>{item.originResourceVersionId && <><dt>原始文件版本</dt><dd>{item.originResourceVersionId}</dd></>}</dl></details>
+            {onResourceVersion && item.resourceId && item.resourceVersionId && <button className="context-source-link" onClick={() => onResourceVersion(item.resourceId!, item.resourceVersionId!)}>查看资源原文</button>}
           </article>;
         })}
       </section>

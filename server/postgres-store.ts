@@ -1719,6 +1719,21 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     return { manifest, resources: await Promise.all(resources.rows.map(row => this.decodeResource(row))), versions: versions.rows.map(storedResourceVersion) };
   }
 
+  async readResourceVersion<T>(input: { resourceId: string; versionId: string }, reader: (facts: import('./application/ports/workspace-unit-of-work').ResourceVersionFacts) => Promise<T>): Promise<T | undefined> {
+    return this.inTransaction(async database => {
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
+      const versions = await database.query<Record<string, unknown>>(`SELECT rv.*,purge.purge_created_at FROM rhiza_resource_versions rv
+        JOIN rhiza_resources r ON r.resource_id=rv.resource_id ${resourceVersionPurgeJoin}
+        WHERE r.workspace_id=$1 AND r.resource_id=$2 AND rv.resource_version_id=$3`, [this.defaultWorkspaceId, input.resourceId, input.versionId]);
+      if (!versions.rows[0]) return undefined;
+      const resources = await database.query<Record<string, unknown>>('SELECT * FROM rhiza_resources WHERE workspace_id=$1 AND resource_id=$2', [this.defaultWorkspaceId, input.resourceId]);
+      if (!resources.rows[0]) return undefined;
+      const version = storedResourceVersion(versions.rows[0]);
+      if (version.purgedAt || version.blobRef === 'purged-v1') throw Object.assign(new Error('资源版本已被永久清除。'), { code: 'RESOURCE_VERSION_PURGED', status: 410 });
+      return reader({ resource: await this.decodeResource(resources.rows[0]), version });
+    });
+  }
+
   async readConversationPreparation(attachmentIds: string[], sourceMessageId?: string): Promise<import('./application/ports/workspace-unit-of-work').ConversationPreparation> {
     return this.inTransaction(async database => {
       await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);

@@ -195,6 +195,12 @@ export const api = {
     method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ policy }),
   }),
   getProvenance: (outputId: string) => request<import('./types').ProvenanceLink>(`/api/objects/${encodeURIComponent(outputId)}/provenance`),
+  getResourceVersion: (resourceId: string, versionId: string) => request<import('./types').ResourceVersionView>(`/api/resources/${encodeURIComponent(resourceId)}/versions/${encodeURIComponent(versionId)}`),
+  getResourceVersionContent: async (resourceId: string, versionId: string): Promise<Blob> => {
+    const response = await fetch(scopedPath(`/api/resources/${encodeURIComponent(resourceId)}/versions/${encodeURIComponent(versionId)}/content`));
+    if (!response.ok) { const payload = await response.json().catch(() => ({})); throw apiError(payload.error, response.status); }
+    return response.blob();
+  },
   importWorkspaceBundle: (file: File, idempotencyKey: string, mappings?: import('./types').BundleMappingChoice[]) => request<{ workspaceId: string; importId: string; executionConfiguration: import('./types').BundleExecutionConfiguration }>('/api/bundle/import', {
     method: 'POST', headers: { 'Content-Type': 'application/vnd.rhiza.workspace+zip', 'Idempotency-Key': idempotencyKey, ...(mappings ? { 'X-Rhiza-Bundle-Mappings': JSON.stringify(mappings) } : {}) }, body: file,
   }),

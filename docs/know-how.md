@@ -7,6 +7,8 @@
 
 ## 2. Proven Solutions
 
+- 冻结资源导航必须绑定原始 Resource/Version 身份，不能从当前附件列表推断历史版本不存在，也不能替换为最新版本。资源内容 GET 不初始化库；Purge 覆盖层须在解密资源元数据前检查，Blob 读取与摘要校验保留在内容生命周期事务锁内。
+
 - 默认保留 Chat 聚焦区，把 Context Inspector 放在邻接面板，Graph 与 Project State 放在同级主视图。
 - 使用 Active、Recommended、Excluded 三段表达 Context 生命周期，用角色标签表达语义地位。
 - 将视觉语言收敛到 `app/static/css/tokens.css`，以降低后续风格改版成本。

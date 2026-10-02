@@ -41,4 +41,4 @@ Current application was verified at `http://127.0.0.1:4173/` (Rhiza title, Vite 
 
 After approval, implement incrementally in existing React components. Required production states also include long content, streaming, stale version, over-budget, offline, archived/unauthorized and loading. Mock screens do not prove these production paths or formal M15–M18 Gates.
 
-The invoked skill requires: “Obtain user approval before touching production UI.” Approval remains pending for this concrete compact layout. No prior generic “start” message is treated as approval of this new preview.
+The invoked skill requires: “Obtain user approval before touching production UI.” The user explicitly approved this concrete compact preview with “接受，开始实施吧”; the formal implementation follows the approved flow and visual direction.

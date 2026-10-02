@@ -32,6 +32,7 @@ export interface WorkspaceRepository {
   readPortableWorkspace?(): Promise<import('./application/ports/portable-workspace').PortableWorkspaceFacts>;
   readProvenance?(outputId: string): Promise<import('./domain').ProvenanceLink | undefined>;
   readContextHistory?(input: { manifestId: string } | { messageId: string }): Promise<import('./application/ports/workspace-unit-of-work').ContextHistoryFacts | undefined>;
+  readResourceVersion?<T>(input: { resourceId: string; versionId: string }, reader: (facts: import('./application/ports/workspace-unit-of-work').ResourceVersionFacts) => Promise<T>): Promise<T | undefined>;
   readConversationPreparation?(attachmentIds: string[], sourceMessageId?: string): Promise<import('./application/ports/workspace-unit-of-work').ConversationPreparation>;
   queryContextCandidates?(input: import('./context-runtime/contracts').ContextPlanningInput): Promise<import('./context-runtime/contracts').CandidateIndexSnapshot>;
   rebuildContextCandidates?(): Promise<{ writes: number }>;

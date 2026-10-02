@@ -6,6 +6,7 @@ import { ContextHistoryPanel, type ContextHistoryState } from './ContextHistoryP
 interface ContextPanelProps {
   history?: ContextHistoryState;
   onSelectHistorySource?: (index: number) => void;
+  onResourceVersion?: (resourceId: string, versionId: string) => void;
   readOnly?: boolean;
   onBackToCurrent?: () => void;
   onRetryHistory?: () => void;
@@ -27,10 +28,10 @@ interface ContextPanelProps {
   onAddSource: (sourceType: 'node' | 'segment' | 'file', sourceId: string) => void | Promise<void>;
 }
 
-export function ContextPanel({ readOnly = false, onSelectHistorySource, items, preview, loading, error, deciding, onRefresh, onDecision, onClose, mode, nodes, segments, attachments, onMode, onStatus, onPin, onAddSource, history, onBackToCurrent, onRetryHistory }: ContextPanelProps) {
+export function ContextPanel({ readOnly = false, onSelectHistorySource, onResourceVersion, items, preview, loading, error, deciding, onRefresh, onDecision, onClose, mode, nodes, segments, attachments, onMode, onStatus, onPin, onAddSource, history, onBackToCurrent, onRetryHistory }: ContextPanelProps) {
   const [tab, setTab] = useState<'active' | 'recommended'>('active');
   const [reasons, setReasons] = useState<Record<string, string>>({});
-  if (history && onBackToCurrent && onRetryHistory) return <ContextHistoryPanel history={history} onSelectSource={onSelectHistorySource} onBack={onBackToCurrent} onRetry={onRetryHistory} onClose={onClose}/>;
+  if (history && onBackToCurrent && onRetryHistory) return <ContextHistoryPanel history={history} onSelectSource={onSelectHistorySource} onResourceVersion={onResourceVersion} onBack={onBackToCurrent} onRetry={onRetryHistory} onClose={onClose}/>;
   const selected = preview?.items ?? [];
   const recommendations = preview?.recommendations ?? [];
   const budget = preview?.budget ?? 32_000;
