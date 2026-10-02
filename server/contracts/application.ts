@@ -63,11 +63,12 @@ export interface CommandMap {
   RunCollaboration: { payload: { collaborationId: string }; result: CommandMap['StopCollaboration']['result'] };
   SynthesizeCollaboration: { payload: { collaborationId: string }; result: CommandMap['InvokeCollaboration']['result'] };
   RetainCollaboration: { payload: { collaborationId: string; targetNodeId: string }; result: { message: StoredMessage } };
-  PreviewWorkspaceBundle: { payload: { bytes: AsyncIterable<Uint8Array> }; result: { workspaceId: string; name: string; archiveDigest: string; messages: number; runs: number; resourceVersions: number;
+  PreviewWorkspaceBundle: { payload: { bytes: AsyncIterable<Uint8Array>; executionMappings?: import('./bundle-preflight').BundleExecutionMappingChoice[] }; result: { workspaceId: string; name: string; archiveDigest: string; messages: number; runs: number; resourceVersions: number;
     documentVersion: import('../domain/portable-bundle').BundleContentAssessment['documentVersion']; canImport: boolean; reasons: string[];
     missingResourceCount: number; missingResources: import('../domain/portable-bundle').ExternalResourceDescriptor[]; missingResourcesTruncated: boolean;
-    executionRequirementCount: number; executionRequirements: import('../domain/portable-bundle').BundleExecutionRequirement[]; executionRequirementsTruncated: boolean } };
-  ImportWorkspaceBundle: { payload: { bytes: AsyncIterable<Uint8Array> }; result: { workspaceId: string; importId: string } };
+    executionRequirementCount: number; executionRequirements: import('../domain/portable-bundle').BundleExecutionRequirement[]; executionRequirementsTruncated: boolean;
+    executionConfiguration: import('./bundle-preflight').BundleExecutionConfiguration } };
+  ImportWorkspaceBundle: { payload: { bytes: AsyncIterable<Uint8Array>; executionMappings?: import('./bundle-preflight').BundleExecutionMappingChoice[] }; result: { workspaceId: string; importId: string; executionConfiguration: import('./bundle-preflight').BundleExecutionConfiguration } };
   HydrateWorkspaceBundle: { payload: { bytes: AsyncIterable<Uint8Array> } & ({ resources: AsyncIterable<import('../domain/portable-bundle').ProvidedBundleResource> } | { multipartContentType: string }); result: import('../domain/portable-bundle').BundleExport };
   CreateManagedBackup: { payload: { retryOf?: string }; result: import('./managed-backup').ManagedBackup };
   ReplayExecutionRun: { payload: { runId: string; policy: 'exact' | 'partial' | 'current-model' }; result: CreateConversationRunResult & { replay: { classification: 'exact' | 'partial' | 'current-model'; sourceRunRef: string; sourceManifestRef: string } } };

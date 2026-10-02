@@ -20,13 +20,14 @@ import { LOCAL_USER_ID } from '../server/identity/workspace-scope';
 import type { BundleImportCheckpoint } from '../server/application/ports/bundle-import';
 import { portableWorkspaceFacts } from '../server/application/portable-workspace';
 import type { PortableWorkspaceFacts } from '../server/application/ports/portable-workspace';
+import type { AIRuntime, ModelInfo } from '../server/ai-runtime';
 
 const mediaType = 'application/vnd.rhiza.workspace+zip';
 const portableChecksum = (facts: PortableWorkspaceFacts) => semanticStateChecksum({ facts: portableWorkspaceFacts(facts,
   value => semanticStateChecksum(value as Record<string, unknown>)) });
-function appFor(store: Awaited<ReturnType<typeof openEmbeddedWorkspaceStore>>, root: string, onCall: () => never) {
+function appFor(store: Awaited<ReturnType<typeof openEmbeddedWorkspaceStore>>, root: string, onCall: () => never, runtime?: AIRuntime) {
   const provider = new ProviderService(new ProviderStore(join(root, 'providers')), new SecretVault(join(root, 'key')), { baseUrl: 'https://example.test', apiKey: '', model: 'fixture', providerName: 'Fixture', chatPath: '/chat', timeoutMs: 1000, temperature: 0, extraHeaders: {}, allowNoKey: true });
-  return createApp(store, provider, false, { kind: 'provider-adapter', listModels: async () => [], generate: onCall }, undefined, join(root, 'uploads'));
+  return createApp(store, provider, false, runtime ?? { kind: 'provider-adapter', listModels: async () => [], generate: onCall }, undefined, join(root, 'uploads'));
 }
 const archiveBuffer = (response: request.Response, callback: (error: Error | null, value?: Buffer) => void) => {
   const chunks: Buffer[] = [];
@@ -62,6 +63,64 @@ it('previews omitted exact versions without writing checkpoints or keys, refuses
     await request(targetApp).post('/api/bundle/import').set('Content-Type', mediaType).set('Idempotency-Key', 'full-import').send(full.body).expect(201);
     await request(targetApp).post('/api/bundle/import').set('Content-Type', mediaType).set('Idempotency-Key', 'full-import').send(full.body).expect(201);
     expect(modelCalls).toBe(0);
+  } finally { await source.close(); await target.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+it('reevaluates explicit model mappings on preview/import, restores unconfigured history, and applies future preferences separately', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rhiza-bundle-mapping-'));
+  const sourceRoot = join(root, 'source'), targetRoot = join(root, 'target');
+  const source = await openEmbeddedWorkspaceStore(join(sourceRoot, 'db'), undefined, 'apply', NodeEncryptedBlobStore.atDirectory(join(sourceRoot, 'uploads')), new NodeImportArchiveStore(join(sourceRoot, 'uploads', 'imports')));
+  const target = await openEmbeddedWorkspaceStore(join(targetRoot, 'db'), undefined, 'apply', NodeEncryptedBlobStore.atDirectory(join(targetRoot, 'uploads')), new NodeImportArchiveStore(join(targetRoot, 'uploads', 'imports')));
+  let calls = 0; const noCall = (): never => { throw new Error('Mapping/import must not dispatch'); };
+  const sourceRuntime: AIRuntime = { kind: 'provider-adapter', listModels: async () => [{ id: 'source-model', providerEndpointRef: 'source-endpoint', endpointVersion: 'source-version', model: 'fixture', provider: 'Fixture', displayName: 'Fixture', active: true }],
+    generate: async function* (input) { calls++; yield { type: 'RUN_START', requestId: input.requestId, manifestId: input.manifestId, model: 'fixture', provider: 'Fixture' };
+      yield { type: 'RUN_END', requestId: input.requestId, text: 'Frozen offline output', model: 'fixture', provider: 'Fixture', usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 } }; } };
+  const localModels: ModelInfo[] = [];
+  try {
+    const sourceApp = appFor(source, sourceRoot, noCall, sourceRuntime);
+    const targetApp = appFor(target, targetRoot, noCall, { kind: 'provider-adapter', listModels: async () => localModels, generate: noCall });
+    const workspaceId = (await request(sourceApp).post('/api/v1/workspaces').send({ name: 'Historical mapping' }).expect(201)).body.workspace.workspaceId as string;
+    await request(sourceApp).post(`/api/v1/workspaces/${workspaceId}/chat`).send({ message: 'Freeze historical inputs' }).expect(201);
+    const original = await source.forWorkspace(workspaceId).readPortableWorkspace!(); const originalDigest = portableChecksum(original);
+    const archive = (await request(sourceApp).get(`/api/v1/workspaces/${workspaceId}/bundle`).buffer(true).parse(archiveBuffer).expect(200)).body as Buffer;
+    const preview = (plan?: unknown) => {
+      const operation = request(targetApp).post('/api/bundle/preview').set('Content-Type', mediaType);
+      return (plan === undefined ? operation : operation.set('X-Rhiza-Bundle-Mappings', JSON.stringify(plan))).send(archive);
+    };
+    const unresolved = (await preview().expect(200)).body;
+    expect(unresolved).toMatchObject({ canImport: true, executionConfiguration: { ready: false, mappings: [{ reason: 'mapping_required' }] } });
+    expect(await target.listWorkspaceIds()).toEqual([]);
+    const catalog = (await request(targetApp).get('/api/providers').expect(200)).body.catalog;
+    const workspacesBeforeMapping = await target.listWorkspaceIds();
+    const model = catalog.models[0], provider = catalog.providers[0];
+    const requirement = unresolved.executionRequirements[0];
+    const choice = { modelSpecRef: requirement.modelSpecRef, providerEndpointRef: requirement.providerEndpointRef, targetModelId: model.id, targetProviderEndpointRef: provider.id, targetEndpointVersion: provider.updatedAt };
+    const ready = (await preview([choice]).expect(200)).body;
+    expect(ready.executionConfiguration).toMatchObject({ ready: true, mappings: [{ credentialStatus: 'not-required', target: choice }] });
+    expect(JSON.stringify(ready)).not.toContain('https://example.test');
+    const invalid = (await preview([{ ...choice, apiKey: 'forbidden' }]).expect(400)).body;
+    expect(invalid.error.code).toBe('BUNDLE_INVALID_MAPPING');
+    await request(targetApp).post('/api/bundle/preview').set('Content-Type', mediaType).set('X-Rhiza-Bundle-Mappings', '{malformed').send(archive).expect(400);
+    await request(targetApp).post('/api/bundle/import').set('Content-Type', mediaType).set('X-Rhiza-Bundle-Mappings', JSON.stringify([choice, choice])).send(archive).expect(400);
+    expect(await target.listWorkspaceIds()).toEqual(workspacesBeforeMapping);
+    expect((await (target as unknown as { database: SqlQueryable }).database.query('SELECT count(*)::integer AS count FROM bundle_imports')).rows[0].count).toBe(0);
+    const changed = (await request(targetApp).put(`/api/providers/${provider.id}`).send({ preset: 'custom', name: 'Changed fixture', baseUrl: 'https://changed.example.test', allowNoKey: false }).expect(200)).body.catalog.providers[0];
+    const imported = (await request(targetApp).post('/api/bundle/import').set('Idempotency-Key', 'mapped-history').set('Content-Type', mediaType).set('X-Rhiza-Bundle-Mappings', JSON.stringify([choice])).send(archive).expect(201)).body;
+    expect(imported.executionConfiguration).toMatchObject({ ready: false, mappings: [{ reason: 'endpoint_changed', currentEndpointVersion: changed.updatedAt, credentialStatus: 'required' }] });
+    expect(imported.executionConfiguration).toEqual((await preview([choice]).expect(200)).body.executionConfiguration);
+    const restored = await target.forWorkspace(workspaceId).readPortableWorkspace!();
+    expect(portableChecksum(restored)).toBe(originalDigest);
+    expect(restored.runs[0].input.executor.modelSpecRef).toBe('source-model');
+    const currentChoice = { ...choice, targetEndpointVersion: changed.updatedAt };
+    expect((await preview([currentChoice]).expect(200)).body.executionConfiguration).toMatchObject({ ready: false, mappings: [{ reason: 'credential_required' }] });
+    localModels.push({ id: model.id, model: model.modelId, provider: changed.name, providerEndpointRef: changed.id, endpointVersion: changed.updatedAt, displayName: model.displayName, active: true });
+    await request(targetApp).patch(`/api/v1/workspaces/${workspaceId}/workspace/model`).send({ modelId: model.id }).expect(200);
+    const afterPreference = await target.forWorkspace(workspaceId).readPortableWorkspace!();
+    expect(afterPreference.workspace.defaultModelId).toBe(model.id);
+    expect(afterPreference.runs).toEqual(restored.runs); expect(afterPreference.workspace.manifests).toEqual(restored.workspace.manifests);
+    const replay = (await request(targetApp).get(`/api/v1/workspaces/${workspaceId}/runs/${restored.runs[0].id}/replay/preflight`).expect(200)).body;
+    expect(replay.policies.find((item: { policy: string }) => item.policy === 'exact').allowed).toBe(false);
+    expect(calls).toBe(1); expect(portableChecksum(await source.forWorkspace(workspaceId).readPortableWorkspace!())).toBe(originalDigest);
   } finally { await source.close(); await target.close(); await rm(root, { recursive: true, force: true }); }
 });
 

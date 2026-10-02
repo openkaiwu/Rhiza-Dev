@@ -116,6 +116,14 @@ function expectedRevision(request: express.Request): number | undefined {
   return value && /^\d+$/.test(value) ? Number(value) : undefined;
 }
 
+function bundleExecutionMappings(request: express.Request): CommandMap['PreviewWorkspaceBundle']['payload']['executionMappings'] {
+  const value = request.get('X-Rhiza-Bundle-Mappings');
+  if (value === undefined) return undefined;
+  if (Buffer.byteLength(value) > 12 * 1024) rejectInput('Bundle 模型映射过大。', 'BUNDLE_INVALID_MAPPING');
+  try { return JSON.parse(value); }
+  catch { rejectInput('Bundle 模型映射格式无效。', 'BUNDLE_INVALID_MAPPING'); }
+}
+
 async function sendWorkspaceBundle(response: express.Response, bundle: QueryResult<'ExportWorkspaceBundle'>): Promise<void> {
   response.attachment('workspace.rhiza').type('application/vnd.rhiza.workspace+zip').set('Content-Length', String(bundle.size));
   for await (const bytes of bundle.bytes) {
@@ -209,7 +217,7 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
   app.post('/api/bundle/preview', async (request, response, next) => {
     try {
       if (!request.is('application/vnd.rhiza.workspace+zip')) rejectInput('需要 workspace.rhiza 归档。', 'BUNDLE_UNSUPPORTED_MEDIA_TYPE', 415);
-      response.json(await execute(response, 'PreviewWorkspaceBundle', { bytes: request }));
+      response.json(await execute(response, 'PreviewWorkspaceBundle', { bytes: request, executionMappings: bundleExecutionMappings(request) }));
     } catch (error) { next(error); }
   });
 
@@ -226,7 +234,7 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
   app.post('/api/bundle/import', async (request, response, next) => {
     try {
       if (!request.is('application/vnd.rhiza.workspace+zip')) rejectInput('需要 workspace.rhiza 归档。', 'BUNDLE_UNSUPPORTED_MEDIA_TYPE', 415);
-      response.status(201).json(await execute(response, 'ImportWorkspaceBundle', { bytes: request }));
+      response.status(201).json(await execute(response, 'ImportWorkspaceBundle', { bytes: request, executionMappings: bundleExecutionMappings(request) }));
     } catch (error) { next(error); }
   });
 

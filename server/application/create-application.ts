@@ -23,6 +23,7 @@ import { contextSourceSnapshot, validateContextConfirmation } from '../context-r
 import { assessReplay } from './replay-preflight';
 import { CollaborationService } from './collaboration-service';
 import type { PreparedRun } from './prepared-run';
+import { assessBundleExecution } from './bundle-execution-preflight';
 
 const nodeStatuses = new Set(['draft', 'active', 'resolved', 'stale', 'archived']);
 const textMimeTypes = new Set(['text/plain', 'text/markdown', 'text/csv', 'application/json', 'application/xml', 'text/xml', 'application/javascript', 'text/javascript']);
@@ -317,7 +318,8 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
             documentVersion: assessment.documentVersion, canImport: assessment.missingResources.length === 0,
             reasons: assessment.missingResources.length ? ['external_content_required'] : [],
             missingResourceCount: assessment.missingResources.length, missingResources: assessment.missingResources.slice(0, 1000), missingResourcesTruncated: assessment.missingResources.length > 1000,
-            executionRequirementCount: assessment.executionRequirements.length, executionRequirements: assessment.executionRequirements.slice(0, 1000), executionRequirementsTruncated: assessment.executionRequirements.length > 1000 };
+            executionRequirementCount: assessment.executionRequirements.length, executionRequirements: assessment.executionRequirements.slice(0, 1000), executionRequirementsTruncated: assessment.executionRequirements.length > 1000,
+            executionConfiguration: assessBundleExecution(assessment.executionRequirements, await providers.snapshot(), envelope.payload.executionMappings) };
         } finally { await staged.dispose(); }
       }
       if (envelope.commandType === 'ImportWorkspaceBundle') {
@@ -327,13 +329,14 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
         try {
           if (!staged.facts.members.some(member => member.userId === envelope.actor.actorId && member.role === 'owner')) throw legacyError('当前用户不是归档中的 Workspace owner。', 403, 'BUNDLE_IMPORT_FORBIDDEN');
           if (staged.assessment.missingResources.length) throw legacyError('请提供归档描述的精确历史文件后再导入。', 400, 'BUNDLE_EXTERNAL_CONTENT_REQUIRED');
+          const executionConfiguration = assessBundleExecution(staged.assessment.executionRequirements, await providers.snapshot(), envelope.payload.executionMappings);
           const identity = { importId: envelope.commandId, ownerId: envelope.actor.actorId, workspaceId: staged.facts.workspace.projectId,
             archiveDigest: staged.archiveDigest, stateDigest: dependencies.hashPortableFacts(staged.facts) };
           await dependencies.bundleImportCheckpoints.begin(identity);
           if (dependencies.bundleImportCheckpoints.retainArchive) await dependencies.bundleImportCheckpoints.retainArchive(identity, () => staged.retain());
           else await staged.retain();
           await completeBundleImport(identity, staged.facts, dependencies.bundleImportCheckpoints, staged.ingest, unitOfWork);
-          return { workspaceId: identity.workspaceId, importId: identity.importId };
+          return { workspaceId: identity.workspaceId, importId: identity.importId, executionConfiguration };
         } finally { await staged.dispose(); }
       }
       if (envelope.commandType === 'CreateWorkspace') {

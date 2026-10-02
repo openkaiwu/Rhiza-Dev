@@ -1,9 +1,9 @@
 {
   "schemaVersion": "1.0.0",
-  "status": "partial backend verified; INH-130 incomplete",
-  "observedAt": "2026-10-02T16:14:24.587953+00:00",
-  "baseCommit": "bd332a21010400e2adeaad562334728ce01a10f6",
-  "verificationSubject": "tested multipart HTTP hydration and retained restart recovery working tree on committed hydration core; not whole-branch or formal acceptance",
+  "status": "backend_verified; production UI and formal gates pending",
+  "observedAt": "2026-10-02T16:27:17.799349+00:00",
+  "baseCommit": "dc7376bdbfe86eec2881d5f622391d285a3ad18e",
+  "verificationSubject": "tested explicit configuration mapping worktree on committed HTTP hydration; scoped incremental evidence, not whole-branch or formal acceptance",
   "fixtures": [
     {
       "path": "server/infrastructure/portable-content.ts",
@@ -23,7 +23,7 @@
     },
     {
       "path": "e2e/m16-external-bundle.e2e.test.ts",
-      "sha256": "4da3ad171d8a9bdd6b7a4c4c0ad190219d0a88280edd0a4fe2bc4d49c5f3592f"
+      "sha256": "be5a43e8bf919882193c5a78567cbd7559f56c481ef5d78c96c74892c5c2f209"
     },
     {
       "path": "scripts/security/export-scan.test.ts",
@@ -51,15 +51,15 @@
     },
     {
       "path": "server/http/app.ts",
-      "sha256": "7f16e00f186a9731eee1076cf0cd5b40e8828d976d6bbad5db5a021387f65952"
+      "sha256": "baf9a776e1a471c43bb67d8d591941fda7c579638cd46720fb66444c5e03cb8c"
     },
     {
       "path": "server/application/create-application.ts",
-      "sha256": "b33913391e5134732b5ee367db6a2935ee64dd6b5489b1f4e0af9230d002a35e"
+      "sha256": "3a79eefced26c5c476744910928269911cc6b65e06cab55ee8cb24767f1286a9"
     },
     {
       "path": "server/contracts/application.ts",
-      "sha256": "9375f0198eed0e38d20eb209284db95434b59db5dc6d85a56d7d88784de3dbf2"
+      "sha256": "8988b40ac6dcff1c305b65c809b58331d4c5e2126bef943a2bbcf3d5578f3414"
     },
     {
       "path": "server/application/ports/bundle-import.ts",
@@ -76,6 +76,18 @@
     {
       "path": "reports/third-party-licenses.json",
       "sha256": "a57d8cf5ccce846cfdeb0a320bd30cd8d2f448a0fc98f8b56d200c510747b0fc"
+    },
+    {
+      "path": "server/contracts/bundle-preflight.ts",
+      "sha256": "b498711e4129162bb0bc0551e7c4c70654bb79413e1d40bf5bded065f3fcdc87"
+    },
+    {
+      "path": "server/application/bundle-execution-preflight.ts",
+      "sha256": "a825146d7295011d174a857fae1d1b9853b8f0ccd743196e4691acb48c6554cb"
+    },
+    {
+      "path": "server/application/bundle-execution-preflight.test.ts",
+      "sha256": "326247e7ea6efc1c0ea44da20ea39a6530292b40d47ba4390d854d91a45b6a8b"
     }
   ],
   "passed": [
@@ -98,16 +110,30 @@
     "retained hydrated archive recovery after blobs-ready interruption and independent store reopening",
     "exact restored attachment bytes, portable facts/checkpoint checksum, source preservation, duplicate ingest/model calls zero",
     "extended Application multipart capability refusal, human owner checks and nested cleanup",
-    "existing dependency versions preserved; one MIT parser dependency and license verification"
+    "existing dependency versions preserved; one MIT parser dependency and license verification",
+    "explicit model/endpoint/version mapping with no display-name matching and bounded safe output",
+    "credential configuration/no-key/known-invalid/degraded/stale-health distinctions without remote probe",
+    "three configuration mapping fixtures including 1001-group truncation and rejected forged plans",
+    "actual HTTP preview/import reevaluation after endpoint change, incomplete configuration restoration, separately applied future preference with unchanged historical Run/Manifest",
+    "changed shared preview/import omitted-file and hydrated recovery HTTP regressions"
   ],
   "remaining": [
-    "explicit model/endpoint mapping and local credential readiness",
     "production UI approval/implementation and desktop/narrow acceptance",
     "final whole-branch verification and formal gates"
   ],
   "currentUnitEvidence": [
     ".superpowers/sdd/2026-10-02-m15-m18/m16-upload-recovery-confirmation.log",
     ".superpowers/sdd/2026-10-02-m15-m18/m16-upload-layer-confirmation.log",
-    ".superpowers/sdd/2026-10-02-m15-m18/m16-upload-owner-confirmation.log"
-  ]
+    ".superpowers/sdd/2026-10-02-m15-m18/m16-upload-owner-confirmation.log",
+    ".superpowers/sdd/2026-10-02-m15-m18/m16-mapping-controls-confirmation.log",
+    ".superpowers/sdd/2026-10-02-m15-m18/m16-mapping-http-confirmation.log",
+    ".superpowers/sdd/2026-10-02-m15-m18/m16-mapping-shared-regression.log"
+  ],
+  "configurationSemantics": {
+    "contentAndConfigurationSeparate": true,
+    "remoteAuthenticationProbed": false,
+    "mappingPersisted": false,
+    "historicalIdentityRewritten": false,
+    "futurePreferenceCommands": "SetWorkspaceModel/SetConversationModel"
+  }
 }
