@@ -3,10 +3,10 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { App } from './App';
 import { contextHistoryFixture } from './test/context-history-fixture';
 import { initialContext } from './data';
-import type { ContextManifest, DiscussionNode, Message } from './types';
+import type { CollaborationRecord, ContextManifest, DiscussionNode, Message } from './types';
 
 const mocks = vi.hoisted(() => { const temporary = vi.fn(); return ({
-  getWorkspace: vi.fn(),
+  getWorkspace: vi.fn(), listCollaborations: vi.fn(), createCollaboration: vi.fn(), streamCollaboration: vi.fn(),
   getMessageContext: vi.fn(), getManifestContext: vi.fn(), getContextPreview: vi.fn(), decideContextRecommendation: vi.fn(),
   getWorkspaceActivity: vi.fn(),
   getGraphNeighborhood: vi.fn(), getGraphPath: vi.fn(),
@@ -72,6 +72,7 @@ const projectedGraph = (nodes: readonly DiscussionNode[] = workspace.discussionN
 
 beforeEach(() => {
   localStorage.clear();
+  mocks.listCollaborations.mockResolvedValue({ collaborations: [] });
   mocks.workspaceId.mockReturnValue(undefined);
   mocks.getContextPreview.mockResolvedValue({ mode: workspace.mode, items: workspace.contextItems.filter(item => item.status === 'active'), recommendations: workspace.contextItems.filter(item => item.status === 'recommended'), omissions: [], budget: 32000, usedTokens: 4200, overBudget: false });
   mocks.decideContextRecommendation.mockResolvedValue({ workspace });
@@ -181,7 +182,7 @@ describe('Rhiza MVP', () => {
   });
 
   it('shows a stale decision and keeps its retry identity without invoking the model', async () => {
-    mocks.decideContextRecommendation.mockRejectedValue(new Error('推荐来源已更新'));
+    mocks.decideContextRecommendation.mockClear().mockRejectedValue(new Error('推荐来源已更新'));
     render(<App/>);
     await screen.findByLabelText('输入消息');
     fireEvent.click(screen.getByRole('button', { name: /^上下文/ }));
@@ -633,4 +634,44 @@ it('rejects an old path namespace and preserves the list cursor when merging a c
  render(<App/>);fireEvent.click(await screen.findByRole('button',{name:'对话图谱'}));await screen.findByRole('button',{name:'讨论节点：Target'});fireEvent.change(screen.getByLabelText('路径目标'),{target:{value:'target'}});fireEvent.click(screen.getByRole('button',{name:'高亮路径'}));
  await act(async()=>{late.resolve({graph:{...projectedGraph([{...target,title:'Stale path title'}]).graph,version:'old-namespace',nextCursor:'stale-next'}});await late.promise;});expect(screen.queryByRole('button',{name:'讨论节点：Stale path title'})).not.toBeInTheDocument();
  fireEvent.click(screen.getByRole('button',{name:'高亮路径'}));await waitFor(()=>expect(document.querySelectorAll('.path-highlight')).toHaveLength(2));fireEvent.click(screen.getByRole('button',{name:'加载更多'}));await waitFor(()=>expect(mocks.getGraphNeighborhood).toHaveBeenCalledWith(expect.objectContaining({cursor:'list-next'})));
+});
+
+const inlineRecord: CollaborationRecord = {
+  id: 'inline-review', workspaceId: workspace.projectId, nodeId: 'internal-review', revision: 1, mode: 'second-opinion', participants: ['model-1', 'model-2'], synthesisModelId: 'model-1',
+  base: { workspaceId: workspace.projectId, nodeId: workspace.activeNodeId, contextBaseHash: 'a'.repeat(64), prompt: 'Review current discussion', contextItems: [], history: [{ id: 'm2', kind: 'assistant', text: '原始回答' }], attachmentIds: [] },
+  status: 'running', createdAt: '2026-10-02T00:00:00Z', attempts: [], budget: { maxRounds: 1, tokenLimit: 32000, synthesisTokens: 1000, usedTokens: 0, reservedTokens: 0, deadlineAt: '2099-10-02T00:00:00Z' },
+};
+const configureCollaborationModels = () => mocks.getWorkspace.mockResolvedValue({ workspace, provider: { configured: true, name: 'Test Provider', model: 'test-model', baseUrl: 'https://example.test/v1' }, providerCatalog: { ...providerCatalog, models: [...providerCatalog.models, { ...providerCatalog.models[0], id: 'model-2', displayName: 'Second model' }] } });
+
+it('collapses collaboration setup after its input is frozen and keeps the result inside Chat', async () => {
+  configureCollaborationModels();
+  const stream = deferred<{ collaboration: CollaborationRecord }>();
+  mocks.createCollaboration.mockResolvedValue({ collaboration: inlineRecord });
+  mocks.streamCollaboration.mockReturnValueOnce(stream.promise);
+  render(<App/>);
+  fireEvent.click(await screen.findByRole('button', { name: '发起多模型协作' }));
+  expect(screen.getByLabelText('协作问题')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '开始协作' }));
+  await screen.findByRole('region', { name: '第二意见协作结果' });
+  expect(screen.queryByLabelText('协作问题')).not.toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 1, name: '信息架构方向' })).toBeInTheDocument();
+  await act(async () => { stream.resolve({ collaboration: { ...inlineRecord, status: 'canceled' } }); await stream.promise; });
+  expect(screen.getByRole('button', { name: '发起多模型协作' })).toBeEnabled();
+});
+
+it('does not dispatch or display a collaboration created after switching Workspace', async () => {
+  configureCollaborationModels(); mocks.streamCollaboration.mockClear();
+  const creation = deferred<{ collaboration: CollaborationRecord }>();
+  const otherId = '00000000-0000-4000-8000-000000000020';
+  mocks.createCollaboration.mockReturnValueOnce(creation.promise);
+  mocks.listWorkspaces.mockResolvedValueOnce({ workspaces: [{ workspaceId: workspace.projectId, name: 'Original', status: 'active' }, { workspaceId: otherId, name: 'Other', status: 'active' }] });
+  mocks.getScopedWorkspace.mockResolvedValueOnce({ workspace: { ...scopedWorkspace('Other discussion'), projectId: otherId } });
+  render(<App/>);
+  fireEvent.click(await screen.findByRole('button', { name: '发起多模型协作' }));
+  fireEvent.click(screen.getByRole('button', { name: '开始协作' }));
+  fireEvent.change(screen.getByRole('combobox', { name: '切换工作区' }), { target: { value: otherId } });
+  await screen.findByRole('heading', { level: 1, name: 'Other discussion' });
+  await act(async () => { creation.resolve({ collaboration: inlineRecord }); await creation.promise; });
+  expect(mocks.streamCollaboration).not.toHaveBeenCalled();
+  expect(screen.queryByRole('region', { name: '第二意见协作结果' })).not.toBeInTheDocument();
 });

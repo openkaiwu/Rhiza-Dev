@@ -48,13 +48,13 @@ The user clarified that collaboration belongs to the current conversation. The e
 
 Desktop and 390×844 browser passes verified initiation, partial failure, individual retry, retention and continuation. Narrow page width equals the viewport (390px); composer ends at the navigation boundary, without overlap. Three focused prototype regression cases verified scope/navigation, frozen selection, retry isolation, deduplicated retention, Stop and partial-result labeling. JSDOM lacks native dialog methods; the test harness supplies those methods, with real modal behavior checked in the browser. `node --check` and `git diff --check` passed. No model/API calls or persisted mutations occur in this standalone prototype.
 
-Current evidence: `inline-collaboration-desktop.jpg`, `inline-collaboration-continuation.jpg`, `inline-collaboration-narrow.jpg`. Production React wiring and the concrete preview approval remain pending.
+Preview evidence: `inline-collaboration-desktop.jpg`, `inline-collaboration-continuation.jpg`, `inline-collaboration-narrow.jpg`. The user subsequently approved this concrete preview; production evidence is recorded below.
 
 Project verification commands are defined in package.json (`pnpm run lint`, `pnpm run typecheck`, `pnpm run build`, `pnpm run test`). They are reserved for the production React implementation; no production files changed in this preview step, so the full backend suite was not rerun.
 
 ## Remaining boundary
 
-Approval of the concrete preview is pending under ui-ux-design-suite. Production implementation, full shared-consumer regression, desktop/narrow real import/source/Replay/Purge checks and external acceptance remain separate work. The prototype and simulated states must not be reported as those features having passed production acceptance.
+The concrete preview is approved under ui-ux-design-suite. Full shared-consumer regression, real import/Purge checks and external acceptance remain separate work. Prototype states do not substitute for production acceptance.
 
 ### Approved production unit: conversation, Context and Replay
 
@@ -65,3 +65,11 @@ Context preview, version-bound accept/reject with user reasons, frozen Manifest 
 The affected UI run verified 48 cases initially; the two failures (safe error wording and an empty-workspace fallback title) were fixed and both affected cases passed. Additional shell/provenance checks passed. Typecheck and lint passed after the final changes. The prepared real HTTP/PGlite client regression passed in the preceding implementation step. A desktop browser pass on the actual React UI completed selection → Chat → provenance → frozen history → Exact Replay with an isolated encrypted PGlite store and an explicitly offline model. A 390×844 pass verified the Context bottom sheet, focus isolation and Escape recovery. Document width was 390px; composer bottom and navigation top were both 784px.
 
 Evidence: `product-context-desktop.jpg`, `product-chat-narrow.jpg`, `product-context-narrow.jpg`. This unit does not complete collaboration, data migration, graph delivery or any external milestone Gate.
+
+### Approved production unit: inline collaboration and model settings
+
+The actual React conversation now launches independent review, peer review, debate or second opinion with 2–4 configured models. Frozen setup collapses into a card at the initiating turn; participant output/status, individual Retry, durable Stop, Run/Manifest links, synthesis, alternatives, risks and missing evidence are exposed there. Retaining the latest synthesis creates a referenced message in the same discussion; ordinary Chat continues from it. Endpoint directory health, model search/favorite/pin filters, explicit catalog batch refresh and failed-only retry reuse existing global Provider contracts. Keys remain write-only.
+
+A real scoped HTTP/encrypted PGlite/offline Runtime regression verified partial failure → only failed-model Retry → new synthesis → idempotent retention → follow-up history. Stable create/run/retry keys did not repeat external calls; unchanged synthesis evidence was rejected before invocation; original synthesis history stayed unchanged. Four existing collaboration lifecycle/recovery/stream cases passed once after the policy change. Two new App regressions passed for frozen-form collapse and a late Create after Workspace switch causing no stream dispatch. API/Card/Provider regressions passed with targeted fixes for explicit accessible names. Final typecheck and affected lint passed.
+
+The actual React browser completed partial Retry, resynthesis, retention and continuation in the initiating conversation. Desktop and 390×844 layouts were inspected; the model directory search reduced the actual configured catalog to the requested model. Evidence: product-collaboration-desktop.jpg and product-collaboration-narrow.jpg. These offline functional passes do not claim live-provider quality, all visual fixture states, production disaster recovery or a formal M16 Gate.

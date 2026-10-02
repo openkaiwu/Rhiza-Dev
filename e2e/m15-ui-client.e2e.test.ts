@@ -72,3 +72,59 @@ it('connects the UI client through scoped HTTP selection, frozen provenance and 
     await store.close(); await rm(root, { recursive: true, force: true });
   }
 }, 30000);
+
+it('keeps inline collaboration in its conversation across partial result, single-model retry, resynthesis, retention and follow-up', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rhiza-inline-ui-client-'));
+  const store = await openEmbeddedWorkspaceStore(join(root, 'db'));
+  const calls: RuntimeRequest[] = []; let failB = true;
+  const provider = new ProviderService(new ProviderStore(join(root, 'providers')), new SecretVault(join(root, 'key')), { baseUrl: 'https://example.test', apiKey: '', model: 'a', providerName: 'Fixture', chatPath: '/chat', timeoutMs: 1000, temperature: 0, extraHeaders: {}, allowNoKey: true });
+  const runtime: AIRuntime = { kind: 'provider-adapter', listModels: async () => ['a', 'b'].map(id => ({ id, model: id, provider: 'Fixture', displayName: id, active: id === 'a' })), async *generate(input) {
+    calls.push(input);
+    if (input.modelId === 'b' && failB) { yield { type: 'RUN_ERROR', requestId: input.requestId, code: 'PROVIDER_TIMEOUT', message: 'Fixture B failed', status: 504 }; return; }
+    const record = (await store.listCollaborations!()).find(record => record.attempts.some(attempt => attempt.runRef === input.requestId));
+    const attempt = record?.attempts.find(attempt => attempt.runRef === input.requestId);
+    const text = attempt?.participantId === '@synthesis' ? JSON.stringify({ recommendation: `Advice with ${attempt.input.exchange.length} models`, rationale: 'Offline evidence', alternatives: [], risks: [], disagreements: [], sourceOutputRefs: attempt.input.exchange.flatMap(item => item.outputRef ? [item.outputRef] : []) }) : `Answer ${input.modelId}`;
+    yield { type: 'RUN_END', requestId: input.requestId, text, model: input.modelId, provider: 'Fixture', usage: { promptTokens: 10, completionTokens: 10, totalTokens: 20 } };
+  } };
+  const app = createApp(store, provider, false, runtime, undefined, join(root, 'uploads'));
+  const server = app.listen(0, '127.0.0.1'); await new Promise<void>((resolve, reject) => { server.once('listening', resolve); server.once('error', reject); });
+  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`; const nativeFetch = globalThis.fetch;
+  vi.stubGlobal('fetch', (path: string, init?: RequestInit) => nativeFetch(`${origin}${path}`, init));
+  try {
+    api.setWorkspace(); const { workspace } = await api.getWorkspace(); api.setWorkspace(workspace.projectId);
+    const input = { prompt: 'Review current answer', mode: 'second-opinion' as const, modelIds: ['a', 'b'], synthesisModelId: 'a', attachmentIds: [], maxRounds: 1 };
+    const created = await api.createCollaboration(input, 'inline-create');
+    expect((await api.createCollaboration(input, 'inline-create')).collaboration.id).toBe(created.collaboration.id);
+    const events: string[] = [];
+    const { collaboration: partial } = await api.streamCollaboration(created.collaboration.id, event => events.push(event.type), 'inline-run', new AbortController().signal);
+    expect(partial.status).toBe('partial'); expect(events).toContain('COLLABORATION_STATE'); expect(calls).toHaveLength(3);
+    await api.streamCollaboration(partial.id, () => {}, 'inline-run', new AbortController().signal); expect(calls).toHaveLength(3);
+    expect((await api.getWorkspace()).workspace.activeNodeId).toBe(workspace.activeNodeId);
+    expect((await api.getWorkspace()).workspace.messages.filter(message => message.nodeId === workspace.activeNodeId)).toEqual(workspace.messages.filter(message => message.nodeId === workspace.activeNodeId));
+    const failed = partial.attempts.find(attempt => attempt.participantId === 'b')!;
+    const firstSynthesis = partial.attempts.find(attempt => attempt.participantId === '@synthesis')!;
+    failB = false;
+    const retry = await api.retryCollaborationParticipant(partial.id, failed.id, 'inline-retry-b', new AbortController().signal);
+    await api.retryCollaborationParticipant(partial.id, failed.id, 'inline-retry-b', new AbortController().signal);
+    expect(calls).toHaveLength(4); expect(retry.collaboration.synthesis).toBeUndefined();
+    expect(calls.filter(call => call.modelId === 'a' && !call.prompt.startsWith('Synthesize collaboration'))).toHaveLength(1);
+    const summary = await api.synthesizeCollaboration(partial.id, 'inline-synthesis-2', new AbortController().signal);
+    expect(summary.collaboration.status).toBe('completed'); expect(summary.collaboration.synthesis?.missingParticipants).toEqual([]);
+    expect(calls).toHaveLength(5);
+    await expect(api.synthesizeCollaboration(partial.id, 'duplicate-new-key', new AbortController().signal)).rejects.toMatchObject({ code: 'COLLABORATION_ATTEMPT_CONFLICT' }); expect(calls).toHaveLength(5);
+    const latest = summary.collaboration.attempts.filter(attempt => attempt.participantId === '@synthesis').at(-1)!;
+    const retained = await api.retainCollaboration(partial.id, workspace.activeNodeId, 'inline-retain');
+    expect((await api.retainCollaboration(partial.id, workspace.activeNodeId, 'inline-retain')).message.id).toBe(retained.message.id);
+    expect(retained.message.sourceMessageId).toBe(latest.outputRef);
+    expect(retained.message.text).toContain(summary.collaboration.synthesis!.recommendation);
+    expect(retained.message.text).not.toContain('"missingParticipants"');
+    expect((await store.read()).messages.find(message => message.id === firstSynthesis.outputRef)?.text).toBe(firstSynthesis.text);
+    expect((await api.getWorkspace()).workspace.activeNodeId).toBe(workspace.activeNodeId);
+    await api.sendMessage('Continue from retained advice'); expect(calls).toHaveLength(6);
+    expect(calls.at(-1)?.history.some(message => message.id === retained.message.id)).toBe(true);
+    expect(calls.at(-1)?.history.some(message => message.id === latest.outputRef)).toBe(false);
+  } finally {
+    api.setWorkspace(); vi.unstubAllGlobals();
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); await store.close(); await rm(root, { recursive: true, force: true });
+  }
+}, 30000);

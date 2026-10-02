@@ -421,9 +421,15 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
           const previous = await unitOfWork.readCommittedResult?.<CommandMap['RetainCollaboration']['result']>();
           if (previous?.found) return previous.value;
           const { collaboration } = await collaborations.get(envelope.payload.collaborationId);
-          const output = collaboration.attempts.find(attempt => attempt.participantId === '@synthesis' && attempt.status === 'completed');
+          const output = collaboration.attempts.filter(attempt => attempt.participantId === '@synthesis' && attempt.status === 'completed').at(-1);
           if (!collaboration.synthesis || !output?.outputRef) throw legacyError('协作尚无可保留的汇总。', 409, 'COLLABORATION_SYNTHESIS_MISSING');
-          const summary = `${collaboration.synthesis.recommendation}\n\n${collaboration.synthesis.rationale}\n\n${JSON.stringify({ alternatives: collaboration.synthesis.alternatives, risks: collaboration.synthesis.risks, disagreements: collaboration.synthesis.disagreements, missingParticipants: collaboration.synthesis.missingParticipants })}`;
+          const synthesis = collaboration.synthesis;
+          const summary = [synthesis.recommendation, synthesis.rationale,
+            synthesis.risks.length ? `### 风险\n${synthesis.risks.map(risk => `- ${risk}`).join('\n')}` : '',
+            synthesis.disagreements.length ? `### 分歧\n${synthesis.disagreements.map(item => `- ${item.summary}`).join('\n')}` : '',
+            synthesis.alternatives.length ? `### 备选方案\n${synthesis.alternatives.map(item => `**${item.option}**\n${item.applicability}\n优点：${item.pros.join('、')}\n限制：${item.cons.join('、')}`).join('\n\n')}` : '',
+            synthesis.missingParticipants.length ? `部分意见：${synthesis.missingParticipants.map(item => collaboration.models?.find(model => model.id === item.participantId)?.displayName ?? item.participantId).join('、')}未提供完整结果，不代表一致结论。` : '',
+          ].filter(Boolean).join('\n\n');
           const committed = await mutate(current => {
             const next = mergeRevision(current, collaboration.nodeId, envelope.payload.targetNodeId, summary, id, now, planner, output.outputRef).next;
             const message = next.messages.find(message => !current.messages.some(before => before.id === message.id))!;

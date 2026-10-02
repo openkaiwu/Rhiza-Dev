@@ -3,7 +3,7 @@ import { WorkspaceSearch } from './components/WorkspaceSearch';
 import { MergeDialog } from './components/MergeDialog';
 import { boundedGraphCache } from './components/graph-viewport';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Anchor, Attachment, ContextManifest, ContextMode, ContextPreview, ContextRecommendationDecision, ContextStatus, DiscussionEdge, DiscussionNode, GraphProjectionResult, Message, ProviderCatalog, ProviderPresetInfo, ProviderStatus, Segment, View, WorkspaceActivityItem, WorkspaceSnapshot, WorkspaceRecord } from './types';
+import type { Anchor, Attachment, ContextManifest, ContextMode, ContextPreview, ContextRecommendationDecision, CollaborationInput, CollaborationRecord, ContextStatus, DiscussionEdge, DiscussionNode, GraphProjectionResult, Message, ProviderCatalog, ProviderPresetInfo, ProviderStatus, Segment, View, WorkspaceActivityItem, WorkspaceSnapshot, WorkspaceRecord } from './types';
 import { api, type ChatRequestOptions } from './api';
 import { presentErrorText } from './error-presentation';
 import { Sidebar } from './components/Sidebar';
@@ -45,6 +45,14 @@ export function App() {
   const decisionInFlight = useRef(false);
   const decisionKeys = useRef(new Map<string, string>());
   const [focusedRunId, setFocusedRunId] = useState<string>();
+  const [collaborations, setCollaborations] = useState<CollaborationRecord[]>([]);
+  const [collaborationError, setCollaborationError] = useState('');
+  const [collaborationBusy, setCollaborationBusy] = useState('');
+  const [collaborationStreams, setCollaborationStreams] = useState<Record<string, { participantId: string; round: number; text: string }>>({});
+  const collaborationController = useRef<AbortController | undefined>(undefined);
+  const collaborationKeys = useRef(new Map<string, string>());
+  const collaborationScope = useRef(0);
+
   const closeContext = useCallback(() => setContextOpen(false), []);
   const updateDraftContext = useCallback((query: string, attachmentIds: string[]) => setDraftContext({ query, attachmentIds }), []);
   const [manifests, setManifests] = useState<ContextManifest[]>([]);
@@ -156,6 +164,62 @@ export function App() {
     } finally { decisionInFlight.current = false; if (current()) setDecidingContext(false); }
   };
 
+  useEffect(() => {
+    if (boot !== 'ready' || !currentWorkspaceId) return;
+    let current = true; const generation = workspaceGenerationRef.current;
+    setCollaborations([]);
+    void api.listCollaborations().then(result => { if (current && generation === workspaceGenerationRef.current) setCollaborations(result.collaborations); }).catch(error => { if (current && generation === workspaceGenerationRef.current) setCollaborationError(presentErrorText(error, { message: '无法加载协作记录。', recovery: '请重新读取。' })); });
+    return () => { current = false; };
+  }, [boot, currentWorkspaceId]);
+  useEffect(() => {
+    collaborationScope.current += 1; setCollaborationBusy(''); setCollaborationError(''); setCollaborationStreams({});
+    return () => { collaborationScope.current += 1; collaborationController.current?.abort(); collaborationController.current = undefined; };
+  }, [currentWorkspaceId, activeNodeId]);
+  const rememberCollaboration = (record: CollaborationRecord) => setCollaborations(previous => [...previous.filter(item => item.id !== record.id), record]);
+  const collaborationAction = async (identity: string, operation: (signal: AbortSignal, key: string, current: () => boolean) => Promise<void>) => {
+    if (collaborationController.current) return false;
+    const workspaceId = selectedWorkspaceRef.current; const generation = collaborationScope.current;
+    const current = () => workspaceId === selectedWorkspaceRef.current && generation === collaborationScope.current;
+    const controller = new AbortController(); collaborationController.current = controller;
+    const keyIdentity = `${selectedWorkspaceRef.current}:${activeNodeId}:${identity}`;
+    const key = collaborationKeys.current.get(keyIdentity) ?? crypto.randomUUID(); collaborationKeys.current.set(keyIdentity, key);
+    setCollaborationBusy(identity); setCollaborationError('');
+    try { await operation(controller.signal, key, current); collaborationKeys.current.delete(keyIdentity); return true; }
+    catch (error) { if (current()) setCollaborationError(presentErrorText(error, { message: '协作操作未完成。', recovery: '请先重新读取记录，再决定是否重试单个模型。' })); return false; }
+    finally { if (collaborationController.current === controller) { collaborationController.current = undefined; if (current()) setCollaborationBusy(''); } }
+  };
+  const startCollaboration = (input: CollaborationInput) => collaborationAction(`create:${JSON.stringify(input)}`, async (signal, key, current) => {
+    const { collaboration } = await api.createCollaboration(input, key);
+    if (!current()) return;
+    rememberCollaboration(collaboration);
+    if (collaboration.base.nodeId !== activeNodeId) throw new Error('协作所属讨论已变化，请重新读取记录。');
+    setCollaborationBusy(`run:${collaboration.id}`);
+    const result = await api.streamCollaboration(collaboration.id, event => {
+      if (!current()) return;
+      if (event.type === 'COLLABORATION_STATE') setCollaborations(records => records.map(record => record.id === event.collaborationId ? { ...record, revision: event.revision, status: event.status, budget: event.budget, attempts: event.attempts } : record));
+      if (event.type === 'CONTENT_DELTA' || event.type === 'RUN_END') setCollaborationStreams(streams => ({ ...streams, [event.requestId]: { participantId: event.participantId, round: event.round, text: event.type === 'RUN_END' ? event.text : (streams[event.requestId]?.text ?? '') + event.delta } }));
+    }, `${key}:run`, signal);
+    if (current()) { rememberCollaboration(result.collaboration); setCollaborationStreams({}); }
+  });
+  const changeCollaboration = (record: CollaborationRecord, operation: 'retry' | 'synthesize' | 'retain' | 'refresh', attemptId?: string) => collaborationAction(`${operation}:${record.id}:${attemptId ?? record.revision}`, async (signal, key, current) => {
+    if (record.base.nodeId !== activeNodeId || record.workspaceId !== selectedWorkspaceRef.current) return;
+    if (operation === 'retain') {
+      await api.retainCollaboration(record.id, record.base.nodeId, key);
+      if (current()) await loadWorkspace(true);
+      return;
+    }
+    const result = operation === 'retry' ? await api.retryCollaborationParticipant(record.id, attemptId!, key, signal) : operation === 'synthesize' ? await api.synthesizeCollaboration(record.id, key, signal) : await api.getCollaboration(record.id);
+    if (current()) rememberCollaboration(result.collaboration);
+  });
+  const stopCollaboration = async (record: CollaborationRecord) => {
+    if (record.base.nodeId !== activeNodeId || record.workspaceId !== selectedWorkspaceRef.current) return;
+    const guard = workspaceMutation(); const generation = collaborationScope.current;
+    collaborationController.current?.abort();
+    const identity = `${record.workspaceId}:stop:${record.id}`;
+    const key = collaborationKeys.current.get(identity) ?? crypto.randomUUID(); collaborationKeys.current.set(identity, key);
+    try { const result = await api.stopCollaboration(record.id, key); if (guard() && generation === collaborationScope.current) { rememberCollaboration(result.collaboration); setCollaborationError(''); } }
+    catch (error) { if (guard() && generation === collaborationScope.current) setCollaborationError(presentErrorText(error, { message: '停止状态待确认。', recovery: '请重新读取协作记录。' })); }
+  };
   const loadActivity = useCallback(async () => {
     const workspaceId = selectedWorkspaceRef.current;
     const generation = workspaceGenerationRef.current;
@@ -293,10 +357,10 @@ export function App() {
     window.addEventListener('keydown', keydown); return () => window.removeEventListener('keydown', keydown);
   }, [onboardingOpen, paletteOpen, settingsOpen]);
   useEffect(() => {
-    if (!paletteOpen && !onboardingOpen) return;
+    if (!paletteOpen && !onboardingOpen && !settingsOpen) return;
     modalReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const dialog = activeModalRef.current;
-    const focusable = () => [...(dialog?.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])') || [])];
+    const dialog = settingsOpen ? document.querySelector<HTMLElement>('.provider-settings') : activeModalRef.current;
+    const focusable = () => [...(dialog?.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])') || [])];
     const first = focusable()[0];
     first?.focus();
     const trapFocus = (event: KeyboardEvent) => {
@@ -309,7 +373,7 @@ export function App() {
     };
     document.addEventListener('keydown', trapFocus);
     return () => { document.removeEventListener('keydown', trapFocus); modalReturnFocusRef.current?.focus(); };
-  }, [onboardingOpen, paletteOpen]);
+  }, [onboardingOpen, paletteOpen, settingsOpen]);
 
   const applyCatalog = (catalog: ProviderCatalog) => {
     setProviderCatalog(catalog);
@@ -332,6 +396,7 @@ export function App() {
     applyCatalog(catalog);
   };
   const discoverModels = async (providerId: string) => { const { catalog } = await api.discoverModels(providerId); applyCatalog(catalog); };
+  const discoverProviderBatch = async (ids: string[], failedOnly: boolean) => { const result = await api.discoverProviderBatch(ids, failedOnly); applyCatalog(result.catalog); return result.results; };
   const updateModel = async (modelId: string, changes: { favorite?: boolean; pinned?: boolean }) => { const { catalog } = await api.updateModel(modelId, changes); applyCatalog(catalog); };
   const selectModel = async (modelId: string) => { const result = await api.selectModel(modelId); setProviderCatalog(result.catalog); setProvider(result.provider); };
 
@@ -529,7 +594,7 @@ export function App() {
     title={view === 'chat' ? (discussionNodes.length ? activeNode.title : '尚无讨论') : ({ graph: '对话图谱', state: '知识状态', activity: '活动时间线', runs: '执行历史' })[view]}
     workspaceName={workspaceRecord()?.name}
     contextCount={previewLoading ? undefined : activeCount}
-    sidebar={<Sidebar view={view} nodes={navigableNodes} messages={messages} activeNodeId={activeNode.id} onView={setView} onNode={id => activateNode(id, true)} onSettings={openSettings} onCommand={() => setPaletteOpen(true)} onHelp={() => setOnboardingOpen(true)} workspaces={workspaces} currentWorkspaceId={currentWorkspaceId} onWorkspace={id => void switchWorkspace(id)} onCreateWorkspace={() => setWorkspaceForm('create')} onRenameWorkspace={() => setWorkspaceForm('rename')} onArchiveWorkspace={() => void archiveWorkspace()} onRestoreWorkspace={() => void restoreWorkspace()} onBundleImported={async workspaceId => {
+    sidebar={<Sidebar view={view} nodes={navigableNodes.filter(node => !collaborations.some(record => record.nodeId === node.id))} messages={messages} activeNodeId={activeNode.id} onView={setView} onNode={id => activateNode(id, true)} onSettings={openSettings} onCommand={() => setPaletteOpen(true)} onHelp={() => setOnboardingOpen(true)} workspaces={workspaces} currentWorkspaceId={currentWorkspaceId} onWorkspace={id => void switchWorkspace(id)} onCreateWorkspace={() => setWorkspaceForm('create')} onRenameWorkspace={() => setWorkspaceForm('rename')} onArchiveWorkspace={() => void archiveWorkspace()} onRestoreWorkspace={() => void restoreWorkspace()} onBundleImported={async workspaceId => {
       if (selectedWorkspaceRef.current !== currentWorkspaceId) return;
       const current = workspaceMutation();
       await refreshWorkspaces();
@@ -539,6 +604,7 @@ export function App() {
     surfaces={{
       chat: <ChatView
         key={`${currentWorkspaceId}:${activeNode.id}`} activeNode={activeNode} nodes={navigableNodes} edges={discussionEdges} mode={mode}
+        collaborations={collaborations.filter(record => record.base.nodeId === activeNode.id)} collaborationBusy={collaborationBusy} collaborationError={collaborationError} collaborationStreams={collaborationStreams} onStartCollaboration={startCollaboration} onCollaborationAction={changeCollaboration} onStopCollaboration={record => void stopCollaboration(record)}
         onDraftChange={updateDraftContext} onInspectManifest={id => void inspectMessageContext('', id)} onOpenRun={id => { setFocusedRunId(id); setView('runs'); }}
         activeCount={activeCount} messages={activeMessages} manifests={manifests} attachments={attachments}
         segments={segments} anchors={anchors} onWorkspaceChanged={applyWorkspace} onReconcile={()=>void loadWorkspace(true)} onRetry={async(runId,key,signal)=>{const current=workspaceMutation();const result=await api.retryRun(runId,key,signal);if(current()){setMessages(messages=>[...messages,result.userMessage,result.assistantMessage]);setManifests(manifests=>[...manifests,result.manifest]);}}} provider={provider} providerCatalog={{...providerCatalog,activeModelId:activeNode.preferredModelId??workspaceModelId??providerCatalog.activeModelId}} syncError={syncError} online={online&&workspaceRecord()?.status!=='archived'} focusComposerRequest={focusComposerRequest} onSend={sendMessage}
@@ -556,7 +622,7 @@ export function App() {
       {workspaceForm&&<WorkspaceForm key={currentWorkspaceId} rename={workspaceForm==='rename'} initialName={workspaceForm==='rename'?workspaceRecord()?.name:undefined} onSave={workspaceForm==='rename'?renameWorkspace:createWorkspace} onClose={()=>setWorkspaceForm(undefined)}/>}
       {mergeSource&&discussionNodes.find(node=>node.id===mergeSource)&&<MergeDialog source={discussionNodes.find(node=>node.id===mergeSource)!} nodes={discussionNodes} latestReply={[...messages].reverse().find(message=>message.nodeId===mergeSource&&message.kind==='assistant')?.text??''} onClose={()=>setMergeSource(undefined)} onSave={async(targetNodeId,summary)=>{const current=workspaceMutation();const {workspace}=await api.mergeNode(mergeSource,targetNodeId,summary);if(current())applyWorkspace(workspace);}}/>}
 
-      {settingsOpen && <ProviderSettings catalog={providerCatalog} presets={providerPresets} onClose={() => setSettingsOpen(false)} onSave={saveProvider} onDiscover={discoverModels} onToggleModel={updateModel} onSelectModel={selectModel}/>}
+      {settingsOpen && <ProviderSettings catalog={providerCatalog} presets={providerPresets} onClose={() => setSettingsOpen(false)} onSave={saveProvider} onDiscover={discoverModels} onDiscoverBatch={discoverProviderBatch} onToggleModel={updateModel} onSelectModel={selectModel}/>}
       {paletteOpen && <div className="dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setPaletteOpen(false); }}><section ref={activeModalRef} className="command-palette" role="dialog" aria-modal="true" aria-label="命令面板"><header><strong>搜索或运行命令</strong><kbd>Esc</kbd></header><WorkspaceSearch key={currentWorkspaceId} onOpen={async(nodeId,segmentId,query)=>{await activateNode(nodeId,true);setPaletteOpen(false);const message=segmentId?messages.find(message=>message.segmentId===segmentId):messages.find(message=>message.nodeId===nodeId&&message.text.toLocaleLowerCase().includes(query?.toLocaleLowerCase()??''));if(message)setTimeout(()=>document.getElementById(`message-${message.id}`)?.scrollIntoView({block:'center'}),50);}}/><label>工作区默认模型<select value={workspaceModelId??''} onChange={event=>{const current=workspaceMutation();void api.setWorkspaceModel(event.target.value||null).then(({workspace})=>{if(current())applyWorkspace(workspace);}).catch(()=>setSyncError('工作区模型保存失败，请重试。'));}}><option value="">继承全局默认模型</option>{providerCatalog.models.map(model=><option key={model.id} value={model.id}>{model.displayName}</option>)}</select></label><details><summary>已归档讨论</summary>{discussionNodes.filter(node=>node.status==='archived').map(node=><div key={node.id}>{node.title}<button onClick={()=>void restoreGraphNode(node.id)}>恢复讨论</button></div>)}</details><button onClick={() => runCommand(() => setView('chat'))}>当前讨论 <kbd>⌘1</kbd></button><button onClick={() => runCommand(() => setView('graph'))}>对话图谱 <kbd>⌘2</kbd></button><button onClick={() => runCommand(() => setView('state'))}>知识状态 <kbd>⌘3</kbd></button><button onClick={() => runCommand(() => setView('activity'))}>活动时间线 <kbd>⌘4</kbd></button><button onClick={() => runCommand(() => setContextOpen(true))}>打开 Context <kbd>⌘⇧C</kbd></button><button onClick={() => runCommand(() => { setView('chat'); setFocusComposerRequest(value => value + 1); })}>聚焦消息输入框 <kbd>/</kbd></button><button onClick={() => runCommand(() => setOnboardingOpen(true))}>帮助与快捷键</button></section></div>}
       {onboardingOpen && <div className="dialog-backdrop" role="presentation"><section ref={activeModalRef} className="onboarding-dialog" role="dialog" aria-modal="true" aria-labelledby="onboarding-title"><h2 id="onboarding-title">欢迎来到 Rhiza</h2><p>用四个对象把研究和决策留在同一个工作区：</p><dl><div><dt>Project</dt><dd>一个完整的研究或决策空间。</dd></div><div><dt>Node</dt><dd>围绕一个问题持续展开的讨论。</dd></div><div><dt>Graph</dt><dd>展示讨论之间的衍生、引用和合并关系。</dd></div><div><dt>Context</dt><dd>明确控制本轮发送给模型的材料。</dd></div></dl><button className="primary-button" autoFocus onClick={closeOnboarding}>开始使用</button></section></div>}
     </>}

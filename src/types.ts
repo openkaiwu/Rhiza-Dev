@@ -160,7 +160,9 @@ export interface ProviderStatus {
 }
 
 export type ProviderPreset = 'openai' | 'openrouter' | 'deepseek' | 'siliconflow' | 'ollama' | 'custom';
+export interface ProviderDiscoveryBatchResult { catalog: ProviderCatalog; results: Array<{ providerId: string; status: 'succeeded' | 'failed' | 'skipped'; code?: string }> }
 export interface SafeProvider {
+  discoveryHealth?: { status: 'unknown' | 'healthy' | 'degraded' | 'invalid-key' | 'unconfigured'; endpointVersion: string; checkedAt?: string; code?: string; discoveredCount?: number };
   id: string; preset: ProviderPreset; name: string; baseUrl: string; chatPath: string;
   allowNoKey: boolean; hasApiKey: boolean; configured: boolean; createdAt: string; updatedAt: string;
 }
@@ -236,4 +238,19 @@ export interface ProvenanceLink {
   runtimeSnapshotRef?: string;
   status: 'recorded' | 'pre-run' | 'broken-reference' | 'purged';
   missingRefs: string[];
+}
+
+export type CollaborationMode = 'independent-review' | 'peer-review' | 'debate' | 'second-opinion';
+export interface CollaborationInput { prompt: string; mode: CollaborationMode; modelIds: string[]; synthesisModelId: string; attachmentIds: string[]; maxRounds: number }
+export interface CollaborationAttempt { id: string; participantId: string; round: number; attempt: number; status: 'running' | 'completed' | 'failed' | 'canceled' | 'interrupted'; runRef: string; manifestRef: string; outputRef?: string; text?: string; errorCode?: string }
+export interface CollaborationRecord {
+  id: string; workspaceId: string; nodeId: string; revision: number; mode: CollaborationMode;
+  participants: string[]; synthesisModelId: string;
+  base: { workspaceId: string; nodeId: string; contextBaseHash: string; prompt: string; contextItems: ContextItem[]; history: Array<Pick<Message, 'id' | 'text' | 'kind'>>; attachmentIds: string[]; manifest?: ContextManifest };
+  status: 'running' | 'synthesizing' | 'completed' | 'partial' | 'failed' | 'canceled' | 'interrupted' | 'budget-exhausted';
+  createdAt: string; cancelRequestedAt?: string;
+  budget: { tokenLimit: number; synthesisTokens: number; usedTokens: number; reservedTokens: number; deadlineAt: string; maxRounds: number };
+  attempts: CollaborationAttempt[];
+  models?: Array<{ id: string; displayName: string; provider: string; model: string; active: boolean }>;
+  synthesis?: { recommendation: string; rationale: string; alternatives: Array<{ option: string; pros: string[]; cons: string[]; applicability: string }>; risks: string[]; disagreements: Array<{ summary: string; sourceOutputRefs: string[] }>; sourceOutputRefs: string[]; missingParticipants: Array<{ participantId: string; status: string; errorCode?: string }> };
 }

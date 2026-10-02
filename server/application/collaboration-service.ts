@@ -206,6 +206,7 @@ export class CollaborationService {
     if (!model || !template) throw conflict('COLLABORATION_FROZEN_INPUT_MISSING');
     const versions = await this.uow.read(workspace => {
       if (workspace.discussionNodes.find(node => node.id === reserved.nodeId)?.status === 'archived') throw conflict('NODE_ARCHIVED');
+      if (workspace.discussionNodes.find(node => node.id === reserved.nodeId)?.status === 'resolved') throw conflict('COLLABORATION_ALREADY_RETAINED');
       return workspace.resourceVersions;
     });
     const refs = [...template.contextItems.map(item => ({ id: item.resourceVersionId, digest: item.digest })), ...(attempt.input.base.attachments ?? []).map(item => ({ id: item.resourceVersionId, digest: item.digest }))];

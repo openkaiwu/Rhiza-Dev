@@ -1,4 +1,4 @@
-import type { Attachment, ChatOperation, ContextHistory, ContextManifest, ContextMode, ContextStatus, GenerationOptions, Message, ProviderCatalog, ProviderPreset, ProviderPresetInfo, ProviderStatus, TokenUsage, ToolCall, WorkspaceActivityItem, WorkspaceSnapshot, WorkspaceRecord } from './types';
+import type { Attachment, CollaborationInput, CollaborationRecord, ChatOperation, ContextHistory, ContextManifest, ContextMode, ContextStatus, GenerationOptions, Message, ProviderCatalog, ProviderPreset, ProviderPresetInfo, ProviderStatus, TokenUsage, ToolCall, WorkspaceActivityItem, WorkspaceSnapshot, WorkspaceRecord } from './types';
 
 export type ApiErrorCategory = 'validation' | 'conflict' | 'permission' | 'not_found' | 'infrastructure';
 
@@ -64,7 +64,9 @@ export interface ChatRequestOptions {
   sourceMessageId?: string;
 }
 
-async function streamRequest<T>(path: string, body: unknown, onEvent: (event: RuntimeStreamEvent) => void, options: ChatRequestOptions = {}, resultType = 'COMMIT'): Promise<T> {
+export type CollaborationStreamEvent = ({ collaborationId: string; participantId: string; round: number } & RuntimeStreamEvent) | { type: 'COLLABORATION_STATE'; collaborationId: string; revision: number; status: CollaborationRecord['status']; budget: CollaborationRecord['budget']; attempts: CollaborationRecord['attempts'] };
+
+async function streamRequest<T, E extends { type: string } = RuntimeStreamEvent>(path: string, body: unknown, onEvent: (event: E) => void, options: ChatRequestOptions = {}, resultType = 'COMMIT', channel = 'runtime'): Promise<T> {
   let response: Response;
   try {
     response = await fetch(scopedPath(path), { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', 'Idempotency-Key': options.idempotencyKey ?? crypto.randomUUID() }, body: JSON.stringify(body), signal: options.signal });
@@ -89,14 +91,16 @@ async function streamRequest<T>(path: string, body: unknown, onEvent: (event: Ru
     const eventName = lines.find(line => line.startsWith('event:'))?.slice(6).trim();
     const data = lines.filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
     if (!data) return;
-    let payload: RuntimeStreamEvent | ChatCommit;
-    try { payload = JSON.parse(data) as RuntimeStreamEvent | ChatCommit; } catch { return; }
+    let payload: { type: string };
+    try { payload = JSON.parse(data) as { type: string }; } catch { return; }
     if (eventName === 'commit' && payload.type === resultType) commit = payload as unknown as T & { type: string };
-    if (eventName === 'runtime' && payload.type !== 'COMMIT') {
-      if (payload.type === 'RUN_CREATED') options.onRunCreated?.(payload.runId);
-      onEvent(payload);
-      if (payload.type === 'RUN_ERROR') streamError = payload;
+    if (eventName === channel && payload.type !== resultType) {
+      if (channel === 'runtime' && payload.type === 'RUN_CREATED') options.onRunCreated?.((payload as Extract<RuntimeStreamEvent, { type: 'RUN_CREATED' }>).runId);
+      onEvent(payload as E);
+      if (channel === 'runtime' && payload.type === 'RUN_ERROR') streamError = payload as Extract<RuntimeStreamEvent, { type: 'RUN_ERROR' }>;
     }
+    if (eventName === 'error' && payload.type === 'COLLABORATION_ERROR') streamError = payload as Extract<RuntimeStreamEvent, { type: 'RUN_ERROR' }>;
+
   };
 
   while (true) {
@@ -150,6 +154,15 @@ async function uploadAttachment(file: File): Promise<Attachment> {
 }
 
 export const api = {
+  listCollaborations: () => request<{ collaborations: CollaborationRecord[] }>('/api/collaborations?limit=100'),
+  getCollaboration: (id: string) => request<{ collaboration: CollaborationRecord }>(`/api/collaborations/${encodeURIComponent(id)}`),
+  createCollaboration: (input: CollaborationInput, key: string) => request<{ collaboration: CollaborationRecord }>('/api/collaborations', { method: 'POST', headers: { 'Idempotency-Key': key }, body: JSON.stringify(input) }),
+  streamCollaboration: (id: string, onEvent: (event: CollaborationStreamEvent) => void, key: string, signal: AbortSignal) => streamRequest<{ collaboration: CollaborationRecord }, CollaborationStreamEvent>(`/api/collaborations/${encodeURIComponent(id)}/stream`, {}, onEvent, { idempotencyKey: key, signal }, 'COLLABORATION_COMMIT', 'collaboration'),
+  retryCollaborationParticipant: (id: string, attemptId: string, key: string, signal: AbortSignal) => request<{ collaboration: CollaborationRecord }>(`/api/collaborations/${encodeURIComponent(id)}/retry`, { method: 'POST', headers: { 'Idempotency-Key': key }, body: JSON.stringify({ attemptId }), signal }),
+  stopCollaboration: (id: string, key: string) => request<{ collaboration: CollaborationRecord }>(`/api/collaborations/${encodeURIComponent(id)}/stop`, { method: 'POST', headers: { 'Idempotency-Key': key } }),
+  synthesizeCollaboration: (id: string, key: string, signal: AbortSignal) => request<{ collaboration: CollaborationRecord }>(`/api/collaborations/${encodeURIComponent(id)}/synthesize`, { method: 'POST', headers: { 'Idempotency-Key': key }, signal }),
+  retainCollaboration: (id: string, targetNodeId: string, key: string) => request<{ message: Message }>(`/api/collaborations/${encodeURIComponent(id)}/retain`, { method: 'POST', headers: { 'Idempotency-Key': key }, body: JSON.stringify({ targetNodeId }) }),
+
   getContextPreview: (query = '', attachmentIds: string[] = []) => {
     const parameters = new URLSearchParams({ query });
     if (attachmentIds.length) parameters.set('attachmentIds', attachmentIds.join(','));
@@ -223,6 +236,7 @@ export const api = {
     const { id, ...body } = input;
     return request<{ catalog: ProviderCatalog }>(id ? `/api/providers/${id}` : '/api/providers', { method: id ? 'PUT' : 'POST', body: JSON.stringify(body) });
   },
+  discoverProviderBatch: (providerIds: string[], failedOnly = false) => request<import('./types').ProviderDiscoveryBatchResult>('/api/providers/discover', { method: 'POST', body: JSON.stringify({ providerIds, failedOnly }) }),
   discoverModels: (providerId: string) => request<{ catalog: ProviderCatalog }>(`/api/providers/${providerId}/discover`, { method: 'POST' }),
   updateModel: (modelId: string, changes: { favorite?: boolean; pinned?: boolean }) => request<{ catalog: ProviderCatalog }>(`/api/models/${modelId}`, { method: 'PATCH', body: JSON.stringify(changes) }),
   selectModel: (modelId: string) => request<{ catalog: ProviderCatalog; provider: ProviderStatus }>(`/api/models/${modelId}/select`, { method: 'POST' }),

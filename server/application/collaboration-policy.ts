@@ -98,7 +98,13 @@ export function retryInvocation(record: CollaborationRecord, attemptId: string, 
   const prior = record.attempts.find(value => value.id === attemptId);
   if (!prior || !['failed', 'interrupted', 'canceled'].includes(prior.status) || latest(record, prior.participantId, prior.round)?.id !== prior.id) fail('COLLABORATION_RETRY_NOT_ALLOWED');
   // Do not rebuild the exchange from newer results; this attempt's input is frozen.
-  return reserve(record, { ...refs, participantId: prior.participantId, round: prior.round, attempt: prior.attempt + 1, providerEndpointRef: prior.providerEndpointRef, reservedTokens: prior.reservedTokens }, prior.input);
+  const available = structuredClone(record);
+  // Explicit participant Retry may reopen a partial result. Stop, deadlines and
+  // reservations still pass through reserve; no completed participant repeats.
+  if (!record.cancelRequestedAt && ['partial', 'failed'].includes(record.status)) available.status = 'running';
+  const next = reserve(available, { ...refs, participantId: prior.participantId, round: prior.round, attempt: prior.attempt + 1, providerEndpointRef: prior.providerEndpointRef, reservedTokens: prior.reservedTokens }, prior.input);
+  if (prior.participantId !== '@synthesis') delete next.synthesis;
+  return next;
 }
 
 export function stopCollaboration(record: CollaborationRecord, at: string): CollaborationRecord {
@@ -139,11 +145,12 @@ export function synthesisInput(record: CollaborationRecord) {
 export function reserveSynthesis(record: CollaborationRecord, refs: { id: string; runRef: string; manifestRef: string; providerEndpointRef: string; at: string }) {
   const input = synthesisInput(record);
   if (!input.outputs.length) fail('COLLABORATION_SYNTHESIS_NO_EVIDENCE');
-  if (record.attempts.some(attempt => attempt.participantId === '@synthesis')) fail('COLLABORATION_ATTEMPT_CONFLICT');
+  const previous = record.attempts.filter(attempt => attempt.participantId === '@synthesis').at(-1);
+  if (previous && (previous.status === 'running' || JSON.stringify([previous.input.exchange.map(item => item.outputRef), previous.input.missingParticipants ?? []]) === JSON.stringify([input.outputs.map(item => item.outputRef), input.missing]))) fail('COLLABORATION_ATTEMPT_CONFLICT');
   const available = structuredClone(record);
-  const reservedTokens = available.budget.synthesisTokens;
+  const reservedTokens = previous?.reservedTokens ?? available.budget.synthesisTokens;
   available.budget.synthesisTokens = 0;
-  const next = reserve(available, { ...refs, participantId: '@synthesis', round: 1, attempt: 1, reservedTokens }, { base: record.base, exchange: input.outputs, missingParticipants: input.missing });
+  const next = reserve(available, { ...refs, participantId: '@synthesis', round: 1, attempt: (previous?.attempt ?? 0) + 1, reservedTokens }, { base: record.base, exchange: input.outputs, missingParticipants: input.missing });
   next.status = 'synthesizing';
   return next;
 }

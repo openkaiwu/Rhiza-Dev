@@ -1,21 +1,25 @@
 import { Check, Cloud, LoaderCircle, Pin, Plus, RefreshCw, Save, Star, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import type { ProviderCatalog, ProviderPreset, ProviderPresetInfo } from '../types';
+import type { ProviderCatalog, ProviderDiscoveryBatchResult, ProviderPreset, ProviderPresetInfo } from '../types';
 import { presentErrorText } from '../error-presentation';
 
 export interface ProviderFormState { id?: string; preset: ProviderPreset; name: string; baseUrl: string; apiKey: string; allowNoKey: boolean; modelId: string }
 const blankForm: ProviderFormState = { preset: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', apiKey: '', allowNoKey: false, modelId: 'gpt-4.1-mini' };
 
-export function ProviderSettings({ catalog, presets, onClose, onSave, onDiscover, onToggleModel, onSelectModel }: {
+export function ProviderSettings({ catalog, presets, onClose, onSave, onDiscover, onDiscoverBatch, onToggleModel, onSelectModel }: {
   catalog: ProviderCatalog; presets: Record<string, ProviderPresetInfo>; onClose: () => void;
   onSave: (form: ProviderFormState) => Promise<void>; onDiscover: (providerId: string) => Promise<void>;
+  onDiscoverBatch?: (ids: string[], failedOnly: boolean) => Promise<ProviderDiscoveryBatchResult['results']>;
   onToggleModel: (modelId: string, changes: { favorite?: boolean; pinned?: boolean }) => Promise<void>; onSelectModel: (modelId: string) => Promise<void>;
 }) {
   const [form, setForm] = useState<ProviderFormState>(blankForm);
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
+  const [search, setSearch] = useState('');
+  const [modelFilter, setModelFilter] = useState('all');
+  const [failedProviders, setFailedProviders] = useState<string[]>([]);
   const selectedProvider = catalog.providers.find(provider => provider.id === form.id);
-  const models = useMemo(() => catalog.models.filter(model => !form.id || model.providerId === form.id), [catalog.models, form.id]);
+  const models = useMemo(() => catalog.models.filter(model => (!form.id || model.providerId === form.id) && `${model.displayName} ${model.modelId}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()) && (modelFilter !== 'favorite' || model.favorite) && (modelFilter !== 'pinned' || model.pinned)), [catalog.models, form.id, search, modelFilter]);
 
   useEffect(() => {
     if (!catalog.providers.length || form.id) return;
@@ -41,7 +45,7 @@ export function ProviderSettings({ catalog, presets, onClose, onSave, onDiscover
     <header className="settings-header"><div><span className="eyebrow">MODEL REGISTRY</span><h2 id="provider-settings-title">模型与 API</h2><p>密钥在本机后端加密保存，浏览器不会再次读取。</p></div><button className="icon-button" onClick={onClose} aria-label="关闭设置"><X size={18}/></button></header>
     <div className="settings-body">
       <aside className="provider-list"><div className="provider-list-title"><span>供应商</span><button onClick={() => setForm(blankForm)} aria-label="新增供应商"><Plus size={14}/></button></div>
-        {catalog.providers.map(provider => <button className={provider.id === form.id ? 'provider-row active' : 'provider-row'} key={provider.id} onClick={() => selectProvider(provider.id)}><span className={`provider-signal ${provider.configured ? 'online' : ''}`}/><span><strong>{provider.name}</strong><small>{provider.configured ? '已配置' : '需要密钥'}</small></span></button>)}
+        {catalog.providers.map(provider => <button className={provider.id === form.id ? 'provider-row active' : 'provider-row'} key={provider.id} onClick={() => selectProvider(provider.id)}><span className={`provider-signal ${provider.configured ? 'online' : ''}`}/><span><strong>{provider.name}</strong><small>{provider.discoveryHealth?.status === 'invalid-key' ? '密钥无效' : provider.discoveryHealth?.status === 'degraded' ? '目录同步失败' : provider.discoveryHealth?.status === 'healthy' ? '目录已同步' : provider.configured ? '已配置 · 目录未检测' : '需要密钥'}</small></span></button>)}
       </aside>
       <div className="settings-main">
         <section className="settings-section api-form"><div className="settings-section-title"><span><Cloud size={14}/>供应商连接</span><small>{form.id ? '编辑' : '新增'}</small></div>
@@ -50,7 +54,10 @@ export function ProviderSettings({ catalog, presets, onClose, onSave, onDiscover
           <div className="form-actions"><button className="primary-button" disabled={Boolean(busy)} onClick={() => run('save', () => onSave(form), '供应商配置已保存。')}>{busy === 'save' ? <LoaderCircle className="spin" size={14}/> : <Save size={14}/>}保存配置</button>{form.id && <button className="ghost-button" disabled={Boolean(busy)} onClick={() => run('discover', () => onDiscover(form.id!), '模型目录已同步。')}>{busy === 'discover' ? <LoaderCircle className="spin" size={14}/> : <RefreshCw size={14}/>}获取模型</button>}<span className="settings-notice" role="status">{notice}</span></div>
         </section>
         <section className="settings-section model-library"><div className="settings-section-title"><span>模型目录</span><small>{models.length} models</small></div>
-          <div className="model-table">{models.length ? models.map(model => <article className={model.id === catalog.activeModelId ? 'model-row current' : 'model-row'} key={model.id}><button className="model-main" onClick={() => onSelectModel(model.id)}><span className="model-radio">{model.id === catalog.activeModelId && <Check size={11}/>}</span><span><strong>{model.displayName}</strong><small>{model.modelId}</small></span></button><button className={model.favorite ? 'model-mark active' : 'model-mark'} onClick={() => onToggleModel(model.id, { favorite: !model.favorite })} aria-label={`${model.favorite ? '取消收藏' : '收藏'} ${model.displayName}`}><Star size={14} fill={model.favorite ? 'currentColor' : 'none'}/></button><button className={model.pinned ? 'model-mark active' : 'model-mark'} onClick={() => onToggleModel(model.id, { pinned: !model.pinned })} aria-label={`${model.pinned ? '取消置顶' : '置顶'} ${model.displayName}`}><Pin size={14}/></button></article>) : <div className="library-empty">保存一个模型 ID，或从供应商同步模型目录。</div>}</div>
+          <div className="provider-catalog-controls"><input aria-label="搜索模型目录" value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索名称或模型 ID"/><select aria-label="筛选模型目录" value={modelFilter} onChange={event => setModelFilter(event.target.value)}><option value="all">全部模型</option><option value="favorite">已收藏</option><option value="pinned">已置顶</option></select></div>
+          {selectedProvider?.discoveryHealth && selectedProvider.discoveryHealth.status !== 'healthy' && <p className="provider-health-notice">{selectedProvider.discoveryHealth.status === 'invalid-key' ? '目录同步返回密钥无效，请检查连接配置。' : '目录状态尚未确认；已手动配置的模型仍可尝试对话。'}{selectedProvider.discoveryHealth.code && <small> {selectedProvider.discoveryHealth.code}</small>}</p>}
+          {onDiscoverBatch && <div className="provider-batch-actions"><button className="ghost-button" disabled={!!busy || !catalog.providers.length} onClick={() => void run('batch', async () => { const results = await onDiscoverBatch(catalog.providers.map(provider => provider.id), false); setFailedProviders(results.filter(item => item.status === 'failed').map(item => item.providerId)); }, '批量同步已结束，请查看各供应商状态。')}>同步所有目录</button>{failedProviders.length > 0 && <button className="ghost-button" disabled={!!busy} onClick={() => void run('batch-retry', async () => { const results = await onDiscoverBatch(failedProviders, true); setFailedProviders(results.filter(item => item.status === 'failed').map(item => item.providerId)); }, '失败目录重试已结束。')}>仅重试失败目录 · {failedProviders.length}</button>}</div>}
+          <div className="model-table">{models.length ? models.map(model => <article className={model.id === catalog.activeModelId ? 'model-row current' : 'model-row'} key={model.id}><button className="model-main" aria-label={`设为默认模型 ${model.displayName}`} disabled={!!busy} onClick={() => void run(`select:${model.id}`, () => onSelectModel(model.id), '默认模型已更新。')}><span className="model-radio">{model.id === catalog.activeModelId && <Check size={11}/>}</span><span><strong>{model.displayName}</strong><small>{model.modelId}</small></span></button><button className={model.favorite ? 'model-mark active' : 'model-mark'} disabled={!!busy} onClick={() => void run(`favorite:${model.id}`, () => onToggleModel(model.id, { favorite: !model.favorite }), '收藏已更新。')} aria-label={`${model.favorite ? '取消收藏' : '收藏'} ${model.displayName}`}><Star size={14} fill={model.favorite ? 'currentColor' : 'none'}/></button><button className={model.pinned ? 'model-mark active' : 'model-mark'} disabled={!!busy} onClick={() => void run(`pin:${model.id}`, () => onToggleModel(model.id, { pinned: !model.pinned }), '置顶已更新。')} aria-label={`${model.pinned ? '取消置顶' : '置顶'} ${model.displayName}`}><Pin size={14}/></button></article>) : <div className="library-empty">{search || modelFilter !== 'all' ? '没有匹配的模型，可调整搜索或筛选条件。' : '保存一个模型 ID，或从供应商同步模型目录。'}</div>}</div>
         </section>
       </div>
     </div>

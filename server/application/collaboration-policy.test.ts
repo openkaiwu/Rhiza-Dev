@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { createCollaboration, invocationFor, reserveInvocation, settleInvocation, retryInvocation, stopCollaboration, recoverCollaboration, synthesisInput } from './collaboration-policy';
+import { createCollaboration, invocationFor, reserveInvocation, settleInvocation, retryInvocation, stopCollaboration, recoverCollaboration, reserveSynthesis, synthesisInput } from './collaboration-policy';
 
 const at = '2026-10-02T00:00:00.000Z';
 const base = { workspaceId: 'workspace', nodeId: 'node', contextBaseHash: 'a'.repeat(64), prompt: 'Compare layouts', contextItems: [], history: [], attachmentIds: [] };
@@ -59,4 +59,28 @@ describe('M16 collaboration frozen input and lifecycle policy', () => {
     expect(retried.attempts.filter(attempt => attempt.participantId === 'model-a')).toHaveLength(1);
     expect(() => retryInvocation(interrupted, 'model-a-1-1', { id: 'bad', runRef: 'bad', manifestRef: 'bad', at })).toThrow('COLLABORATION_RETRY_NOT_ALLOWED');
   });
+});
+
+
+it('reopens only an explicit failed participant after partial synthesis and keeps old evidence immutable', () => {
+  let record = reserve(create(), 'model-a');
+  record = settleInvocation(record, 'model-a-1-1', { status: 'completed', outputRef: 'output-a', text: 'A', usedTokens: 10, at });
+  record = settleInvocation(reserve(record, 'model-b'), 'model-b-1-1', { status: 'failed', usedTokens: 10, at });
+  record = reserveSynthesis(record, { id: 'synthesis-1', runRef: 'synth-run-1', manifestRef: 'synth-manifest-1', providerEndpointRef: 'endpoint-a', at });
+  record = settleInvocation(record, 'synthesis-1', { status: 'completed', outputRef: 'summary-old', text: 'A with B missing', usedTokens: 10, at });
+  record.status = 'partial';
+  record.synthesis = { recommendation: 'A', rationale: 'B missing', alternatives: [], risks: [], disagreements: [], sourceOutputRefs: ['output-a'], missingParticipants: [{ participantId: 'model-b', status: 'failed' }] };
+  const original = structuredClone(record);
+  expect(() => reserveSynthesis(record, { id: 'duplicate', runRef: 'duplicate', manifestRef: 'duplicate', providerEndpointRef: 'endpoint-a', at })).toThrow('COLLABORATION_ATTEMPT_CONFLICT');
+  let retried = retryInvocation(record, 'model-b-1-1', { id: 'retry-b', runRef: 'retry-run', manifestRef: 'retry-manifest', at });
+  expect(retried.status).toBe('running'); expect(retried.synthesis).toBeUndefined();
+  expect(retried.attempts.at(-1)?.input).toEqual(original.attempts[1].input);
+  retried = settleInvocation(retried, 'retry-b', { status: 'completed', outputRef: 'output-b', text: 'B', usedTokens: 10, at });
+  const next = reserveSynthesis(retried, { id: 'synthesis-2', runRef: 'synth-run-2', manifestRef: 'synth-manifest-2', providerEndpointRef: 'endpoint-a', at });
+  expect(next.attempts.at(-1)?.input.exchange.map(item => item.outputRef)).toEqual(['output-a', 'output-b']);
+  expect(next.attempts.at(-1)?.attempt).toBe(2);
+  expect(next.attempts.filter(item => item.participantId === 'model-a')).toHaveLength(1);
+  expect(record).toEqual(original); expect(next.attempts.find(item => item.id === 'synthesis-1')?.text).toBe('A with B missing');
+  expect(() => retryInvocation({ ...record, cancelRequestedAt: at }, 'model-b-1-1', { id: 'stopped', runRef: 'stopped', manifestRef: 'stopped', at })).toThrow('COLLABORATION_STOPPED');
+  expect(() => retryInvocation(record, 'model-b-1-1', { id: 'late', runRef: 'late', manifestRef: 'late', at: '2026-10-02T00:00:02.000Z' })).toThrow('COLLABORATION_TIME_BUDGET');
 });

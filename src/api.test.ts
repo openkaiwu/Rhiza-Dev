@@ -80,3 +80,21 @@ it('binds workspace data requests to the selected path while keeping provider re
 it('reports pending cancellation when command lookup never finds the Run',async()=>{
  vi.useFakeTimers();vi.stubGlobal('fetch',vi.fn().mockImplementation(async()=>new Response(JSON.stringify({run:null}),{status:200})));const result=api.cancelAttempt('not-created',undefined,'original-workspace');const assertion=expect(result).rejects.toMatchObject({code:'RUN_LOOKUP_PENDING'});await vi.runAllTimersAsync();await assertion;vi.useRealTimers();
 });
+
+it('consumes collaboration state and participant failures without treating them as a failed aggregate stream', async () => {
+  const frames = [
+    'event: collaboration\ndata: {"type":"COLLABORATION_STATE","collaborationId":"session","revision":2,"status":"running","attempts":[],"budget":{}}',
+    'event: collaboration\ndata: {"type":"RUN_ERROR","collaborationId":"session","participantId":"b","round":1,"requestId":"run-b","code":"PROVIDER_TIMEOUT","message":"B failed","status":504}',
+    'event: commit\ndata: {"type":"COLLABORATION_COMMIT","collaboration":{"id":"session","status":"partial"}}',
+  ].join('\n\n') + '\n\n';
+  const fetch = vi.fn().mockResolvedValue(new Response(frames, { status: 200, headers: { 'Content-Type': 'text/event-stream' } })); vi.stubGlobal('fetch', fetch); api.setWorkspace('workspace');
+  const events = vi.fn(); const controller = new AbortController();
+  expect(await api.streamCollaboration('session', events, 'stable-stream-key', controller.signal)).toEqual({ collaboration: { id: 'session', status: 'partial' } });
+  expect(events).toHaveBeenCalledTimes(2); expect(events.mock.calls[1][0]).toMatchObject({ participantId: 'b', type: 'RUN_ERROR' });
+  expect(fetch.mock.calls[0][0]).toBe('/api/v1/workspaces/workspace/collaborations/session/stream'); expect(fetch.mock.calls[0][1].headers['Idempotency-Key']).toBe('stable-stream-key');
+});
+
+it('preserves aggregate collaboration errors and never repeats an external invocation automatically', async () => {
+  const fetch = vi.fn().mockResolvedValue(new Response('event: error\ndata: {"type":"COLLABORATION_ERROR","code":"COLLABORATION_ALREADY_STARTED","message":"Review required","status":409}\n\n', { status: 200 })); vi.stubGlobal('fetch', fetch);
+  await expect(api.streamCollaboration('session', vi.fn(), 'stable-key', new AbortController().signal)).rejects.toMatchObject({ code: 'COLLABORATION_ALREADY_STARTED', status: 409 }); expect(fetch).toHaveBeenCalledOnce();
+});
