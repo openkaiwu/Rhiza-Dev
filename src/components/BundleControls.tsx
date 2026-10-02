@@ -1,7 +1,14 @@
 import { useRef, useState } from 'react';
 import { ApiError } from '../api';
 import { presentErrorText } from '../error-presentation';
-import type { BundleMappingChoice, BundlePreview, ManagedBackupList, ProviderCatalog } from '../types';
+import type { BundleExecutionConfiguration, BundleMappingChoice, BundlePreview, ManagedBackupList, ProviderCatalog } from '../types';
+
+export interface ImportedBundle {
+  workspaceId: string;
+  importId: string;
+  executionConfiguration: BundleExecutionConfiguration;
+}
+export interface ImportedTarget { activeNodeId?: string; activeNodeTitle?: string; canApply: boolean }
 
 export interface BundleControlsProps {
   workspaceId?: string;
@@ -10,7 +17,10 @@ export interface BundleControlsProps {
   backupsLoading?: boolean;
   backupsError?: string;
   onPreview: (file: File, mappings?: BundleMappingChoice[]) => Promise<BundlePreview>;
-  onImport: (file: File, key: string, mappings?: BundleMappingChoice[]) => Promise<void>;
+  onImport: (file: File, key: string, mappings?: BundleMappingChoice[]) => Promise<ImportedBundle>;
+  onReadImported: (workspaceId: string) => Promise<ImportedTarget>;
+  onApplyModel: (workspaceId: string, modelId: string, key: string, nodeId?: string) => Promise<void>;
+  onOpenImported: (workspaceId: string) => Promise<void>;
   onHydrate: (file: File, resources: Record<string, File>) => Promise<File>;
   onBackup: (key: string, retryOf?: string) => Promise<void>;
   onRefreshBackups: () => void;
@@ -20,7 +30,7 @@ export interface BundleControlsProps {
 const backupStatus = { running: '备份中', ready: '可恢复', failed: '失败', interrupted: '已中断', purged: '已清除' };
 const mappingReasons: Record<string, string> = { mapping_required: '请选择本机模型', model_missing: '模型已移除', endpoint_missing: '供应商已移除', endpoint_mismatch: '供应商不匹配', endpoint_changed: '连接配置已变化，请重新预检', credential_required: '需要配置密钥', credential_invalid: '密钥已失效' };
 
-export function BundleControls({ workspaceId, catalog, backups, backupsLoading, backupsError, onPreview, onImport, onHydrate, onBackup, onRefreshBackups, onBackupArchive, onSettings }: BundleControlsProps) {
+export function BundleControls({ workspaceId, catalog, backups, backupsLoading, backupsError, onPreview, onImport, onReadImported, onApplyModel, onOpenImported, onHydrate, onBackup, onRefreshBackups, onBackupArchive, onSettings }: BundleControlsProps) {
   const [tab, setTab] = useState<'export' | 'import' | 'backups'>('export');
   const [includeResources, setIncludeResources] = useState(true);
   const [selection, setSelection] = useState<{ file: File; key: string }>();
@@ -31,6 +41,13 @@ export function BundleControls({ workspaceId, catalog, backups, backupsLoading, 
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [acknowledged, setAcknowledged] = useState(false);
+  const [imported, setImported] = useState<ImportedBundle>();
+  const [importedTarget, setImportedTarget] = useState<ImportedTarget>();
+  const [targetError, setTargetError] = useState('');
+  const [preferenceBlocked, setPreferenceBlocked] = useState(false);
+  const [futureModelId, setFutureModelId] = useState('');
+  const [preferenceSteps, setPreferenceSteps] = useState({ workspace: false, conversation: false });
+  const preferenceAttempt = useRef<{ modelId: string; key: string; workspace: boolean; conversation: boolean } | undefined>(undefined);
   const running = useRef(false);
   const backupKeys = useRef(new Map<string, string>());
   const run = async (operation: () => Promise<void>, pending: string) => {
@@ -42,6 +59,7 @@ export function BundleControls({ workspaceId, catalog, backups, backupsLoading, 
   };
   const selectFile = (file?: File) => {
     setPreview(undefined); setMessage(''); setChoices([]); setResources({}); setAcknowledged(false); setMappingDirty(false);
+    setImported(undefined); setImportedTarget(undefined); setTargetError(''); setPreferenceBlocked(false); setFutureModelId(''); setPreferenceSteps({ workspace: false, conversation: false }); preferenceAttempt.current = undefined;
     if (file && (!file.name.toLowerCase().endsWith('.rhiza') || file.size > 2 * 1024 ** 3)) { setSelection(undefined); setMessage('请选择不超过 2 GiB 的 .rhiza 文件。'); return; }
     setSelection(file ? { file, key: crypto.randomUUID() } : undefined);
   };
@@ -53,12 +71,40 @@ export function BundleControls({ workspaceId, catalog, backups, backupsLoading, 
   }, '正在预检归档…');
   const importBundle = () => run(async () => {
     if (!selection || !preview?.canImport || !acknowledged || mappingDirty) return;
-    await onImport(selection.file, selection.key, choices.length ? choices : undefined); setMessage('导入成功。');
+    const result = await onImport(selection.file, selection.key, choices.length ? choices : undefined);
+    setImported(result);
+    const configuration = result.executionConfiguration;
+    const suggested = configuration.mappingCount === 1 && !configuration.truncated && configuration.mappings.length === 1 && configuration.mappings[0].status === 'ready' ? configuration.mappings[0].target?.targetModelId : undefined;
+    setFutureModelId(suggested && catalog.models.some(model => model.id === suggested) ? suggested : '');
+    setMessage('归档已导入。请单独确认后续对话模型，或直接打开历史。');
+    await readImportedTarget(result.workspaceId);
   }, '正在校验并导入，请勿关闭页面。');
+  const readImportedTarget = async (workspaceId: string) => {
+    setTargetError('');
+    try { setImportedTarget(await onReadImported(workspaceId)); setPreferenceBlocked(false); }
+    catch { setTargetError('归档已导入。无法读取后续配置目标，请重新读取或打开历史。'); }
+  };
+  const applyFutureModel = () => run(async () => {
+    if (!imported || !importedTarget?.canApply || !futureModelId || preferenceBlocked) return;
+    const attempt = preferenceAttempt.current?.modelId === futureModelId ? preferenceAttempt.current : { modelId: futureModelId, key: crypto.randomUUID(), workspace: false, conversation: false };
+    preferenceAttempt.current = attempt;
+    try {
+      if (!attempt.workspace) { await onApplyModel(imported.workspaceId, futureModelId, `${attempt.key}:workspace`); attempt.workspace = true; setPreferenceSteps({ workspace: true, conversation: attempt.conversation }); }
+      if (importedTarget.activeNodeId && !attempt.conversation) { await onApplyModel(imported.workspaceId, futureModelId, `${attempt.key}:conversation`, importedTarget.activeNodeId); attempt.conversation = true; setPreferenceSteps({ workspace: true, conversation: true }); }
+      setMessage(`${importedTarget.activeNodeId ? '工作区与当前讨论' : '工作区'}的后续模型已保存，尚未实际调用模型。`);
+    } catch (error) {
+      if (error instanceof ApiError && [403, 404, 409, 410].includes(error.status)) {
+        attempt.key = crypto.randomUUID(); setPreferenceBlocked(true);
+        setTargetError('模型设置被拒绝。请检查权限、模型和讨论状态后重新读取目标；历史导入保持成功。');
+        setMessage('已保存的步骤保持完成，尚未保存的步骤需重新确认。');
+      } else setMessage('归档已导入。模型设置未完成，请重试此步骤；无需重新导入。');
+    }
+  }, '正在保存后续对话模型…');
   return <div className="workspace-data-controls">
     <div className="data-tabs" role="tablist" aria-label="数据操作">{([['export', '导出'], ['import', '导入与恢复'], ['backups', '托管备份']] as const).map(([value, label]) => <button key={value} role="tab" aria-selected={tab === value} disabled={busy} onClick={() => setTab(value)}>{label}</button>)}</div>
     {tab === 'export' && <section aria-label="导出工作区"><h3>保存完整工作区</h3><p>保留讨论、历史版本、执行和来源引用。归档包含正文，请妥善保管；下载副本无法通过本实例的清除操作撤回。</p><label className="data-check"><input type="checkbox" checked={includeResources} onChange={event => setIncludeResources(event.target.checked)}/>包含附件文件</label>{!includeResources && <p role="status">仅导出文件描述：摘要、大小和历史版本。恢复时必须提供完全一致的历史文件，当前文件不能替代。</p>}{workspaceId && <a className="primary-button" href={`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/bundle${includeResources ? '' : '?includeResources=false'}`} download="workspace.rhiza">下载 workspace.rhiza</a>}</section>}
-    {tab === 'import' && <section aria-label="导入工作区"><h3>导入前检查</h3><p>保留原身份，仅限归档 owner；已有工作区不会覆盖。导入和预检不会执行模型。</p><label>选择 .rhiza 归档<input type="file" accept=".rhiza" disabled={busy} onChange={event => selectFile(event.target.files?.[0])}/></label>{selection && <p>{selection.file.name} · {(selection.file.size / 1024).toFixed(1)} KiB</p>}
+    {tab === 'import' && imported && <section aria-label="导入后继续对话"><h3>历史已导入</h3><p className="data-identity">工作区：{imported.workspaceId}</p><p>{imported.executionConfiguration.ready ? '归档模型映射已检查，后续偏好尚需确认。' : '历史数据已恢复，后续对话模型尚未配置。'}历史 Run、Manifest 和 Exact Replay 配置保持原身份。</p><label className="data-mapping"><span>导入后的模型<small>用于工作区和当前讨论的后续对话；其他讨论的独立偏好保持原值。</small></span><select aria-label="导入后的模型" disabled={busy} value={futureModelId} onChange={event => { setFutureModelId(event.target.value); setPreferenceSteps({ workspace: false, conversation: false }); preferenceAttempt.current = undefined; }}><option value="">请选择本机模型</option>{catalog.models.map(model => <option key={model.id} value={model.id}>{model.displayName}</option>)}</select></label>{importedTarget?.activeNodeTitle && <p>当前讨论：{importedTarget.activeNodeTitle}</p>}{targetError && <p role="alert">{targetError}<button disabled={busy} onClick={() => void run(() => readImportedTarget(imported.workspaceId), '正在重新读取导入目标…')}>重新读取导入目标</button></p>}{importedTarget && !importedTarget.canApply && <p role="status">当前讨论已归档或不可修改，可打开历史后选择其他讨论。</p>}<p aria-live="polite">工作区模型：{preferenceSteps.workspace ? '已保存' : '待确认'}{importedTarget?.activeNodeId && ` · 当前讨论模型：${preferenceSteps.conversation ? '已保存' : '待确认'}`}</p><div className="data-actions"><button disabled={busy || preferenceBlocked || !importedTarget?.canApply || !futureModelId || !catalog.models.some(model => model.id === futureModelId) || (preferenceSteps.workspace && (!importedTarget.activeNodeId || preferenceSteps.conversation))} onClick={() => void applyFutureModel()}>应用后续模型</button><button disabled={busy} onClick={() => void run(() => onOpenImported(imported.workspaceId), '正在打开导入的工作区…')}>打开导入的工作区</button><button disabled={busy} onClick={() => selectFile()}>选择其他归档</button></div></section>}
+    {tab === 'import' && !imported && <section aria-label="导入工作区"><h3>导入前检查</h3><p>保留原身份，仅限归档 owner；已有工作区不会覆盖。导入和预检不会执行模型。</p><label>选择 .rhiza 归档<input type="file" accept=".rhiza" disabled={busy} onChange={event => selectFile(event.target.files?.[0])}/></label>{selection && <p>{selection.file.name} · {(selection.file.size / 1024).toFixed(1)} KiB</p>}
       <button disabled={!selection || busy} onClick={() => void preflight()}>预检所选归档</button>
       {preview && <section className="data-preflight" aria-label="归档预检结果"><h4>{preview.name}</h4><p>{preview.messages} 条消息 · {preview.runs} 次执行 · {preview.resourceVersions} 个资源版本</p><p className="data-identity">工作区：{preview.workspaceId}<br/>归档校验：{preview.archiveDigest}</p>
         {!!preview.missingResourceCount && <><p role="alert">缺少 {preview.missingResourceCount} 个历史文件，导入已阻止。</p><ul className="data-resource-list">{preview.missingResources.map(item => <li key={item.resourceVersionId}><strong>{item.resourceVersionId}</strong><small>{item.mediaType} · {item.size} B · SHA256 {item.digest}</small><label>提供精确历史文件<input type="file" disabled={busy} aria-label={`历史文件 ${item.resourceVersionId}`} onChange={event => { const file = event.target.files?.[0]; setResources(previous => { const next = { ...previous }; if (file) next[item.resourceVersionId] = file; else delete next[item.resourceVersionId]; return next; }); }}/></label></li>)}</ul>{preview.missingResourcesTruncated && <p>清单过长，请使用完整文件导出重新生成归档。</p>}<button disabled={busy || preview.missingResourcesTruncated || preview.missingResources.some(item => !resources[item.resourceVersionId])} onClick={() => void run(async () => { if (!selection) return; const file = await onHydrate(selection.file, resources); selectFile(file); setPreview(await onPreview(file)); setMessage('历史文件校验并补齐成功。请确认后导入。'); }, '正在校验历史文件…')}>校验并补齐历史文件</button></>}

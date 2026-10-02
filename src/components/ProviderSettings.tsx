@@ -1,5 +1,5 @@
 import { Check, Cloud, LoaderCircle, Pin, Plus, RefreshCw, Save, Star, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ProviderCatalog, ProviderDiscoveryBatchResult, ProviderPreset, ProviderPresetInfo } from '../types';
 import { presentErrorText } from '../error-presentation';
 
@@ -18,21 +18,35 @@ export function ProviderSettings({ catalog, presets, onClose, onSave, onDiscover
   const [search, setSearch] = useState('');
   const [modelFilter, setModelFilter] = useState('all');
   const [failedProviders, setFailedProviders] = useState<string[]>([]);
+  const [createdProviderBaseline, setCreatedProviderBaseline] = useState<string[]>();
+  const initialSelectionResolved = useRef(false);
   const selectedProvider = catalog.providers.find(provider => provider.id === form.id);
   const models = useMemo(() => catalog.models.filter(model => (!form.id || model.providerId === form.id) && `${model.displayName} ${model.modelId}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()) && (modelFilter !== 'favorite' || model.favorite) && (modelFilter !== 'pinned' || model.pinned)), [catalog.models, form.id, search, modelFilter]);
 
   useEffect(() => {
-    if (!catalog.providers.length || form.id) return;
+    if (!catalog.providers.length || initialSelectionResolved.current) return;
+    initialSelectionResolved.current = true;
     const provider = catalog.providers[0];
     setForm({ id: provider.id, preset: provider.preset, name: provider.name, baseUrl: provider.baseUrl, apiKey: '', allowNoKey: provider.allowNoKey, modelId: '' });
-  }, [catalog.providers, form.id]);
+  }, [catalog.providers]);
+
+  useEffect(() => {
+    if (!createdProviderBaseline) return;
+    const added = catalog.providers.filter(provider => !createdProviderBaseline.includes(provider.id));
+    if (added.length !== 1) return;
+    const provider = added[0];
+    setForm({ id: provider.id, preset: provider.preset, name: provider.name, baseUrl: provider.baseUrl, apiKey: '', allowNoKey: provider.allowNoKey, modelId: '' });
+    setCreatedProviderBaseline(undefined);
+  }, [catalog.providers, createdProviderBaseline]);
 
   const selectProvider = (id: string) => {
     const provider = catalog.providers.find(item => item.id === id)!;
+    setCreatedProviderBaseline(undefined);
     setForm({ id, preset: provider.preset, name: provider.name, baseUrl: provider.baseUrl, apiKey: '', allowNoKey: provider.allowNoKey, modelId: '' });
     setNotice('');
   };
   const selectPreset = (preset: ProviderPreset) => {
+    initialSelectionResolved.current = true;
     const value = presets[preset];
     setForm(current => ({ ...current, preset, ...(value ? { name: value.name, baseUrl: value.baseUrl, allowNoKey: value.allowNoKey } : {}) }));
   };
@@ -44,14 +58,14 @@ export function ProviderSettings({ catalog, presets, onClose, onSave, onDiscover
   return <div className="settings-backdrop" role="presentation"><section className="provider-settings" role="dialog" aria-modal="true" aria-labelledby="provider-settings-title">
     <header className="settings-header"><div><span className="eyebrow">MODEL REGISTRY</span><h2 id="provider-settings-title">模型与 API</h2><p>密钥在本机后端加密保存，浏览器不会再次读取。</p></div><button className="icon-button" onClick={onClose} aria-label="关闭设置"><X size={18}/></button></header>
     <div className="settings-body">
-      <aside className="provider-list"><div className="provider-list-title"><span>供应商</span><button onClick={() => setForm(blankForm)} aria-label="新增供应商"><Plus size={14}/></button></div>
-        {catalog.providers.map(provider => <button className={provider.id === form.id ? 'provider-row active' : 'provider-row'} key={provider.id} onClick={() => selectProvider(provider.id)}><span className={`provider-signal ${provider.configured ? 'online' : ''}`}/><span><strong>{provider.name}</strong><small>{provider.discoveryHealth?.status === 'invalid-key' ? '密钥无效' : provider.discoveryHealth?.status === 'degraded' ? '目录同步失败' : provider.discoveryHealth?.status === 'healthy' ? '目录已同步' : provider.configured ? '已配置 · 目录未检测' : '需要密钥'}</small></span></button>)}
+      <aside className="provider-list"><div className="provider-list-title"><span>供应商</span><button disabled={Boolean(busy)} onClick={() => { initialSelectionResolved.current = true; setCreatedProviderBaseline(undefined); setForm(blankForm); }} aria-label="新增供应商"><Plus size={14}/></button></div>
+        {catalog.providers.map(provider => <button className={provider.id === form.id ? 'provider-row active' : 'provider-row'} key={provider.id} disabled={Boolean(busy)} onClick={() => selectProvider(provider.id)}><span className={`provider-signal ${provider.configured ? 'online' : ''}`}/><span><strong>{provider.name}</strong><small>{provider.discoveryHealth?.status === 'invalid-key' ? '密钥无效' : provider.discoveryHealth?.status === 'degraded' ? '目录同步失败' : provider.discoveryHealth?.status === 'healthy' ? '目录已同步' : provider.configured ? '已配置 · 目录未检测' : '需要密钥'}</small></span></button>)}
       </aside>
       <div className="settings-main">
         <section className="settings-section api-form"><div className="settings-section-title"><span><Cloud size={14}/>供应商连接</span><small>{form.id ? '编辑' : '新增'}</small></div>
-          <div className="preset-row">{(['openai','openrouter','deepseek','siliconflow','ollama','custom'] as ProviderPreset[]).map(preset => <button key={preset} className={form.preset === preset ? 'active' : ''} onClick={() => selectPreset(preset)}>{presets[preset]?.name || '自定义'}</button>)}</div>
-          <form className="field-grid" autoComplete="off" onSubmit={event => event.preventDefault()}><label><span>名称</span><input name="provider-name" autoComplete="organization" value={form.name} onChange={event => setForm({ ...form, name: event.target.value })}/></label><label className="wide"><span>Base URL</span><input name="provider-url" autoComplete="url" value={form.baseUrl} onChange={event => setForm({ ...form, baseUrl: event.target.value })}/></label><label className="wide"><span>API Key {selectedProvider?.hasApiKey && <small>已安全保存，留空则保持不变</small>}</span><input name="provider-key" type="password" autoComplete="new-password" value={form.apiKey} placeholder={selectedProvider?.hasApiKey ? '••••••••••••••••' : 'sk-…'} onChange={event => setForm({ ...form, apiKey: event.target.value })}/></label><label><span>手动添加模型</span><input name="model-id" autoComplete="off" value={form.modelId} placeholder="model-id" onChange={event => setForm({ ...form, modelId: event.target.value })}/></label><label className="checkbox-field"><input type="checkbox" checked={form.allowNoKey} onChange={event => setForm({ ...form, allowNoKey: event.target.checked })}/><span>允许无密钥连接（仅本地服务）</span></label></form>
-          <div className="form-actions"><button className="primary-button" disabled={Boolean(busy)} onClick={() => run('save', () => onSave(form), '供应商配置已保存。')}>{busy === 'save' ? <LoaderCircle className="spin" size={14}/> : <Save size={14}/>}保存配置</button>{form.id && <button className="ghost-button" disabled={Boolean(busy)} onClick={() => run('discover', () => onDiscover(form.id!), '模型目录已同步。')}>{busy === 'discover' ? <LoaderCircle className="spin" size={14}/> : <RefreshCw size={14}/>}获取模型</button>}<span className="settings-notice" role="status">{notice}</span></div>
+          <div className="preset-row">{(['openai','openrouter','deepseek','siliconflow','ollama','custom'] as ProviderPreset[]).map(preset => <button key={preset} className={form.preset === preset ? 'active' : ''} disabled={Boolean(busy)} onClick={() => selectPreset(preset)}>{presets[preset]?.name || '自定义'}</button>)}</div>
+          <form className="field-grid" autoComplete="off" onChangeCapture={() => { initialSelectionResolved.current = true; }} onSubmit={event => event.preventDefault()}><label><span>名称</span><input name="provider-name" autoComplete="organization" disabled={Boolean(busy)} value={form.name} onChange={event => setForm({ ...form, name: event.target.value })}/></label><label className="wide"><span>Base URL</span><input name="provider-url" autoComplete="url" disabled={Boolean(busy)} value={form.baseUrl} onChange={event => setForm({ ...form, baseUrl: event.target.value })}/></label><label className="wide"><span>API Key {selectedProvider?.hasApiKey && <small>已安全保存，留空则保持不变</small>}</span><input name="provider-key" type="password" autoComplete="new-password" disabled={Boolean(busy)} value={form.apiKey} placeholder={selectedProvider?.hasApiKey ? '••••••••••••••••' : 'sk-…'} onChange={event => setForm({ ...form, apiKey: event.target.value })}/></label><label><span>手动添加模型</span><input name="model-id" autoComplete="off" disabled={Boolean(busy)} value={form.modelId} placeholder="model-id" onChange={event => setForm({ ...form, modelId: event.target.value })}/></label><label className="checkbox-field"><input type="checkbox" disabled={Boolean(busy)} checked={form.allowNoKey} onChange={event => setForm({ ...form, allowNoKey: event.target.checked })}/><span>允许无密钥连接（仅本地服务）</span></label></form>
+          <div className="form-actions"><button className="primary-button" disabled={Boolean(busy) || Boolean(createdProviderBaseline)} onClick={() => run('save', async () => { const previousIds = catalog.providers.map(provider => provider.id); await onSave(form); if (!form.id) setCreatedProviderBaseline(previousIds); }, '供应商配置已保存。')}>{busy === 'save' ? <LoaderCircle className="spin" size={14}/> : <Save size={14}/>}保存配置</button>{form.id && <button className="ghost-button" disabled={Boolean(busy)} onClick={() => run('discover', () => onDiscover(form.id!), '模型目录已同步。')}>{busy === 'discover' ? <LoaderCircle className="spin" size={14}/> : <RefreshCw size={14}/>}获取模型</button>}<span className="settings-notice" role="status">{notice}</span></div>
         </section>
         <section className="settings-section model-library"><div className="settings-section-title"><span>模型目录</span><small>{models.length} models</small></div>
           <div className="provider-catalog-controls"><input aria-label="搜索模型目录" value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索名称或模型 ID"/><select aria-label="筛选模型目录" value={modelFilter} onChange={event => setModelFilter(event.target.value)}><option value="all">全部模型</option><option value="favorite">已收藏</option><option value="pinned">已置顶</option></select></div>

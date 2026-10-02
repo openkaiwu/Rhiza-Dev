@@ -10,6 +10,7 @@
 - 冻结资源导航必须绑定原始 Resource/Version 身份，不能从当前附件列表推断历史版本不存在，也不能替换为最新版本。资源内容 GET 不初始化库；Purge 覆盖层须在解密资源元数据前检查，Blob 读取与摘要校验保留在内容生命周期事务锁内。
 
 - 默认保留 Chat 聚焦区，把 Context Inspector 放在邻接面板，Graph 与 Project State 放在同级主视图。
+- 工作台只保留一条位置标题栏。工作区管理、消息次要操作和来源执行细节采用渐进展开；入口必须可通过键盘到达，Escape 恢复触发器焦点，点击外部不能抢走新焦点。窄屏 Context 使用带焦点约束的抽屉，关闭后恢复原位置。
 - 使用 Active、Recommended、Excluded 三段表达 Context 生命周期，用角色标签表达语义地位。
 - 将视觉语言收敛到 `app/static/css/tokens.css`，以降低后续风格改版成本。
 - 品牌使用中文主名“根系”和英文标识“Rhiza”；旧的 RabbitHole 仅可作为历史数据 ID 保留，不再出现在用户可见界面、日志或系统提示词中。
@@ -25,7 +26,11 @@
 - Tray 预览要按全部活跃来源的真实正文计算预算，不能沿用旧 CURRENT tokens；确认仅发布本次审阅集合。USER_SELECTED sourceRevision 与已接受推荐的版本冲突都必须阻断执行，不能被兼容规划回退吞掉。分享 Graph 搜索是显式动作，最近访问仍不得持久化查询文本，读取旧查询记录时应清除。
 - 本轮 Context 数量、预算与推荐必须来自服务端 preview，不能由存储列表推算；推荐确认绑定 sourceRevision 与用户理由。历史消息的来源数量只读自身 Manifest，不得使用当前预览补齐。Replay 先预检冻结资源，展示策略可用性与差异，缺失资源不提供执行入口。
 - 多模型协作固定输入后收起配置，在发起讨论内展示结果；内部输出支线不作为独立讨论入口。Partial 后仅显式重试失败模型，保留原冻结输入与预算；证据改变时追加汇总版本，不改写历史。保留引用最新汇总，后续 Chat 只读取已纳入本讨论的消息。
+- 协作汇总 attempt 的流片段、失败详情、原输入重试和 Run 入口必须独立保留；不能仅遍历 participants 后丢失 `@synthesis`，也不能将汇总计入参与者完成数量。
+- Bundle 导入成功与后续目标读取、模型偏好保存是独立结果。后续偏好显式绑定恢复的 Workspace/讨论；两个 Command 必须使用不同幂等键。网络不确定只重试未确认步骤，明确拒绝后重新读取目标并为未完成步骤更换身份。历史映射建议不能自动成为未来讨论偏好。
+- Provider 设置的异步目录只负责首次默认选择；用户开始新增或编辑后不能用首条目录覆盖草稿。新增保存后应按实际新增 ID 进入编辑态，清空输入密钥和手工模型字段，避免再次保存创建重复连接。
 - Graph 前端通过 `graph-model.ts` 的 UI-facing model 消费数据。M07 bounded API 已作为适配器输入，但 projector cursor、projection table schema、Journal sequence 与 hover/zoom/panel 等 UI-only 状态不得进入 `GraphView` 契约或 Domain relation。
+- Graph 节点宽高统一由 `graph-viewport.ts` 提供给 CSS、连线端点、适合画布、选择范围和视口裁剪；不能只改卡片 CSS 尺寸，否则仍可见的边缘节点会被错误裁掉。
 - Graph 列表分页必须保留跨页关系，并在展示前筛选已加载的端点。分页 cursor 绑定 checkpoint；失效后刷新第一页，不混合两次投影。Workspace 切换要同时清空 Graph DTO 和作废在途页。
 - Graph Projection 的 active namespace、checkpoint 与 semantic checksum 必须在同一事务更新。正常 checkpoint 推进复用 active namespace；clean rebuild 写新 namespace，只有完整写入后才能切换 alias，且旧 namespace 保留给回滚。
 - `ObjectRef.objectType` 与 relation catalog 是开放字符串集合；新增 object family 不应修改 projection schema enum。Graph 查询必须在服务端执行 depth <= 3、objects <= 500、relations <= 2000 的硬限制，不能只靠前端截断。
@@ -86,10 +91,12 @@
 
 - 浅色块区分语义状态，微圆角和低强度阴影区分交互层级。
 - 青绿点阵只用于品牌、AI 身份和“思考中”状态，避免发光效果泛滥。
-- 小于 1120px 时 Context Inspector 必须转为可关闭抽屉；小于 760px 时导航转为底部栏。
+- 不超过 1200px 时 Context Inspector 转为可关闭抽屉；不超过 760px 时导航转为底部栏。手机工作区菜单选择视图或讨论后收起；展开树节点仍留在菜单内。
 - 字体通过 `@fontsource` 本地打包，避免本地部署时因外部字体服务超时产生控制台错误和视觉跳变。
 - 桌面端临时对话采用同一 Chat Workspace 内的 sidecar，不出现在 Sidebar；窄屏下转为底部浮层，仍保持主讨论可返回。
-- 固定 Context 右栏在高密度 Graph 场景仍会占用明显横向空间；`AppShell` 已把 Context 作为独立 surface，未来 Drawer、Tray 或 Bottom Panel 的产品选择留给 M18，并应依据 M12–M17 的真实使用数据决定。
+- 宽屏 Context 右栏保持独立 surface；窄屏抽屉关闭后恢复打开前的位置和焦点，不能将关闭抽屉误当成另一次浏览器 Back。
+- 执行历史和活动的客户端筛选仅覆盖已加载记录，数量必须明确这一范围。精确定位的 Run 即使不匹配筛选也要可达；活动按连续日期分组时保留 Journal 顺序，不能按展示时间重排事实。
+- 已验证的协作合并输出可在阅读区隐藏末尾四个全空数组的旧格式元数据；未知键、非空内容和未验证输出保留原文。此处理只影响展示，复制、历史输入和可展开原始记录仍使用不可变正文。
 
 ## 6. Debugging Notes
 

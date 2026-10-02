@@ -62,3 +62,19 @@ it('releases the context rail and keeps mobile navigation inside the same worksp
   fireEvent.click(screen.getByRole('button', { name: '图谱' })); expect(onView).toHaveBeenCalledWith('graph');
   expect(screen.queryByRole('button', { name: '协作' })).not.toBeInTheDocument();
 });
+
+it('closes the sidebar after navigation but leaves tree expansion inside the drawer', () => {
+  const navigate = vi.fn();
+  const { container } = render(<AppShell view="runs" hasDiscussionNodes contextOpen={false} networkNotice="" sidebar={<aside className="sidebar"><button className="tree-toggle">展开讨论</button><button className="nav-item" onClick={navigate}><span>活动时间线</span></button></aside>} surfaces={surfaces} emptySurface={<main>empty</main>} contextSurface={<aside>context</aside>} onCloseContext={vi.fn()}/>);
+  const main = container.querySelector('.workbench-main') as HTMLElement;
+  main.inert = false;
+  fireEvent.click(screen.getByRole('button', { name: '打开工作区菜单' }));
+  expect(container.firstElementChild).toHaveClass('sidebar-open');
+  fireEvent.click(screen.getByRole('button', { name: '展开讨论' }));
+  expect(container.firstElementChild).toHaveClass('sidebar-open');
+  fireEvent.click(screen.getByText('活动时间线'));
+  expect(navigate).toHaveBeenCalledOnce();
+  expect(container.firstElementChild).not.toHaveClass('sidebar-open');
+  expect(screen.getByRole('button', { name: '打开工作区菜单' })).toHaveAttribute('aria-expanded', 'false');
+  expect(main.inert).toBe(false);
+});

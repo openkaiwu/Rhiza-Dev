@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { History, Menu, PanelLeftClose, PanelLeftOpen, PanelRight, ChevronDown } from 'lucide-react';
+import { DisclosureMenu } from './DisclosureMenu';
 import type { View } from '../types';
 
 interface AppShellProps {
@@ -72,19 +74,24 @@ export function AppShell({
       drawer?.removeAttribute('aria-modal'); previous?.focus();
     };
   }, [sidebarOpen, contextOpen, drawerMode, onCloseContext]);
-  return <div ref={shellRef} className={`app-shell workbench-shell ${contextOpen ? 'context-open' : ''} ${sidebarOpen ? 'sidebar-open' : ''} ${sidebarCollapsed ? 'nav-collapsed' : ''}`}>
+  return <div ref={shellRef} className={`app-shell workbench-shell ${contextOpen ? 'context-open' : ''} ${sidebarOpen ? 'sidebar-open' : ''} ${sidebarCollapsed ? 'nav-collapsed' : ''}`} onClick={event => {
+    if (sidebarOpen && event.target instanceof Element && event.target.closest('.sidebar .nav-item, .sidebar .tree-thread, .sidebar .active-path-card button')) setSidebarOpen(false);
+  }}>
     <a className="skip-link" href="#workspace-main" onClick={event => { event.preventDefault(); const main = document.getElementById('workspace-main'); main?.setAttribute('tabindex', '-1'); main?.focus(); }}>跳到主要内容</a>
     <div className="network-status" aria-live="polite" role="status">{networkNotice}</div>
     <button className="sidebar-backdrop" aria-label="关闭工作区菜单" onClick={() => setSidebarOpen(false)}/>
     {sidebar}
     <div className="workbench-main">
     <header className="workbench-header">
-      <button className="desktop-navigation-toggle" aria-label={sidebarCollapsed ? '展开导航' : '收起导航'} aria-expanded={!sidebarCollapsed} onClick={() => setSidebarCollapsed(value => !value)}>☰</button>
-      <button className="workspace-menu-button" aria-label="打开工作区菜单" aria-expanded={sidebarOpen} onClick={() => { setSidebarOpen(value => !value); onCloseContext(); }}>☰</button>
-      <div><span>{workspaceName || 'RHIZA'}</span>{view === 'chat' && !primarySurface ? <h1>{title || '工作区'}</h1> : <strong>{title || '工作区'}</strong>}</div>
-      {onOpenContext && <button className={`context-chip ${contextOpen ? 'active' : ''}`} aria-label={contextCount === undefined ? '上下文' : `上下文 ${contextCount}`} aria-expanded={contextOpen} onClick={onOpenContext}>上下文{contextCount !== undefined && <span>{contextCount}</span>}</button>}
+      <button className="desktop-navigation-toggle" aria-label={sidebarCollapsed ? '展开导航' : '收起导航'} title={sidebarCollapsed ? '展开导航' : '收起导航'} aria-expanded={!sidebarCollapsed} onClick={() => setSidebarCollapsed(value => !value)}>{sidebarCollapsed ? <PanelLeftOpen size={18}/> : <PanelLeftClose size={18}/>}</button>
+      <button className="workspace-menu-button" aria-label="打开工作区菜单" aria-expanded={sidebarOpen} onClick={() => { setSidebarOpen(value => !value); onCloseContext(); }}><Menu size={20}/></button>
+      <div className="workbench-title"><span>{workspaceName || 'RHIZA'}</span>{view === 'chat' && !primarySurface ? <h1>{title || '工作区'}</h1> : <strong>{title || '工作区'}</strong>}</div>
+      <div className="workbench-header-actions">
+        {onView && view === 'chat' && <button className="icon-button" aria-label="查看执行历史" title="查看执行历史" onClick={() => onView('runs')}><History size={18}/></button>}
+        {onOpenContext && <button className={`context-chip ${contextOpen ? 'active' : ''}`} aria-label={contextCount === undefined ? '上下文' : `上下文 ${contextCount}`} aria-expanded={contextOpen} onClick={onOpenContext}><PanelRight size={16}/><span className="context-label">上下文</span>{contextCount !== undefined && <b>{contextCount}</b>}</button>}
+        {navigationSurface && <DisclosureMenu label="位置与导航" trigger={<ChevronDown size={18}/>}>{navigationSurface}</DisclosureMenu>}
+      </div>
     </header>
-    {navigationSurface}
     <div className="workbench-content">
     {primarySurface ?? <>{!hasDiscussionNodes && view !== 'graph' && emptySurface}{(hasDiscussionNodes || view !== 'chat') && view !== 'runs' && surfaces[view]}{view === 'runs' && surfaces.runs}</>}
     </div>

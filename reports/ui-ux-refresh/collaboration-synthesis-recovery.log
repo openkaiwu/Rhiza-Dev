@@ -1,0 +1,8 @@
+
+ RUN  v4.1.10 /Users/wangdongxin/projects/RHIZA
+
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  14:12:29
+   Duration  885ms (transform 40ms, setup 49ms, import 76ms, tests 262ms, environment 385ms)

@@ -1,0 +1,30 @@
+
+ RUN  v4.1.10 /Users/wangdongxin/projects/RHIZA
+
+ ❯ src/components/AppShell.test.tsx (4 tests | 1 failed | 3 skipped) 68ms
+   × closes the sidebar after navigation but leaves tree expansion inside the drawer 66ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/AppShell.test.tsx > closes the sidebar after navigation but leaves tree expansion inside the drawer
+Error: expect(element).not.toHaveClass("sidebar-open")
+
+Expected the element not to have class:
+  sidebar-open
+Received:
+  app-shell workbench-shell sidebar-open
+ ❯ src/components/AppShell.test.tsx:75:43
+     73|   fireEvent.click(screen.getByText('活动时间线'));
+     74|   expect(navigate).toHaveBeenCalledOnce();
+     75|   expect(container.firstElementChild).not.toHaveClass('sidebar-open');
+       |                                           ^
+     76|   expect(screen.getByRole('button', { name: '打开工作区菜单' })).toHaveAttrib…
+     77|   expect((container.querySelector('.workbench-main') as HTMLElement).i…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 skipped (4)
+   Start at  13:48:40
+   Duration  610ms (transform 39ms, setup 45ms, import 96ms, tests 68ms, environment 343ms)

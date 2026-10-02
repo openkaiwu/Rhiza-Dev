@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { CollaborationCard, CollaborationForm } from './CollaborationCard';
 import type { CollaborationRecord, ProviderCatalog } from '../types';
@@ -36,4 +36,63 @@ it('shows durable Stop state and allows only a changed completed retry to reques
   fireEvent.click(screen.getByRole('button', { name: '停止协作' })); expect(stop).toHaveBeenCalledOnce();
   rerender(<CollaborationCard record={{ ...running, status: 'canceled', cancelRequestedAt: '2026-10-02T00:00:01Z' }} busy={false} running={false} retained={false} streams={{}} onAction={action} onStop={stop}/>);
   expect(screen.queryByRole('button', { name: '停止协作' })).not.toBeInTheDocument(); expect(screen.queryByRole('button', { name: '汇总当前意见' })).not.toBeInTheDocument();
+});
+
+it('separates synthesis from participant progress and keeps frozen evidence accessible', () => {
+  const withSynthesis = { ...record, attempts: [...record.attempts, { ...record.attempts[0], id: 'synthesis', participantId: '@synthesis', text: 'Combined result' }] };
+  render(<CollaborationCard record={withSynthesis} busy={false} running={false} retained={false} streams={{}} onAction={vi.fn()} onStop={vi.fn()}/>);
+  const participants = screen.getByRole('group', { name: '参与模型意见' });
+  expect(within(participants).getAllByRole('article')).toHaveLength(2);
+  expect(screen.getByRole('status', { name: '协作进度' })).toHaveTextContent('1 / 2 位已完成');
+  expect(screen.getByText(/固定输入/).closest('details')).not.toHaveAttribute('open');
+  fireEvent.click(screen.getByRole('button', { name: '收起协作详情' }));
+  expect(screen.queryByRole('group', { name: '参与模型意见' })).not.toBeInTheDocument();
+  expect(screen.getByText('Review current answer')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '展开协作详情' }));
+  expect(screen.getByRole('group', { name: '参与模型意见' })).toBeInTheDocument();
+});
+
+it.each(['failed', 'interrupted'] as const)('retries the original %s synthesis without repeating completed participants', status => {
+  const action = vi.fn(); const openRun = vi.fn();
+  const participants = record.attempts.map(attempt => ({ ...attempt, status: 'completed' as const, errorCode: undefined, outputRef: `output-${attempt.participantId}`, text: `${attempt.participantId} completed` }));
+  const synthesis = { id: 'synthesis-failed', participantId: '@synthesis', round: 1, attempt: 1, status, runRef: 'run-synthesis', manifestRef: 'manifest-synthesis', errorCode: 'PROVIDER_TIMEOUT' };
+  const failed: CollaborationRecord = { ...record, synthesis: undefined, status: 'interrupted', attempts: [...participants, synthesis] };
+  const props = { record: failed, busy: false, running: false, retained: false, streams: {}, onAction: action, onStop: vi.fn(), onOpenRun: openRun };
+  const { rerender } = render(<CollaborationCard {...props}/>);
+  expect(screen.getByRole('status', { name: '汇总状态' })).toHaveTextContent(status === 'failed' ? '未完成' : '连接中断');
+  expect(screen.getByText('汇总失败详情')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '汇总当前意见' })).not.toBeInTheDocument();
+  expect(within(screen.getByRole('group', { name: '参与模型意见' })).queryByRole('button', { name: /重试/ })).not.toBeInTheDocument();
+  expect(screen.getByRole('status', { name: '协作进度' })).toHaveTextContent('2 / 2 位已完成');
+  expect(action).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: '重试 综合意见' }));
+  expect(action).toHaveBeenCalledExactlyOnceWith('retry', 'synthesis-failed');
+  fireEvent.click(screen.getByRole('button', { name: '汇总执行记录' }));
+  expect(openRun).toHaveBeenCalledWith('run-synthesis');
+  rerender(<CollaborationCard {...props} busy/>);
+  expect(screen.getByRole('button', { name: '重试 综合意见' })).toBeDisabled();
+  rerender(<CollaborationCard {...props} retained/>);
+  expect(screen.getByRole('button', { name: '重试 综合意见' })).toBeDisabled();
+  rerender(<CollaborationCard {...props} record={{ ...failed, status: 'canceled', cancelRequestedAt: '2026-10-02T00:00:01Z' }}/>);
+  expect(screen.queryByRole('button', { name: '重试 综合意见' })).not.toBeInTheDocument();
+  rerender(<CollaborationCard {...props} record={{ ...failed, budget: { ...failed.budget, deadlineAt: '2020-10-02T00:00:00Z' } }}/>);
+  expect(screen.queryByRole('button', { name: '重试 综合意见' })).not.toBeInTheDocument();
+});
+
+it('displays synthesis stream fragments in a separate area before and after the attempt state arrives', () => {
+  const participants = record.attempts.map(attempt => ({ ...attempt, status: 'completed' as const, errorCode: undefined, outputRef: `output-${attempt.participantId}`, text: `${attempt.participantId} completed` }));
+  const synthesizing: CollaborationRecord = { ...record, status: 'synthesizing', synthesis: undefined, attempts: participants };
+  const props = { busy: true, running: true, retained: false, onAction: vi.fn(), onStop: vi.fn(), onOpenRun: vi.fn() };
+  const { rerender } = render(<CollaborationCard {...props} record={synthesizing} streams={{ 'run-synthesis': { participantId: '@synthesis', round: 1, text: '综合建议片段' } }}/>);
+  expect(screen.getByRole('status', { name: '汇总状态' })).toHaveTextContent('进行中');
+  expect(screen.getByText('综合建议片段')).toBeVisible();
+  const modelOpinions = screen.getByRole('group', { name: '参与模型意见' });
+  expect(within(modelOpinions).getAllByRole('article')).toHaveLength(2);
+  expect(within(modelOpinions).queryByText('综合建议片段')).not.toBeInTheDocument();
+  expect(screen.getByRole('status', { name: '协作进度' })).toHaveTextContent('2 / 2 位已完成');
+  const withAttempt: CollaborationRecord = { ...synthesizing, attempts: [...participants, { id: 'synthesis-running', participantId: '@synthesis', round: 1, attempt: 1, status: 'running', runRef: 'run-synthesis', manifestRef: 'manifest-synthesis' }] };
+  rerender(<CollaborationCard {...props} record={withAttempt} streams={{ 'run-synthesis': { participantId: '@synthesis', round: 1, text: '综合建议片段继续生成' } }}/>);
+  expect(screen.getByText('综合建议片段继续生成')).toBeVisible();
+  expect(screen.queryByRole('button', { name: '重试 综合意见' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '汇总执行记录' })).toBeEnabled();
 });

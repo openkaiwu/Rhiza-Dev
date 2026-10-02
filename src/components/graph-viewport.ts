@@ -1,7 +1,9 @@
+export const GRAPH_NODE_WIDTH = 224;
+export const GRAPH_NODE_HEIGHT = 116;
 type Viewport = { x:number;y:number;scale:number };
 /** Exact rectangle intersection. No overscan: offscreen nodes have no canvas DOM. */
 export function visibleGraphNodes<T extends {x:number;y:number}>(nodes:readonly T[],viewport:Viewport,size:{width:number;height:number}):T[] {
- return nodes.filter(node=>{const x=node.x*viewport.scale+viewport.x,y=node.y*viewport.scale+viewport.y;return x<size.width&&y<size.height&&x+148*viewport.scale>0&&y+84*viewport.scale>0;});
+ return nodes.filter(node=>{const x=node.x*viewport.scale+viewport.x,y=node.y*viewport.scale+viewport.y;return x<size.width&&y<size.height&&x+GRAPH_NODE_WIDTH*viewport.scale>0&&y+GRAPH_NODE_HEIGHT*viewport.scale>0;});
 }
 type Ref={workspaceId:string;objectType:string;objectId:string};const key=(ref:Ref)=>`${ref.workspaceId}:${ref.objectType}:${ref.objectId}`;
 /** Retain bounded cross-page edges; drop edges incident to known evicted objects. */

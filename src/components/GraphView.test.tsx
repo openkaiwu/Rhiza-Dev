@@ -35,6 +35,7 @@ describe('GraphView', () => {
     expect(screen.queryByRole('button', { name: '讨论节点：已归档讨论' })).not.toBeInTheDocument();
     expect(screen.getByLabelText('图谱概览').querySelectorAll('i')).toHaveLength(1);
     expect(screen.getByRole('region', { name: '已归档节点' })).toHaveTextContent('已归档讨论');
+    fireEvent.click(screen.getByText('已归档节点'));
     fireEvent.click(screen.getByRole('button', { name: '恢复' }));
     await waitFor(() => expect(handlers.onRestoreNode).toHaveBeenCalledWith('archived'));
   });
@@ -111,6 +112,10 @@ it('restores personal positions/zoom and saves collapse/filter state through the
   expect(screen.getByRole('button', { name: '讨论节点：根节点' }).style.left).toBe('730px'); expect(screen.getByLabelText('当前缩放比例')).toHaveTextContent('110%');
   fireEvent.click(screen.getByRole('button', { name: '保存个人视图' })); await screen.findByText('个人视图已保存。');
   expect(save).toHaveBeenCalledWith(expect.objectContaining({ positions: personal.positions, viewport: personal.viewport, collapsedIds: ['root'], relationFilter: 'references' }));
+  fireEvent.click(screen.getByLabelText('图谱视图操作'));
+  fireEvent.click(screen.getByRole('button', { name: '恢复已保存视图' }));
+  expect(screen.getByRole('status')).toHaveTextContent('已恢复保存的布局与缩放。');
+  expect(screen.getByLabelText('图谱视图操作').closest('details')).not.toHaveAttribute('open');
 });
 
 it('marquee and modifier selection stay bounded to conversations without opening or moving them', async () => {

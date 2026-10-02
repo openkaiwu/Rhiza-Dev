@@ -1,0 +1,1173 @@
+
+ RUN  v4.1.10 /Users/wangdongxin/projects/RHIZA
+
+ ❯ src/components/RunHistory.test.tsx (9 tests | 2 failed | 7 skipped) 1031ms
+   × filters recent runs while keeping the exact focused run and its recovery actions reachable 1023ms
+   × shows initial loading and errors without claiming the history is empty 6ms
+ ❯ src/components/ActivityView.test.tsx (3 tests | 3 failed) 60ms
+   × filters only the loaded events and keeps unknown events searchable without refreshing 20ms
+   × groups dates in journal order and discloses complete event identity on demand 38ms
+   × distinguishes loading, failed loading, and an empty filter with recovery 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/ActivityView.test.tsx > filters only the loaded events and keeps unknown events searchable without refreshing
+TestingLibraryElementError: Unable to find a label with the text of: 活动类型
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<main[39m
+      [33mclass[39m=[32m"activity-view"[39m
+      [33mid[39m=[32m"workspace-main"[39m
+    [36m>[39m
+      [36m<header[39m
+        [33mclass[39m=[32m"workspace-header"[39m
+      [36m>[39m
+        [36m<div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"crumbs"[39m
+          [36m>[39m
+            [0mWORKSPACE / DOMAIN JOURNAL[0m
+          [36m</div>[39m
+          [36m<h1>[39m
+            [0m活动时间线[0m
+          [36m</h1>[39m
+          [36m<p>[39m
+            [0m只显示已提交的语义事实，不混入 token、流式片段或文件读取噪声。[0m
+          [36m</p>[39m
+        [36m</div>[39m
+        [36m<button[39m
+          [33mclass[39m=[32m"ghost-button"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"lucide lucide-refresh-cw"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mheight[39m=[32m"14"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"2"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"14"[39m
+            [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M21 3v5h-5"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M8 16H3v5"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+          [0m刷新[0m
+        [36m</button>[39m
+      [36m</header>[39m
+      [36m<ol[39m
+        [33maria-busy[39m=[32m"false"[39m
+        [33mclass[39m=[32m"activity-timeline"[39m
+      [36m>[39m
+        [36m<li>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"activity-sequence"[39m
+          [36m>[39m
+            [0m#[0m
+            [0m3[0m
+          [36m</span>[39m
+          [36m<div>[39m
+            [36m<strong>[39m
+              [0m更新执行状态[0m
+            [36m</strong>[39m
+            [36m<p>[39m
+              [0mrun · run-secret-id[0m
+            [36m</p>[39m
+            [36m<code>[39m
+              [0mrun.status.changed[0m
+            [36m</code>[39m
+          [36m</div>[39m
+          [36m<time[39m
+            [33mdatetime[39m=[32m"2026-08-31T12:00:00Z"[39m
+          [36m>[39m
+            [0m2026/8/31 05:00:00[0m
+          [36m</time>[39m
+        [36m</li>[39m
+        [36m<li>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"activity-sequence"[39m
+          [36m>[39m
+            [0m#[0m
+            [0m2[0m
+          [36m</span>[39m
+          [36m<div>[39m
+            [36m<strong>[39m
+              [0m完成一次对话[0m
+            [36m</strong>[39m
+            [36m<p>[39m
+              [0mconversation · node-id[0m
+            [36m</p>[39m
+            [36m<code>[39m
+              [0mconversation.run.committed[0m
+            [36m</code>[39m
+          [36m</div>[39m
+          [36m<time[39m
+            [33mdatetime[39m=[32m"2026-08-31T11:00:00Z"[39m
+          [36m>[39m
+            [0m2026/8/31 04:00:00[0m
+          [36m</time>[39m
+        [36m</li>[39m
+        [36m<li>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"activity-sequence"[39m
+          [36m>[39m
+            [0m#[0m
+            [0m1[0m
+          [36m</span>[39m
+          [36m<div>[39m
+            [36m<strong>[39m
+              [0m新类型活动[0m
+            [36m</strong>[39m
+            [36m<p>[39m
+              [0mfuture · future-id[0m
+            [36m</p>[39m
+            [36m<code>[39m
+              [0mfuture.event[0m
+            [36m</code>[39m
+          [36m</div>[39m
+          [36m<time[39m
+            [33mdatetime[39m=[32m"2026-08-30T11:00:00Z"[39m
+          [36m>[39m
+            [0m2026/8/30 04:00:00[0m
+          [36m</time>[39m
+        [36m</li>[39m
+      [36m</ol>[39m
+    [36m</main>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/components/ActivityView.test.tsx:15:27
+     13|   const refresh = vi.fn();
+     14|   render(<ActivityView activity={activity} loading={false} onRefresh={…
+     15|   fireEvent.change(screen.getByLabelText('活动类型'), { target: { value: '…
+       |                           ^
+     16|   expect(screen.getByText('更新执行状态')).toBeVisible();
+     17|   expect(screen.queryByText('完成一次对话')).not.toBeInTheDocument();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  src/components/ActivityView.test.tsx > groups dates in journal order and discloses complete event identity on demand
+TestingLibraryElementError: Unable to find an accessible element with the role "heading"
+
+Here are the accessible roles:
+
+  main:
+
+  Name "":
+  [36m<main[39m
+    [33mclass[39m=[32m"activity-view"[39m
+    [33mid[39m=[32m"workspace-main"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  banner:
+
+  Name "":
+  [36m<header[39m
+    [33mclass[39m=[32m"workspace-header"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "活动时间线":
+  [36m<h1 />[39m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "刷新":
+  [36m<button[39m
+    [33mclass[39m=[32m"ghost-button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  list:
+
+  Name "":
+  [36m<ol[39m
+    [33maria-busy[39m=[32m"false"[39m
+    [33mclass[39m=[32m"activity-timeline"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  listitem:
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  --------------------------------------------------
+  strong:
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  --------------------------------------------------
+  code:
+
+  Name "":
+  [36m<code />[39m
+
+  Name "":
+  [36m<code />[39m
+
+  Name "":
+  [36m<code />[39m
+
+  --------------------------------------------------
+  time:
+
+  Name "":
+  [36m<time[39m
+    [33mdatetime[39m=[32m"2026-08-31T12:00:00Z"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<time[39m
+    [33mdatetime[39m=[32m"2026-08-31T11:00:00Z"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<time[39m
+    [33mdatetime[39m=[32m"2026-08-30T11:00:00Z"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<main[39m
+      [33mclass[39m=[32m"activity-view"[39m
+      [33mid[39m=[32m"workspace-main"[39m
+    [36m>[39m
+      [36m<header[39m
+        [33mclass[39m=[32m"workspace-header"[39m
+      [36m>[39m
+        [36m<div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"crumbs"[39m
+          [36m>[39m
+            [0mWORKSPACE / DOMAIN JOURNAL[0m
+          [36m</div>[39m
+          [36m<h1>[39m
+            [0m活动时间线[0m
+          [36m</h1>[39m
+          [36m<p>[39m
+            [0m只显示已提交的语义事实，不混入 token、流式片段或文件读取噪声。[0m
+          [36m</p>[39m
+        [36m</div>[39m
+        [36m<button[39m
+          [33mclass[39m=[32m"ghost-button"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"lucide lucide-refresh-cw"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mheight[39m=[32m"14"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"2"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"14"[39m
+            [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M21 3v5h-5"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M8 16H3v5"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+          [0m刷新[0m
+        [36m</button>[39m
+      [36m</header>[39m
+      [36m<ol[39m
+        [33maria-busy[39m=[32m"false"[39m
+        [33mclass[39m=[32m"activity-timeline"[39m
+      [36m>[39m
+        [36m<li>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"activity-sequence"[39m
+          [36m>[39m
+            [0m#[0m
+            [0m3[0m
+          [36m</span>[39m
+          [36m<div>[39m
+            [36m<strong>[39m
+              [0m更新执行状态[0m
+            [36m</strong>[39m
+            [36m<p>[39m
+              [0mrun · run-secret-id[0m
+            [36m</p>[39m
+            [36m<code>[39m
+              [0mrun.status.changed[0m
+            [36m</code>[39m
+          [36m</div>[39m
+          [36m<time[39m
+            [33mdatetime[39m=[32m"2026-08-31T12:00:00Z"[39m
+          [36m>[39m
+            [0m2026/8/31 05:00:00[0m
+          [36m</time>[39m
+        [36m</li>[39m
+        [36m<li>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"activity-sequence"[39m
+          [36m>[39m
+            [0m#[0m
+            [0m2[0m
+          [36m</span>[39m
+          [36m<div>[39m
+            [36m<strong>[39m
+              [0m完成一次对话[0m
+            [36m</strong>[39m
+            [36m<p>[39m
+              [0mconversation · node-id[0m
+            [36m</p>[39m
+            [36m<code>[39m
+              [0mconversation.run.committed[0m
+            [36m</code>[39m
+          [36m</div>[39m
+          [36m<time[39m
+            [33mdatetime[39m=[32m"2026-08-31T11:00:00Z"[39m
+          [36m>[39m
+            [0m2026/8/31 04:00:00[0m
+          [36m</time>[39m
+        [36m</li>[39m
+        [36m<li>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"activity-sequence"[39m
+          [36m>[39m
+            [0m#[0m
+            [0m1[0m
+          [36m</span>[39m
+          [36m<div>[39m
+            [36m<strong>[39m
+              [0m新类型活动[0m
+            [36m</strong>[39m
+            [36m<p>[39m
+              [0mfuture · future-id[0m
+            [36m</p>[39m
+            [36m<code>[39m
+              [0mfuture.event[0m
+            [36m</code>[39m
+          [36m</div>[39m
+          [36m<time[39m
+            [33mdatetime[39m=[32m"2026-08-30T11:00:00Z"[39m
+          [36m>[39m
+            [0m2026/8/30 04:00:00[0m
+          [36m</time>[39m
+        [36m</li>[39m
+      [36m</ol>[39m
+    [36m</main>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:109:15
+ ❯ src/components/ActivityView.test.tsx:28:17
+     26| it('groups dates in journal order and discloses complete event identit…
+     27|   render(<ActivityView activity={activity} loading={false} onRefresh={…
+     28|   expect(screen.getAllByRole('heading', { level: 2 })).toHaveLength(2);
+       |                 ^
+     29|   expect(screen.getAllByRole('article').map(row => within(row).getByRo…
+     30|   const row = screen.getAllByRole('article')[0]!;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  src/components/ActivityView.test.tsx > distinguishes loading, failed loading, and an empty filter with recovery
+TestingLibraryElementError: Unable to find an element with the text: 正在加载活动…. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<main[39m
+      [33mclass[39m=[32m"activity-view"[39m
+      [33mid[39m=[32m"workspace-main"[39m
+    [36m>[39m
+      [36m<header[39m
+        [33mclass[39m=[32m"workspace-header"[39m
+      [36m>[39m
+        [36m<div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"crumbs"[39m
+          [36m>[39m
+            [0mWORKSPACE / DOMAIN JOURNAL[0m
+          [36m</div>[39m
+          [36m<h1>[39m
+            [0m活动时间线[0m
+          [36m</h1>[39m
+          [36m<p>[39m
+            [0m只显示已提交的语义事实，不混入 token、流式片段或文件读取噪声。[0m
+          [36m</p>[39m
+        [36m</div>[39m
+        [36m<button[39m
+          [33mclass[39m=[32m"ghost-button"[39m
+          [33mdisabled[39m=[32m""[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"lucide lucide-refresh-cw"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mheight[39m=[32m"14"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"2"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"14"[39m
+            [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M21 3v5h-5"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M8 16H3v5"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+          [0m刷新[0m
+        [36m</button>[39m
+      [36m</header>[39m
+      [36m<ol[39m
+        [33maria-busy[39m=[32m"true"[39m
+        [33mclass[39m=[32m"activity-timeline"[39m
+      [36m/>[39m
+    [36m</main>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/components/ActivityView.test.tsx:40:17
+     38|   const refresh = vi.fn();
+     39|   const { rerender } = render(<ActivityView activity={[]} loading onRe…
+     40|   expect(screen.getByText('正在加载活动…')).toBeVisible();
+       |                 ^
+     41|   expect(screen.queryByText('尚无活动记录')).not.toBeInTheDocument();
+     42|   rerender(<ActivityView activity={[]} loading={false} error="读取失败" on…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  src/components/RunHistory.test.tsx > filters recent runs while keeping the exact focused run and its recovery actions reachable
+TestingLibraryElementError: Unable to find role="article" and name "失败 · Other model"
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<main[39m
+      [33mclass[39m=[32m"activity-view run-history"[39m
+      [33mid[39m=[32m"workspace-main"[39m
+    [36m>[39m
+      [36m<header[39m
+        [33mclass[39m=[32m"workspace-header"[39m
+      [36m>[39m
+        [36m<div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"crumbs"[39m
+          [36m>[39m
+            [0mWORKSPACE / EXECUTION RUNS[0m
+          [36m</div>[39m
+          [36m<h1>[39m
+            [0m执行历史[0m
+          [36m</h1>[39m
+          [36m<p>[39m
+            [0m每次模型调用的状态、输入身份和重试来源。记录每两秒刷新。[0m
+          [36m</p>[39m
+        [36m</div>[39m
+        [36m<button[39m
+          [33mclass[39m=[32m"ghost-button"[39m
+        [36m>[39m
+          [0m刷新[0m
+        [36m</button>[39m
+      [36m</header>[39m
+      [36m<ol[39m
+        [33mclass[39m=[32m"activity-timeline"[39m
+      [36m>[39m
+        [36m<li[39m
+          [33mid[39m=[32m"run-completed"[39m
+        [36m>[39m
+          [36m<article>[39m
+            [36m<strong>[39m
+              [0m已完成[0m
+              [0m · [0m
+              [0mTest model[0m
+            [36m</strong>[39m
+            [36m<p>[39m
+              [0mTest endpoint[0m
+              [0m · [0m
+              [0m8/30/2026, 5:00:00 PM[0m
+            [36m</p>[39m
+            [36m<details>[39m
+              [36m<summary>[39m
+                [0m执行详情[0m
+              [36m</summary>[39m
+              [36m<dl>[39m
+                [36m<dt>[39m
+                  [0mRun[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0mcompleted[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0m输入 SHA-256[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0mabc[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0m模型 / Endpoint[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0mmodel[0m
+                  [0m / [0m
+                  [0mendpoint[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0m重试来源[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0m首次执行[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0m耗时 / 首 token[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0m—[0m
+                  [0m ms / [0m
+                  [0m—[0m
+                  [0m ms[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0mToken / Trace[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0m—[0m
+                  [0m / [0m
+                  [0m10[0m
+                [36m</dd>[39m
+              [36m</dl>[39m
+              [36m<p>[39m
+                [0mHello[0m
+              [36m</p>[39m
+            [36m</details>[39m
+            [36m<details[39m
+              [33mclass[39m=[32m"run-replay"[39m
+            [36m>[39m
+              [36m<summary>[39m
+                [0m历史回放[0m
+              [36m</summary>[39m
+              [36m<p>[39m
+                [0m先检查冻结资源与配置。回放创建新的执行记录，可能产生模型调用费用。[0m
+              [36m</p>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"replay-actions"[39m
+              [36m>[39m
+                [36m<button>[39m
+                  [0m重新检查资源[0m
+                [36m</button>[39m
+                [36m<button[39m
+                  [33mdisabled[39m=[32m""[39m
+                [36m>[39m
+                  [0m按所选策略回放[0m
+                [36m</button>[39m
+              [36m</div>[39m
+            [36m</details>[39m
+          [36m</article>[39m
+        [36m</li>[39m
+        [36m<li[39m
+          [33mid[39m=[32m"run-failed"[39m
+        [36m>[39m
+          [36m<article>[39m
+            [36m<strong>[39m
+              [0m失败[0m
+              [0m · [0m
+              [0mOther model[0m
+            [36m</strong>[39m
+            [36m<p>[39m
+              [0mTest endpoint[0m
+              [0m · [0m
+              [0m8/30/2026, 5:00:00 PM[0m
+            [36m</p>[39m
+            [36m<details>[39m
+              [36m<summary>[39m
+                [0m执行详情[0m
+              [36m</summary>[39m
+              [36m<dl>[39m
+                [36m<dt>[39m
+                  [0mRun[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0mfailed[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0m输入 SHA-256[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0mabc[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0m模型 / Endpoint[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0mmodel[0m
+                  [0m / [0m
+                  [0mendpoint[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0m重试来源[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0m首次执行[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0m耗时 / 首 token[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0m—[0m
+                  [0m ms / [0m
+                  [0m—[0m
+                  [0m ms[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0mToken / Trace[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0m—[0m
+                  [0m / [0m
+                  [0m10[0m
+                [36m</dd>[39m
+              [36m</dl>[39m
+              [36m<p>[39m
+                [0mHello[0m
+              [36m</p>[39m
+            [36m</details>[39m
+            [36m<button>[39m
+              [0m重试为新 Run[0m
+            [36m</button>[39m
+            [36m<details[39m
+              [33mclass[39m=[32m"run-replay"[39m
+            [36m>[39m
+              [36m<summary>[39m
+                [0m历史回放[0m
+              [36m</summary>[39m
+              [36m<p>[39m
+                [0m先检查冻结资源与配置。回放创建新的执行记录，可能产生模型调用费用。[0m
+              [36m</p>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"replay-actions"[39m
+              [36m>[39m
+                [36m<button>[39m
+                  [0m重新检查资源[0m
+                [36m</button>[39m
+                [36m<button[39m
+                  [33mdisabled[39m=[32m""[39m
+                [36m>[39m
+                  [0m按所选策略回放[0m
+                [36m</button>[39m
+              [36m</div>[39m
+            [36m</details>[39m
+          [36m</article>[39m
+        [36m</li>[39m
+        [36m<li[39m
+          [33mclass[39m=[32m"focused-run"[39m
+          [33mid[39m=[32m"run-old-run"[39m
+        [36m>[39m
+          [36m<article>[39m
+            [36m<strong>[39m
+              [0m生成中[0m
+              [0m · [0m
+              [0mTest model[0m
+            [36m</strong>[39m
+            [36m<p>[39m
+              [0mTest endpoint[0m
+              [0m · [0m
+              [0m8/30/2026, 5:00:00 PM[0m
+            [36m</p>[39m
+            [36m<details>[39m
+              [36m<summary>[39m
+                [0m执行详情[0m
+              [36m</summary>[39m
+              [36m<dl>[39m
+                [36m<dt>[39m
+                  [0mRun[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0mold-run[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0m输入 SHA-256[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0mabc[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0m模型 / Endpoint[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0mmodel[0m
+                  [0m / [0m
+                  [0mendpoint[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0m重试来源[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0m首次执行[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0m耗时 / 首 token[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0m—[0m
+                  [0m ms / [0m
+                  [0m—[0m
+                  [0m ms[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0mToken / Trace[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0m—[0m
+                  [0m / [0m
+                  [0m10[0m
+                [36m</dd>[39m
+              [36m</dl>[39m
+              [36m<p>[39m
+                [0mHello[0m
+              [36m</p>[39m
+            [36m</details>[39m
+            [36m<button>[39m
+              [0m停止[0m
+            [36m</button>[39m
+          [36m</article>[39m
+        [36m</li>[39m
+      [36m</ol>[39m
+    [36m</main>[39m
+  [36m</div>[39m
+[36m</body>[39m
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<main[39m
+      [33mclass[39m=[32m"activity-view run-history"[39m
+      [33mid[39m=[32m"workspace-main"[39m
+    [36m>[39m
+      [36m<header[39m
+        [33mclass[39m=[32m"workspace-header"[39m
+      [36m>[39m
+        [36m<div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"crumbs"[39m
+          [36m>[39m
+            [0mWORKSPACE / EXECUTION RUNS[0m
+          [36m</div>[39m
+          [36m<h1>[39m
+            [0m执行历史[0m
+          [36m</h1>[39m
+          [36m<p>[39m
+            [0m每次模型调用的状态、输入身份和重试来源。记录每两秒刷新。[0m
+          [36m</p>[39m
+        [36m</div>[39m
+        [36m<button[39m
+          [33mclass[39m=[32m"ghost-button"[39m
+        [36m>[39m
+          [0m刷新[0m
+        [36m</button>[39m
+      [36m</header>[39m
+      [36m<ol[39m
+        [33mclass[39m=[32m"activity-timeline"[39m
+      [36m>[39m
+        [36m<li[39m
+          [33mid[39m=[32m"run-completed"[39m
+        [36m>[39m
+          [36m<article>[39m
+            [36m<strong>[39m
+              [0m已完成[0m
+              [0m · [0m
+              [0mTest model[0m
+            [36m</strong>[39m
+            [36m<p>[39m
+              [0mTest endpoint[0m
+              [0m · [0m
+              [0m8/30/2026, 5:00:00 PM[0m
+            [36m</p>[39m
+            [36m<details>[39m
+              [36m<summary>[39m
+                [0m执行详情[0m
+              [36m</summary>[39m
+              [36m<dl>[39m
+                [36m<dt>[39m
+                  [0mRun[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0mcompleted[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0m输入 SHA-256[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0mabc[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0m模型 / Endpoint[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0mmodel[0m
+                  [0m / [0m
+                  [0mendpoint[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0m重试来源[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0m首次执行[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0m耗时 / 首 token[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0m—[0m
+                  [0m ms / [0m
+                  [0m—[0m
+                  [0m ms[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0mToken / Trace[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0m—[0m
+                  [0m / [0m
+                  [0m10[0m
+                [36m</dd>[39m
+              [36m</dl>[39m
+              [36m<p>[39m
+                [0mHello[0m
+              [36m</p>[39m
+            [36m</details>[39m
+            [36m<details[39m
+              [33mclass[39m=[32m"run-replay"[39m
+            [36m>[39m
+              [36m<summary>[39m
+                [0m历史回放[0m
+              [36m</summary>[39m
+              [36m<p>[39m
+                [0m先检查冻结资源与配置。回放创建新的执行记录，可能产生模型调用费用。[0m
+              [36m</p>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"replay-actions"[39m
+              [36m>[39m
+                [36m<button>[39m
+                  [0m重新检查资源[0m
+                [36m</button>[39m
+                [36m<button[39m
+                  [33mdisabled[39m=[32m""[39m
+                [36m>[39m
+                  [0m按所选策略回放[0m
+                [36m</button>[39m
+              [36m</div>[39m
+            [36m</details>[39m
+          [36m</article>[39m
+        [36m</li>[39m
+        [36m<li[39m
+          [33mid[39m=[32m"run-failed"[39m
+        [36m>[39m
+          [36m<article>[39m
+            [36m<strong>[39m
+              [0m失败[0m
+              [0m · [0m
+              [0mOther model[0m
+            [36m</strong>[39m
+            [36m<p>[39m
+              [0mTest endpoint[0m
+              [0m · [0m
+              [0m8/30/2026, 5:00:00 PM[0m
+            [36m</p>[39m
+            [36m<details>[39m
+              [36m<summary>[39m
+                [0m执行详情[0m
+              [36m</summary>[39m
+              [36m<dl>[39m
+                [36m<dt>[39m
+                  [0mRun[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0mfailed[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0m输入 SHA-256[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0mabc[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0m模型 / Endpoint[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0mmodel[0m
+                  [0m / [0m
+                  [0mendpoint[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0m重试来源[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0m首次执行[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0m耗时 / 首 token[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0m—[0m
+                  [0m ms / [0m
+                  [0m—[0m
+                  [0m ms[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0mToken / Trace[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0m—[0m
+                  [0m / [0m
+                  [0m10[0m
+                [36m</dd>[39m
+              [36m</dl>[39m
+              [36m<p>[39m
+                [0mHello[0m
+              [36m</p>[39m
+            [36m</details>[39m
+            [36m<button>[39m
+              [0m重试为新 Run[0m
+            [36m</button>[39m
+            [36m<details[39m
+              [33mclass[39m=[32m"run-replay"[39m
+            [36m>[39m
+              [36m<summary>[39m
+                [0m历史回放[0m
+              [36m</summary>[39m
+              [36m<p>[39m
+                [0m先检查冻结资源与配置。回放创建新的执行记录，可能产生模型调用费用。[0m
+              [36m</p>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"replay-actions"[39m
+              [36m>[39m
+                [36m<button>[39m
+                  [0m重新检查资源[0m
+                [36m</button>[39m
+                [36m<button[39m
+                  [33mdisabled[39m=[32m""[39m
+                [36m>[39m
+                  [0m按所选策略回放[0m
+                [36m</button>[39m
+              [36m</div>[39m
+            [36m</details>[39m
+          [36m</article>[39m
+        [36m</li>[39m
+        [36m<li[39m
+          [33mclass[39m=[32m"focused-run"[39m
+          [33mid[39m=[32m"run-old-run"[39m
+        [36m>[39m
+          [36m<article>[39m
+            [36m<strong>[39m
+              [0m生成中[0m
+              [0m · [0m
+              [0mTest model[0m
+            [36m</strong>[39m
+            [36m<p>[39m
+              [0mTest endpoint[0m
+              [0m · [0m
+              [0m8/30/2026, 5:00:00 PM[0m
+            [36m</p>[39m
+            [36m<details>[39m
+              [36m<summary>[39m
+                [0m执行详情[0m
+              [36m</summary>[39m
+              [36m<dl>[39m
+                [36m<dt>[39m
+                  [0mRun[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0mold-run[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0m输入 SHA-256[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0mabc[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0m模型 / Endpoint[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0mmodel[0m
+                  [0m / [0m
+                  [0mendpoint[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0m重试来源[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0m首次执行[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0m耗时 / 首 token[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0m—[0m
+                  [0m ms / [0m
+                  [0m—[0m
+                  [0m ms[0m
+                [36m</dd>[39m
+                [36m<dt>[39m
+                  [0mToken / Trace[0m
+                [36m</dt>[39m
+                [36m<dd>[39m
+                  [0m—[0m
+                  [0m / [0m
+                  [0m10[0m
+                [36m</dd>[39m
+              [36m</dl>[39m
+              [36m<p>[39m
+                [0mHello[0m
+              [36m</p>[39m
+            [36m</details>[39m
+            [36m<button>[39m
+              [0m停止[0m
+            [36m</button>[39m
+          [36m</article>[39m
+        [36m</li>[39m
+      [36m</ol>[39m
+    [36m</main>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ waitForWrapper node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ src/components/RunHistory.test.tsx:16:16
+     14|   const list = vi.spyOn(api, 'listRuns').mockResolvedValue({ runs: [co…
+     15|   render(<RunHistory onChanged={vi.fn()} focusedRun={focused}/>);
+     16|   await screen.findByRole('article', { name: '失败 · Other model' });
+       |                ^
+     17|   fireEvent.change(screen.getByLabelText('执行状态'), { target: { value: '…
+     18|   expect(screen.queryByRole('article', { name: '失败 · Other model' })).…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  src/components/RunHistory.test.tsx > shows initial loading and errors without claiming the history is empty
+TestingLibraryElementError: Unable to find an element with the text: 正在加载执行历史…. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<main[39m
+      [33mclass[39m=[32m"activity-view run-history"[39m
+      [33mid[39m=[32m"workspace-main"[39m
+    [36m>[39m
+      [36m<header[39m
+        [33mclass[39m=[32m"workspace-header"[39m
+      [36m>[39m
+        [36m<div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"crumbs"[39m
+          [36m>[39m
+            [0mWORKSPACE / EXECUTION RUNS[0m
+          [36m</div>[39m
+          [36m<h1>[39m
+            [0m执行历史[0m
+          [36m</h1>[39m
+          [36m<p>[39m
+            [0m每次模型调用的状态、输入身份和重试来源。记录每两秒刷新。[0m
+          [36m</p>[39m
+        [36m</div>[39m
+        [36m<button[39m
+          [33mclass[39m=[32m"ghost-button"[39m
+        [36m>[39m
+          [0m刷新[0m
+        [36m</button>[39m
+      [36m</header>[39m
+      [36m<ol[39m
+        [33mclass[39m=[32m"activity-timeline"[39m
+      [36m>[39m
+        [36m<li>[39m
+          [0m尚无执行记录[0m
+        [36m</li>[39m
+      [36m</ol>[39m
+    [36m</main>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/components/RunHistory.test.tsx:32:17
+     30|   vi.spyOn(api, 'listRuns').mockImplementationOnce(() => new Promise((…
+     31|   render(<RunHistory onChanged={vi.fn()}/>);
+     32|   expect(screen.getByText('正在加载执行历史…')).toBeVisible();
+       |                 ^
+     33|   expect(screen.queryByText('尚无执行记录')).not.toBeInTheDocument();
+     34|   await act(async () => reject(new Error('offline')));
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  5 failed | 7 skipped (12)
+   Start at  13:43:32
+   Duration  1.75s (transform 41ms, setup 68ms, import 97ms, tests 1.09s, environment 365ms)

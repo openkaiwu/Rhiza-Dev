@@ -5,7 +5,7 @@ import { BundleControls } from './BundleControls';
 import type { BundlePreview, ProviderCatalog } from '../types';
 const preview: BundlePreview = { workspaceId: 'restored', name: 'Restored workspace', archiveDigest: 'a'.repeat(64), messages: 2, runs: 1, resourceVersions: 0, documentVersion: '3.0.0', canImport: true, reasons: [], missingResourceCount: 0, missingResources: [], missingResourcesTruncated: false, executionRequirementCount: 0, executionRequirementsTruncated: false, executionConfiguration: { ready: true, mappingCount: 0, mappings: [], truncated: false } };
 const catalog: ProviderCatalog = { providers: [{ id: 'provider', name: 'Fixture', preset: 'custom', baseUrl: 'http://localhost', chatPath: '/chat', allowNoKey: true, hasApiKey: false, configured: true, createdAt: '', updatedAt: 'endpoint-version' }], models: [{ id: 'model', providerId: 'provider', modelId: 'fixture', displayName: 'Fixture model', favorite: false, pinned: false, createdAt: '' }], activeModelId: 'model' };
-const handlers = () => ({ onPreview: vi.fn().mockResolvedValue(preview), onImport: vi.fn().mockResolvedValue(undefined), onHydrate: vi.fn(), onBackup: vi.fn().mockResolvedValue(undefined), onRefreshBackups: vi.fn(), onBackupArchive: vi.fn(), onSettings: vi.fn() });
+const handlers = () => ({ onPreview: vi.fn().mockResolvedValue(preview), onImport: vi.fn().mockResolvedValue({ workspaceId: 'restored', importId: 'import', executionConfiguration: preview.executionConfiguration }), onReadImported: vi.fn().mockResolvedValue({ canApply: true }), onApplyModel: vi.fn().mockResolvedValue(undefined), onOpenImported: vi.fn().mockResolvedValue(undefined), onHydrate: vi.fn(), onBackup: vi.fn().mockResolvedValue(undefined), onRefreshBackups: vi.fn(), onBackupArchive: vi.fn(), onSettings: vi.fn() });
 const selectArchive = () => { fireEvent.click(screen.getByRole('tab', { name: '导入与恢复' })); fireEvent.change(screen.getByLabelText('选择 .rhiza 归档'), { target: { files: [new File(['bundle'], 'workspace.rhiza')] } }); fireEvent.click(screen.getByRole('button', { name: '预检所选归档' })); };
 const acknowledge = () => fireEvent.click(screen.getByRole('checkbox', { name: '我已确认工作区身份、归档内容及密钥需重新配置' }));
 
@@ -19,7 +19,74 @@ it('shows the scoped full/thin download and retries only an acknowledged import 
   acknowledge(); fireEvent.click(screen.getByRole('button', { name: '导入所选归档' })); await screen.findByText('操作未完成。请检查后重试。');
   fireEvent.click(screen.getByRole('button', { name: '导入所选归档' })); await waitFor(() => expect(calls.onImport).toHaveBeenCalledTimes(2));
   expect(calls.onImport.mock.calls[0]).toEqual(calls.onImport.mock.calls[1]);
-  fireEvent.change(screen.getByLabelText('选择 .rhiza 归档'), { target: { files: [new File(['other'], 'other.rhiza')] } }); expect(screen.queryByLabelText('归档预检结果')).not.toBeInTheDocument();
+  await screen.findByRole('button', { name: '选择其他归档' }); fireEvent.click(screen.getByRole('button', { name: '选择其他归档' })); expect(screen.queryByLabelText('归档预检结果')).not.toBeInTheDocument();
+});
+
+it('applies an imported future model only by explicit choice and retries preferences without reimporting data', async () => {
+  const calls = handlers();
+  const target = { modelSpecRef: 'old-model', providerEndpointRef: 'old-provider', targetModelId: 'model', targetProviderEndpointRef: 'provider', targetEndpointVersion: 'endpoint-version' };
+  calls.onImport.mockResolvedValue({ workspaceId: 'restored', importId: 'import', executionConfiguration: { ready: true, mappingCount: 1, truncated: false, mappings: [{ ...target, target, runCount: 1, currentEndpointVersion: 'endpoint-version', status: 'ready', credentialStatus: 'not-required', discoveryStatus: 'unknown' }] } });
+  calls.onReadImported.mockResolvedValue({ canApply: true, activeNodeId: 'restored-discussion' });
+  calls.onApplyModel.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('lost response'));
+  render(<BundleControls workspaceId="source" catalog={catalog} {...calls}/>); selectArchive(); await screen.findByText('Restored workspace'); acknowledge();
+  fireEvent.click(screen.getByRole('button', { name: '导入所选归档' })); await screen.findByRole('region', { name: '导入后继续对话' });
+  expect(calls.onApplyModel).not.toHaveBeenCalled(); expect(screen.getByLabelText('导入后的模型')).toHaveValue('model');
+  fireEvent.click(screen.getByRole('button', { name: '应用后续模型' })); await screen.findByText('归档已导入。模型设置未完成，请重试此步骤；无需重新导入。');
+  fireEvent.click(screen.getByRole('button', { name: '应用后续模型' })); await screen.findByText('工作区与当前讨论的后续模型已保存，尚未实际调用模型。');
+  expect(calls.onApplyModel).toHaveBeenCalledTimes(3); expect(calls.onApplyModel.mock.calls[1]).toEqual(calls.onApplyModel.mock.calls[2]);
+  expect(calls.onApplyModel.mock.calls[0][2]).not.toBe(calls.onApplyModel.mock.calls[1][2]);
+  expect(calls.onApplyModel).toHaveBeenLastCalledWith('restored', 'model', expect.any(String), 'restored-discussion'); expect(calls.onImport).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole('button', { name: '打开导入的工作区' })); await waitFor(() => expect(calls.onOpenImported).toHaveBeenCalledWith('restored'));
+});
+
+it('does not claim unpersisted execution configuration is ready and keeps restored history accessible', async () => {
+  const calls = handlers();
+  calls.onImport.mockResolvedValue({ workspaceId: 'restored', importId: 'import', executionConfiguration: { ready: false, mappingCount: 1, truncated: false, mappings: [{ modelSpecRef: 'old-model', providerEndpointRef: 'old-provider', runCount: 1, target: null, currentEndpointVersion: null, status: 'unresolved', reason: 'mapping_required', credentialStatus: 'unknown', discoveryStatus: 'unknown' }] } });
+  render(<BundleControls catalog={catalog} {...calls}/>); selectArchive(); await screen.findByText('Restored workspace'); acknowledge();
+  fireEvent.click(screen.getByRole('button', { name: '导入所选归档' })); await screen.findByRole('region', { name: '导入后继续对话' });
+  expect(screen.getByLabelText('导入后的模型')).toHaveValue(''); expect(screen.getByRole('button', { name: '应用后续模型' })).toBeDisabled();
+  expect(screen.getByText(/历史数据已恢复，后续对话模型尚未配置/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '打开导入的工作区' })); await waitFor(() => expect(calls.onOpenImported).toHaveBeenCalledWith('restored'));
+  expect(calls.onApplyModel).not.toHaveBeenCalled();
+});
+
+it('preserves successful import across a target-read failure and retries only the scoped read', async () => {
+  const calls = handlers(); calls.onReadImported.mockRejectedValueOnce(new Error('network disconnected'));
+  render(<BundleControls catalog={catalog} {...calls}/>); selectArchive(); await screen.findByText('Restored workspace'); acknowledge();
+  fireEvent.click(screen.getByRole('button', { name: '导入所选归档' })); await screen.findByRole('button', { name: '重新读取导入目标' });
+  expect(screen.queryByRole('button', { name: '导入所选归档' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '应用后续模型' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: '重新读取导入目标' })); await waitFor(() => expect(calls.onReadImported).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(screen.queryByRole('button', { name: '重新读取导入目标' })).not.toBeInTheDocument());
+  expect(calls.onReadImported).toHaveBeenLastCalledWith('restored'); expect(calls.onImport).toHaveBeenCalledOnce();
+  fireEvent.change(screen.getByLabelText('导入后的模型'), { target: { value: 'model' } });
+  fireEvent.click(screen.getByRole('button', { name: '应用后续模型' })); await screen.findByText('工作区的后续模型已保存，尚未实际调用模型。');
+  expect(calls.onApplyModel).toHaveBeenCalledWith('restored', 'model', expect.any(String));
+});
+
+it('requires explicit model selection for multiple mappings even when all point to one local model', async () => {
+  const calls = handlers();
+  const target = { modelSpecRef: 'old', providerEndpointRef: 'old-provider', targetModelId: 'model', targetProviderEndpointRef: 'provider', targetEndpointVersion: 'endpoint-version' };
+  const mapping = { modelSpecRef: 'old', providerEndpointRef: 'old-provider', runCount: 1, target, currentEndpointVersion: 'endpoint-version', status: 'ready', credentialStatus: 'not-required', discoveryStatus: 'unknown' };
+  calls.onImport.mockResolvedValue({ workspaceId: 'restored', importId: 'import', executionConfiguration: { ready: true, mappingCount: 2, truncated: false, mappings: [mapping, { ...mapping, modelSpecRef: 'other', target: { ...target, modelSpecRef: 'other' } }] } });
+  render(<BundleControls catalog={catalog} {...calls}/>); selectArchive(); await screen.findByText('Restored workspace'); acknowledge();
+  fireEvent.click(screen.getByRole('button', { name: '导入所选归档' })); await screen.findByRole('region', { name: '导入后继续对话' });
+  expect(screen.getByLabelText('导入后的模型')).toHaveValue(''); expect(calls.onApplyModel).not.toHaveBeenCalled();
+});
+
+it('keeps committed steps after a definitive rejection and assigns a new key only after target review', async () => {
+  const calls = handlers(); calls.onReadImported.mockResolvedValue({ activeNodeId: 'restored-discussion', canApply: true });
+  calls.onApplyModel.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new ApiError('讨论已归档', 'NODE_ARCHIVED', 409));
+  render(<BundleControls catalog={catalog} {...calls}/>); selectArchive(); await screen.findByText('Restored workspace'); acknowledge();
+  fireEvent.click(screen.getByRole('button', { name: '导入所选归档' })); await screen.findByRole('region', { name: '导入后继续对话' });
+  fireEvent.change(screen.getByLabelText('导入后的模型'), { target: { value: 'model' } }); fireEvent.click(screen.getByRole('button', { name: '应用后续模型' }));
+  await screen.findByRole('button', { name: '重新读取导入目标' }); expect(screen.getByRole('button', { name: '应用后续模型' })).toBeDisabled();
+  expect(screen.getByText(/工作区模型：已保存.*当前讨论模型：待确认/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '重新读取导入目标' })); await waitFor(() => expect(screen.getByRole('button', { name: '应用后续模型' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: '应用后续模型' })); await screen.findByText('工作区与当前讨论的后续模型已保存，尚未实际调用模型。');
+  expect(calls.onImport).toHaveBeenCalledOnce(); expect(calls.onApplyModel).toHaveBeenCalledTimes(3);
+  expect(calls.onApplyModel.mock.calls[1][2]).not.toBe(calls.onApplyModel.mock.calls[2][2]);
+  expect(calls.onApplyModel.mock.calls[2]).toEqual(['restored', 'model', expect.any(String), 'restored-discussion']);
 });
 
 it('keeps failed and missing-resource preflight unavailable for import and validates supplied historical files', async () => {

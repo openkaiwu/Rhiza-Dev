@@ -1,0 +1,20 @@
+$ pnpm run test:unit && pnpm run test:e2e
+$ vitest run --exclude 'e2e/**' --maxWorkers=1 --testTimeout=30000
+
+ RUN  v4.1.10 /Users/wangdongxin/projects/RHIZA
+
+
+ Test Files  121 passed (121)
+      Tests  629 passed (629)
+   Start at  14:09:07
+   Duration  63.86s (transform 1.14s, setup 4.99s, import 5.18s, tests 31.71s, environment 15.91s)
+
+$ vitest run e2e --maxWorkers=1 --testTimeout=30000
+
+ RUN  v4.1.10 /Users/wangdongxin/projects/RHIZA
+
+
+ Test Files  31 passed | 2 skipped (33)
+      Tests  158 passed | 94 skipped (252)
+   Start at  14:10:11
+   Duration  179.59s (transform 514ms, setup 1.38s, import 5.43s, tests 171.09s, environment 1ms)

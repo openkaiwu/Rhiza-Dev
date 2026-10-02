@@ -7,6 +7,19 @@ afterEach(() => {
   vi.unstubAllGlobals();vi.useRealTimers();
 });
 
+it('writes imported future preferences to the explicit Workspace with stable command identities', async () => {
+  const fetch = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ workspace: { projectId: 'restored/target' } })));
+  vi.stubGlobal('fetch', fetch); api.setWorkspace('source');
+  await api.setWorkspaceModel('local-model', { workspaceId: 'restored/target', idempotencyKey: 'preference:workspace' });
+  api.setWorkspace('other');
+  await api.setConversationModel('discussion/1', 'local-model', { workspaceId: 'restored/target', idempotencyKey: 'preference:conversation' });
+  expect(fetch.mock.calls.map(call => call[0])).toEqual(['/api/v1/workspaces/restored%2Ftarget/workspace/model', '/api/v1/workspaces/restored%2Ftarget/nodes/discussion%2F1/model']);
+  expect(fetch.mock.calls[0][1].headers['Idempotency-Key']).toBe('preference:workspace');
+  expect(fetch.mock.calls[1][1].headers['Idempotency-Key']).toBe('preference:conversation');
+  expect(fetch.mock.calls.map(call => JSON.parse(call[1].body))).toEqual([{ modelId: 'local-model' }, { modelId: 'local-model' }]);
+  expect(api.workspaceId()).toBe('other');
+});
+
 it('reads and downloads the exact scoped resource version without command context or fallback', async () => {
   const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({resource:{id:'resource/1'},version:{id:'old/1'}})))
     .mockResolvedValueOnce(new Response('original bytes',{headers:{'Content-Type':'application/octet-stream'}}))
