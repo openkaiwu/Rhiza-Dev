@@ -132,9 +132,13 @@ export function eventForCommand(context: CommandFactContext, previous: Workspace
   const addedNode = next.discussionNodes.find(item => !previous.discussionNodes.some(before => before.id === item.id));
   const removedNode = previous.discussionNodes.find(item => !next.discussionNodes.some(after => after.id === item.id));
   const removedRelation = previous.discussionEdges.find(item => !next.discussionEdges.some(after => after.id === item.id));
+  const changedGraphNode = ['object.archived', 'graph.node.status_changed'].includes(eventType)
+    ? next.discussionNodes.find(item => previous.discussionNodes.some(before => before.id === item.id && (before.status !== item.status || before.updatedAt !== item.updatedAt))) : undefined;
+  const addedRelation = eventType === 'graph.relation.created'
+    ? next.discussionEdges.find(item => !previous.discussionEdges.some(before => before.id === item.id)) : undefined;
   const addedResource = next.resources.find(item => !previous.resources.some(before => before.id === item.id));
   const addedVersion = next.resourceVersions.find(item => !previous.resourceVersions.some(before => before.id === item.id));
-  const aggregateId = addedResource?.id || addedVersion?.resourceId || addedNode?.id || removedNode?.id || removedRelation?.id || nodeId || next.projectId;
+  const aggregateId = changedGraphNode?.id || addedRelation?.id || addedResource?.id || addedVersion?.resourceId || addedNode?.id || removedNode?.id || removedRelation?.id || nodeId || next.projectId;
   return [{
     eventType,
     aggregateType,

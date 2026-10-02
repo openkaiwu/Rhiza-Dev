@@ -1,4 +1,6 @@
 import { BoundedGraphQueries } from './graph-projection/bounded-queries';
+import { graphBatchError, prepareForwardGraphBatch, prepareUndoGraphBatch, validateGraphBatchRequest } from './application/graph-batch-plan';
+import type { GraphBatchPlan, GraphBatchRequest } from './contracts/graph-batch';
 import { graphViewError, validateGraphViewOwner, validateGraphViewType, validatePersonalGraphView, type GraphViewPosition, type PersonalGraphView, type PersonalGraphViewReceipt, type SavePersonalGraphView } from './contracts/personal-graph-view';
 import { runFrozenResourceIds } from './domain/purge-resources';
 import { collectionChanges, validateWorkspaceReferences } from './infrastructure/workspace-change-set';
@@ -1849,6 +1851,67 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       await this.insertCommittedReceipt(database, this.defaultWorkspaceId, context.commandId, context.commandType, null, null,
         await this.prepareReceiptResult(database, this.defaultWorkspaceId, context.commandId, { receipt, requestHash }));
       return receipt;
+    });
+  }
+
+  private async graphBatchPlanFrom(database: SqlQueryable, actor: import('./contracts/references').ActorRef, batchId: string): Promise<GraphBatchPlan> {
+    const row = (await database.query<Record<string, unknown>>('SELECT * FROM command_receipts WHERE workspace_id=$1 AND command_id=$2 AND purged_at IS NULL', [this.defaultWorkspaceId, batchId])).rows[0];
+    if (!row || row.status !== 'committed' || !['BatchGraphOperations', 'UndoGraphBatch'].includes(String(row.command_type))) throw graphBatchError('GRAPH_BATCH_NOT_FOUND', 404);
+    const plan = await this.readReceiptResult<GraphBatchPlan>(row);
+    if (!plan || plan.kind !== 'graph-batch-plan-v1' || plan.batchId !== batchId || plan.workspaceId !== this.defaultWorkspaceId) throw graphBatchError('GRAPH_BATCH_RECEIPT_INVALID', 503);
+    if (plan.ownerId !== actor.actorId) throw graphBatchError('GRAPH_BATCH_NOT_FOUND', 404);
+    return plan;
+  }
+
+  async readGraphBatchPlan(actor: import('./contracts/references').ActorRef, batchId: string): Promise<GraphBatchPlan> {
+    return this.inTransaction(async database => {
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
+      await this.requireGraphViewMember(database, actor);
+      return this.graphBatchPlanFrom(database, actor, batchId);
+    });
+  }
+
+  /** Only freezes encrypted operation metadata. Every business change is a separate existing Command. */
+  async prepareGraphBatch(context: CommandFactContext, input: GraphBatchRequest): Promise<GraphBatchPlan> {
+    const request = validateGraphBatchRequest(input);
+    if (!context || context.commandType !== (request.kind === 'apply' ? 'BatchGraphOperations' : 'UndoGraphBatch')
+      || context.scope.scopeType !== 'workspace' || context.scope.scopeId !== this.defaultWorkspaceId || !this.receiptContent) throw graphBatchError('GRAPH_BATCH_UNAVAILABLE', 503);
+    return this.inTransaction(async database => {
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:command:' || $1 || ':' || $2))", [this.defaultWorkspaceId, context.commandId]);
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
+      await this.requireGraphViewMember(database, context.actor);
+      const prior = (await database.query<{ command_type: string }>('SELECT command_type FROM command_receipts WHERE workspace_id=$1 AND command_id=$2', [this.defaultWorkspaceId, context.commandId])).rows[0];
+      if (prior) {
+        if (prior.command_type !== context.commandType) throw graphBatchError('COMMAND_ID_CONFLICT');
+        const saved = await this.graphBatchPlanFrom(database, context.actor, context.commandId);
+        if (!isDeepStrictEqual(saved.request, request)) throw graphBatchError('COMMAND_ID_CONFLICT');
+        return saved;
+      }
+      const workspace = (await database.query<{ status: string; revision: number }>("SELECT status,COALESCE((settings->>'revision')::integer,1) AS revision FROM workspaces WHERE workspace_id=$1", [this.defaultWorkspaceId])).rows[0];
+      if (!workspace || workspace.status !== 'active') throw graphBatchError('WORKSPACE_ARCHIVED');
+      if (context.expectedRevision !== undefined && context.expectedRevision !== workspace.revision) throw graphBatchError('WORKSPACE_REVISION_CONFLICT');
+      let items: GraphBatchPlan['items'];
+      if (request.kind === 'apply') {
+        const state = await this.readFrom(database);
+        if (!state) throw graphBatchError('WORKSPACE_NOT_FOUND', 404);
+        items = prepareForwardGraphBatch(context.commandId, request.items, state);
+      } else {
+        const original = await this.graphBatchPlanFrom(database, context.actor, request.batchId);
+        const committed = new Map<string, WorkspaceData | null>();
+        for (const item of original.items.filter(item => !request.itemIds || request.itemIds.includes(item.itemId))) {
+          if (item.error || item.skipped) continue;
+          const step = item.steps[0];
+          const receipt = (await database.query<Record<string, unknown>>('SELECT * FROM command_receipts WHERE workspace_id=$1 AND command_id=$2', [this.defaultWorkspaceId, step.commandId])).rows[0];
+          if (!receipt) throw graphBatchError('GRAPH_BATCH_INCOMPLETE');
+          if (receipt.purged_at != null || receipt.command_type !== step.commandType) throw graphBatchError('GRAPH_BATCH_RECEIPT_INVALID', 409);
+          committed.set(item.itemId, receipt.status === 'committed' ? await this.readReceiptResult<WorkspaceData>(receipt) : null);
+        }
+        items = prepareUndoGraphBatch(context.commandId, original, request.itemIds, committed);
+      }
+      const plan: GraphBatchPlan = { kind: 'graph-batch-plan-v1', batchId: context.commandId, workspaceId: this.defaultWorkspaceId, ownerId: context.actor.actorId, request, items };
+      const prepared = await this.prepareReceiptResult(database, this.defaultWorkspaceId, context.commandId, plan);
+      await this.insertCommittedReceipt(database, this.defaultWorkspaceId, context.commandId, context.commandType, null, null, prepared);
+      return plan;
     });
   }
 

@@ -4,6 +4,7 @@ import { RunLifecycle } from './run-lifecycle';
 import { resolveContextHistory } from './context-history';
 import type { ContextEnvelope, RunMutation } from '../execution-runtime/run';
 import { ApplicationError, applicationError } from '../contracts/application-error';
+import { createLegacyCommandEnvelope } from '../contracts/application';
 import { providerDiscoveryFailures } from '../provider-domain';
 import type { Application, CommandEnvelope, CommandExecutionOptions, CommandMap, CommandResult, CommandType, QueryEnvelope, QueryMap, QueryResult, QueryType } from '../contracts/application';
 import type { AuditEvent, ChatOperation, ContextManifest, ContextMode, ContextStatus, GenerationOptions, Resource, ResourceMaterialization, ResourceVersion, StoredAttachment, StoredMessage, WorkspaceData } from '../domain';
@@ -24,6 +25,8 @@ import { assessReplay } from './replay-preflight';
 import { CollaborationService } from './collaboration-service';
 import type { PreparedRun } from './prepared-run';
 import { assessBundleExecution } from './bundle-execution-preflight';
+import { GraphBatchService } from './graph-batch-service';
+import { canonicalJson } from '../domain/canonical-json';
 
 const nodeStatuses = new Set(['draft', 'active', 'resolved', 'stale', 'archived']);
 const textMimeTypes = new Set(['text/plain', 'text/markdown', 'text/csv', 'application/json', 'application/xml', 'text/xml', 'application/javascript', 'text/javascript']);
@@ -365,6 +368,11 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
         if (!unitOfWork.withWorkspace || !unitOfWork.withCommand || !unitOfWork.savePersonalGraphView) throw legacyError('个人视图存储不可用。', 503, 'GRAPH_VIEW_UNAVAILABLE');
         return await unitOfWork.withWorkspace(envelope.workspaceId, () => unitOfWork.withCommand!(factContext, () => unitOfWork.savePersonalGraphView!(envelope.payload)));
       }
+      if (envelope.commandType === 'BatchGraphOperations' || envelope.commandType === 'UndoGraphBatch') {
+        if (record.status === 'archived') throw legacyError('归档工作区为只读，请先恢复。', 409, 'WORKSPACE_ARCHIVED');
+        if (!unitOfWork.withWorkspace || !unitOfWork.withCommand) throw legacyError('批量操作需要事务能力。', 503, 'GRAPH_BATCH_UNAVAILABLE');
+        return await unitOfWork.withWorkspace(envelope.workspaceId, () => unitOfWork.withCommand!(factContext, () => graphBatches.run(envelope)));
+      }
       if (envelope.commandType === 'PurgeObject') await workspaceDirectory.requireOwner(envelope.actor, envelope.workspaceId, envelope.scope);
       const prior = unitOfWork.withWorkspace && unitOfWork.withCommand && unitOfWork.readCommittedResult
         ? await unitOfWork.withWorkspace(envelope.workspaceId, () => unitOfWork.withCommand!(factContext, () => unitOfWork.readCommittedResult!()))
@@ -391,6 +399,11 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
       return executeCommand();
     } catch (error) { throw asApplicationError(error); }
   };
+
+  const graphBatches = new GraphBatchService(unitOfWork, now, async (parent, step) => await dispatch({
+    ...createLegacyCommandEnvelope(step.commandId, step.commandType, step.payload, parent.correlationId),
+    workspaceId: parent.workspaceId, actor: parent.actor, scope: parent.scope,
+  } as AnyCommandEnvelope) as WorkspaceData);
 
   const dispatchScoped = async (envelope: AnyCommandEnvelope, options?: CommandExecutionOptions): Promise<unknown> => {
     try {
@@ -534,8 +547,8 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
         case 'AddContextSource': return mutateWorkspace(current => { const node=payload.sourceType==='node'?current.discussionNodes.find(node=>node.id===payload.sourceId):payload.sourceType==='segment'?current.discussionNodes.find(node=>node.id===current.segments.find(segment=>segment.id===payload.sourceId)?.nodeId):undefined; if(node?.status==='archived'||(payload.sourceType==='segment'&&current.segments.find(segment=>segment.id===payload.sourceId)?.status==='archived'))throw legacyError('归档来源不能加入 Context。',409,'CONTEXT_SOURCE_ARCHIVED'); const found = current.contextItems.find(item => item.sourceType === payload.sourceType && item.sourceId === payload.sourceId); const next = found ? { ...current, contextItems: current.contextItems.map(item => item.id === found.id ? { ...item, status: 'active' as const, selectionMode: 'USER_SELECTED' as const, reason: '由用户显式加入。' } : item) } : { ...current, contextItems: [...current.contextItems, planner.sourceItem(current, payload.sourceType, payload.sourceId)] }; return { next, value: undefined }; });
         case 'CreateGraphNode': return mutateWorkspace(current => { const createdAt = now(); const node = { id: id(), title: payload.title, summary: payload.summary || '尚未补充讨论摘要。', status: 'draft' as const, kind: 'branch' as const, x: Math.round(payload.x ?? 180), y: Math.round(payload.y ?? 140), createdAt, updatedAt: createdAt }; const next = { ...current, discussionNodes: [...current.discussionNodes, node] }; return { next, value: undefined }; });
         case 'ActivateNode': return mutateWorkspace(current => { const node = current.discussionNodes.find(item => item.id === payload.nodeId); if (!node) throw legacyError('讨论节点不存在。', 404, 'NODE_NOT_FOUND'); if (node.status === 'archived') throw legacyError('归档节点不能激活，请先恢复。', 409, 'NODE_ARCHIVED'); const next = withCurrentNodeContext({ ...current, activeNodeId: node.id, nodeId: node.id }, node.id, planner); return { next, value: undefined }; });
-        case 'ChangeNodeStatus': return mutateWorkspace(current => changeNodeStatus(current, payload.nodeId, payload.status as 'draft' | 'active' | 'resolved' | 'stale' | 'archived', now, planner));
-        case 'ArchiveObject': return mutateWorkspace(current => changeNodeStatus(current, payload.nodeId, 'archived', now, planner));
+        case 'ChangeNodeStatus': return mutateWorkspace(current => changeNodeStatus(current, envelope.payload.nodeId, envelope.payload.status, now, planner, envelope.payload.expectedNodeVersion));
+        case 'ArchiveObject': return mutateWorkspace(current => changeNodeStatus(current, envelope.payload.nodeId, 'archived', now, planner, envelope.payload.expectedNodeVersion));
         case 'CreateSegment': {
           const committed = await mutate(current => {
             const { nodeId, title, messageIds, range } = envelope.payload;
@@ -550,8 +563,8 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
           }); return { workspace: committed.workspace, segment: committed.value };
         }
         case 'UpdateGraphLayout': return mutateWorkspace(current => { const positions = payload.positions; for (const position of positions) { const node = current.discussionNodes.find(item => item.id === position.nodeId); if (!node) throw legacyError('讨论节点不存在。', 404, 'NODE_NOT_FOUND'); if (node.status === 'archived') throw legacyError('归档节点为只读；请先恢复。', 409, 'NODE_ARCHIVED_READ_ONLY'); if (!Number.isFinite(position.x) || !Number.isFinite(position.y) || position.x < 0 || position.y < 0 || position.x > 5000 || position.y > 5000) throw legacyError('节点坐标无效。', 400, 'INVALID_POSITION'); } const changed = new Map(positions.map(position => [position.nodeId, { x: Math.round(position.x), y: Math.round(position.y) }])); const next = { ...current, discussionNodes: current.discussionNodes.map(node => changed.has(node.id) ? { ...node, ...changed.get(node.id)!, updatedAt: now() } : node) }; return { next, value: undefined }; });
-        case 'CreateRelation': return mutateWorkspace(current => { const source = current.discussionNodes.find(node => node.id === payload.source); const target = current.discussionNodes.find(node => node.id === payload.target); if (!source || !target) throw legacyError('关系节点不存在。', 404, 'NODE_NOT_FOUND'); if (source.status === 'archived' || target.status === 'archived') throw legacyError('归档节点为只读；请先恢复。', 409, 'NODE_ARCHIVED_READ_ONLY'); if (current.discussionEdges.some(edge => edge.source === payload.source && edge.target === payload.target && edge.relation === payload.relation)) throw legacyError('相同关系已经存在。', 409, 'EDGE_ALREADY_EXISTS'); const next = { ...current, discussionEdges: [...current.discussionEdges, { id: id(), source: payload.source, target: payload.target, relation: payload.relation, label: payload.label || '', createdAt: now() }] }; return { next, value: undefined }; });
-        case 'RemoveRelation': return mutateWorkspace(current => { const edge = current.discussionEdges.find(item => item.id === payload.edgeId); if (!edge) throw legacyError('关系不存在。', 404, 'EDGE_NOT_FOUND'); if (current.discussionNodes.some(node => (node.id === edge.source || node.id === edge.target) && node.status === 'archived')) throw legacyError('归档节点及其关系为只读；请先恢复。', 409, 'NODE_ARCHIVED_READ_ONLY'); const next = { ...current, discussionEdges: current.discussionEdges.filter(item => item.id !== edge.id) }; return { next, value: undefined }; });
+        case 'CreateRelation': return mutateWorkspace(current => { const source = current.discussionNodes.find(node => node.id === payload.source); const target = current.discussionNodes.find(node => node.id === payload.target); if (!source || !target) throw legacyError('关系节点不存在。', 404, 'NODE_NOT_FOUND'); for (const expected of envelope.payload.expectedNodeVersions ?? []) assertGraphNodeVersion(current.discussionNodes.find(node => node.id === expected.nodeId), expected); if (source.status === 'archived' || target.status === 'archived') throw legacyError('归档节点为只读；请先恢复。', 409, 'NODE_ARCHIVED_READ_ONLY'); if (current.discussionEdges.some(edge => edge.source === payload.source && edge.target === payload.target && edge.relation === payload.relation)) throw legacyError('相同关系已经存在。', 409, 'EDGE_ALREADY_EXISTS'); const next = { ...current, discussionEdges: [...current.discussionEdges, { id: id(), source: payload.source, target: payload.target, relation: payload.relation, label: payload.label || '', createdAt: now() }] }; return { next, value: next }; });
+        case 'RemoveRelation': return mutateWorkspace(current => { const edge = current.discussionEdges.find(item => item.id === payload.edgeId); if (!edge) throw legacyError('关系不存在。', 404, 'EDGE_NOT_FOUND'); if (envelope.payload.expectedRelation && canonicalJson(edge) !== canonicalJson(envelope.payload.expectedRelation)) throw legacyError('关系已变化，无法撤销。', 409, 'GRAPH_BATCH_ITEM_CHANGED'); if (current.discussionNodes.some(node => (node.id === edge.source || node.id === edge.target) && node.status === 'archived')) throw legacyError('归档节点及其关系为只读；请先恢复。', 409, 'NODE_ARCHIVED_READ_ONLY'); const next = { ...current, discussionEdges: current.discussionEdges.filter(item => item.id !== edge.id) }; return { next, value: next }; });
         case 'CreateMergeRevision': return mutateWorkspace(current => { const result = mergeRevision(current, payload.sourceNodeId, payload.targetNodeId || current.discussionNodes.find(node => node.id === payload.sourceNodeId)?.sourceNodeId || '', payload.summary, id, now, planner); return { next: result.next, value: undefined }; });
         case 'PurgeObject': {
           const receiptId = id();
@@ -587,7 +600,8 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
   };
   const dispatchQueryScoped = async (envelope: AnyQueryEnvelope): Promise<unknown> => {
     try {
-    switch (envelope.queryType) {
+      switch (envelope.queryType) {
+        case 'GetGraphBatch': return await graphBatches.get(envelope);
       case 'GetPersonalGraphView': {
         if (!unitOfWork.readPersonalGraphView) throw legacyError('个人视图存储不可用。', 503, 'GRAPH_VIEW_UNAVAILABLE');
         return await unitOfWork.readPersonalGraphView(envelope.actor, envelope.payload.viewType);
@@ -686,8 +700,12 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
   };
 }
 
-function changeNodeStatus(current: WorkspaceData, nodeId: string, status: 'draft' | 'active' | 'resolved' | 'stale' | 'archived', now: () => string, planner: ContextPlannerPort) {
+function assertGraphNodeVersion(node: WorkspaceData['discussionNodes'][number] | undefined, expected: import('../contracts/graph-batch').GraphNodeVersion) {
+  if (!node || node.status !== expected.status || node.updatedAt !== expected.updatedAt) throw legacyError('对象已变化，请刷新后重新操作。', 409, 'GRAPH_BATCH_ITEM_CHANGED');
+}
+function changeNodeStatus(current: WorkspaceData, nodeId: string, status: 'draft' | 'active' | 'resolved' | 'stale' | 'archived', now: () => string, planner: ContextPlannerPort, expected?: import('../contracts/graph-batch').GraphNodeVersion) {
   const node = current.discussionNodes.find(item => item.id === nodeId); if (!node) throw legacyError('讨论节点不存在。', 404, 'NODE_NOT_FOUND');
+  if (expected) assertGraphNodeVersion(node, expected);
   if (!nodeStatuses.has(status)) throw legacyError('无效的节点状态。', 400, 'INVALID_NODE_STATUS');
   if (node.status === 'archived' && status !== 'archived' && status !== 'active') throw legacyError('归档节点为只读；请先恢复。', 409, 'NODE_ARCHIVED_READ_ONLY');
   if (status === 'archived' && node.status !== 'archived' && current.discussionNodes.filter(item => item.status !== 'archived').length <= 1) throw legacyError('至少需要保留一个未归档节点。', 409, 'CANNOT_ARCHIVE_LAST_NODE');

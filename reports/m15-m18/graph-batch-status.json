@@ -1,0 +1,91 @@
+{
+  "schemaVersion": "1.0.0",
+  "status": "backend_verified; production UI and formal Gate pending",
+  "observedAt": "2026-10-02T17:01:55.043056+00:00",
+  "baseCommit": "711dcf069bbdec8f21d86fd3b9a74966bbb82f0f",
+  "verificationSubject": "Uncommitted M18 batch backend changes identified by fixture hashes; bounded targeted evidence, not whole-branch or visual acceptance.",
+  "fixtures": [
+    {
+      "path": "server/contracts/graph-batch.ts",
+      "sha256": "9ca31d3a44a11971398cac945e48a47a300ee46ae3ed316a892a9ee71a60f186"
+    },
+    {
+      "path": "server/application/graph-batch-plan.ts",
+      "sha256": "e86f8990837f382f1aff20214d36f9b12c21a7a5d5be754e4739a9a2215f1570"
+    },
+    {
+      "path": "server/application/graph-batch-service.ts",
+      "sha256": "cef4d78de750ae686b7b99771a5fb2b97c1d6044b8f795cf7c43b459d2d08231"
+    },
+    {
+      "path": "server/application/create-application.ts",
+      "sha256": "012f858bdc866e6cadf8f3a83b4f5284fc11c02e508c5fb315b5e783707a5d1a"
+    },
+    {
+      "path": "server/postgres-store.ts",
+      "sha256": "dd4b49dfbdb30b17502462046e27de161e6a45e61de5c373d9a31b53c1e368ba"
+    },
+    {
+      "path": "server/domain-journal.ts",
+      "sha256": "33160c69ef790d7cf2968dce59afaebaf0d3bf1a95bfe3428422219b97225f0b"
+    },
+    {
+      "path": "e2e/m18-graph-batches.e2e.test.ts",
+      "sha256": "44b8c5102b4164e6a3395de6528b67fef516b9099032a2e249849234c053b2b9"
+    },
+    {
+      "path": "server/domain-journal.test.ts",
+      "sha256": "01e7a5fa9f29db337ca376e339d439192e66aa3c1226800eea4247bcaeaf06c5"
+    },
+    {
+      "path": "server/application/graph-batch-plan.test.ts",
+      "sha256": "3439fed4647f1094245fe0bab9b3691ae7e7665a753a443d26b32f0dc17b2afb"
+    }
+  ],
+  "assertions": {
+    "encryptedFrozenPlanAndInputBinding": "passed",
+    "perObjectExistingCommandAndEvent": "passed",
+    "partialFailureAndWorkspaceIsolation": "passed",
+    "preparedMetadataTransactionRollback": "passed",
+    "manualResumeAfterReopenWithoutAutomaticWork": "passed",
+    "successfulItemUndoAndLaterEditConflict": "passed",
+    "protectedParentPurgeRefusal": "passed",
+    "purgedParentReceiptCannotReadUndoOrRetry": "passed"
+  },
+  "verification": [
+    {
+      "command": "pnpm vitest run server/domain-journal.test.ts server/application/graph-batch-plan.test.ts e2e/m18-graph-batches.e2e.test.ts --maxWorkers=1 --testTimeout=30000",
+      "result": "2 Domain and 2 preparation cases pass; 2 HTTP cases pass in confirmation, last HTTP case passes in affected-only Purge confirmation. No unchanged whole-file repeat.",
+      "evidence": [
+        ".superpowers/sdd/2026-10-02-m15-m18/m18-batch-confirmation.log",
+        ".superpowers/sdd/2026-10-02-m15-m18/m18-batch-purge-confirmation.log"
+      ]
+    },
+    {
+      "command": "pnpm vitest run server/domain-journal.test.ts server/application/create-application.test.ts server/infrastructure/workspace-repository-unit-of-work.test.ts e2e/m05-journal.e2e.test.ts e2e/m11-graph.e2e.test.ts --maxWorkers=1 --testTimeout=30000",
+      "result": "44 passed; 12 existing conditional PostgreSQL cases skipped because DATABASE_URL is unavailable.",
+      "evidence": [
+        ".superpowers/sdd/2026-10-02-m15-m18/m18-batch-shared-regression.log"
+      ]
+    },
+    {
+      "command": "pnpm run lint; pnpm run typecheck; pnpm run verify:m02:boundaries; pnpm run verify:m04:host-boundary; pnpm run m10:legacy-writes",
+      "result": "passed; the final additional Domain event variant also passed affected lint and shared regression.",
+      "evidence": [
+        ".superpowers/sdd/2026-10-02-m15-m18/m18-batch-lint.log",
+        ".superpowers/sdd/2026-10-02-m15-m18/m18-batch-typecheck-confirmed.log",
+        ".superpowers/sdd/2026-10-02-m15-m18/m18-batch-boundaries.log",
+        ".superpowers/sdd/2026-10-02-m15-m18/m18-batch-host.log",
+        ".superpowers/sdd/2026-10-02-m15-m18/m18-batch-write-path.log",
+        ".superpowers/sdd/2026-10-02-m15-m18/m18-batch-event-lint.log"
+      ]
+    }
+  ],
+  "remaining": [
+    "Production marquee/modifier/keyboard multiselect and batch/undo action feedback",
+    "Approved preview implementation and desktop/narrow visual acceptance",
+    "Formal M18 Gate and remaining M15-M18 requirements",
+    "Whole-branch final lint/build/test/license/review after remaining functionality",
+    "M17 Command p95 <= 200 ms remains unresolved"
+  ]
+}

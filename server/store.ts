@@ -59,6 +59,8 @@ export interface WorkspaceRepository {
   readGraphProjection?(): Promise<WorkspaceGraphProjection>;
   readPersonalGraphView?(actor: import('./contracts/references').ActorRef, viewType: string): Promise<import('./contracts/personal-graph-view').PersonalGraphView>;
   savePersonalGraphView?(context: CommandFactContext, input: import('./contracts/personal-graph-view').SavePersonalGraphView): Promise<import('./contracts/personal-graph-view').PersonalGraphViewReceipt>;
+  prepareGraphBatch?(context: CommandFactContext, input: import('./contracts/graph-batch').GraphBatchRequest): Promise<import('./contracts/graph-batch').GraphBatchPlan>;
+  readGraphBatchPlan?(actor: import('./contracts/references').ActorRef, batchId: string): Promise<import('./contracts/graph-batch').GraphBatchPlan>;
   rebuildGraphProjection?(): Promise<WorkspaceGraphProjection>;
 }
 

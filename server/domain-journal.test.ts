@@ -9,6 +9,18 @@ const context = (commandType: string): CommandFactContext => ({
 });
 
 describe('projection lifecycle event payloads', () => {
+  it('identifies the archived/status-changed object and newly created relation instead of the active discussion', () => {
+    const before = createSeedWorkspace();
+    const node = { ...before.discussionNodes[0], id: 'target', status: 'active' as const };
+    before.discussionNodes.push(node);
+    const changed = { ...before, discussionNodes: before.discussionNodes.map(item => item.id === node.id ? { ...item, status: 'archived' as const } : item) };
+    expect(eventForCommand(context('ArchiveObject'), before, changed, undefined)[0].aggregateId).toBe(node.id);
+    expect(eventForCommand(context('ChangeNodeStatus'), before, changed, undefined)[0].aggregateId).toBe(node.id);
+    const refreshed = { ...before, discussionNodes: before.discussionNodes.map(item => item.id === node.id ? { ...item, updatedAt: '2026-10-02T00:00:00.000Z' } : item) };
+    expect(eventForCommand(context('ChangeNodeStatus'), before, refreshed, undefined)[0].aggregateId).toBe(node.id);
+    const edge = { id: 'new-relation', source: before.activeNodeId, target: node.id, relation: 'references' as const, label: '', createdAt: node.createdAt };
+    expect(eventForCommand(context('CreateRelation'), before, { ...before, discussionEdges: [...before.discussionEdges, edge] }, undefined)[0].aggregateId).toBe(edge.id);
+  });
   it('records the removed relation and purged object needed for an explainable projection', () => {
     const beforeRelation = createSeedWorkspace();
     const target = { ...beforeRelation.discussionNodes[0]!, id: 'target' };

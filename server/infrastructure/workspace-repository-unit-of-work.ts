@@ -56,6 +56,16 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
     if (!repository.activatePortableImport) throw new Error('PORTABLE_WORKSPACE_UNAVAILABLE');
     await repository.activatePortableImport(importId, ownerId, facts);
   }
+  async prepareGraphBatch(input: import('../contracts/graph-batch').GraphBatchRequest) {
+    const repository = this.runRepository(), context = this.command.getStore();
+    if (!context || !repository.prepareGraphBatch) throw Object.assign(new Error('GRAPH_BATCH_UNAVAILABLE'), { code: 'GRAPH_BATCH_UNAVAILABLE', status: 503 });
+    return repository.prepareGraphBatch(context, input);
+  }
+  async readGraphBatchPlan(actor: import('../contracts/references').ActorRef, batchId: string) {
+    const repository = this.runRepository();
+    if (!repository.readGraphBatchPlan) throw Object.assign(new Error('GRAPH_BATCH_UNAVAILABLE'), { code: 'GRAPH_BATCH_UNAVAILABLE', status: 503 });
+    return repository.readGraphBatchPlan(actor, batchId);
+  }
   async readContextHistory(input: { manifestId: string } | { messageId: string }) {
     const target = this.runRepository();
     if (target.readContextHistory) return target.readContextHistory(input);

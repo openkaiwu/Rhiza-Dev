@@ -109,7 +109,8 @@
     "security:checks": "pnpm vitest run scripts/security/gitleaks.test.ts scripts/security/export-scan.test.ts server/infrastructure/portable-export-security.test.ts --maxWorkers=1 && pnpm run security:fixtures && pnpm run security:export:fixtures && pnpm run security:scan",
     "m16:restore:drill": "tsx scripts/m16-restore-drill.ts",
     "m16:backups:checks": "vitest run e2e/m16-managed-backups.e2e.test.ts e2e/m16-restore-drill.e2e.test.ts --maxWorkers=1 --testTimeout=30000",
-    "m18:views:checks": "vitest run e2e/m18-personal-graph-view.e2e.test.ts --maxWorkers=1 --testTimeout=30000"
+    "m18:views:checks": "vitest run e2e/m18-personal-graph-view.e2e.test.ts --maxWorkers=1 --testTimeout=30000",
+    "m18:batches:checks": "vitest run server/domain-journal.test.ts server/application/graph-batch-plan.test.ts e2e/m18-graph-batches.e2e.test.ts --maxWorkers=1 --testTimeout=30000"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",

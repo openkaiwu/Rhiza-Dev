@@ -101,12 +101,14 @@ export interface CommandMap {
   CreateGraphNode: { payload: { title: string; summary?: string; sourceMessageId?: string; x?: number; y?: number }; result: WorkspaceData };
   ExecuteTemporaryConversation: { payload: { prompt: string; sourceNodeId: string; anchorText: string; history?: Array<{ kind: 'user' | 'assistant'; text: string; createdAt?: string }> }; result: { userMessage: StoredMessage; assistantMessage: StoredMessage; model: string } };
   ActivateNode: { payload: { nodeId: string }; result: WorkspaceData };
-  ChangeNodeStatus: { payload: { nodeId: string; status: 'draft' | 'active' | 'resolved' | 'stale' | 'archived' }; result: WorkspaceData };
+  ChangeNodeStatus: { payload: { nodeId: string; status: 'draft' | 'active' | 'resolved' | 'stale' | 'archived'; expectedNodeVersion?: import('./graph-batch').GraphNodeVersion }; result: WorkspaceData };
   CreateSegment: { payload: { nodeId: string; title: string; messageIds: string[]; range?: { messageId: string; startOffset: number; endOffset: number; selectedText: string } }; result: { workspace: WorkspaceData; segment: WorkspaceData['segments'][number] } };
-  ArchiveObject: { payload: { nodeId: string }; result: WorkspaceData };
+  ArchiveObject: { payload: { nodeId: string; expectedNodeVersion?: import('./graph-batch').GraphNodeVersion }; result: WorkspaceData };
   PurgeObject: { payload: { nodeId: string; confirmation: string; reason: string }; result: { workspace: WorkspaceData; purgeReceipt: AuditEvent } };
-  CreateRelation: { payload: { source: string; target: string; relation: 'derived-from' | 'references' | 'related-to' | 'merged-into'; label?: string }; result: WorkspaceData };
-  RemoveRelation: { payload: { edgeId: string }; result: WorkspaceData };
+  CreateRelation: { payload: { source: string; target: string; relation: 'derived-from' | 'references' | 'related-to' | 'merged-into'; label?: string; expectedNodeVersions?: Array<import('./graph-batch').GraphNodeVersion & { nodeId: string }> }; result: WorkspaceData };
+  RemoveRelation: { payload: { edgeId: string; expectedRelation?: WorkspaceData['discussionEdges'][number] }; result: WorkspaceData };
+  BatchGraphOperations: { payload: { items: import('./graph-batch').GraphBatchItem[] }; result: import('./graph-batch').GraphBatchResult };
+  UndoGraphBatch: { payload: { batchId: string; itemIds?: string[] }; result: import('./graph-batch').GraphBatchResult };
   UpdateGraphLayout: { payload: { positions: Array<{ nodeId: string; x: number; y: number }> }; result: WorkspaceData };
   SavePersonalGraphView: { payload: import('./personal-graph-view').SavePersonalGraphView; result: import('./personal-graph-view').PersonalGraphViewReceipt };
   CreateMergeRevision: { payload: { sourceNodeId: string; targetNodeId?: string; summary?: string }; result: WorkspaceData };
@@ -117,6 +119,7 @@ export interface CommandMap {
 }
 
 export interface QueryMap {
+  GetGraphBatch: { payload: { batchId: string }; result: import('./graph-batch').GraphBatchResult };
   GetPersonalGraphView: { payload: { viewType: string }; result: import('./personal-graph-view').PersonalGraphView };
   GetCollaboration: { payload: { collaborationId: string }; result: { collaboration: import('./collaboration').CollaborationRecord } };
   ListCollaborations: { payload: { limit?: number }; result: { collaborations: import('./collaboration').CollaborationRecord[] } };

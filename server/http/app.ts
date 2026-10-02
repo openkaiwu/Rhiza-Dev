@@ -489,6 +489,24 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
     try { response.json(await query(response, 'GetPersonalGraphView', { viewType: request.params.viewType })); }
     catch (error) { next(error); }
   });
+
+  app.post('/api/graph/batches', async (request, response, next) => {
+    try {
+      if (!request.get('Idempotency-Key')) rejectInput('批量操作需要重试标识。', 'IDEMPOTENCY_KEY_REQUIRED');
+      response.json(await execute(response, 'BatchGraphOperations', request.body));
+    } catch (error) { next(error); }
+  });
+  app.post('/api/graph/batches/:batchId/undo', async (request, response, next) => {
+    try {
+      if (!request.get('Idempotency-Key')) rejectInput('撤销需要新的重试标识。', 'IDEMPOTENCY_KEY_REQUIRED');
+      if (request.body && Object.keys(request.body).some(key => key !== 'itemIds')) rejectInput('撤销参数无效。', 'INVALID_GRAPH_BATCH');
+      response.json(await execute(response, 'UndoGraphBatch', { batchId: String(request.params.batchId), ...(request.body?.itemIds === undefined ? {} : { itemIds: request.body.itemIds }) }));
+    } catch (error) { next(error); }
+  });
+  app.get('/api/graph/batches/:batchId', async (request, response, next) => {
+    try { response.json(await query(response, 'GetGraphBatch', { batchId: String(request.params.batchId) })); }
+    catch (error) { next(error); }
+  });
   app.put('/api/graph/views/:viewType', async (request, response, next) => {
     try { response.json(await execute(response, 'SavePersonalGraphView', {
       viewType: request.params.viewType, expectedRevision: request.body?.expectedRevision,
