@@ -42,6 +42,14 @@ One desktop/narrow pass and one targeted confirmation after fixes. This verifies
 
 Screenshots: `desktop-preview.png`, `graph-preview.png`, `collaboration-preview.png`, `narrow-preview.png`, `context-narrow-preview.png`. Only fresh screenshots inspected from actual browser bytes are accepted as visual evidence.
 
+### Inline collaboration correction
+
+The user clarified that collaboration belongs to the current conversation. The earlier standalone collaboration screen and navigation destination are superseded. The preview now starts from an answer or composer, accepts 2–4 model choices and all four existing modes, freezes the input, shows individual failures/retry and Stop, and retains synthesis plus disagreements or missing-participant facts in that same discussion. Continuing Chat displays a sample answer referencing the retained result. The configuration collapses into a compact frozen-input summary during execution, and the completed card can be collapsed without losing access to its evidence.
+
+Desktop and 390×844 browser passes verified initiation, partial failure, individual retry, retention and continuation. Narrow page width equals the viewport (390px); composer ends at the navigation boundary, without overlap. Three focused prototype regression cases verified scope/navigation, frozen selection, retry isolation, deduplicated retention, Stop and partial-result labeling. JSDOM lacks native dialog methods; the test harness supplies those methods, with real modal behavior checked in the browser. `node --check` and `git diff --check` passed. No model/API calls or persisted mutations occur in this standalone prototype.
+
+Current evidence: `inline-collaboration-desktop.jpg`, `inline-collaboration-continuation.jpg`, `inline-collaboration-narrow.jpg`. Production React wiring and the concrete preview approval remain pending.
+
 Project verification commands are defined in package.json (`pnpm run lint`, `pnpm run typecheck`, `pnpm run build`, `pnpm run test`). They are reserved for the production React implementation; no production files changed in this preview step, so the full backend suite was not rerun.
 
 ## Remaining boundary

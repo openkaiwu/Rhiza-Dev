@@ -6,12 +6,13 @@ Status: concrete preview ready for approval; production UI implementation has no
 
 Current application was verified at `http://127.0.0.1:4173/` (Rhiza title, Vite entry and isolated fixture API). Fresh desktop, narrow and Graph captures are in this directory. See `audit.md` for findings and references. The product-design audit specialist owns diagnosis; ui-ux-design-suite internal prototype/impact playbooks own the visual proposal. No production component, token, API or persisted data changed.
 
-- 220px collapsible sidebar: workspace switch, search, named navigation, discussion tree, settings/data utilities. Keep Chat, Graph, Knowledge, Runs and Activity available; add Collaboration within the same shell.
+- 220px collapsible sidebar: workspace switch, search, named navigation, discussion tree, settings/data utilities. Keep Chat, Graph, Knowledge, Runs and Activity available. Collaboration belongs to the current conversation and has no separate page or navigation destination.
 - One 56px desktop title bar. Chat drops its duplicate large discussion introduction. Discussion metadata and management stay available in the object menu.
 - 304px optional Context rail; collapse releases the whole column. At widths below 1200px use a modal drawer; at 760px and below use a bottom sheet. This moves the current 1120px drawer threshold earlier to preserve a useful reading width.
 - Chat uses a bounded reading column (790px normally), lightweight messages, inline source chips and progressive action disclosure. Composer remains visible in its own flex row; content scrolls independently.
+- Start collaboration from an answer or the composer inside Chat. Choose 2–4 models and independent review, peer review, debate or second opinion; freeze the question, current conversation history and selected source versions. Display participant progress, individual retry, Stop, synthesis and disagreements as a conversation card. Explicit retention adds a referenced result to the same discussion; ordinary Chat then continues from it without changing the active discussion.
 - Graph gets the full workspace width by default. Compact search/filter toolbar, canvas controls and an explicit selected-object tray replace permanent surrounding cards. Selection and display filters never implicitly change Context.
-- Narrow screens keep both Workspace and current object names. Four named navigation items: Chat, Graph, Collaboration, Workspace. Workspace opens the complete navigation tree.
+- Narrow screens keep both Workspace and current object names. Four named navigation items: Chat, Graph, History, Workspace. Workspace opens the complete navigation tree. Collaboration remains reachable from the answer and composer.
 - Reuse warm neutral/green semantic palette, restrained borders, small radii and project icon language. No new dependency or separate production design system. Proposed text scale: body 14–15px, primary controls 12–13px, secondary metadata 10–11px; narrow input is 16px to avoid focus zoom.
 
 ## Shared impact and propagation
@@ -21,7 +22,7 @@ Current application was verified at `http://127.0.0.1:4173/` (Rhiza title, Vite 
 | Collapsible navigation + responsive shell | AppShell, Sidebar; all views | Systemic composition change; API/mutations stay in App coordinator | Workspace scope changes, stale-response guard, keyboard navigation, modal focus |
 | One title/header layer | ChatView and workspace headers | Systemic shell; discussion details move into explicit menu | Existing management, history, quick/full Graph reachability, archives |
 | Context rail/sheet and compact rows | ContextPanel, Chat, Graph Tray | Shared surface; selection counts remain coordinator-derived | Auto/Assisted/Strict semantics, version conflict, budget, confirmed/rejected/excluded, historical read-only view |
-| Message presentation + composer | ChatView, MarkdownContent consumers | Local composition; reuse Markdown and existing actions | Streaming, Stop/retry, attachment chips, branch/edit/regenerate, provenance/Replay, long code/math |
+| Message presentation + composer | ChatView, MarkdownContent consumers | Local composition; reuse Markdown and existing actions, inline collaboration card | Streaming, Stop/retry, attachment chips, branch/edit/regenerate, provenance/Replay, collaboration retention and continuation, long code/math |
 | Full-size Graph canvas | GraphView and graph CSS | Local visual arrangement, existing graph-model boundary retained | Pan/zoom, list/keyboard selection, filters, relation editing, archive/undo, Context confirmation |
 | Model/data list layouts | Provider settings and Bundle/backup controls | Local surfaces in common shell | Provider error/retry; import/export preflight and disabled activation; recovery target and scope |
 
@@ -29,14 +30,14 @@ Current application was verified at `http://127.0.0.1:4173/` (Rhiza title, Vite 
 
 - Context confirmed/recommended/excluded remain distinct; Assisted recommendations require confirmation, Strict never adds recommendations, Auto labels automatic choices. Counts and budget derive from the same selection state.
 - Historical Message/Run/Manifest/ResourceVersion identity, immutable version and provenance links remain intact. Missing/corrupt Replay resources block calls in all three policies.
-- Collaboration freezes common inputs; retry uses original participant inputs, Stop prevents new dispatch and synthesis retains disagreement. Retain creates a referenced new message.
+- Collaboration freezes common inputs; retry uses original participant inputs, Stop prevents new dispatch and synthesis retains disagreement and missing-participant facts. Retain creates a referenced new message in the initiating discussion; later Chat uses that result. Existing internal output branches are a persistence detail and do not require a separate collaboration page or switching the active conversation.
 - Workspace and object identity remain visible. Global Provider settings do not silently change Workspace selection. Graph layout/filter changes are personal UI state, not domain relations.
 - Bundle v1 and existing HTTP/scope/owner checks remain compatible. The preview demonstrates the proposed optional-file and backup flows; it does not establish backend completion for them.
 - Purge remains guarded and irreversible. No new data deletion, migration, credential change or persistence contract is authorized by this visual preview.
 
 ## Preview fidelity and acceptance boundary
 
-`preview.html`, `preview.css`, `preview.js` are standalone mock UI. Demonstrated interactions: collapse/expand, sheets and Escape focus return, navigation, search, Context decision/modes, Graph selection/zoom, source/Replay/missing-resource dialogs, participant partial-failure/retry/Stop, Provider empty/error/retry, export inclusion/preflight and import-disabled state. File upload, real model execution, backup/export creation, archive/Purge and persisted mutations are explanatory previews only.
+`preview.html`, `preview.css`, `preview.js` are standalone mock UI. Demonstrated interactions: collapse/expand, sheets and Escape focus return, navigation, search, Context decision/modes, Graph selection/zoom, source/Replay/missing-resource dialogs, inline collaboration with 2–4 model selection, partial-failure/retry/Stop, retaining a result and continuing the same discussion, Provider empty/error/retry, export inclusion/preflight and import-disabled state. Collaboration and follow-up answers use explicitly labeled sample content. File upload, real model execution, backup/export creation, archive/Purge and persisted mutations are explanatory previews only.
 
 After approval, implement incrementally in existing React components. Required production states also include long content, streaming, stale version, over-budget, offline, archived/unauthorized and loading. Mock screens do not prove these production paths or formal M15–M18 Gates.
 

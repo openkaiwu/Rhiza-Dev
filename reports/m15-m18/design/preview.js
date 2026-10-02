@@ -52,10 +52,14 @@ let mode = 'Assisted';
 let toastTimer;
 let collabTimer;
 let frozenSources;
+let collaborationStage = 'idle';
+let collaborationResults = [];
+let retainedCollaboration = false;
+let frozenPrompt = '';
 let zoom = 1;
 let thread = '信息架构方向';
 const selectedNodes = new Set(['信息架构方向']);
-const names = {chat:thread,graph:'讨论图谱',collaboration:'多模型协作',settings:'模型与设置',data:'数据与备份',history:'执行历史',knowledge:'知识状态',activity:'活动'};
+const names = {chat:thread,graph:'讨论图谱',settings:'模型与设置',data:'数据与备份',history:'执行历史',knowledge:'知识状态',activity:'活动'};
 const narrow = matchMedia('(max-width:1199px)');
 const mobile = matchMedia('(max-width:760px)');
 const sheets = [$('context-sheet'), $('sidebar-sheet')];
@@ -109,6 +113,68 @@ function syncSources(){
   $('mode-copy').textContent={Assisted:'推荐经你确认后才进入下一次回答。',Auto:'按相关性与剩余预算自动纳入，标记自动选择。',Strict:'只使用显式选择的资料，不自动补充。'}[mode];
   document.querySelector('.composer-caption span').textContent={Assisted:'推荐资料需确认后才会加入本轮',Auto:'自动选择的资料可在上下文中逐项查看',Strict:'仅使用你明确选择的资料'}[mode];
 }
+const collaborationModes = {
+  'independent-review': '各模型先独立判断，再汇总一致意见和分歧。',
+  'peer-review': '先给出独立意见，再相互检查论据和遗漏。',
+  debate: '围绕当前问题交换论点，汇总后保留仍未解决的分歧。',
+  'second-opinion': '以上一条回答为基线，检查假设、风险和其他可行方案。'
+};
+function selectedParticipants(){return [...document.querySelectorAll('[data-participant]:checked')].map(el=>el.dataset.participant);}
+function updateParticipants(){
+  const count=selectedParticipants().length;
+  $('participant-count').textContent=`已选 ${count} / 最多 4`;
+  const valid=count>=2&&count<=4;
+  $('participant-validation').textContent=valid?'每位参与者使用同一份冻结输入。':'请选择 2–4 个模型后开始。';
+  $('participant-validation').classList.toggle('invalid',!valid);
+  $('start-collab').disabled=collaborationStage!=='idle'||!valid||!$('collaboration-prompt').value.trim();
+}
+function setCollaborationExpanded(expanded){
+  $('collaboration-body').hidden=!expanded;
+  $('collapse-collab').setAttribute('aria-expanded',String(expanded));
+  $('collapse-collab').setAttribute('aria-label',expanded?'收起协作详情':'展开协作详情');
+}
+function openCollaboration(fromComposer=false){
+  if($('detail').open)$('detail').close();
+  if(collaborationStage==='idle'&&fromComposer&&$('message-input').value.trim())$('collaboration-prompt').value=$('message-input').value.trim();
+  $('collaboration-turn').hidden=false;setCollaborationExpanded(true);updateParticipants();
+  $('collaboration-turn').scrollIntoView({block:'start',behavior:'instant'});
+  (collaborationStage==='idle'?$('collaboration-prompt'):$('collapse-collab')).focus({preventScroll:true});
+}
+function resetCollaboration(){
+  clearTimeout(collabTimer);collaborationStage='idle';collaborationResults=[];retainedCollaboration=false;frozenSources=undefined;frozenPrompt='';
+  $('collaboration-turn').hidden=true;$('participant-results').hidden=true;$('participant-results').replaceChildren();
+  $('collaboration-setup').hidden=false;$('collaboration-frozen').hidden=true;
+  $('synthesis').hidden=true;$('stop').hidden=true;$('summarize').hidden=true;$('retain').disabled=false;
+  $('collaboration-state').textContent='当前讨论';$('collab-copy').textContent='结果留在这段对话中；纳入讨论后，可基于结果继续。';
+  document.querySelectorAll('.collab-config select,[data-participant]').forEach(el=>el.disabled=false);
+  $('collaboration-prompt').disabled=false;
+  $('message-input').placeholder='继续这段讨论，或用 @ 引用资料…';
+  document.querySelectorAll('.collaboration-retained,.collaboration-followup').forEach(el=>el.remove());
+  updateParticipants();syncSources();
+}
+function renderParticipants(){
+  $('participant-results').hidden=false;
+  $('participant-results').innerHTML=collaborationResults.map(result=>`<article class="participant"><div class="participant-title"><span class="model-avatar ${result.id==='b'||result.id==='d'?'violet':''}">${result.id.toUpperCase()}</span><strong>研究模型 ${result.id.toUpperCase()}</strong><span class="status-pill ${result.status==='failed'?'warning':''}">${{running:'执行中',completed:'已完成',failed:'连接中断',stopped:'已停止'}[result.status]}</span></div><p>${escapeHtml(result.text)}</p>${result.status==='failed'&&collaborationStage!=='stopped'&&!retainedCollaboration?`<button class="text-button" data-retry-participant="${result.id}">重试此模型<i data-icon="replay"></i></button>`:''}</article>`).join('');
+  renderIcons($('participant-results'));
+}
+function synthesizeCollaboration(){
+  const completed=collaborationResults.filter(result=>result.status==='completed');
+  if(!completed.length)return;
+  const missing=collaborationResults.filter(result=>result.status!=='completed');
+  $('synthesis-copy').innerHTML=`<p><strong>综合建议：</strong>让对话成为中心任务；上下文可以收起，但始终显示来源数量。</p>${completed.length>1?`<p><strong>仍有分歧：</strong>研究模型 ${completed[0].id.toUpperCase()} 建议默认展开上下文，研究模型 ${completed[1].id.toUpperCase()} 建议首次进入时收起。需要通过实际任务验证默认布局。</p>`:'<p><strong>意见尚不完整：</strong>当前仅有一位参与者的结果，不能据此声称形成共识。</p>'}${missing.length?`<p class="muted">缺席意见：${missing.map(result=>`研究模型 ${result.id.toUpperCase()}`).join('、')}。保留结果时会同时标记。</p>`:''}<p class="muted">依据：${completed.map(result=>`研究模型 ${result.id.toUpperCase()} 的本轮意见`).join('、')} · 示例结果</p>`;
+  $('synthesis').hidden=false;$('summarize').hidden=true;$('stop').hidden=true;
+  $('collaboration-state').textContent=missing.length?'部分完成':'已完成';
+  $('collab-copy').textContent='可将综合判断和分歧纳入当前讨论，继续对话。';
+}
+function finishParticipants(){
+  const completed=collaborationResults.filter(result=>result.status==='completed').length;
+  const failed=collaborationResults.filter(result=>result.status==='failed').length;
+  collaborationStage=failed?'partial':'completed';
+  $('collaboration-state').textContent=failed?'部分完成':'已完成';
+  $('collab-copy').textContent=`${completed} 位完成${failed?`，${failed} 位连接中断；可只重试失败模型，或汇总已有意见。`:' · 综合判断已就绪。'}`;
+  $('summarize').hidden=!failed;$('stop').hidden=!failed;renderParticipants();
+  if(!failed)synthesizeCollaboration();
+}
 const dialogs = {
   workspace:['工作区','<div class="record-list"><button data-ui="workspace-current"><span class="workspace-avatar">R</span><span><strong>Rhiza 产品研究</strong><small>当前工作区 · 4 个讨论</small></span><i data-icon="check"></i></button></div><div class="actions"><button data-dialog="new">新建工作区</button><button data-ui="rename">重命名</button><button data-dialog="archive">归档工作区</button></div>'],
   search:['搜索或运行命令','<input type="text" id="command-search" aria-label="搜索命令" placeholder="搜索讨论、资料或操作…" autofocus><div class="record-list" id="command-results"><button data-view="chat">信息架构方向 <span class="status-pill">讨论</span></button><button data-view="graph">打开图谱</button><button data-view="history">查看执行历史</button><button data-view="settings">模型与设置</button><button data-view="data">导入、导出与备份</button></div>'],
@@ -117,11 +183,10 @@ const dialogs = {
   replay:['Replay 预检','<p>来源版本完整，校验通过。选择重放策略：</p><div class="record-list"><button data-ui="replay"><span><strong>Exact</strong><small>使用历史模型与生成配置</small></span></button><button data-ui="replay"><span><strong>Partial</strong><small>检查并接受配置差异后执行</small></span></button><button data-ui="replay"><span><strong>Current-model</strong><small>使用当前模型与历史输入</small></span></button></div><div class="actions"><button data-dialog="missing">查看资源缺失状态</button></div>'],
   missing:['无法 Replay','<div class="dialog-notice error">访谈发现 v3 的文件缺失，未调用模型。</div><p>三种策略都需要完整的历史输入。请先恢复这一版本的文件，再重新校验。</p><div class="actions"><button data-dialog="restore">恢复预检</button><button data-dialog="source">查看来源</button></div>'],
   discussion:['讨论操作','<div class="record-list"><button data-ui="rename">重命名讨论</button><button data-dialog="message">消息与片段管理</button><button data-view="graph">在图谱中查看</button><button data-view="history">执行历史</button><button data-dialog="archive">归档讨论</button><button data-dialog="purge">永久清除…</button></div>'],
-  message:['消息操作','<div class="record-list"><button data-dialog="source">查看本轮历史上下文</button><button data-ui="branch">创建正式支线</button><button data-ui="branch">在临时支线中讨论</button><button data-ui="edit">编辑并重发 / 重新生成</button><button data-ui="segment">保存为片段</button></div>'],
+  message:['消息操作','<div class="record-list"><button data-action="collaboration">对这一轮发起多模型协作</button><button data-dialog="source">查看本轮历史上下文</button><button data-ui="branch">创建正式支线</button><button data-ui="branch">在临时支线中讨论</button><button data-ui="edit">编辑并重发 / 重新生成</button><button data-ui="segment">保存为片段</button></div>'],
   attach:['添加到本轮上下文','<div class="record-list"><button data-ui="attach"><i data-icon="file"></i>上传文件</button><button data-ui="add-recommendation"><i data-icon="branch"></i>引用移动端导航方案 · v2</button><button data-view="graph"><i data-icon="graph"></i>从图谱中选择</button></div><p class="dialog-meta">预览不会读取或上传本机文件。</p>'],
   model:['选择模型','<div class="record-list"><button data-ui="model-a"><span><strong>研究模型 A</strong><small>当前 · 128K 上下文</small></span><i data-icon="check"></i></button><button data-ui="model-b"><span><strong>研究模型 B</strong><small>64K 上下文</small></span></button></div><div class="actions"><button data-view="settings">管理供应商</button><button data-dialog="parameters">生成参数</button></div>'],
   parameters:['生成参数','<dl class="details-list"><div><dt>温度</dt><dd>0.7</dd></div><div><dt>最大输出</dt><dd>4,096 tokens</dd></div></dl><p>参数随本次执行冻结，不会修改历史记录。</p>'],
-  participants:['参与模型','<label class="checkbox-label"><input type="checkbox" checked disabled>研究模型 A</label><label class="checkbox-label"><input type="checkbox" checked disabled>研究模型 B</label><p>预览使用两位参与者，正式功能最多选择四个模型。</p>'],
   frozen:['冻结输入','<p>参与者共同使用同一份历史消息和来源版本。</p><dl class="details-list"><div><dt>来源</dt><dd>当前讨论、访谈发现 v3</dd></div><div><dt>总预算</dt><dd>32,000 tokens / 180 秒</dd></div></dl><p>失败重试复用原输入，已完成的模型不会重复调用。</p>'],
   filters:['图谱筛选','<label class="checkbox-label"><input type="checkbox" checked disabled>讨论</label><label class="checkbox-label"><input type="checkbox" checked disabled>资料与片段</label><label class="checkbox-label"><input id="show-relations" type="checkbox" checked>显示关系</label><p>筛选只影响当前视图，不改变领域关系或本轮上下文。</p><div class="actions"><button data-ui="clear-selection">清空选择</button></div>'],
   batch:['已选对象','<p>在图谱中选择对象后，操作结果逐项呈现。选择本身不会改变上下文。</p><div class="actions"><button data-ui="batch-archive">归档所选</button><button data-ui="link">建立关系</button><button data-ui="clear-selection">清空选择</button></div>'],
@@ -140,7 +205,17 @@ document.addEventListener('click',(event)=>{
   const button=event.target.closest('button');if(!button)return;
   if(button.dataset.view){if($('detail').open)$('detail').close();switchView(button.dataset.view);return;}
   if(button.dataset.dialog){openDialog(button.dataset.dialog);return;}
-  if(button.dataset.thread){thread=button.dataset.thread;document.querySelectorAll('.thread').forEach(el=>el.classList.toggle('current',el===button));switchView('chat');if(thread!=='信息架构方向')show(thread,'<p>这是讨论切换的布局预览，正文使用同一份示例内容。</p>');return;}
+  if(button.dataset.thread){if(thread!==button.dataset.thread)resetCollaboration();thread=button.dataset.thread;document.querySelectorAll('.thread').forEach(el=>el.classList.toggle('current',el===button));switchView('chat');if(thread!=='信息架构方向')show(thread,'<p>这是讨论切换的布局预览，正文使用同一份示例内容。</p>');return;}
+  if(button.dataset.action==='collaboration'){openCollaboration(!!button.closest('.composer'));return;}
+  if(button.dataset.action==='collaboration-details'){openCollaboration();return;}
+  if(button.dataset.retryParticipant){
+    const result=collaborationResults.find(item=>item.id===button.dataset.retryParticipant&&item.status==='failed');
+    if(!result||collaborationStage==='running'||collaborationStage==='stopped'||retainedCollaboration)return;
+    result.status='running';result.text='复用原始冻结输入，正在重试此模型。';collaborationStage='running';
+    $('collaboration-state').textContent='执行中';$('collab-copy').textContent='正在重试失败模型；其他参与者的已完成意见保持不变。';
+    $('synthesis').hidden=true;$('summarize').hidden=true;$('stop').hidden=false;renderParticipants();
+    clearTimeout(collabTimer);collabTimer=setTimeout(()=>{result.status='completed';result.text='建议首次进入时收起上下文，并保留明确的来源数量。';finishParticipants();},650);return;
+  }
   if(button.dataset.action==='sidebar')toggleSidebar();
   if(button.dataset.action==='context')toggleContext();
   if(button.dataset.action==='context-close')closeContext();
@@ -151,7 +226,7 @@ document.addEventListener('click',(event)=>{
   if(action==='add-recommendation'){decision='accepted';syncSources();contextTab('selected');$('detail').close();toast('已加入移动端导航方案 v2');return;}
   if(action==='replay'){show('发送前确认','<p>历史输入已就绪。此预览展示确认流程，不会调用模型。</p>');return;}
   if(action.startsWith('model-')){document.querySelector('.model-picker').firstChild.textContent=action==='model-a'?'研究模型 A':'研究模型 B';$('detail').close();return;}
-  if(action==='new'){const name=$('new-title').value.trim();if(!name)return;thread=name;$('detail').close();switchView('chat');toast('已预览新讨论；未写入工作区');return;}
+  if(action==='new'){const name=$('new-title').value.trim();if(!name)return;resetCollaboration();thread=name;$('detail').close();switchView('chat');toast('已预览新讨论；未写入工作区');return;}
   if(action==='archive'||action==='batch-archive'){show('已归档 · 预览','<p>正式产品将在这里列出逐项结果，并允许撤销。</p><button data-ui="undo">撤销归档</button>');return;}
   if(action==='workspace-current'){$('detail').close();return;}
   const copies={rename:'名称编辑入口保留在对象菜单中。',branch:'新支线保留原始消息与来源引用。',edit:'编辑重发和重新生成会创建新版本，不覆盖历史。',segment:'片段保留消息范围与来源身份。',attach:'正式产品会打开文件选择；预览不读取本机文件。',link:'关系编辑与本轮上下文选择彼此独立。',export:'已展示导出完成状态；预览未生成真实归档。',undo:'已撤销归档预览。'};
@@ -166,7 +241,14 @@ $('accept').onclick=()=>{decision='accepted';syncSources();contextTab('selected'
 $('reject').onclick=()=>{decision='rejected';syncSources();toast('该推荐不用于本轮回答');};
 $('message-input').oninput=()=>{$('send').disabled=!$('message-input').value.trim();};
 $('message-input').addEventListener('keydown',(event)=>{if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();if(!$('send').disabled)$('composer-form').requestSubmit();}});
-$('composer-form').onsubmit=(event)=>{event.preventDefault();show('发送前上下文',`<p>本轮使用 <strong>${$('active-count').textContent} 项来源</strong>，模式为 ${mode}。</p><p>未确认的 Assisted 推荐不会发送。此预览不连接模型。</p><p class="dialog-meta">消息：${escapeHtml($('message-input').value)}</p>`);};
+$('composer-form').onsubmit=(event)=>{
+  event.preventDefault();const text=$('message-input').value.trim();if(!text)return;
+  if(!retainedCollaboration){show('发送前上下文',`<p>本轮使用 <strong>${$('active-count').textContent} 项来源</strong>，模式为 ${mode}。</p><p>未确认的 Assisted 推荐不会发送。此预览不连接模型。</p><p class="dialog-meta">消息：${escapeHtml(text)}</p>`);return;}
+  const next=document.createElement('div');next.className='collaboration-followup';
+  next.innerHTML=`<article class="user-message"><div class="message-meta">你 <span>继续讨论</span></div><p>${escapeHtml(text)}</p></article><article class="assistant-message"><div class="message-meta"><span class="assistant-mark" aria-hidden="true">✳</span><strong>Rhiza</strong><span>基于已纳入的协作结果 · 示例</span></div><div class="answer"><p>结合刚才的综合建议和分歧，下一步可先验证默认收起上下文的方案：保留来源数量和快捷展开入口，对照专业用户与首次使用者的完成情况，再决定默认布局。</p></div><div class="source-row"><button class="source-chip" data-action="collaboration-details"><i data-icon="compare"></i>本轮协作结果与分歧</button></div></article>`;
+  document.querySelector('.conversation-inner').append(next);renderIcons(next);$('message-input').value='';$('send').disabled=true;
+  next.scrollIntoView({block:'start',behavior:'instant'});toast('已演示基于协作结果继续；未调用模型或写入工作区');
+};
 function updateSelection(){document.querySelectorAll('[data-node]').forEach(el=>{el.classList.toggle('selected',selectedNodes.has(el.dataset.node));el.setAttribute('aria-pressed',String(selectedNodes.has(el.dataset.node)));});$('graph-count').textContent=`已选 ${selectedNodes.size} 项`;$('add-context').disabled=!selectedNodes.size;}
 document.querySelectorAll('[data-node]').forEach(el=>el.onclick=()=>{if(selectedNodes.has(el.dataset.node))selectedNodes.delete(el.dataset.node);else selectedNodes.add(el.dataset.node);updateSelection();});
 $('add-context').onclick=()=>show('加入上下文前校验',`<p>已选：${[...selectedNodes].map(escapeHtml).join('、')}</p><p>将检查权限、来源版本和剩余预算；重复的已选来源不会再次计入。</p><p class="dialog-meta">这里仅预览校验入口，未改变本轮来源。</p>`);
@@ -174,10 +256,41 @@ function renderZoom(){$('graph-world').style.transform=`scale(${zoom})`;$('zoom-
 $('zoom-out').onclick=()=>{zoom=Math.max(.4,zoom-.1);renderZoom();};$('zoom-in').onclick=()=>{zoom=Math.min(1.5,zoom+.1);renderZoom();};$('fit-graph').onclick=()=>{zoom=Math.min(1,($('graph-canvas').clientWidth-40)/1020);renderZoom();$('graph-canvas').scrollTo(0,0);};
 $('graph-search').oninput=()=>{const query=$('graph-search').value.trim();let total=0;document.querySelectorAll('[data-node]').forEach(el=>{el.hidden=!el.innerText.includes(query);if(!el.hidden)total++;});$('graph-empty').hidden=total>0;document.querySelector('.graph-edges').hidden=!!query;};
 document.addEventListener('change',(event)=>{if(event.target.id==='show-relations')document.querySelector('.graph-edges').hidden=!event.target.checked;});
-$('start-collab').onclick=()=>{frozenSources='当前讨论、访谈发现 v3'+($('confirmed-source').hidden?'':'、移动端导航方案 v2');document.querySelectorAll('.collab-config select').forEach(el=>el.disabled=true);clearTimeout(collabTimer);$('start-collab').disabled=true;$('a-state').textContent='执行中';$('b-state').textContent='执行中';$('collab-copy').textContent='示例执行中 · 本轮输入已冻结';$('stop').hidden=false;$('synthesis').hidden=true;collabTimer=setTimeout(()=>{$('a-state').textContent='已完成';$('a-result').textContent='建议收敛首屏入口，保持来源与历史记录随手可达。';$('b-state').textContent='连接中断';$('b-state').classList.add('warning');$('b-result').textContent='本轮未完成，可以复用原始输入重试此模型。';$('retry').hidden=false;$('collab-copy').textContent='1 位参与者完成，1 位连接中断。可重试或保留已有结果。';},650);};
-$('retry').onclick=()=>{$('retry').hidden=true;$('b-state').textContent='已完成';$('b-state').classList.remove('warning');$('b-result').textContent='建议首次进入时收起上下文，并保留明确的来源数量。';$('collab-copy').textContent='两位参与者均已完成 · 示例综合结果可查看';$('synthesis').hidden=false;$('stop').hidden=true;};
-$('stop').onclick=()=>{clearTimeout(collabTimer);$('stop').hidden=true;$('retry').hidden=true;$('b-state').textContent='已停止';if($('a-state').textContent==='执行中')$('a-state').textContent='已停止';$('collab-copy').textContent='已停止。不再派发后续调用，已完成结果保留。';};
-$('retain').onclick=()=>show('保留到当前讨论','<p>正式保留会创建新消息，并引用协作原始 Run 和来源。原始协作记录继续保留。</p><p class="dialog-meta">预览未写入工作区。</p>');
+$('collaboration-mode').onchange=()=>{$('collaboration-mode-copy').textContent=collaborationModes[$('collaboration-mode').value];};
+$('collaboration-prompt').oninput=updateParticipants;
+document.querySelectorAll('[data-participant]').forEach(el=>el.onchange=updateParticipants);
+$('collapse-collab').onclick=()=>setCollaborationExpanded($('collaboration-body').hidden);
+$('start-collab').onclick=()=>{
+  updateParticipants();if($('start-collab').disabled)return;
+  frozenPrompt=$('collaboration-prompt').value.trim();
+  frozenSources=`问题：${frozenPrompt}。来源：当前讨论截至本轮回答、访谈发现 v3${$('confirmed-source').hidden?'':'、移动端导航方案 v2'}。方式：${$('collaboration-mode').selectedOptions[0].textContent}，${$('collaboration-rounds').value} 轮。`;
+  collaborationResults=selectedParticipants().map(id=>({id,status:'running',text:'正在基于同一份对话历史和来源版本给出意见。'}));
+  frozenSources+=`参与模型：${collaborationResults.map(result=>`研究模型 ${result.id.toUpperCase()}`).join('、')}。`;
+  $('collaboration-setup').hidden=true;$('collaboration-frozen').hidden=false;
+  $('collaboration-frozen-prompt').textContent=frozenPrompt;
+  $('collaboration-frozen-label').textContent=`${$('collaboration-mode').selectedOptions[0].textContent} · ${collaborationResults.length} 位参与者 · ${$('collaboration-rounds').value} 轮 · 已冻结`;
+  collaborationStage='running';document.querySelectorAll('.collab-config select,[data-participant]').forEach(el=>el.disabled=true);$('collaboration-prompt').disabled=true;updateParticipants();
+  if($('message-input').value.trim()===frozenPrompt){$('message-input').value='';$('send').disabled=true;}
+  $('collaboration-state').textContent='执行中';$('collab-copy').textContent='示例执行中 · 本轮输入已冻结';$('stop').hidden=false;$('synthesis').hidden=true;renderParticipants();
+  clearTimeout(collabTimer);collabTimer=setTimeout(()=>{collaborationResults.forEach((result,index)=>{result.status=index===1?'failed':'completed';result.text=index===1?'本轮未完成，可以复用原始输入重试此模型。':'建议收敛首屏入口，保持来源与历史记录随手可达。';});finishParticipants();},650);
+};
+$('summarize').onclick=synthesizeCollaboration;
+$('stop').onclick=()=>{
+  clearTimeout(collabTimer);collaborationStage='stopped';$('stop').hidden=true;
+  collaborationResults.filter(result=>result.status==='running').forEach(result=>{result.status='stopped';result.text='已停止，未产生意见。';});
+  renderParticipants();$('summarize').hidden=!collaborationResults.some(result=>result.status==='completed');
+  $('collaboration-state').textContent='已停止';$('collab-copy').textContent='已停止。不再派发后续调用，已完成结果保留。';
+};
+$('retain').onclick=()=>{
+  if(retainedCollaboration||$('synthesis').hidden)return;
+  retainedCollaboration=true;collaborationStage='retained';$('retain').disabled=true;renderParticipants();
+  const retained=document.createElement('article');retained.className='assistant-message collaboration-retained';
+  retained.innerHTML=`<div class="message-meta"><span class="assistant-mark" aria-hidden="true">✳</span><strong>协作结果已纳入讨论</strong><span>示例</span></div><p class="dialog-meta">问题：${escapeHtml(frozenPrompt)}</p><div class="answer">${$('synthesis-copy').innerHTML}</div><div class="source-row"><button class="source-chip" data-action="collaboration-details"><i data-icon="compare"></i>${collaborationResults.length} 位参与者 · 查看原始协作</button><button class="source-chip" data-dialog="frozen"><i data-icon="link"></i>冻结输入</button></div>`;
+  document.querySelector('.conversation-inner').append(retained);renderIcons(retained);setCollaborationExpanded(false);
+  $('collaboration-state').textContent='已纳入讨论';$('collab-copy').textContent='已纳入当前讨论；后续消息继续引用综合判断、分歧与缺席意见。';
+  $('message-input').placeholder='基于刚才的协作结果继续讨论…';$('message-input').focus({preventScroll:true});retained.scrollIntoView({block:'start',behavior:'instant'});
+  toast('协作结果已纳入当前讨论 · 交互预览');
+};
 $('model-search').oninput=()=>{let count=0;document.querySelectorAll('[data-model]').forEach(el=>{el.hidden=!`${el.dataset.model} 研究供应商`.toLowerCase().includes($('model-search').value.toLowerCase());if(!el.hidden)count++;});$('model-empty').hidden=count>0;};
 $('discover').onclick=()=>{$('provider-health').textContent='目录刷新失败 · 需要检查凭据';$('provider-notice').hidden=false;};
 $('provider-retry').onclick=()=>{$('provider-notice').hidden=true;$('provider-health').textContent='目录刷新成功 · 示例状态';toast('已重试失败项目；其他项目保持不变');};
