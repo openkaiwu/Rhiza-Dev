@@ -1,0 +1,94 @@
+{
+  "schemaVersion": "1.0.0",
+  "ok": true,
+  "workspaces": 2,
+  "checksumMismatches": 0,
+  "interruptedPhase": "blobs-ready",
+  "recoveredWithoutUpload": true,
+  "duplicateIngestions": 0,
+  "restoreModelCalls": 0,
+  "corruptArchiveRejected": true,
+  "originalDataUnchanged": true,
+  "reconciliationPassed": true,
+  "reconciliation": {
+    "schemaVersion": "1.0.0",
+    "ok": true,
+    "workspaces": [
+      {
+        "workspaceId": "00000000-0000-4000-8000-000000000001",
+        "currentChecksum": "fb59618b6a9d8ec75d7dd242c121957cd304db6be2d7269086b08d79e3a10a92",
+        "journalChecksum": "fb59618b6a9d8ec75d7dd242c121957cd304db6be2d7269086b08d79e3a10a92",
+        "match": true,
+        "counts": {
+          "messages": 8,
+          "manifests": 4,
+          "versions": 2,
+          "runs": 4,
+          "journal": 25
+        }
+      },
+      {
+        "workspaceId": "efdb1fb2-a15e-4f97-ac4e-3bb60456e84c",
+        "currentChecksum": "bd935496f7c9007b607f00f8fcf3286b33b0dd126792bb2c785774a0d28646f9",
+        "journalChecksum": "bd935496f7c9007b607f00f8fcf3286b33b0dd126792bb2c785774a0d28646f9",
+        "match": true,
+        "counts": {
+          "messages": 6,
+          "manifests": 2,
+          "versions": 6,
+          "runs": 2,
+          "journal": 12
+        }
+      }
+    ],
+    "plaintext": {
+      "receipt_results": 0,
+      "receipt_errors": 0,
+      "run_inputs": 0,
+      "run_error_details": 0,
+      "journal_payloads": 0,
+      "messages": 0,
+      "manifests": 0,
+      "nodes": 0,
+      "segments": 0,
+      "anchors": 0,
+      "edges": 0,
+      "attachments": 0,
+      "resources": 0,
+      "resource_blobs": 0,
+      "purge_audit_reasons": 0,
+      "context_items": 0,
+      "file_chunks": 0
+    },
+    "unhealthyKeys": 0,
+    "provenance": {
+      "outputs": 7,
+      "missing": 0,
+      "broken": 0,
+      "invalid": 0
+    },
+    "purge": {
+      "pending": 0,
+      "unrevokedReferences": 0
+    }
+  },
+  "counts": {
+    "messages": 12,
+    "manifests": 5,
+    "resourceVersions": 8,
+    "collaborations": 1,
+    "provenance": 6,
+    "journal": 32
+  },
+  "continuedConversation": true,
+  "continuedModelCalls": 1,
+  "managedBackup": "pending",
+  "externalAcceptance": "pending",
+  "evidence": {
+    "kind": "local_synthetic_recovery",
+    "sourceCommit": "b73975e",
+    "workingTreeDirty": true,
+    "command": "node --import tsx --input-type=module (runRestoreDrill diagnostic)",
+    "confirmation": "pnpm vitest run e2e/m16-restore-drill.e2e.test.ts --maxWorkers=1 --testTimeout=65000: 1 passed"
+  }
+}

@@ -20,6 +20,7 @@ import { validatePortableCollaborations } from '../application/portable-collabor
 import journalSchema from '../contracts/domain-event-envelope.schema.json';
 import { validatePortableReferences } from '../application/portable-references';
 import { validatePortableHistory } from '../application/portable-history';
+import { applySemanticChanges } from '../domain-journal';
 import type { BlobStorePort } from '../application/ports/host-runtime';
 
 interface PortableDocument {
@@ -302,6 +303,33 @@ export async function ingestPortableWorkspace(staged: StagedPortableWorkspace, b
         attachment.blobRef = version.blobRef;
       }
     }
+  }
+  // Journal snapshots/deltas are another copy of attachment locations. Rebind them as well,
+  // or the first local command after import starts from a different state than Journal replay.
+  let originalState: Record<string, unknown> | undefined;
+  let reboundState: Record<string, unknown> | undefined;
+  const rebindState = (state: Record<string, unknown>) => {
+    for (const key of ['resourceVersions', 'attachments'] as const) {
+      const values = state[key] as Array<Record<string, unknown>> | undefined;
+      for (const value of values ?? []) {
+        const id = key === 'resourceVersions' ? value.id : value.resourceVersionId;
+        const version = typeof id === 'string' ? byVersion.get(id) : undefined;
+        if (!version || version.digest !== value.digest || version.resourceId !== value.resourceId || version.size !== value.size)
+          throw bundleError('BUNDLE_BROKEN_REFERENCES');
+        value.blobRef = version.blobRef;
+      }
+    }
+  };
+  for (const event of facts.journal) {
+    const snapshot = event.payload.snapshot as { state?: Record<string, unknown> } | undefined;
+    const changes = event.payload.stateChanges as Record<string, unknown> | undefined;
+    if (snapshot?.state) originalState = structuredClone(snapshot.state);
+    if (originalState && changes) applySemanticChanges(originalState, structuredClone(changes));
+    if (event.payload.portableStateChecksum !== undefined && (!originalState || event.payload.portableStateChecksum !== semanticStateChecksum(originalState)))
+      throw bundleError('BUNDLE_EVENT_STATE_MISMATCH');
+    if (snapshot?.state) { rebindState(snapshot.state); reboundState = structuredClone(snapshot.state); }
+    if (changes) { rebindState(changes); if (reboundState) applySemanticChanges(reboundState, changes); }
+    if (reboundState) event.payload.portableStateChecksum = semanticStateChecksum(reboundState);
   }
   return facts;
 }
