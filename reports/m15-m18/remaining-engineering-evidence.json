@@ -41,5 +41,165 @@
     "raw": "m17-command-diagnostic.json",
     "conclusion": "Archived tail increase did not reproduce; no speculative production optimization. This diagnostic is not frozen full benchmark/Gate evidence."
   },
-  "completionAudit": "Independent source/evidence audit confirmed actual wiring for plan tasks1–8, found and repaired this Graph interaction gap, and found no further immediate local implementation gap. This is not formal milestone acceptance."
+  "completionAudit": "Independent source/evidence audit confirmed actual wiring for plan tasks1–8, found and repaired this Graph interaction gap, and found no further immediate local implementation gap. This is not formal milestone acceptance.",
+  "performance": {
+    "command": "pnpm run benchmark:m17",
+    "exitCode": 0,
+    "sourceCommit": "b8a3f16cb78c5120fd5753a4d41035b5620085e7",
+    "workingTreeDirty": false,
+    "raw": "performance.json",
+    "evaluated": "performance-status.json",
+    "previousFailure": "performance-previous.json",
+    "frozenBenchmarkUnchanged": true,
+    "assertions": {
+      "frozen_profile": true,
+      "command_p95": true,
+      "command_p99": true,
+      "graph_p95": true,
+      "graph_p99": true,
+      "context_p95": true,
+      "trace_count": true,
+      "trace_regression": true
+    },
+    "metrics": {
+      "command": {
+        "p95": 77.94858299999942,
+        "p99": 80.20087499999863
+      },
+      "graph": {
+        "p95": 13.692000000002736,
+        "p99": 14.065417000005255
+      },
+      "context": {
+        "p95": 4.417583999998897
+      },
+      "traceRegression": 6.355846135138066
+    },
+    "causalClaim": "none; original tail rise did not reproduce, no production write-path changes made",
+    "formalGate": "pending"
+  },
+  "planAudit": [
+    {
+      "task": 1,
+      "requirement": "distinct Context modes; version-bound read-only recommendations/decisions and budgets",
+      "evidence": [
+        "m15:checks prior actual pass",
+        "server/application/m15-context.test.ts",
+        "e2e/m15-context.e2e.test.ts",
+        "ui-state-evidence.json",
+        "../ui-ux-refresh/qa.md"
+      ],
+      "status": "implemented_and_locally_verified"
+    },
+    {
+      "task": 2,
+      "requirement": "Replay preflight and frozen provenance/resource navigation; corrupt/missing blocks dispatch",
+      "evidence": [
+        "m15:checks prior actual pass",
+        "e2e/m06-runs.e2e.test.ts M09 replay/preflight",
+        "e2e/m15-resource-version.e2e.test.ts",
+        "design/audit.md"
+      ],
+      "status": "implemented_and_locally_verified"
+    },
+    {
+      "task": 3,
+      "requirement": "approved reviewable prototype and implementation impact contract",
+      "evidence": [
+        "design/contract.md",
+        "design/preview.html",
+        "design/audit.md",
+        "user acceptance in task conversation"
+      ],
+      "status": "approved_and_implemented"
+    },
+    {
+      "task": 4,
+      "requirement": "inline four-mode collaboration; frozen inputs, retry/stop/budgets/synthesis/retain/recovery",
+      "evidence": [
+        "collaboration.md",
+        "m16-engineering-checks.json collaboration passed",
+        "collaboration-budget-browser-proof.json",
+        "../ui-ux-refresh/collaboration-state-evidence.json"
+      ],
+      "status": "implemented_and_locally_verified"
+    },
+    {
+      "task": 5,
+      "requirement": "Provider, portable history/optional exact files/configuration mapping, managed backup/restore/Purge",
+      "evidence": [
+        "m16-engineering-checks.json providers/backups/portability passed",
+        "bundle-content-status.json",
+        "managed-backup-status.json",
+        "product-flow-evidence.json",
+        "../ui-ux-refresh/data-state-evidence.json"
+      ],
+      "status": "implemented_and_locally_verified"
+    },
+    {
+      "task": 6,
+      "requirement": "pinned checksum-verified security tool; positive/export fixtures and runbook/CI entrypoint",
+      "evidence": [
+        "security.json",
+        "security-history-followup.log",
+        "security-runbook.md",
+        ".github/workflows/ci.yml"
+      ],
+      "status": "implemented_and_locally_verified_remote_ci_pending"
+    },
+    {
+      "task": 7,
+      "requirement": "frozen matrix, safe read optimization, recovery/storage faults and performance budgets",
+      "evidence": [
+        "m17-matrix.json",
+        "m17-engineering-checks.json recovery/stream/run/storage passed",
+        "performance.json",
+        "performance-status.json"
+      ],
+      "status": "local_engineering_pass_formal_external_acceptance_deferred"
+    },
+    {
+      "task": 8,
+      "requirement": "scoped IA/navigation, personal metadata, multiselect/batch/Undo/Tray/layers and keyboard/narrow UI",
+      "evidence": [
+        "m18-engineering-checks.json",
+        "docs/m18-navigation-contract.md",
+        "design/audit.md",
+        "ui-state-evidence.json",
+        "remaining-engineering-evidence.json"
+      ],
+      "status": "implemented_and_locally_verified_formal_m17_dependency_pending"
+    },
+    {
+      "task": 9,
+      "requirement": "bounded regressions, one stable unified sweep, existing build/lint/license/boundaries, review/commits/Linear",
+      "evidence": [
+        "product-flow-evidence.json",
+        "product-final-test.log",
+        "product-followup-evidence.json",
+        "ui-state-evidence.json",
+        "remaining-engineering-evidence.json",
+        "README.md"
+      ],
+      "status": "engineering_checks_completed_latest_scoped_followups_verified"
+    }
+  ],
+  "deferredAcceptance": {
+    "status": "pending; not required to fabricate or execute during approved development scope",
+    "requirements": [
+      "comparable frozen CI G0 environment",
+      "live-provider quality/authentication and multimodal usage",
+      "production staging/restore and retention expiry",
+      "one-hour browser observation and resource profiles",
+      "four-calendar-week dogfood",
+      "three new users >=80% completion; P0/blockingP1 zero",
+      "formal M15-M18 Gates and M18 dependency"
+    ],
+    "materials": [
+      "m17-matrix.json exact thresholds, ten tasks and evidence fields",
+      "README.md execution notes below",
+      "restore-runbook.md",
+      "security-runbook.md"
+    ]
+  }
 }

@@ -68,3 +68,5 @@
 ## 图谱内层控制的键盘与指针隔离
 
 剩余要求审查发现归档按钮的 Enter/Space 和 pointerup 会冒泡到节点打开/选择逻辑。已限制父节点键盘处理只接受自身目标，并排除内层交互控件的 pointerup；节点本身的键盘打开行为保留。新增五项回归，RED 中三项准确复现，修复后 GraphView 文件 18/18、两文件 ESLint、最终 build/typecheck 通过。正式组件固定样本中，桌面 Enter 和窄屏 Space 都只打开归档确认，Graph route 未变化；随后取消，没有执行归档。见 [桌面键盘](graph-archive-keyboard-desktop.jpg)、[窄屏键盘](graph-archive-keyboard-narrow.jpg)。窄屏最初尝试的节点在虚拟画布外，因此改用当前可见节点；这是 viewport 可见范围，不是交互失败。该局部确认不替代完整辅助技术验收。
+
+最新冻结性能测量及旧失败归档见 `../m15-m18/README.md`：当前本机检查已通过，旧 242.41ms 仅作为历史证据保留。正式 Gate 和外部观察仍待完成。

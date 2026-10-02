@@ -1,9 +1,9 @@
 {
   "schemaVersion": "1.0.0",
-  "ok": false,
+  "ok": true,
   "assertions": {
     "frozen_profile": true,
-    "command_p95": false,
+    "command_p95": true,
     "command_p99": true,
     "graph_p95": true,
     "graph_p99": true,
@@ -13,17 +13,17 @@
   },
   "metrics": {
     "command": {
-      "p95": 242.41108299999905,
-      "p99": 286.22499999999854
+      "p95": 77.94858299999942,
+      "p99": 80.20087499999863
     },
     "graph": {
-      "p95": 22.142875000005006,
-      "p99": 25.9375
+      "p95": 13.692000000002736,
+      "p99": 14.065417000005255
     },
     "context": {
-      "p95": 7.750374999995984
+      "p95": 4.417583999998897
     },
-    "traceRegression": 15.577671009374994
+    "traceRegression": 6.355846135138066
   },
   "g0Relative": "pending"
 }
