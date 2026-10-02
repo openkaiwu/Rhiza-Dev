@@ -59,7 +59,7 @@ export interface WorkspaceExecutionResult<T> {
  */
 export interface WorkspaceUnitOfWork {
   getCollaboration?(id: string): Promise<import('../collaboration-policy').CollaborationRecord | undefined>;
-  listCollaborations?(limit?: number): Promise<import('../collaboration-policy').CollaborationRecord[]>;
+  listCollaborations?(limit?: number, nodeId?: string): Promise<import('../collaboration-policy').CollaborationRecord[]>;
   activatePortableImport?(importId: string, ownerId: string, facts: import('./portable-workspace').PortableWorkspaceFacts): Promise<void>;
   readPortableWorkspace?(): Promise<import('./portable-workspace').PortableWorkspaceFacts>;
   beginManagedBackup?(retryOf?: string): ReturnType<import('./managed-backup').ManagedBackupLifecyclePort['begin']>;

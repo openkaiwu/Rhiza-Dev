@@ -20,8 +20,8 @@ import { inspectM10Store } from './m10-inspection';
 import { semanticStateChecksum } from '../server/infrastructure/workspace-semantic-checksum';
 import { portableWorkspaceFacts } from '../server/application/portable-workspace';
 
-// This reader includes the additive M11 model/Segment metadata and identical schema.
-const baseline = '1145401';
+// M15–M18 adds migration 0038 onward; this prior reader includes the identical current schema.
+const baseline = '0fe6453';
 export async function runRollbackDrill(compatibleRef = baseline) {
   const commit = execFileSync('git', ['rev-parse', '--verify', `${compatibleRef}^{commit}`], { encoding: 'utf8' }).trim();
   for (const migration of await loadMigrations()) {

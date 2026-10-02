@@ -621,7 +621,10 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
     try { response.status(201).json(await execute(response, 'CreateCollaboration', request.body)); } catch (error) { next(error); }
   });
   app.get('/api/collaborations', async (request, response, next) => {
-    try { response.json(await query(response, 'ListCollaborations', { limit: Number(request.query.limit || 50) })); } catch (error) { next(error); }
+    try {
+      if (request.query.nodeId !== undefined && typeof request.query.nodeId !== 'string') rejectInput('节点身份无效。', 'INVALID_NODE_ID');
+      response.json(await query(response, 'ListCollaborations', { limit: Number(request.query.limit || 50), nodeId: request.query.nodeId as string | undefined }));
+    } catch (error) { next(error); }
   });
   app.get('/api/collaborations/:id', async (request, response, next) => {
     try { response.json(await query(response, 'GetCollaboration', { collaborationId: request.params.id })); } catch (error) { next(error); }

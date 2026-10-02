@@ -6,7 +6,7 @@ import { initialContext } from './data';
 import type { CollaborationRecord, ContextManifest, DiscussionNode, Message } from './types';
 
 const mocks = vi.hoisted(() => { const temporary = vi.fn(); return ({
-  batchGraphOperations: vi.fn(), getGraphBatch: vi.fn(), undoGraphBatch: vi.fn(), getPersonalGraphView: vi.fn(), savePersonalGraphView: vi.fn(), listManagedBackups: vi.fn(), getWorkspace: vi.fn(), listCollaborations: vi.fn(), createCollaboration: vi.fn(), streamCollaboration: vi.fn(),
+  batchGraphOperations: vi.fn(), getGraphBatch: vi.fn(), undoGraphBatch: vi.fn(), getPersonalGraphView: vi.fn(), savePersonalGraphView: vi.fn(), listManagedBackups: vi.fn(), getRun: vi.fn(), listRuns: vi.fn(), getWorkspace: vi.fn(), getNodeCollaboration: vi.fn(), listCollaborations: vi.fn(), createCollaboration: vi.fn(), streamCollaboration: vi.fn(),
   getMessageContext: vi.fn(), getManifestContext: vi.fn(), getContextPreview: vi.fn(), decideContextRecommendation: vi.fn(),
   getWorkspaceActivity: vi.fn(),
   getGraphNeighborhood: vi.fn(), getGraphPath: vi.fn(),
@@ -71,15 +71,19 @@ const projectedGraph = (nodes: readonly DiscussionNode[] = workspace.discussionN
 } });
 
 beforeEach(() => {
+  window.history.replaceState(null, '', '/');
   localStorage.clear();
   mocks.getPersonalGraphView.mockResolvedValue({ viewType: 'conversation', revision: 0, source: 'default', ownerScope: { scopeType: 'user', scopeId: 'local' }, positions: [], viewport: { x: 0, y: 0, zoom: 1 }, filters: { objectTypes: ['conversation'], relationTypes: [] } });
   mocks.savePersonalGraphView.mockResolvedValue({ viewType: 'conversation', revision: 1, ownerScope: { scopeType: 'user', scopeId: 'local' } });
   mocks.listManagedBackups.mockResolvedValue({ backups: [], reminder: { due: true, nextAt: null, intervalDays: 7 } });
+  mocks.getNodeCollaboration.mockResolvedValue({collaborations:[]});
+  mocks.listRuns.mockResolvedValue({runs:[]});
+  mocks.getRun.mockRejectedValue(new Error('unavailable'));
   mocks.listCollaborations.mockResolvedValue({ collaborations: [] });
   mocks.workspaceId.mockReturnValue(undefined);
   mocks.getContextPreview.mockResolvedValue({ mode: workspace.mode, items: workspace.contextItems.filter(item => item.status === 'active'), recommendations: workspace.contextItems.filter(item => item.status === 'recommended'), omissions: [], budget: 32000, usedTokens: 4200, overBudget: false });
   mocks.decideContextRecommendation.mockResolvedValue({ workspace });
-  mocks.getManifestContext.mockResolvedValue(contextHistoryFixture);
+  mocks.getManifestContext.mockResolvedValue({...contextHistoryFixture,manifest:{...contextHistoryFixture.manifest,id:'manifest-history',projectId:workspace.projectId,nodeId:workspace.activeNodeId}});
 
   mocks.cancelAttempt.mockResolvedValue(undefined);mocks.findAttemptRun.mockResolvedValue(null);
   mocks.searchWorkspace.mockResolvedValue({ results: [] });
@@ -137,7 +141,7 @@ describe('Rhiza MVP', () => {
     fireEvent.click((await screen.findAllByRole('button', { name: '查看本轮上下文' }))[0]);
     fireEvent.change(await screen.findByRole('combobox', { name: '切换工作区' }), { target: { value: 'second-workspace' } });
     await waitFor(() => expect(mocks.getScopedWorkspace).toHaveBeenCalledWith('second-workspace'));
-    pending.resolve(contextHistoryFixture);
+    pending.resolve({...contextHistoryFixture,manifest:{...contextHistoryFixture.manifest,id:'manifest-history',projectId:workspace.projectId,nodeId:workspace.activeNodeId}});
     await waitFor(() => expect(screen.queryByRole('heading', { name: '当时的上下文' })).not.toBeInTheDocument());
     expect(screen.queryByText('可访问性约束')).not.toBeInTheDocument();
   });
@@ -151,10 +155,10 @@ describe('Rhiza MVP', () => {
     expect(mocks.getMessageContext).toHaveBeenCalledWith('m1');
     expect(screen.getByText('正在读取历史上下文…')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '返回当前上下文' }));
-    pending.resolve(contextHistoryFixture);
+    pending.resolve({...contextHistoryFixture,manifest:{...contextHistoryFixture.manifest,id:'manifest-history',projectId:workspace.projectId,nodeId:workspace.activeNodeId}});
     await waitFor(() => expect(screen.getByRole('heading', { name: '本轮上下文' })).toBeInTheDocument());
     expect(screen.queryByRole('heading', { name: '当时的上下文' })).not.toBeInTheDocument();
-    mocks.getMessageContext.mockResolvedValueOnce(contextHistoryFixture);
+    mocks.getMessageContext.mockResolvedValueOnce({...contextHistoryFixture,manifest:{...contextHistoryFixture.manifest,id:'manifest-history',projectId:workspace.projectId,nodeId:workspace.activeNodeId}});
     fireEvent.click(buttons[1]);
     expect(await screen.findByText('为什么未使用')).toBeInTheDocument();
   });
@@ -268,7 +272,7 @@ describe('Rhiza MVP', () => {
     fireEvent.click(screen.getByRole('button', { name: /对话图谱/ }));
     expect(screen.getByRole('heading', { name: '对话图谱' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /知识状态/ }));
-    expect(screen.getByRole('heading', { name: '当前有效知识' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '知识来源' })).toBeInTheDocument();
   });
 
   it('loads graph pages on demand, keeps earlier nodes, and exposes retryable failures', async () => {
@@ -307,6 +311,7 @@ describe('Rhiza MVP', () => {
     mocks.getGraphNeighborhood.mockResolvedValue(projectedGraph(nextWorkspace.discussionNodes));
     fireEvent.change(screen.getByRole('combobox', { name: '切换工作区' }), { target: { value: secondId } });
     expect(screen.queryByRole('button', { name: `讨论节点：${workspace.discussionNodes[0]!.title}` })).not.toBeInTheDocument();
+    await screen.findByRole('heading', { name: 'Second' }); fireEvent.click(screen.getByRole('button', { name: '对话图谱' }));
     expect(await screen.findByRole('button', { name: '讨论节点：Second graph' })).toBeInTheDocument();
     late.resolve(projectedGraph());
     await waitFor(() => expect(screen.getByRole('button', { name: '讨论节点：Second graph' })).toBeInTheDocument());
@@ -353,7 +358,7 @@ describe('Rhiza MVP', () => {
     const input = screen.getByLabelText('输入消息');
     fireEvent.change(input, { target: { value: '验证这个结构' } });
     fireEvent.click(screen.getByRole('button', { name: '发送' }));
-    expect(screen.getByText('验证这个结构')).toBeInTheDocument();
+    expect(await screen.findByText('验证这个结构')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText('真实 Provider 回答')).toBeInTheDocument());
     expect(mocks.streamMessage).toHaveBeenCalledWith('验证这个结构', expect.any(Function), expect.objectContaining({ operation: 'send', generation: { temperature: 0.4, topP: 1, maxTokens: 2048 } }));
   });
@@ -501,11 +506,11 @@ describe('Rhiza MVP', () => {
     fireEvent.change(select, { target: { value: firstId } });
     fireEvent.change(select, { target: { value: secondId } });
     await waitFor(() => expect(mocks.getScopedWorkspace).toHaveBeenCalledWith(secondId));
-    second.resolve({ workspace: scopedWorkspace('Second scope') });
-    expect(await screen.findByRole('heading', { level: 1, name: /Second scope/ })).toBeInTheDocument();
+    second.resolve({ workspace: { ...scopedWorkspace('Second scope'), projectId: secondId } });
+    expect(await screen.findByRole('heading', { level: 1, name: 'Second' })).toBeInTheDocument();
     first.reject(new Error('first scope failed late'));
     await Promise.resolve();
-    expect(screen.getByRole('heading', { level: 1, name: /Second scope/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Second' })).toBeInTheDocument();
   });
 
   it('does not let a stale default background refresh overwrite a selected workspace', async () => {
@@ -526,11 +531,11 @@ describe('Rhiza MVP', () => {
     const select = await screen.findByRole('combobox', { name: '切换工作区' });
     fireEvent.change(select, { target: { value: secondId } });
     await waitFor(() => expect(mocks.getScopedWorkspace).toHaveBeenCalledWith(secondId));
-    selected.resolve({ workspace: scopedWorkspace('Selected scope') });
-    expect(await screen.findByRole('heading', { level: 1, name: /Selected scope/ })).toBeInTheDocument();
+    selected.resolve({ workspace: { ...scopedWorkspace('Selected scope'), projectId: secondId } });
+    expect(await screen.findByRole('heading', { level: 1, name: 'Second' })).toBeInTheDocument();
     background.resolve({ workspace, provider: { configured: true, name: 'Test Provider', model: 'test-model', baseUrl: 'https://example.test/v1' }, providerCatalog });
     await Promise.resolve();
-    expect(screen.getByRole('heading', { level: 1, name: /Selected scope/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Second' })).toBeInTheDocument();
   });
 
   it('keeps archived workspaces selectable and exposes restore after an archive refresh', async () => {
@@ -673,7 +678,7 @@ it('does not dispatch or display a collaboration created after switching Workspa
   fireEvent.click(await screen.findByRole('button', { name: '发起多模型协作' }));
   fireEvent.click(screen.getByRole('button', { name: '开始协作' }));
   fireEvent.change(screen.getByRole('combobox', { name: '切换工作区' }), { target: { value: otherId } });
-  await screen.findByRole('heading', { level: 1, name: 'Other discussion' });
+  await screen.findByRole('heading', { level: 1, name: 'Other' });
   await act(async () => { creation.resolve({ collaboration: inlineRecord }); await creation.promise; });
   expect(mocks.streamCollaboration).not.toHaveBeenCalled();
   expect(screen.queryByRole('region', { name: '第二意见协作结果' })).not.toBeInTheDocument();
@@ -691,4 +696,124 @@ it('resumes a partial Undo using its original command and never re-applies the a
   const resume = await screen.findByRole('button', { name: '继续原批次' }); await waitFor(() => expect(resume).toBeEnabled()); fireEvent.click(resume);
   await waitFor(() => expect(mocks.undoGraphBatch).toHaveBeenCalledTimes(2)); expect(mocks.undoGraphBatch.mock.calls[0]).toEqual(mocks.undoGraphBatch.mock.calls[1]);
   expect(mocks.batchGraphOperations).toHaveBeenCalledTimes(1);
+});
+
+
+it('reads an exact copied message in another discussion without activating or invoking', async () => {
+ const node={...workspace.discussionNodes[0]!,id:'read-only-target',title:'Copied discussion'};
+ const copied={...workspace,discussionNodes:[...workspace.discussionNodes,node],messages:[...workspace.messages,{id:'old-message',nodeId:node.id,kind:'assistant' as const,text:'Exact old version',createdAt:'2026-01-01T00:00:00Z',version:1}]};
+ window.history.replaceState(null,'',`/#/workspaces/${workspace.projectId}/conversations/${node.id}/messages/old-message`);
+ mocks.getWorkspace.mockResolvedValue({...await mocks.getWorkspace(),workspace:copied});
+ const activation=mocks.activateNode.mock.calls.length,dispatch=mocks.streamMessage.mock.calls.length;
+ render(<App/>);await screen.findByText('Exact old version');expect(mocks.activateNode).toHaveBeenCalledTimes(activation);expect(mocks.streamMessage).toHaveBeenCalledTimes(dispatch);
+ expect(screen.getByRole('button',{name:'继续此讨论'})).toBeInTheDocument();
+ mocks.activateNode.mockRejectedValueOnce(new Error('activation failed'));
+ fireEvent.change(screen.getByLabelText('输入消息'),{target:{value:'Must not dispatch to old node'}});fireEvent.click(screen.getByRole('button',{name:'发送'}));
+ await screen.findByRole('button',{name:'重试'});expect(mocks.streamMessage).toHaveBeenCalledTimes(dispatch);expect(screen.getByText('Exact old version')).toBeInTheDocument();
+});
+
+it('keeps explicit missing and mismatched message routes unavailable with an escape', async () => {
+ window.history.replaceState(null,'',`/#/workspaces/${workspace.projectId}/conversations/missing/messages/m2`);
+ const activation=mocks.activateNode.mock.calls.length;
+ render(<App/>);await screen.findByRole('heading',{name:'无法访问此消息版本。'});expect(screen.queryByText('原始回答')).not.toBeInTheDocument();expect(mocks.activateNode).toHaveBeenCalledTimes(activation);
+ fireEvent.click(screen.getByRole('button',{name:'选择工作区'}));await screen.findByRole('heading',{name:'选择工作区'});
+});
+
+it('replaces fake knowledge states with current source facts', async () => {
+ render(<App/>);fireEvent.click(await screen.findByRole('button',{name:'知识状态'}));await screen.findByRole('heading',{name:'知识来源'});
+ expect(screen.queryByText('MVP 不接入真实模型服务')).not.toBeInTheDocument();expect(screen.queryByRole('button',{name:'+ 添加状态'})).not.toBeInTheDocument();
+ expect(screen.getAllByText(workspace.contextItems.find(item=>item.status==='active')!.title).length).toBeGreaterThan(0);
+});
+
+it('resolves an offscreen graph target through a scoped read and rejects a different version', async () => {
+ const target={...workspace.discussionNodes[0]!,id:'offscreen',title:'Offscreen target',x:500};
+ window.history.replaceState(null,'',`/#/workspaces/${workspace.projectId}/graph/objects/conversation/offscreen?versionId=old`);
+ mocks.getGraphNeighborhood.mockImplementation((input:{objectId?:string})=>Promise.resolve(input.objectId?projectedGraph([target]):projectedGraph()));
+ const activation=mocks.activateNode.mock.calls.length;
+ render(<App/>);await screen.findByRole('heading',{name:'无法访问此图谱对象或版本。'});expect(mocks.getGraphNeighborhood).toHaveBeenCalledWith(expect.objectContaining({objectId:'offscreen',nodeLimit:200}));expect(mocks.activateNode).toHaveBeenCalledTimes(activation);expect(screen.queryByRole('button',{name:'讨论节点：Offscreen target'})).not.toBeInTheDocument();
+});
+
+it('loads the copied frozen-source index without activating current selection', async () => {
+ window.history.replaceState(null,'',`/#/workspaces/${workspace.projectId}/context/manifests/manifest-history/sources/0`);
+ const activation=mocks.activateNode.mock.calls.length,dispatch=mocks.streamMessage.mock.calls.length;
+ render(<App/>);await screen.findByText(/专业用户希望直接进入当前讨论。/);
+ expect(document.querySelector('#frozen-source-0 details')?.hasAttribute('open')).toBe(true);expect(mocks.activateNode).toHaveBeenCalledTimes(activation);expect(mocks.streamMessage).toHaveBeenCalledTimes(dispatch);
+});
+
+
+it('continues the initiating discussion when sending from collaboration frozen evidence', async () => {
+ const other={...workspace.discussionNodes[0]!,id:'another-active',title:'Other active'};
+ const hidden={...workspace.discussionNodes[0]!,id:inlineRecord.nodeId,title:'Internal collaboration'};
+ const loaded={...workspace,activeNodeId:other.id,discussionNodes:[...workspace.discussionNodes,other,hidden]};
+ window.history.replaceState(null,'',`/#/workspaces/${workspace.projectId}/context/manifests/collaboration-manifest`);
+ mocks.getWorkspace.mockResolvedValue({...await mocks.getWorkspace(),workspace:loaded});
+ mocks.listCollaborations.mockResolvedValue({collaborations:[]});
+ mocks.getNodeCollaboration.mockImplementation((id:string)=>Promise.resolve({collaborations:id===hidden.id?[{...inlineRecord,status:'partial'}]:[]}));
+ mocks.getManifestContext.mockResolvedValue({...contextHistoryFixture,manifest:{...contextHistoryFixture.manifest,id:'collaboration-manifest',projectId:workspace.projectId,nodeId:hidden.id}});
+ mocks.activateNode.mockClear();mocks.streamMessage.mockClear();
+ render(<App/>);await screen.findByText(/专业用户希望直接进入当前讨论。/);
+ expect(screen.getByRole('heading',{level:1,name:'信息架构方向'})).toBeInTheDocument();
+ fireEvent.change(screen.getByLabelText('输入消息'),{target:{value:'Continue using review evidence'}});fireEvent.click(screen.getByRole('button',{name:'发送'}));
+ await waitFor(()=>expect(mocks.streamMessage).toHaveBeenCalledOnce());expect(mocks.activateNode).toHaveBeenCalledExactlyOnceWith(workspace.activeNodeId);
+});
+
+it('keeps an archived Segment location read-only under an active discussion', async () => {
+ window.history.replaceState(null,'',`/#/workspaces/${workspace.projectId}/conversations/${workspace.activeNodeId}/segments/segment-1`);
+ mocks.getWorkspace.mockResolvedValue({...await mocks.getWorkspace(),workspace:{...workspace,segments:[{...workspace.segments[0],status:'archived'}]}});
+ const calls=mocks.streamMessage.mock.calls.length;
+ render(<App/>);await screen.findByText('原始回答');expect(screen.getByLabelText('输入消息')).toBeDisabled();expect(screen.getByRole('button',{name:'发送'})).toBeDisabled();expect(screen.queryByRole('button',{name:'发起多模型协作'})).not.toBeInTheDocument();expect(mocks.streamMessage).toHaveBeenCalledTimes(calls);
+});
+
+it('resolves the exact typed message graph link without changing execution selection', async () => {
+ const graph=projectedGraph().graph;const target={...graph.objects[0],ref:{workspaceId:workspace.projectId,objectType:'message',objectId:'copied-message',versionId:'version-old'},title:'Copied graph message',parentRef:{workspaceId:workspace.projectId,objectType:'conversation',objectId:'different-discussion'}};
+ window.history.replaceState(null,'',`/#/workspaces/${workspace.projectId}/graph/objects/message/copied-message?versionId=version-old`);
+ mocks.getGraphNeighborhood.mockImplementation((input:{objectId?:string})=>Promise.resolve({graph:{...graph,objects:input.objectId?[target]:graph.objects}}));
+ const calls=mocks.activateNode.mock.calls.length;render(<App/>);await screen.findByRole('button',{name:'讨论节点：Copied graph message'});
+ expect(mocks.getGraphNeighborhood).toHaveBeenCalledWith(expect.objectContaining({objectType:'message',objectId:'copied-message',versionId:'version-old',objectTypes:expect.arrayContaining(['message'])}));expect(mocks.activateNode).toHaveBeenCalledTimes(calls);
+});
+
+it('rejects foreign exact Run locations without recording successful recents', async () => {
+ const pending=deferred<{run:{id:string;workspaceId:string}}>();mocks.getRun.mockReturnValueOnce(pending.promise);
+ window.history.replaceState(null,'',`/#/workspaces/${workspace.projectId}/runs/foreign-run`);
+ render(<App/>);await screen.findByRole('heading',{name:'正在读取执行记录…'});expect(JSON.parse(localStorage.getItem('rhiza:recent-locations:v1')??'[]')).toEqual([]);
+ await act(async()=>{pending.resolve({run:{id:'foreign-run',workspaceId:'foreign-workspace'}});await pending.promise;});
+ await screen.findByRole('heading',{name:'无法访问此执行记录。'});expect(screen.queryByText('尚无执行记录')).not.toBeInTheDocument();expect(JSON.parse(localStorage.getItem('rhiza:recent-locations:v1')??'[]')).toEqual([]);
+});
+
+it('refreshes a deep-linked Run outside the recent list through its exact scoped identity', async () => {
+ const run={id:'old-run',workspaceId:workspace.projectId,nodeId:workspace.activeNodeId,status:'running',createdAt:'2026-01-01T00:00:00Z',inputHash:'hash',input:{executor:{model:'Old model',provider:'Fixture'},request:{prompt:'Old request'}},telemetry:{traceCount:0}};
+ mocks.getRun.mockClear();mocks.getRun.mockResolvedValueOnce({run}).mockResolvedValueOnce({run}).mockResolvedValue({run:{...run,status:'completed'}});
+ mocks.listRuns.mockResolvedValue({runs:[]});window.history.replaceState(null,'',`/#/workspaces/${workspace.projectId}/runs/old-run`);
+ render(<App/>);await screen.findByText('生成中 · Old model');await waitFor(()=>expect(mocks.getRun).toHaveBeenCalledTimes(2));
+ fireEvent.click(screen.getByRole('button',{name:'刷新'}));await screen.findByText('已完成 · Old model');expect(mocks.getRun).toHaveBeenLastCalledWith('old-run');expect(screen.queryByRole('button',{name:'停止'})).not.toBeInTheDocument();
+});
+
+it('opening the workspace menu with Context closed preserves the current location', async () => {
+ render(<App/>);await screen.findByText('原始回答');fireEvent.click(screen.getByRole('button',{name:'开始使用'}));
+ const original=window.location.hash;const back=vi.spyOn(window.history,'back');
+ fireEvent.click(screen.getByRole('button',{name:'打开工作区菜单'}));expect(window.location.hash).toBe(original);expect(back).not.toHaveBeenCalled();back.mockRestore();
+});
+
+it('handles narrow Context Escape once across document and window listeners', async () => {
+ const previous = window.matchMedia;
+ Object.defineProperty(window,'matchMedia',{configurable:true,value:()=>({matches:true,addEventListener:vi.fn(),removeEventListener:vi.fn()})});
+ localStorage.setItem('rhiza:onboarding-seen','1');
+ const back=vi.spyOn(window.history,'back');
+ try {
+  render(<App/>);await screen.findByText('原始回答');fireEvent.click(screen.getByRole('button',{name:/^上下文/}));
+  fireEvent.keyDown(screen.getByRole('button',{name:'关闭上下文'}),{key:'Escape'});
+  expect(back).toHaveBeenCalledOnce();
+ } finally { back.mockRestore();Object.defineProperty(window,'matchMedia',{configurable:true,value:previous}); }
+});
+
+
+it('refuses hidden collaboration execution absent from the recent list and fails closed on ownership lookup', async () => {
+ const hidden={...workspace.discussionNodes[0]!,id:inlineRecord.nodeId,title:'Older internal record'};
+ const loaded={...workspace,activeNodeId:hidden.id,discussionNodes:[...workspace.discussionNodes,hidden]};
+ mocks.getWorkspace.mockResolvedValue({...await mocks.getWorkspace(),workspace:loaded});mocks.listCollaborations.mockRejectedValueOnce(new Error('list unavailable'));
+ mocks.getNodeCollaboration.mockClear();mocks.getNodeCollaboration.mockResolvedValueOnce({collaborations:[inlineRecord]}).mockRejectedValueOnce(new Error('ownership unavailable'));
+ const activated=mocks.activateNode.mock.calls.length,dispatch=mocks.streamMessage.mock.calls.length;
+ render(<App/>);await screen.findByRole('heading',{level:1,name:hidden.title});fireEvent.change(screen.getByLabelText('输入消息'),{target:{value:'Must not target internal'}});fireEvent.click(screen.getByRole('button',{name:'发送'}));
+ await screen.findByRole('button',{name:'重试'});expect(mocks.getNodeCollaboration).toHaveBeenCalledWith(hidden.id);expect(mocks.streamMessage).toHaveBeenCalledTimes(dispatch);expect(mocks.activateNode).toHaveBeenCalledTimes(activated);
+ fireEvent.click(screen.getByRole('button',{name:'重试'}));await waitFor(()=>expect(mocks.getNodeCollaboration).toHaveBeenCalledTimes(2));expect(mocks.streamMessage).toHaveBeenCalledTimes(dispatch);expect(mocks.activateNode).toHaveBeenCalledTimes(activated);
 });

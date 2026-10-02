@@ -160,6 +160,7 @@ async function uploadAttachment(file: File): Promise<Attachment> {
 }
 
 export const api = {
+  getNodeCollaboration: (nodeId: string) => request<{ collaborations: CollaborationRecord[] }>(`/api/collaborations?${new URLSearchParams({nodeId,limit:'100'})}`),
   listCollaborations: () => request<{ collaborations: CollaborationRecord[] }>('/api/collaborations?limit=100'),
   getCollaboration: (id: string) => request<{ collaboration: CollaborationRecord }>(`/api/collaborations/${encodeURIComponent(id)}`),
   createCollaboration: (input: CollaborationInput, key: string) => request<{ collaboration: CollaborationRecord }>('/api/collaborations', { method: 'POST', headers: { 'Idempotency-Key': key }, body: JSON.stringify(input) }),
@@ -207,9 +208,10 @@ export const api = {
   updateWorkspace: (workspaceId: string, action: 'archive' | 'restore' | 'rename', revision: number, name?: string) => request<{ workspace: WorkspaceRecord }>(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}`, { method: 'PATCH', headers: { 'If-Match': String(revision) }, body: JSON.stringify({ action, name }) }),
   getWorkspace: () => request<{ workspace: WorkspaceSnapshot; provider: ProviderStatus; providerCatalog: ProviderCatalog }>('/api/workspace'),
   getWorkspaceActivity: (limit = 50) => request<{ activity: WorkspaceActivityItem[] }>(`/api/workspace/activity?limit=${limit}`),
-  getGraphNeighborhood: (input: { objectId?: string; depth?: number; nodeLimit?: number; edgeLimit?: number; cursor?: string; objectTypes?: string[]; query?:string; statuses?:string[]; updatedAfter?:string } = {}) => {
+  getGraphNeighborhood: (input: { objectType?: string; versionId?: string; objectId?: string; depth?: number; nodeLimit?: number; edgeLimit?: number; cursor?: string; objectTypes?: string[]; query?:string; statuses?:string[]; updatedAfter?:string } = {}) => {
     const parameters = new URLSearchParams({ objectTypes: input.objectTypes?.join(',')??'conversation', depth: String(input.depth ?? 3), nodeLimit: String(input.nodeLimit ?? 500), edgeLimit: String(input.edgeLimit ?? 2000) });
-    if (input.objectId) { parameters.set('objectType', 'conversation'); parameters.set('objectId', input.objectId); }
+    if (input.objectId) { parameters.set('objectType', input.objectType ?? 'conversation'); parameters.set('objectId', input.objectId); }
+    if (input.versionId) parameters.set('versionId', input.versionId);
     if (input.cursor) parameters.set('cursor', input.cursor);
     if(input.query)parameters.set('q',input.query);if(input.statuses?.length)parameters.set('statuses',input.statuses.join(','));if(input.updatedAfter)parameters.set('updatedAfter',input.updatedAfter);
     return request<{ graph: import('./types').GraphProjectionResult }>(`/api/graph/neighborhood?${parameters}`);

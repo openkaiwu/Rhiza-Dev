@@ -122,7 +122,7 @@ export interface QueryMap {
   GetGraphBatch: { payload: { batchId: string }; result: import('./graph-batch').GraphBatchResult };
   GetPersonalGraphView: { payload: { viewType: string }; result: import('./personal-graph-view').PersonalGraphView };
   GetCollaboration: { payload: { collaborationId: string }; result: { collaboration: import('./collaboration').CollaborationRecord } };
-  ListCollaborations: { payload: { limit?: number }; result: { collaborations: import('./collaboration').CollaborationRecord[] } };
+  ListCollaborations: { payload: { limit?: number; nodeId?: string }; result: { collaborations: import('./collaboration').CollaborationRecord[] } };
   GetReplayPreflight: { payload: { runId: string }; result: { runId: string; sourceManifestId?: string; missingRefs: string[]; policies: Array<{ policy: 'exact' | 'partial' | 'current-model'; allowed: boolean; code?: string; differences: string[] }> } };
   GetContextPreview: { payload: { query: string; attachmentIds?: string[] }; result: { mode: ContextMode; items: import('../domain').ContextItem[]; recommendations: import('../domain').ContextItem[]; omissions: import('../domain').ContextOmission[]; budget: number; usedTokens: number; overBudget: boolean } };
   ExportWorkspaceBundle: { payload: import('../domain/portable-bundle').BundleExportOptions; result: import('../domain/portable-bundle').BundleExport };

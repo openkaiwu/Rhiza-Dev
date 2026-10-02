@@ -71,6 +71,16 @@ it('M16 commits collaboration facts before dispatch, freezes round/retry inputs 
     expect((await store.getCollaboration!(record.id))?.status).toBe('canceled');
 
     const second = (await request(app).post('/api/collaborations').send({ prompt: 'Summarize fixture', mode: 'independent-review', modelIds: ['a','b'], synthesisModelId: 'a' }).expect(201)).body.collaboration;
+    const beforeOwnershipReads = calls.length;
+    const recent = await request(app).get('/api/collaborations?limit=1').expect(200);
+    expect(recent.body.collaborations.map((item: {id:string}) => item.id)).toEqual([second.id]);
+    const owned = await request(app).get(`/api/v1/workspaces/${original.projectId}/collaborations`).query({nodeId:record.nodeId,limit:1}).expect(200);
+    expect(owned.body.collaborations.map((item: {id:string}) => item.id)).toEqual([record.id]);
+    const ordinary = await request(app).get('/api/collaborations').query({nodeId:original.activeNodeId,limit:1}).expect(200);
+    expect(ordinary.body.collaborations).toEqual([]);
+    await request(app).get('/api/v1/workspaces/10000000-0000-4000-8000-000000000099/collaborations').query({nodeId:record.nodeId}).expect(403);
+    await request(app).get('/api/collaborations?nodeId=a&nodeId=b').expect(400);
+    expect(calls).toHaveLength(beforeOwnershipReads);
     await request(app).post(`/api/collaborations/${second.id}/invoke`).send({ participantId: 'a', round: 1 }).expect(201);
     failB = true;
     await request(app).post(`/api/collaborations/${second.id}/invoke`).send({ participantId: 'b', round: 1 }).expect(504);

@@ -98,3 +98,10 @@ it('preserves aggregate collaboration errors and never repeats an external invoc
   const fetch = vi.fn().mockResolvedValue(new Response('event: error\ndata: {"type":"COLLABORATION_ERROR","code":"COLLABORATION_ALREADY_STARTED","message":"Review required","status":409}\n\n', { status: 200 })); vi.stubGlobal('fetch', fetch);
   await expect(api.streamCollaboration('session', vi.fn(), 'stable-key', new AbortController().signal)).rejects.toMatchObject({ code: 'COLLABORATION_ALREADY_STARTED', status: 409 }); expect(fetch).toHaveBeenCalledOnce();
 });
+
+
+it('requests the exact typed graph identity and version within its Workspace', async () => {
+ const fetch=vi.fn().mockResolvedValue(new Response(JSON.stringify({graph:{objects:[],relations:[]}}),{status:200}));vi.stubGlobal('fetch',fetch);api.setWorkspace('scope');
+ await api.getGraphNeighborhood({objectType:'message',objectId:'m/old',versionId:'v/1',objectTypes:['conversation','segment','message'],depth:2,nodeLimit:200,edgeLimit:800});
+ const url=new URL(fetch.mock.calls[0][0],'http://localhost');expect(url.pathname).toBe('/api/v1/workspaces/scope/graph/neighborhood');expect(Object.fromEntries(url.searchParams)).toMatchObject({objectType:'message',objectId:'m/old',versionId:'v/1',objectTypes:'conversation,segment,message',nodeLimit:'200'});expect(fetch).toHaveBeenCalledOnce();
+});

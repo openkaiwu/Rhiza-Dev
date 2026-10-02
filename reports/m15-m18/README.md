@@ -1,6 +1,10 @@
 # M15–M18 delivery evidence
 
-Baseline: update1002 / 478872e. Full goal remains in progress; this is incremental evidence, not milestone closure.
+Branch: update1002. The approved formal UI now connects compact Chat/Context/Provenance/Replay, inline collaboration and Provider settings, Bundle/managed backups, Graph batches/Undo/personal state, and Workspace navigation. Production screenshots and per-unit verification: [UI audit](design/audit.md). Full goal remains in progress; formal Gates are not closed.
+
+Unified verification: lint, build/typecheck, licenses and M02/M04/M10 boundaries passed. The unit and E2E runs exposed navigation fixture/empty Runs regressions, an incompatible rollback revision, and a legacy implicit Context-selection fixture; affected repairs and new behavior regressions passed without weakening assertions. Existing real PostgreSQL cases were conditional skips. G0 stops on frozen API snapshot drift (33 additive route differences, none removed); later G0 checks remain unexecuted. M17 recorded Command p95 remains 242.41ms against 200ms. Full visual-model fixtures, independent ResourceVersion byte-viewing contract, live providers, production recovery/staging, retention expiry, long observation and user acceptance remain pending. No unchanged performance or full-suite loop was run.
+
+The following records retain earlier backend evidence; later approved production work supersedes their earlier UI-pending descriptions.
 
 Implemented backend units: distinct Context modes; bounded read-only preview; version-bound accept/reject with reasons, stale-source rejection and idempotent transactional persistence; safe fallback, Manifest identity and temporary input filtering; read-only Replay policy/config preflight sharing execution guards; no static recommendation in new server seeds. No user database migration, historical rewriting or production UI redesign performed.
 
@@ -12,7 +16,7 @@ Verified targeted checks (actual current work):
 - Existing frozen Replay E2E enhanced with preflight: passed; exact/partial/current-model, config drift, corrupted resource and zero preflight model calls.
 - Typecheck and strict M02 architecture boundary passed. Targeted lint passed after removing a stale import. Full build/test/license/boundary sweep is reserved for stable delivery.
 
-Preview: [interactive HTML](design/preview.html), [implementation contract](design/contract.md). Browser checks: 1440x900 and 390x844; confirmation updates selected state; narrow navigation/Workspace title retained. Screenshot evidence is prototype evidence, not production acceptance. Approval pending.
+Preview: [interactive HTML](design/preview.html), [implementation contract](design/contract.md). Browser checks: 1440x900 and 390x844; confirmation updates selected state; narrow navigation/Workspace title retained. The user approved this preview; production evidence is in the UI audit. Prototype evidence remains distinct from production acceptance.
 
 M16 collaboration backend now implements scoped create/invoke/retry/stop/synthesize/retain/query APIs, immutable shared base, original-input Retry, bounded prior-round exchange, reserved participant/synthesis costs, durable cancellation, startup interruption without automatic dispatch, typed synthesis with authoritative missing participants, and referenced result retention. Application facts reuse sealed append-only Journal payloads; migration 0038 adds identity indexes only. Separate output branches keep ordinary Chat history independent. No ExecutionRun/Manifest/Provenance format is changed. See [backend contract and evidence](collaboration.md).
 

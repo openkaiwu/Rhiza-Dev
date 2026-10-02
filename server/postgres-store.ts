@@ -1689,7 +1689,12 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
   }
   private async collaborationFrom(database: SqlQueryable, id: string) { return (await this.collaborationsFrom(database, id))[0]; }
   async getCollaboration(id: string) { return this.collaborationFrom(this.database, id); }
-  async listCollaborations(limit = 50) { return this.collaborationsFrom(this.database, undefined, Math.min(100, Math.max(1, limit))); }
+  async listCollaborations(limit = 50, nodeId?: string) {
+    const boundedLimit = Math.min(100, Math.max(1, limit));
+    // Ownership must inspect all latest encrypted records, not only the recent page.
+    const records = await this.collaborationsFrom(this.database, undefined, nodeId ? undefined : boundedLimit);
+    return nodeId ? records.filter(record => record.nodeId === nodeId).slice(0, boundedLimit) : records;
+  }
 
   async readJournal(limit = 50): Promise<DomainEventEnvelope[]> {
     const result = await this.database.query<Record<string, unknown>>(`

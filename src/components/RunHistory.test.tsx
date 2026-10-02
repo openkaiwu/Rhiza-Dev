@@ -70,3 +70,9 @@ it('blocks all replay policies when frozen resources are missing without any mod
   expect(screen.getByRole('button', { name: '按所选策略回放' })).toBeDisabled();
   expect(replay).not.toHaveBeenCalled();
 });
+
+
+it('shows the durable refreshed state instead of freezing a deep-linked running snapshot', async () => {
+ const changed=vi.fn();vi.spyOn(api,'listRuns').mockResolvedValueOnce({runs:[run]}).mockResolvedValue({runs:[{...run,status:'canceled'}]});vi.spyOn(api,'cancelRun').mockResolvedValue({run:{...run,status:'canceled'}});
+ render(<RunHistory focusedRun={run} onChanged={changed}/>);fireEvent.click(await screen.findByRole('button',{name:'停止'}));await screen.findByText('已取消 · Test model');expect(screen.queryByRole('button',{name:'停止'})).not.toBeInTheDocument();expect(changed).toHaveBeenCalledOnce();
+});

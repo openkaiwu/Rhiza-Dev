@@ -87,6 +87,7 @@ Run 错误只持久化稳定 code/class 与固定描述，不保存 Provider 原
 ## 3. Directory Structure
 
 - `src/App.tsx`：顶层 Workspace/application coordinator，负责 Workspace 选择、API orchestration、持久化 mutation、streaming 与 layout-only state
+- `src/navigation.ts`：解析 Workspace hash URL、浏览器历史恢复和有界最近访问；只保存位置身份与临时呈现状态，不保存正文或执行 Command。App 核验目标及归属后才记录成功访问；浏览位置和持久化执行节点分离。
 - `src/components/AppShell.tsx`：纯展示 composition seam，负责 Sidebar、当前 Workspace surface、Context surface、backdrop 与 overlay layer 的空间关系；不得导入 API 或服务端实现
 - `src/components/graph-model.ts`：当前 Workspace Graph 数据到 UI-facing graph model 的适配边界；`GraphView` 不直接消费持久化对象或 projector 内部字段
 - `src/components/`：Chat、Graph、State、Sidebar、Context Inspector 等界面模块

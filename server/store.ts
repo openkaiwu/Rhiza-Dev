@@ -25,7 +25,7 @@ export interface TransactionalWorkspaceCommandResult<T> {
 
 export interface WorkspaceRepository {
   getCollaboration?(id: string): Promise<import('./application/collaboration-policy').CollaborationRecord | undefined>;
-  listCollaborations?(limit?: number): Promise<import('./application/collaboration-policy').CollaborationRecord[]>;
+  listCollaborations?(limit?: number, nodeId?: string): Promise<import('./application/collaboration-policy').CollaborationRecord[]>;
   bundleImportCheckpoints?: import('./application/ports/bundle-import').BundleImportCheckpointPort;
   managedBackups?: import('./application/ports/managed-backup').ManagedBackupLifecyclePort;
   activatePortableImport?(importId: string, ownerId: string, facts: import('./application/ports/portable-workspace').PortableWorkspaceFacts): Promise<void>;

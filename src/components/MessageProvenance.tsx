@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import type { ProvenanceLink } from '../types';
 
-export function MessageProvenance({ outputId, onInspectContext, onOpenRun }: { outputId: string; onInspectContext?: (manifestId: string) => void; onOpenRun?: (runId: string) => void }) {
-  const [open, setOpen] = useState(false);
+export function MessageProvenance({ outputId, onOpen, forceOpen = false, onInspectContext, onOpenRun }: { outputId: string; onOpen?: () => void; forceOpen?: boolean; onInspectContext?: (manifestId: string) => void; onOpenRun?: (runId: string) => void }) {
+  const [open, setOpen] = useState(forceOpen);
+  useEffect(() => { if (forceOpen) setOpen(true); }, [forceOpen]);
   const [attempt, setAttempt] = useState(0);
   const [link, setLink] = useState<ProvenanceLink>();
   const [error, setError] = useState('');
@@ -17,7 +18,7 @@ export function MessageProvenance({ outputId, onInspectContext, onOpenRun }: { o
     return () => { current = false; };
   }, [open, outputId, attempt]);
   return <div className="message-provenance">
-    <button aria-expanded={open} onClick={() => setOpen(value => !value)}>{open ? '收起来源' : '查看来源'}</button>
+    <button aria-expanded={open} onClick={() => { if (!open) onOpen?.(); setOpen(value => !value); }}>{open ? '收起来源' : '查看来源'}</button>
     {open && <section aria-label="消息来源">
       {!link && !error && <p role="status">正在读取来源…</p>}
       {error && <p role="alert">{error} <button onClick={() => setAttempt(value => value + 1)}>重试</button></p>}

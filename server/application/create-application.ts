@@ -616,7 +616,10 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
       case 'ListCollaborations': {
         const limit = envelope.payload.limit;
         if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)) throw legacyError('协作列表范围无效。', 400, 'INVALID_LIMIT');
-        return { collaborations: await unitOfWork.listCollaborations?.(limit) ?? [] };
+        const nodeId = envelope.payload.nodeId;
+        if (nodeId !== undefined && (typeof nodeId !== 'string' || !nodeId.trim() || nodeId.length > 2000)) throw legacyError('节点身份无效。', 400, 'INVALID_NODE_ID');
+        if (nodeId && !unitOfWork.listCollaborations) throw legacyError('协作归属查询不可用。', 503, 'COLLABORATION_OWNERSHIP_UNAVAILABLE');
+        return { collaborations: await unitOfWork.listCollaborations?.(limit, nodeId) ?? [] };
       }
         case 'GetReplayPreflight': return (await assessReplay(envelope.payload.runId, unitOfWork, runtime, host)).preflight;
         case 'GetContextPreview': {

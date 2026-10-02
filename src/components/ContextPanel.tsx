@@ -5,6 +5,8 @@ import { ContextHistoryPanel, type ContextHistoryState } from './ContextHistoryP
 
 interface ContextPanelProps {
   history?: ContextHistoryState;
+  onSelectHistorySource?: (index: number) => void;
+  readOnly?: boolean;
   onBackToCurrent?: () => void;
   onRetryHistory?: () => void;
   items: ContextItem[];
@@ -25,10 +27,10 @@ interface ContextPanelProps {
   onAddSource: (sourceType: 'node' | 'segment' | 'file', sourceId: string) => void | Promise<void>;
 }
 
-export function ContextPanel({ items, preview, loading, error, deciding, onRefresh, onDecision, onClose, mode, nodes, segments, attachments, onMode, onStatus, onPin, onAddSource, history, onBackToCurrent, onRetryHistory }: ContextPanelProps) {
+export function ContextPanel({ readOnly = false, onSelectHistorySource, items, preview, loading, error, deciding, onRefresh, onDecision, onClose, mode, nodes, segments, attachments, onMode, onStatus, onPin, onAddSource, history, onBackToCurrent, onRetryHistory }: ContextPanelProps) {
   const [tab, setTab] = useState<'active' | 'recommended'>('active');
   const [reasons, setReasons] = useState<Record<string, string>>({});
-  if (history && onBackToCurrent && onRetryHistory) return <ContextHistoryPanel history={history} onBack={onBackToCurrent} onRetry={onRetryHistory} onClose={onClose}/>;
+  if (history && onBackToCurrent && onRetryHistory) return <ContextHistoryPanel history={history} onSelectSource={onSelectHistorySource} onBack={onBackToCurrent} onRetry={onRetryHistory} onClose={onClose}/>;
   const selected = preview?.items ?? [];
   const recommendations = preview?.recommendations ?? [];
   const budget = preview?.budget ?? 32_000;
@@ -43,7 +45,7 @@ export function ContextPanel({ items, preview, loading, error, deciding, onRefre
   const modeCopy = { Auto: '自动选取相关来源；显式排除仍生效。', Assisted: '推荐来源需确认后才会发送。', Strict: '仅使用当前讨论和显式选择的来源。' };
   return <aside className="context-panel" aria-label="当前上下文">
     <header className="panel-header"><div><span className="eyebrow">CONTEXT</span><h2>本轮上下文</h2></div>{onClose && <button className="icon-button" aria-label="关闭上下文" onClick={onClose}><X size={18}/></button>}</header>
-    <div className="mode-control" aria-label="上下文模式">{(['Auto', 'Assisted', 'Strict'] as const).map(option => <button key={option} aria-pressed={mode === option} className={mode === option ? 'active' : ''} onClick={() => onMode(option)}>{option}</button>)}</div>
+    <div className="mode-control" aria-label="上下文模式">{(['Auto', 'Assisted', 'Strict'] as const).map(option => <button key={option} aria-pressed={mode === option} disabled={readOnly} className={mode === option ? 'active' : ''} onClick={() => onMode(option)}>{option}</button>)}</div>
     <p className="context-mode-description">{modeCopy[mode]}</p>
     {loading && <p className="context-history-notice" role="status">正在更新本轮预览…</p>}
     {error && <div className="context-history-notice" role="alert">{error}<button onClick={onRefresh}>重新预览</button></div>}
@@ -58,13 +60,13 @@ export function ContextPanel({ items, preview, loading, error, deciding, onRefre
           return <article className={`context-item ${tab}`} key={identity}>
             <div className="context-item-main"><span className="file-icon">{icon(item)}</span><div><strong>{item.title}</strong><p>{item.detail}</p><small>{item.tokens.toLocaleString()} tokens{item.pinned ? ' · 已固定' : ''}</small></div></div>
             {item.reason && <div className="why"><Sparkles size={12}/><span>{item.reason}</span></div>}
-            {tab === 'recommended' ? <><label className="context-decision-reason">确认理由<input aria-label={`确认理由 ${item.title}`} value={reason} maxLength={500} onChange={event => setReasons(current => ({ ...current, [identity]: event.target.value }))} placeholder="说明采用或排除的原因"/></label><div className="context-actions">{(['accept', 'reject'] as const).map(decision => <button key={decision} disabled={loading || deciding || !reason.trim() || !item.sourceRevision || !item.sourceId || !item.sourceType || !onDecision} onClick={() => { if (item.sourceType && item.sourceId && item.sourceRevision) void onDecision?.({ sourceType: item.sourceType, sourceId: item.sourceId, sourceRevision: item.sourceRevision, decision, reason: reason.trim() }); }}>{decision === 'accept' ? <Check size={13}/> : <EyeOff size={13}/>} {decision === 'accept' ? '加入本轮' : '排除'}</button>)}</div></> : stored && <div className="context-actions"><button disabled={loading || deciding} onClick={() => onPin(stored.id, !stored.pinned)}>{stored.pinned ? <PinOff size={13}/> : <LockKeyhole size={13}/>} {stored.pinned ? '取消固定' : '固定'}</button><button disabled={loading || deciding} onClick={() => onStatus(stored.id, 'excluded')}><EyeOff size={13}/>排除</button></div>}
+            {tab === 'recommended' ? <><label className="context-decision-reason">确认理由<input aria-label={`确认理由 ${item.title}`} value={reason} maxLength={500} onChange={event => setReasons(current => ({ ...current, [identity]: event.target.value }))} placeholder="说明采用或排除的原因"/></label><div className="context-actions">{(['accept', 'reject'] as const).map(decision => <button key={decision} disabled={readOnly || loading || deciding || !reason.trim() || !item.sourceRevision || !item.sourceId || !item.sourceType || !onDecision} onClick={() => { if (item.sourceType && item.sourceId && item.sourceRevision) void onDecision?.({ sourceType: item.sourceType, sourceId: item.sourceId, sourceRevision: item.sourceRevision, decision, reason: reason.trim() }); }}>{decision === 'accept' ? <Check size={13}/> : <EyeOff size={13}/>} {decision === 'accept' ? '加入本轮' : '排除'}</button>)}</div></> : stored && <div className="context-actions"><button disabled={readOnly || loading || deciding} onClick={() => onPin(stored.id, !stored.pinned)}>{stored.pinned ? <PinOff size={13}/> : <LockKeyhole size={13}/>} {stored.pinned ? '取消固定' : '固定'}</button><button disabled={readOnly || loading || deciding} onClick={() => onStatus(stored.id, 'excluded')}><EyeOff size={13}/>排除</button></div>}
           </article>;
         })}
         {!loading && preview && !(tab === 'active' ? selected : recommendations).length && <p className="context-empty">{tab === 'active' ? '本轮没有额外来源。' : '没有待确认的推荐。'}</p>}
       </section>
-      <details className="context-source-picker"><summary><Plus size={13}/>手动添加来源</summary><div>{candidates.length ? candidates.map(source => <button key={`${source.type}:${source.id}`} onClick={() => onAddSource(source.type, source.id)}>{source.type === 'node' ? <GitBranch size={13}/> : source.type === 'segment' ? <Layers3 size={13}/> : <FileText size={13}/>}<span>{source.title}</span><Plus size={12}/></button>) : <p>所有可用来源均已选择。</p>}</div></details>
-      <details className="context-omissions"><summary>未采用的来源 · {preview?.omissions.length ?? 0}</summary>{preview?.omissions.map((item, index) => <article className="context-item excluded" key={`${item.sourceType}:${item.sourceId}:${index}`}><strong>{item.title}</strong><p>{item.reason}</p></article>)}{items.filter(item => item.status === 'excluded').map(item => <article className="context-item excluded" key={item.id}><strong>{item.title}</strong><div className="context-actions"><button onClick={() => onStatus(item.id, 'active')}><Plus size={13}/>恢复选择</button></div></article>)}</details>
+      <details className="context-source-picker"><summary><Plus size={13}/>手动添加来源</summary><div>{candidates.length ? candidates.map(source => <button key={`${source.type}:${source.id}`} disabled={readOnly} onClick={() => onAddSource(source.type, source.id)}>{source.type === 'node' ? <GitBranch size={13}/> : source.type === 'segment' ? <Layers3 size={13}/> : <FileText size={13}/>}<span>{source.title}</span><Plus size={12}/></button>) : <p>所有可用来源均已选择。</p>}</div></details>
+      <details className="context-omissions"><summary>未采用的来源 · {preview?.omissions.length ?? 0}</summary>{preview?.omissions.map((item, index) => <article className="context-item excluded" key={`${item.sourceType}:${item.sourceId}:${index}`}><strong>{item.title}</strong><p>{item.reason}</p></article>)}{items.filter(item => item.status === 'excluded').map(item => <article className="context-item excluded" key={item.id}><strong>{item.title}</strong><div className="context-actions"><button disabled={readOnly} onClick={() => onStatus(item.id, 'active')}><Plus size={13}/>恢复选择</button></div></article>)}</details>
     </div>
   </aside>;
 }

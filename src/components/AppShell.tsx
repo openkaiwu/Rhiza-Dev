@@ -17,6 +17,8 @@ interface AppShellProps {
   contextCount?: number;
   onOpenContext?: () => void;
   onView?: (view: View) => void;
+  navigationSurface?: ReactNode;
+  primarySurface?: ReactNode;
 }
 
 export function AppShell({
@@ -30,7 +32,7 @@ export function AppShell({
   contextSurface,
   overlayLayer,
   onCloseContext,
-  title, workspaceName, contextCount, onOpenContext, onView,
+  title, workspaceName, contextCount, onOpenContext, onView, navigationSurface, primarySurface,
 }: AppShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -55,7 +57,8 @@ export function AppShell({
     const controls = () => [...(drawer?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [href]') || [])].filter(element => element.getClientRects().length > 0);
     controls()[0]?.focus();
     const keydown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { setSidebarOpen(false); onCloseContext(); }
+      if (event.defaultPrevented) return;
+      if (event.key === 'Escape') { event.preventDefault(); setSidebarOpen(false); onCloseContext(); }
       if (event.key !== 'Tab') return;
       const items = controls(); const first = items[0]; const last = items.at(-1);
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
@@ -70,7 +73,7 @@ export function AppShell({
     };
   }, [sidebarOpen, contextOpen, drawerMode, onCloseContext]);
   return <div ref={shellRef} className={`app-shell workbench-shell ${contextOpen ? 'context-open' : ''} ${sidebarOpen ? 'sidebar-open' : ''} ${sidebarCollapsed ? 'nav-collapsed' : ''}`}>
-    <a className="skip-link" href="#workspace-main">跳到主要内容</a>
+    <a className="skip-link" href="#workspace-main" onClick={event => { event.preventDefault(); const main = document.getElementById('workspace-main'); main?.setAttribute('tabindex', '-1'); main?.focus(); }}>跳到主要内容</a>
     <div className="network-status" aria-live="polite" role="status">{networkNotice}</div>
     <button className="sidebar-backdrop" aria-label="关闭工作区菜单" onClick={() => setSidebarOpen(false)}/>
     {sidebar}
@@ -78,13 +81,12 @@ export function AppShell({
     <header className="workbench-header">
       <button className="desktop-navigation-toggle" aria-label={sidebarCollapsed ? '展开导航' : '收起导航'} aria-expanded={!sidebarCollapsed} onClick={() => setSidebarCollapsed(value => !value)}>☰</button>
       <button className="workspace-menu-button" aria-label="打开工作区菜单" aria-expanded={sidebarOpen} onClick={() => { setSidebarOpen(value => !value); onCloseContext(); }}>☰</button>
-      <div><span>{workspaceName || 'RHIZA'}</span>{view === 'chat' ? <h1>{title || '工作区'}</h1> : <strong>{title || '工作区'}</strong>}</div>
+      <div><span>{workspaceName || 'RHIZA'}</span>{view === 'chat' && !primarySurface ? <h1>{title || '工作区'}</h1> : <strong>{title || '工作区'}</strong>}</div>
       {onOpenContext && <button className={`context-chip ${contextOpen ? 'active' : ''}`} aria-label={contextCount === undefined ? '上下文' : `上下文 ${contextCount}`} aria-expanded={contextOpen} onClick={onOpenContext}>上下文{contextCount !== undefined && <span>{contextCount}</span>}</button>}
     </header>
+    {navigationSurface}
     <div className="workbench-content">
-    {!hasDiscussionNodes && emptySurface}
-    {hasDiscussionNodes && view !== 'runs' && surfaces[view]}
-    {view === 'runs' && surfaces.runs}
+    {primarySurface ?? <>{!hasDiscussionNodes && view !== 'graph' && emptySurface}{(hasDiscussionNodes || view !== 'chat') && view !== 'runs' && surfaces[view]}{view === 'runs' && surfaces.runs}</>}
     </div>
     </div>
     {contextOpen && <button className="context-backdrop" aria-label="关闭上下文面板" onClick={onCloseContext}/>}

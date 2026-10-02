@@ -1,15 +1,16 @@
+import { formatLocation, parseLocation, useWorkspaceNavigation, viewLocation, type WorkspaceLocation } from './navigation';
 import { BundleControls } from './components/BundleControls';
 import { WorkspaceForm } from './components/WorkspaceForm';
 import { WorkspaceSearch } from './components/WorkspaceSearch';
 import { MergeDialog } from './components/MergeDialog';
 import { boundedGraphCache } from './components/graph-viewport';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Anchor, Attachment, ContextManifest, ContextMode, ContextPreview, ContextRecommendationDecision, CollaborationInput, CollaborationRecord, ContextStatus, DiscussionEdge, DiscussionNode, GraphProjectionResult, Message, GraphBatchItem, GraphBatchResult, GraphViewInput, PersonalGraphView, ManagedBackupList, ProviderCatalog, ProviderPresetInfo, ProviderStatus, Segment, View, WorkspaceActivityItem, WorkspaceSnapshot, WorkspaceRecord } from './types';
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
+import type { Anchor, Attachment, ContextManifest, ContextMode, ContextPreview, ContextRecommendationDecision, CollaborationInput, CollaborationRecord, ContextStatus, ExecutionRun, DiscussionEdge, DiscussionNode, GraphProjectionResult, Message, GraphBatchItem, GraphBatchResult, GraphViewInput, PersonalGraphView, ManagedBackupList, ProviderCatalog, ProviderPresetInfo, ProviderStatus, Segment, View, WorkspaceActivityItem, WorkspaceSnapshot, WorkspaceRecord } from './types';
 import { api, type ChatRequestOptions } from './api';
 import { presentErrorText } from './error-presentation';
 import { Sidebar } from './components/Sidebar';
 import { ChatView } from './components/ChatView';
-import { GraphView } from './components/GraphView';
+import { GraphView, type GraphNavigationPresentation } from './components/GraphView';
 import { StateView } from './components/StateView';
 import type { ContextHistoryState } from './components/ContextHistoryPanel';
 import { ContextPanel } from './components/ContextPanel';
@@ -20,8 +21,15 @@ import { AppShell } from './components/AppShell';
 import { projectionToGraphPresentationModel, toGraphPresentationModel, toGraphPersonalPresentation, type GraphPersonalPresentation, type GraphRelation } from './components/graph-model';
 
 export function App() {
-  const initialNode: DiscussionNode = { id: 'information-architecture', title: '信息架构方向', summary: '探索首屏的内容层级、上下文入口与专业能力的渐进呈现方式。', status: 'active', kind: 'main', x: 350, y: 150, createdAt: '2026-08-09T12:00:00.000Z', updatedAt: '2026-08-09T12:00:00.000Z' };
-  const [view, setView] = useState<View>('chat');
+  const { location, navigate: navigationNavigate, close: navigationClose, record: navigationRecord, forget: navigationForget, entryKey: navigationEntryKey, recents: navigationRecents, restoration: navigationRestoration, rememberGraph: navigationRememberGraph, canBack: navigationCanBack } = useWorkspaceNavigation();
+  const initialNode: DiscussionNode = { id: '', title: '尚无讨论', summary: '', status: 'active', kind: 'main', x: 0, y: 0, createdAt: '', updatedAt: '' };
+  const [loadedWorkspaceId, setLoadedWorkspaceId] = useState<string>();
+  const [routeGraphObject, setRouteGraphObject] = useState<import('./types').GraphProjectedObject>();
+  const [routeGraphResolved, setRouteGraphResolved] = useState('');
+  const routeLocationRef = useRef(location); useEffect(() => { routeLocationRef.current = location; }, [location]);
+  const [routeReadError, setRouteReadError] = useState('');
+  const lastLocations = useRef(new Map<string, WorkspaceLocation>());
+  const [view, setRenderedView] = useState<View>('chat');
   const [contextItems, setContextItems] = useState<WorkspaceSnapshot['contextItems']>([]);
   const [mode, setMode] = useState<ContextMode>('Assisted');
   const [messages, setMessages] = useState<Message[]>([]);
@@ -50,7 +58,8 @@ export function App() {
   const [decidingContext, setDecidingContext] = useState(false);
   const decisionInFlight = useRef(false);
   const decisionKeys = useRef(new Map<string, string>());
-  const [focusedRunId, setFocusedRunId] = useState<string>();
+  const [focusedRun, setFocusedRun] = useState<ExecutionRun>();
+  const [routeRunResolved, setRouteRunResolved] = useState('');
   const [collaborations, setCollaborations] = useState<CollaborationRecord[]>([]);
   const [collaborationError, setCollaborationError] = useState('');
   const [collaborationBusy, setCollaborationBusy] = useState('');
@@ -59,7 +68,6 @@ export function App() {
   const collaborationKeys = useRef(new Map<string, string>());
   const collaborationScope = useRef(0);
 
-  const closeContext = useCallback(() => setContextOpen(false), []);
   const updateDraftContext = useCallback((query: string, attachmentIds: string[]) => setDraftContext({ query, attachmentIds }), []);
   const [manifests, setManifests] = useState<ContextManifest[]>([]);
   const [anchors,setAnchors]=useState<Anchor[]>([]);
@@ -75,7 +83,7 @@ export function App() {
   const [onboardingOpen, setOnboardingOpen] = useState(() => localStorage.getItem('rhiza:onboarding-seen') !== '1');
   const [focusComposerRequest, setFocusComposerRequest] = useState(0);
   const [workspaces, setWorkspaces] = useState<WorkspaceRecord[]>([]);
-  const [currentWorkspaceId, setCurrentWorkspaceId] = useState<string>();
+  const [currentWorkspaceId, setCurrentWorkspaceId] = useState<string | undefined>(location.workspaceId);
   const [activity, setActivity] = useState<WorkspaceActivityItem[]>([]);
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState('');
@@ -101,11 +109,20 @@ export function App() {
   const graphPagesRef = useRef(1);
   const graphCompleteRef = useRef(false);
   const workspaceGenerationRef = useRef(0);
+  const [initialWorkspaceId] = useState(location.workspaceId);
   const selectedWorkspaceRef = useRef<string | undefined>(undefined);
   const modalReturnFocusRef = useRef<HTMLElement | null>(null);
   const activeModalRef = useRef<HTMLElement | null>(null);
 
+  const manifestOwnerId = contextHistory?.data?.manifest.nodeId;
+  const manifestDiscussionId = collaborations.find(record => record.nodeId === manifestOwnerId)?.base.nodeId ?? manifestOwnerId;
+  const viewedNodeId = location.nodeId ?? (location.kind === 'manifest' ? manifestDiscussionId : undefined) ?? activeNodeId;
+  const activeNode = discussionNodes.find(node => node.id === viewedNodeId && !collaborations.some(record => record.nodeId === node.id)) ?? initialNode;
+  const locationReadOnly = activeNode.status === 'archived' || workspaces.find(item => item.workspaceId === currentWorkspaceId)?.status === 'archived' || (location.kind === 'segment' && segments.some(segment => segment.id === location.objectId && segment.nodeId === viewedNodeId && segment.status === 'archived'));
+  const closeContext = useCallback(() => { if (contextOpen) navigationClose({kind:'conversation',workspaceId:currentWorkspaceId,nodeId:viewedNodeId}); },[contextOpen,navigationClose,currentWorkspaceId,viewedNodeId]);
+  const setView = useCallback((target: View) => navigationNavigate(viewLocation(currentWorkspaceId ?? '', target, viewedNodeId)), [navigationNavigate, currentWorkspaceId, viewedNodeId]);
   const applyWorkspace = useCallback((workspace: WorkspaceSnapshot) => {
+    setLoadedWorkspaceId(workspace.projectId);
     setContextItems(workspace.contextItems);
     setMessages(workspace.messages);
     setAttachments(workspace.attachments || []);
@@ -116,7 +133,7 @@ export function App() {
     setActiveNodeId(workspace.activeNodeId);
     setManifests(workspace.manifests || []);
     setSegments(workspace.segments || []);setAnchors(workspace.anchors || []);
-  }, []);
+  }, [setMessages, setManifests]);
 
   const workspaceMutation = () => {
     const workspaceId = selectedWorkspaceRef.current;
@@ -149,9 +166,9 @@ export function App() {
       setSyncError(message);
       return 'failed' as const;
     }
-  }, [applyWorkspace]);
+  }, [applyWorkspace, setSyncError]);
 
-  useEffect(() => { void loadWorkspace(); }, [loadWorkspace]);
+  useEffect(() => { selectedWorkspaceRef.current = initialWorkspaceId; api.setWorkspace(initialWorkspaceId); void loadWorkspace(); }, [loadWorkspace, initialWorkspaceId]);
   useEffect(() => {
     if (boot !== 'ready' || !currentWorkspaceId || !activeNodeId) return;
     let current = true;
@@ -193,7 +210,7 @@ export function App() {
   }, [boot, currentWorkspaceId]);
   useEffect(() => {
     collaborationScope.current += 1; setCollaborationBusy(''); setCollaborationError(''); setCollaborationStreams({});
-    return () => { collaborationScope.current += 1; collaborationController.current?.abort(); collaborationController.current = undefined; };
+    return () => { collaborationScope.current += 1; };
   }, [currentWorkspaceId, activeNodeId]);
   const rememberCollaboration = (record: CollaborationRecord) => setCollaborations(previous => [...previous.filter(item => item.id !== record.id), record]);
   const collaborationAction = async (identity: string, operation: (signal: AbortSignal, key: string, current: () => boolean) => Promise<void>) => {
@@ -358,22 +375,32 @@ export function App() {
     finally { if (scope === selectedWorkspaceRef.current && request === backupRequestRef.current) setBackupsLoading(false); }
   }, []);
   useEffect(() => { setBackups(undefined); backupRequestRef.current++; if (dataOpen) void refreshBackups(); }, [dataOpen, currentWorkspaceId, refreshBackups]);
-  const openCurrentContext = () => { historyRequestRef.current++; setContextHistory(undefined); setContextOpen(true); };
-  const inspectMessageContext = async (messageId: string, manifestId?: string) => {
+  const openCurrentContext = () => navigationNavigate({ kind: 'context', workspaceId: selectedWorkspaceRef.current });
+  const inspectMessageContext = (messageId: string, manifestId?: string) => {
+    const message = messages.find(item => item.id === messageId);
+    navigationNavigate(manifestId ? { kind: 'manifest', workspaceId: selectedWorkspaceRef.current, objectId: manifestId } : { kind: 'message', workspaceId: selectedWorkspaceRef.current, nodeId: message?.nodeId ?? location.nodeId ?? activeNodeId, objectId: messageId, detail: 'context' });
+  };
+  const readMessageContext = async (messageId: string, manifestId?: string) => {
     const request = ++historyRequestRef.current;
     const generation = workspaceGenerationRef.current;
     setContextOpen(true); setContextHistory({ messageId, manifestId, loading: true });
     try {
       const data = await (manifestId ? api.getManifestContext(manifestId) : api.getMessageContext(messageId));
-      if (request === historyRequestRef.current && generation === workspaceGenerationRef.current) setContextHistory({ messageId, manifestId, loading: false, data });
+      if (data.manifest.projectId !== selectedWorkspaceRef.current || (manifestId && data.manifest.id !== manifestId) || (messageId && data.manifest.nodeId !== messages.find(message => message.id === messageId)?.nodeId)) throw new Error('历史上下文身份不匹配。');
+      const ownership = await api.getNodeCollaboration(data.manifest.nodeId);
+      if (ownership.collaborations.some(record => record.workspaceId !== data.manifest.projectId || record.nodeId !== data.manifest.nodeId)) throw new Error('协作归属身份不匹配。');
+      if (request === historyRequestRef.current && generation === workspaceGenerationRef.current) {
+        ownership.collaborations.forEach(rememberCollaboration);
+        setContextHistory({ messageId, manifestId, loading: false, data });
+      }
     } catch (error) {
       if (request === historyRequestRef.current && generation === workspaceGenerationRef.current) setContextHistory({ messageId, manifestId, loading: false, error: presentErrorText(error, { message: '无法读取这轮上下文。', recovery: '请重新加载。' }) });
     }
   };
   const switchWorkspace = async (workspaceId: string) => {
-    setDataOpen(false);
+    setDataOpen(false); setContextOpen(false); setLoadedWorkspaceId(undefined); setRouteReadError('');
     historyRequestRef.current++; setContextHistory(undefined);
-    setContextPreview(undefined); setPreviewError(''); setDecidingContext(false); setFocusedRunId(undefined);
+    setContextPreview(undefined); setPreviewError(''); setDecidingContext(false); setFocusedRun(undefined); setRouteRunResolved('');
     const generation = ++workspaceGenerationRef.current;
     selectedWorkspaceRef.current = workspaceId;
     graphRequestRef.current += 1; graphPagesRef.current = 1; graphCompleteRef.current = false; setGraphProjection(undefined); setGraphError('');
@@ -383,17 +410,17 @@ export function App() {
     try {
       const { workspace } = await api.getScopedWorkspace(workspaceId);
       if (generation !== workspaceGenerationRef.current || workspaceId !== selectedWorkspaceRef.current) return;
-      applyWorkspace(workspace); setSyncError('');
+      applyWorkspace(workspace); setBoot('ready'); setSyncError('');
     } catch (error) {
       if (generation !== workspaceGenerationRef.current || workspaceId !== selectedWorkspaceRef.current) return;
       setSyncError(presentErrorText(error, { message: '无法加载所选工作区。', recovery: '请检查网络后重试。' }));
     }
   };
   const refreshWorkspaces = async () => { const items = (await api.listWorkspaces(true)).workspaces; setWorkspaces(items); return items; };
-  const createWorkspace = async (name:string) => { const current=workspaceMutation();const {workspace}=await api.createWorkspace(name);if(!current())return;await refreshWorkspaces();if(current())await switchWorkspace(workspace.workspaceId); };
+  const createWorkspace = async (name:string) => { const current=workspaceMutation();const {workspace}=await api.createWorkspace(name);if(!current())return;await refreshWorkspaces();if(current())navigationNavigate({kind:'workspace',workspaceId:workspace.workspaceId}); };
   const workspaceRecord = () => workspaces.find(item => item.workspaceId === currentWorkspaceId);
   const renameWorkspace = async (name:string) => { const current=workspaceMutation();const record=workspaceRecord();if(!record)return;await api.updateWorkspace(record.workspaceId,'rename',record.revision,name);if(current())await refreshWorkspaces(); };
-  const archiveWorkspace = async () => { const current = workspaceMutation(); const record = workspaceRecord(); if (!record) return; await api.updateWorkspace(record.workspaceId, 'archive', record.revision); if (!current()) return; const items = await refreshWorkspaces(); if (!current()) return; const next = items.find(item => item.workspaceId !== record.workspaceId && item.status === 'active'); if (next) await switchWorkspace(next.workspaceId); };
+  const archiveWorkspace = async () => { const current = workspaceMutation(); const record = workspaceRecord(); if (!record) return; await api.updateWorkspace(record.workspaceId, 'archive', record.revision); if (!current()) return; const items = await refreshWorkspaces(); if (!current()) return; const next = items.find(item => item.workspaceId !== record.workspaceId && item.status === 'active'); if (next) navigationNavigate({kind:'workspace',workspaceId:next.workspaceId}); };
   const restoreWorkspace = async () => { const current = workspaceMutation(); const record = workspaceRecord(); if (!record) return; await api.updateWorkspace(record.workspaceId, 'restore', record.revision); if (current()) await refreshWorkspaces(); };
   useEffect(() => {
     const goOffline = () => { setOnline(false); setNetworkNotice('当前离线，发送已暂停。'); };
@@ -407,8 +434,8 @@ export function App() {
     window.addEventListener('offline', goOffline); window.addEventListener('online', goOnline);
     return () => { window.removeEventListener('offline', goOffline); window.removeEventListener('online', goOnline); };
   }, [loadWorkspace]);
-  useEffect(() => {
-    const keydown = (event: KeyboardEvent) => {
+  const handleKeydown = useEffectEvent((event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
       const modifier = event.metaKey || event.ctrlKey;
       if (onboardingOpen) {
         if (event.key === 'Escape') { localStorage.setItem('rhiza:onboarding-seen', '1'); setOnboardingOpen(false); }
@@ -419,24 +446,26 @@ export function App() {
         return;
       }
       if (dataOpen) {
-        if (event.key === 'Escape') setDataOpen(false);
+        if (event.key === 'Escape') navigationClose({ kind: 'workspace', workspaceId: selectedWorkspaceRef.current });
         return;
       }
       if (settingsOpen) {
-        if (event.key === 'Escape') setSettingsOpen(false);
+        if (event.key === 'Escape') navigationClose({ kind: 'workspace', workspaceId: selectedWorkspaceRef.current });
         return;
       }
-      if (event.key === 'Escape') { setPaletteOpen(false); setContextOpen(false); setSettingsOpen(false); return; }
+      if (event.key === 'Escape') { setPaletteOpen(false); if (contextOpen) { event.preventDefault(); closeContext(); } return; }
       if (modifier && event.key.toLowerCase() === 'k') { event.preventDefault(); setPaletteOpen(true); return; }
       if (modifier && event.key === '1') { event.preventDefault(); setView('chat'); }
       if (modifier && event.key === '2') { event.preventDefault(); setView('graph'); }
       if (modifier && event.key === '3') { event.preventDefault(); setView('state'); }
       if (modifier && event.key === '4') { event.preventDefault(); setView('activity'); }
-      if (modifier && event.shiftKey && event.key.toLowerCase() === 'c') { event.preventDefault(); setContextOpen(true); }
+      if (modifier && event.shiftKey && event.key.toLowerCase() === 'c') { event.preventDefault(); openCurrentContext(); }
       if (event.key === '/' && !modifier && !(event.target instanceof HTMLInputElement) && !(event.target instanceof HTMLTextAreaElement)) { event.preventDefault(); setView('chat'); setFocusComposerRequest(value => value + 1); }
-    };
+  });
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => handleKeydown(event);
     window.addEventListener('keydown', keydown); return () => window.removeEventListener('keydown', keydown);
-  }, [onboardingOpen, paletteOpen, settingsOpen, dataOpen]);
+  }, []);
   useEffect(() => {
     if (!paletteOpen && !onboardingOpen && !settingsOpen && !dataOpen) return;
     modalReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -466,7 +495,8 @@ export function App() {
     setProvider({ configured: Boolean(activeModel && activeProvider?.configured), name: activeProvider?.name || '未配置供应商', model: activeModel?.displayName || '未选择模型', baseUrl: activeProvider?.baseUrl || '' });
   };
 
-  const openSettings = async () => {
+  const openSettings = () => navigationNavigate({ kind: 'settings' });
+  const readSettings = async () => {
     setSettingsOpen(true);
     try {
       const { catalog, presets } = await api.getProviders();
@@ -541,12 +571,24 @@ export function App() {
     } catch (error) { if (current()) setSyncError(presentErrorText(error, { message: '无法添加 Context 来源。', recovery: '请稍后重试。' })); }
   };
 
+  const ensureExecutionNode = async () => {
+    const id = viewedNodeId;
+    const node = discussionNodes.find(item => item.id === id);
+    if (!node || locationReadOnly || collaborations.some(record => record.nodeId === id) || (location.kind === 'manifest' && !contextHistory?.data)) throw new Error('此位置只读，无法继续对话。');
+    const scope = selectedWorkspaceRef.current; const currentOwnership = workspaceMutation();
+    const ownership = await api.getNodeCollaboration(id);
+    if (!currentOwnership() || ownership.collaborations.some(record => record.workspaceId !== scope || record.nodeId !== id)) throw new Error('无法核实讨论归属，请重新读取。');
+    if (ownership.collaborations.length) throw new Error('此节点是协作内部记录，请从发起讨论继续。');
+    if (id !== activeNodeId) { const current = workspaceMutation(); const { workspace } = await api.activateNode(id); if (!current() || workspace.activeNodeId !== id) throw new Error('讨论切换尚未完成，请重试。'); applyWorkspace(workspace); }
+    return id;
+  };
   const sendMessage = async (text: string, options: ChatRequestOptions = {}) => {
+    const executionNodeId = await ensureExecutionNode();
     const current = workspaceMutation();
     const pendingId = `pending-${Date.now()}`;
     const pendingAssistantId = `${pendingId}-assistant`;
-    const pending: Message = { id: pendingId, nodeId: activeNodeId, kind: 'user', text, createdAt: new Date().toISOString(), pending: true, attachmentIds: options.attachmentIds, operation: options.operation };
-    const pendingAssistant: Message = { id: pendingAssistantId, nodeId: activeNodeId, kind: 'assistant', text: '', createdAt: new Date().toISOString(), pending: true, operation: options.operation };
+    const pending: Message = { id: pendingId, nodeId: executionNodeId, kind: 'user', text, createdAt: new Date().toISOString(), pending: true, attachmentIds: options.attachmentIds, operation: options.operation };
+    const pendingAssistant: Message = { id: pendingAssistantId, nodeId: executionNodeId, kind: 'assistant', text: '', createdAt: new Date().toISOString(), pending: true, operation: options.operation };
     setMessages(current => [...current, pending]);
     try {
       const result = await api.streamMessage(text, event => {
@@ -580,21 +622,16 @@ export function App() {
     return attachment;
   };
   const createBranch = async (input: { title: string; anchorText?: string; anchorStart?: number; anchorEnd?: number; sourceMessageId?: string; messages?: Array<Pick<Message, 'kind' | 'text' | 'createdAt'>> }) => {
+    await ensureExecutionNode();
     const current = workspaceMutation();
     const { workspace } = await api.createBranch(input);
     if (!current()) return;
     applyWorkspace(workspace);
-    setView('chat');
+    navigationNavigate({kind:'conversation',workspaceId:workspace.projectId,nodeId:workspace.activeNodeId});
     setSyncError('');
   };
   const sendTemporaryMessage = async (input: { sourceNodeId: string; anchorText: string; message: string; history: Array<Pick<Message, 'kind' | 'text'>> },onEvent?: Parameters<typeof api.streamTemporaryMessage>[1],options?: ChatRequestOptions) => api.streamTemporaryMessage(input,onEvent??(()=>undefined),options);
-  const activateNode = async (id: string, openChat = false) => {
-    const current = workspaceMutation();
-    const { workspace } = await api.activateNode(id);
-    if (!current()) return;
-    applyWorkspace(workspace);
-    if (openChat) setView('chat');
-  };
+  const activateNode = async (id: string, _openChat = false) => { navigationNavigate({ kind: 'conversation', workspaceId: selectedWorkspaceRef.current, nodeId: id }); };
   const moveNode = async (id: string, x: number, y: number) => {
     const original = personalViewRef.current; if (!original) throw new Error('个人视图尚未就绪。');
     const prior = original.positions.find(item => item.objectId === id);
@@ -645,61 +682,140 @@ export function App() {
   const mergeNode = async (id:string) => { setMergeSource(id); };
   const activeCount = contextPreview?.items.length ?? 0;
   const navigableNodes = discussionNodes.filter(node => node.status !== 'archived' && !collaborations.some(record => record.nodeId === node.id));
-  const activeNode = navigableNodes.find(node => node.id === activeNodeId) || navigableNodes[0] || initialNode;
+  const openWorkspace = (id: string) => navigationNavigate(lastLocations.current.get(id) ?? { kind: 'workspace', workspaceId: id });
+  const closeData = () => navigationClose({ kind: 'workspace', workspaceId: selectedWorkspaceRef.current });
+  const closeSettings = () => navigationClose({ kind: 'workspace', workspaceId: selectedWorkspaceRef.current });
   const activeMessages = messages.filter(message => message.nodeId === activeNode.id);
   const graphModel = useMemo(
     () => {
-      const model = graphProjection ? projectionToGraphPresentationModel(graphProjection) : toGraphPresentationModel([], []);
+      const augmented = graphProjection && routeGraphObject && routeGraphObject.ref.workspaceId === currentWorkspaceId ? {...graphProjection,objects:[...graphProjection.objects.filter(item=>item.ref.objectId!==routeGraphObject.ref.objectId),routeGraphObject]} : graphProjection;
+      const model = augmented ? projectionToGraphPresentationModel(augmented) : toGraphPresentationModel([], []);
       const internalIds = new Set(collaborations.map(record => record.nodeId));
+      messages.filter(message => internalIds.has(message.nodeId)).forEach(message => internalIds.add(message.id));
+      segments.filter(segment => internalIds.has(segment.nodeId)).forEach(segment => internalIds.add(segment.id));
+      for (let depth = 0; depth < 3; depth++) augmented?.relations.filter(edge => edge.relationType === 'contains' && internalIds.has(edge.source.objectId)).forEach(edge => internalIds.add(edge.target.objectId));
       return { nodes: model.nodes.filter(node => !internalIds.has(node.id)), edges: model.edges.filter(edge => !internalIds.has(edge.source) && !internalIds.has(edge.target)) };
     },
-    [graphProjection, collaborations],
+    [graphProjection, collaborations, routeGraphObject, currentWorkspaceId, messages, segments],
   );
 
   const graphPersonal = useMemo(() => personalView ? toGraphPersonalPresentation(personalView) : undefined, [personalView]);
+
+  const readRunLocation = async (target: WorkspaceLocation) => {
+    if (target.kind !== 'runs' || !target.objectId) return;
+    const current = workspaceMutation(); const canonical = formatLocation(target);
+    try {
+      const {run} = await api.getRun(target.objectId);
+      if (!current() || routeLocationRef.current !== target) return;
+      if (run.id !== target.objectId || run.workspaceId !== target.workspaceId) { setRouteReadError('无法访问此执行记录。'); return; }
+      setFocusedRun(run); setRouteRunResolved(canonical);
+    } catch { if (current() && routeLocationRef.current === target) setRouteReadError('无法访问此执行记录。'); }
+  };
+  const resolveLocation = useEffectEvent(() => {
+    if (boot === 'loading') return;
+    if (location.workspaceId && location.workspaceId !== currentWorkspaceId) { void switchWorkspace(location.workspaceId); return; }
+    if (location.kind === 'bootstrap' && currentWorkspaceId) { navigationNavigate(viewLocation(currentWorkspaceId, 'chat', activeNodeId), true); return; }
+    if (location.workspaceId && loadedWorkspaceId !== location.workspaceId) return;
+    setRouteReadError(''); setRouteGraphObject(undefined); setRouteGraphResolved(''); historyRequestRef.current++;
+    setContextOpen(false); setDataOpen(false); setSettingsOpen(false); setContextHistory(undefined); setFocusedRun(undefined); setRouteRunResolved('');
+    const targetView: View = ['graph','state','activity','runs'].includes(location.kind) ? location.kind as View : 'chat';
+    setRenderedView(targetView);
+    if (location.kind === 'settings') void readSettings();
+    if (location.kind === 'data') setDataOpen(true);
+    if (location.kind === 'context') setContextOpen(true);
+    if (location.kind === 'manifest') void readMessageContext('', location.objectId);
+    if (location.kind === 'message' && location.detail === 'context' && messages.some(message => message.id === location.objectId && message.nodeId === location.nodeId)) void readMessageContext(location.objectId!);
+    if (location.kind === 'runs' && location.objectId) void readRunLocation(location);
+    if (location.kind === 'graph' && location.objectId) {
+      const target = location; const current = workspaceMutation(); const canonical = formatLocation(target);
+      const accept = (object: import('./types').GraphProjectedObject | undefined) => {
+        if (!current() || routeLocationRef.current !== target) return;
+        if (!object || object.ref.workspaceId !== target.workspaceId || object.ref.objectType !== target.objectType || object.ref.objectId !== target.objectId || (target.versionId && object.ref.versionId !== target.versionId)) { setRouteReadError('无法访问此图谱对象或版本。'); return; }
+        setRouteGraphObject(object); setRouteGraphResolved(canonical);
+      };
+      const known = graphProjection?.objects.find(object => object.ref.objectId === target.objectId && object.ref.objectType === target.objectType && (!target.versionId || object.ref.versionId === target.versionId));
+      if (known) accept(known);
+      else void api.getGraphNeighborhood({objectType:target.objectType,objectId:target.objectId,versionId:target.versionId,objectTypes:[...new Set(['conversation','segment','message',target.objectType!])],depth:2,nodeLimit:200,edgeLimit:800}).then(({graph})=>accept(graph.objects.find(object=>object.ref.objectId===target.objectId && object.ref.objectType===target.objectType))).catch(()=>{if(current() && routeLocationRef.current===target)setRouteReadError('无法访问此图谱对象或版本。');});
+    }
+  });
+  useEffect(() => { resolveLocation(); }, [location, boot, currentWorkspaceId, loadedWorkspaceId]);
+  let locationError = location.kind === 'invalid' ? '此链接格式不受支持。' : routeReadError;
+  const scopedReady = !location.workspaceId || loadedWorkspaceId === location.workspaceId;
+  if (scopedReady && location.nodeId && activeNode.id !== location.nodeId) locationError = '无法访问此位置。';
+  if (scopedReady && location.kind === 'message' && !messages.some(message => message.id === location.objectId && message.nodeId === location.nodeId)) locationError = '无法访问此消息版本。';
+  if (scopedReady && location.kind === 'segment' && !segments.some(segment => segment.id === location.objectId && segment.nodeId === location.nodeId)) locationError = '无法访问此片段。';
+  if (scopedReady && location.kind === 'collaboration' && !collaborations.some(record => record.id === location.objectId && record.base.nodeId === location.nodeId)) locationError = '无法访问此协作记录。';
+  if (scopedReady && location.kind === 'resources' && location.objectId && !attachments.some(item => item.resourceId === location.objectId && (!location.versionId || item.resourceVersionId === location.versionId)) && !manifests.some(manifest => manifest.contextItems.some(item => item.resourceId === location.objectId && (!location.versionId || item.resourceVersionId === location.versionId)))) locationError = '无法访问此资源版本。';
+  if (contextHistory?.error && location.kind === 'manifest') locationError = '无法读取此历史上下文。';
+  if (contextHistory?.data && location.kind === 'manifest' && (contextHistory.data.manifest.projectId !== currentWorkspaceId || (location.sourceIndex !== undefined && !contextHistory.data.manifest.contextItems[location.sourceIndex]))) locationError = '无法访问此冻结来源。';
+  useEffect(() => {
+    if (boot !== 'ready' || !scopedReady || ['bootstrap','invalid','chooser','settings'].includes(location.kind)) return;
+    if (locationError) { if (location.workspaceId) navigationForget(location.workspaceId, formatLocation(location)); return; }
+    if (location.kind === 'manifest' && !contextHistory?.data) return;
+    if (location.kind === 'graph' && location.objectId && routeGraphResolved !== formatLocation(location)) return;
+    if (location.kind === 'runs' && location.objectId && routeRunResolved !== formatLocation(location)) return;
+    navigationRecord(location); if (location.workspaceId) lastLocations.current.set(location.workspaceId, location);
+  }, [navigationEntryKey, location, boot, scopedReady, locationError, contextHistory?.data, routeGraphResolved, routeRunResolved, navigationRecord, navigationForget]);
+  useEffect(() => {
+    if (boot !== 'ready' || !scopedReady || locationError) return;
+    const frame = requestAnimationFrame(() => {
+      const restoration = navigationRestoration;
+      const messageId = location.kind === 'message' ? location.objectId : location.kind === 'segment' ? anchors.find(anchor => anchor.segmentId === location.objectId)?.messageId : undefined;
+      const targetId = messageId ? `message-${messageId}` : location.kind === 'collaboration' ? `collaboration-${location.objectId}` : restoration?.anchorId;
+      const target = targetId ? document.getElementById(targetId) : undefined;
+      if (target) { target.scrollIntoView?.({ block: 'center' }); if (!messageId && restoration?.offset !== undefined) document.querySelector('.conversation')?.scrollBy?.(0, target.getBoundingClientRect().top - restoration.offset); }
+      else if (location.kind === 'conversation' && !restoration?.focus && !onboardingOpen) document.querySelector<HTMLTextAreaElement>('[aria-label="输入消息"]')?.focus();
+      else if (restoration) { const main = document.querySelector<HTMLElement>('.conversation, #workspace-main'); if (main) main.scrollTop = restoration.scroll; }
+      if (restoration?.focus) [...document.querySelectorAll<HTMLElement>('[aria-label]')].find(element => element.getAttribute('aria-label') === restoration.focus && !element.matches(':disabled') && !element.closest('[inert]'))?.focus({preventScroll:true});
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [navigationEntryKey, location, navigationRestoration, boot, scopedReady, locationError, messages, anchors, onboardingOpen]);
   if (boot === 'loading') return <main className="app-loading" aria-busy="true" aria-live="polite"><strong>正在加载工作区…</strong><p>正在同步项目、讨论节点与上下文。</p></main>;
-  if (boot === 'error') return <main className="app-loading" role="alert"><strong>工作区加载失败</strong><p>{bootError}</p><button className="primary-button" onClick={() => void loadWorkspace()}>重试</button></main>;
+  if (boot === 'error' && location.kind !== 'chooser') return <main className="app-loading" role="alert"><strong>工作区加载失败</strong><p>{bootError}</p><button className="primary-button" onClick={() => void loadWorkspace()}>重试</button><button onClick={() => navigationNavigate({kind:'chooser'})}>选择工作区</button></main>;
 
   const closeOnboarding = () => { localStorage.setItem('rhiza:onboarding-seen', '1'); setOnboardingOpen(false); };
   const runCommand = (action: () => void) => { setPaletteOpen(false); action(); };
+  const locationTitle = location.kind === 'graph' ? `图谱${routeGraphObject ? ` · ${routeGraphObject.ref.objectType} · ${routeGraphObject.title}` : ''}` : location.detail === 'context' || location.kind === 'manifest' ? `历史上下文${location.sourceIndex !== undefined ? ` · 来源 ${location.sourceIndex + 1}` : ''}` : location.kind === 'message' ? `消息版本 · ${location.objectId?.slice(0,8)}` : location.kind === 'segment' ? segments.find(segment=>segment.id===location.objectId)?.title ?? '片段' : location.kind === 'collaboration' ? '协作记录' : ({state:'知识来源',runs:'执行历史',activity:'活动时间线',resources:'资源',data:'数据与备份',context:'当前上下文',settings:'模型与 API 设置',conversations:'讨论'} as Record<string,string>)[location.kind] ?? '';
 
   return <AppShell
     view={view}
+    navigationSurface={<nav className="workspace-breadcrumbs" aria-label="位置导航"><button onClick={() => navigationCanBack ? window.history.back() : navigationNavigate({kind:'chooser'})}>返回</button><button onClick={() => navigationNavigate({ kind: 'chooser' })}>工作区</button>{location.workspaceId && <button onClick={() => navigationNavigate({ kind: 'workspace', workspaceId: location.workspaceId })}>{scopedReady ? workspaceRecord()?.name ?? '当前工作区' : '工作区'}</button>}{scopedReady && (location.nodeId || location.kind === 'manifest') && activeNode.id && <button aria-label={`讨论：${activeNode.title}`} onClick={() => navigationNavigate({kind:'conversation',workspaceId:currentWorkspaceId,nodeId:activeNode.id})}>{activeNode.title}</button>}<span aria-current="location">{locationTitle}</span><button onClick={() => { void navigator.clipboard?.writeText(`${window.location.origin}${window.location.pathname}${formatLocation(location)}`); }}>复制链接</button></nav>}
+    primarySurface={location.kind === 'runs' && location.objectId && !locationError && routeRunResolved !== formatLocation(location) ? <main id="workspace-main" className="workspace-empty" aria-busy="true"><h1>正在读取执行记录…</h1></main> : location.kind === 'manifest' && !locationError && !contextHistory?.data ? <main id="workspace-main" className="workspace-empty"><h1>历史上下文</h1><p>正在核实冻结记录…</p></main> : location.kind === 'manifest' && !locationError && !activeNode.id ? <main id="workspace-main" className="workspace-empty"><h1>历史上下文</h1><p>所属讨论当前不可用。此处只展示已授权的冻结来源记录。</p></main> : location.kind === 'graph' && location.objectId && !locationError && routeGraphResolved !== formatLocation(location) ? <main id="workspace-main" className="workspace-empty" aria-busy="true"><h1>正在读取图谱对象…</h1></main> : routeGraphObject && !['conversation','segment','message'].includes(routeGraphObject.ref.objectType) ? <main id="workspace-main" className="workspace landing-view"><h1>{routeGraphObject.title}</h1><p>{routeGraphObject.ref.objectType} · {routeGraphObject.lifecycle}</p><p>此类型当前仅提供图谱元数据。可返回图谱继续浏览。</p></main> : locationError || !scopedReady ? <main id="workspace-main" className="workspace-empty"><h1>{locationError || (syncError ? '无法访问此位置' : '正在加载工作区…')}</h1><p>{scopedReady ? '目标可能已归档、清除或无权访问。可返回原位置或选择工作区。' : syncError}</p><button onClick={() => location.workspaceId && void switchWorkspace(location.workspaceId)}>重新读取</button><button onClick={() => navigationNavigate({ kind: 'chooser' })}>选择工作区</button></main> : ['workspace','conversations','chooser'].includes(location.kind) ? <main id="workspace-main" tabIndex={-1} className="workspace landing-view"><h1>{location.kind === 'chooser' ? '选择工作区' : location.kind === 'conversations' ? '讨论' : workspaceRecord()?.name ?? '工作区'}</h1>{location.kind === 'chooser' ? workspaces.map(item => <button key={item.workspaceId} onClick={() => openWorkspace(item.workspaceId)}>{item.name}{item.status === 'archived' ? ' · 已归档' : ''}</button>) : <><div className="landing-actions"><button onClick={() => setView('graph')}>打开图谱 / 创建讨论</button><button onClick={() => navigationNavigate({ kind:'resources', workspaceId:currentWorkspaceId })}>附件与历史资源</button><button onClick={() => navigationNavigate({ kind:'data', workspaceId:currentWorkspaceId })}>数据与备份</button></div><h2>讨论</h2>{discussionNodes.filter(node => !collaborations.some(record => record.nodeId === node.id)).map(node => <button key={node.id} onClick={() => void activateNode(node.id)}>{node.title}{node.status === 'archived' ? ' · 已归档，只读' : ''}</button>)}<h2>最近访问</h2><button onClick={() => currentWorkspaceId && navigationForget(currentWorkspaceId)}>清空最近访问</button>{navigationRecents.filter(item => item.workspaceId === currentWorkspaceId).map(item => { const target = parseLocation(item.canonicalLocation); const node = discussionNodes.find(node => node.id === target.nodeId); const label = node?.title ?? ({ graph:'对话图谱', context:'当前上下文', manifest:'历史上下文', runs:'执行历史', data:'数据与备份', state:'知识来源', resources:'资源', activity:'活动时间线', workspace:'工作区', conversations:'讨论' } as Record<string,string>)[target.kind]; return label ? <button key={item.canonicalLocation} onClick={() => navigationNavigate(target)}>{label}{target.objectId ? ` · ${target.kind === 'message' ? '消息版本' : target.objectId.slice(0,8)}` : ''}</button> : null; })}</>}</main> : location.kind === 'resources' ? <main id="workspace-main" tabIndex={-1} className="workspace landing-view"><h1>附件与历史资源</h1><p>附件列表与冻结来源元数据。历史内容请从对应 Manifest 查看；没有独立资源内容读取接口时不替换为当前版本。</p>{attachments.filter(item => !location.objectId || item.resourceId === location.objectId && (!location.versionId || item.resourceVersionId === location.versionId)).map(item => <article key={item.id}><strong>{item.name}</strong><p>{item.mimeType} · {item.size.toLocaleString()} bytes</p><small>{item.resourceVersionId ?? '未记录版本身份'}</small></article>)}{location.objectId && !attachments.some(item => item.resourceId === location.objectId && (!location.versionId || item.resourceVersionId === location.versionId)) && <p role="status">此历史资源版本不在当前附件列表，请使用冻结 Manifest 来源链接核实；不能读取替代内容。</p>}<h2>冻结来源</h2>{manifests.flatMap(manifest => manifest.contextItems.map((item,index) => ({manifest,item,index}))).filter(({item}) => item.resourceVersionId && (!location.objectId || item.resourceId === location.objectId) && (!location.versionId || item.resourceVersionId === location.versionId)).map(({manifest,item,index}) => <button key={`${manifest.id}:${index}`} onClick={() => navigationNavigate({kind:'manifest',workspaceId:currentWorkspaceId,objectId:manifest.id,sourceIndex:index})}>{item.title} · {item.resourceVersionId?.slice(0,8)} · 查看冻结来源</button>)}</main> : undefined}
     hasDiscussionNodes={discussionNodes.length > 0}
-    contextOpen={contextOpen}
+    contextOpen={contextOpen && !locationError && scopedReady}
     networkNotice={workspaceRecord()?.status==='archived'?'工作区已归档，可在工作区菜单恢复。':networkNotice}
     onCloseContext={closeContext}
-    onOpenContext={() => { if (contextHistory) openCurrentContext(); else setContextOpen(open => !open); }}
+    onOpenContext={() => contextOpen ? closeContext() : openCurrentContext()}
     onView={setView}
     title={view === 'chat' ? (discussionNodes.length ? activeNode.title : '尚无讨论') : ({ graph: '对话图谱', state: '知识状态', activity: '活动时间线', runs: '执行历史' })[view]}
-    workspaceName={workspaceRecord()?.name}
+    workspaceName={scopedReady ? workspaceRecord()?.name : '工作区'}
     contextCount={previewLoading ? undefined : activeCount}
-    sidebar={<Sidebar view={view} nodes={navigableNodes.filter(node => !collaborations.some(record => record.nodeId === node.id))} messages={messages} activeNodeId={activeNode.id} onView={setView} onNode={id => activateNode(id, true)} onSettings={openSettings} onCommand={() => setPaletteOpen(true)} onHelp={() => setOnboardingOpen(true)} workspaces={workspaces} currentWorkspaceId={currentWorkspaceId} onWorkspace={id => void switchWorkspace(id)} onCreateWorkspace={() => setWorkspaceForm('create')} onRenameWorkspace={() => setWorkspaceForm('rename')} onArchiveWorkspace={() => void archiveWorkspace()} onRestoreWorkspace={() => void restoreWorkspace()} onData={() => { setContextOpen(false); setDataOpen(true); }}/>}
+    sidebar={<Sidebar view={view} nodes={navigableNodes.filter(node => !collaborations.some(record => record.nodeId === node.id))} messages={messages} activeNodeId={activeNode.id} onView={setView} onNode={id => activateNode(id, true)} onSettings={openSettings} onCommand={() => setPaletteOpen(true)} onHelp={() => setOnboardingOpen(true)} workspaces={workspaces} currentWorkspaceId={currentWorkspaceId} onWorkspace={openWorkspace} onCreateWorkspace={() => setWorkspaceForm('create')} onRenameWorkspace={() => setWorkspaceForm('rename')} onArchiveWorkspace={() => void archiveWorkspace()} onRestoreWorkspace={() => void restoreWorkspace()} onData={() => navigationNavigate({ kind: 'data', workspaceId: currentWorkspaceId })}/>}
     emptySurface={<main id="workspace-main" className="workspace-empty"><h1>这个工作区还没有讨论节点</h1><p>请通过项目入口创建第一个节点，然后开始建立上下文。</p></main>}
     surfaces={{
       chat: <ChatView
-        key={`${currentWorkspaceId}:${activeNode.id}`} activeNode={activeNode} nodes={navigableNodes} edges={discussionEdges} mode={mode}
-        collaborations={collaborations.filter(record => record.base.nodeId === activeNode.id)} collaborationBusy={collaborationBusy} collaborationError={collaborationError} collaborationStreams={collaborationStreams} onStartCollaboration={startCollaboration} onCollaborationAction={changeCollaboration} onStopCollaboration={record => void stopCollaboration(record)}
-        onDraftChange={updateDraftContext} onInspectManifest={id => void inspectMessageContext('', id)} onOpenRun={id => { setFocusedRunId(id); setView('runs'); }}
+        key={`${currentWorkspaceId}:${activeNode.id}`} focusMessageId={location.kind === 'message' ? location.objectId : location.kind === 'segment' ? anchors.find(anchor => anchor.segmentId === location.objectId)?.messageId : undefined} provenanceMessageId={location.kind === 'message' && location.detail === 'provenance' ? location.objectId : undefined} readOnly={locationReadOnly} activeNode={activeNode} nodes={navigableNodes} edges={discussionEdges} mode={mode}
+        collaborations={collaborations.filter(record => record.base.nodeId === activeNode.id)} collaborationBusy={collaborationBusy} collaborationError={collaborationError} collaborationStreams={collaborationStreams} onContinue={viewedNodeId !== activeNodeId && !locationReadOnly ? () => void ensureExecutionNode().catch(error => setSyncError(presentErrorText(error,{message:'无法继续此讨论。',recovery:'请重新读取后重试。'}))) : undefined} onStartCollaboration={viewedNodeId === activeNodeId && !locationReadOnly ? startCollaboration : undefined} onCollaborationAction={locationReadOnly ? undefined : changeCollaboration} onStopCollaboration={locationReadOnly ? undefined : record => void stopCollaboration(record)}
+        onInspectProvenance={id => navigationNavigate({kind:'message',workspaceId:currentWorkspaceId,nodeId:activeNode.id,objectId:id,detail:'provenance'})} onDraftChange={updateDraftContext} onInspectManifest={id => void inspectMessageContext('', id)} onOpenRun={id => navigationNavigate({ kind: 'runs', workspaceId: currentWorkspaceId, objectId: id })}
         activeCount={activeCount} messages={activeMessages} manifests={manifests} attachments={attachments}
         segments={segments} anchors={anchors} onWorkspaceChanged={applyWorkspace} onReconcile={()=>void loadWorkspace(true)} onRetry={async(runId,key,signal)=>{const current=workspaceMutation();const result=await api.retryRun(runId,key,signal);if(current()){setMessages(messages=>[...messages,result.userMessage,result.assistantMessage]);setManifests(manifests=>[...manifests,result.manifest]);}}} provider={provider} providerCatalog={{...providerCatalog,activeModelId:activeNode.preferredModelId??workspaceModelId??providerCatalog.activeModelId}} syncError={syncError} online={online&&workspaceRecord()?.status!=='archived'} focusComposerRequest={focusComposerRequest} onSend={sendMessage}
         onUpload={uploadAttachment} onTempSend={sendTemporaryMessage} onCreateBranch={createBranch}
-        onActivateNode={id => activateNode(id, true)} onMerge={mergeNode} onSelectModel={async modelId=>{const current=workspaceMutation();const {workspace}=await api.setConversationModel(activeNode.id,modelId);if(current())applyWorkspace(workspace);}}
-        onSettings={openSettings} onOpenContext={() => { if (contextHistory) openCurrentContext(); else setContextOpen(open => !open); }} onInspectContext={id => void inspectMessageContext(id)} onGraph={() => setView('graph')} onRuns={() => setView('runs')}
+        onActivateNode={id => activateNode(id)} onMerge={mergeNode} onSelectModel={async modelId=>{const current=workspaceMutation();const {workspace}=await api.setConversationModel(activeNode.id,modelId);if(current())applyWorkspace(workspace);}}
+        onSettings={openSettings} onOpenContext={() => contextOpen ? closeContext() : openCurrentContext()} onInspectContext={id => void inspectMessageContext(id)} onGraph={() => setView('graph')} onRuns={() => setView('runs')}
       />,
-      graph: <GraphView key={currentWorkspaceId} personalView={graphPersonal} personalLoading={personalLoading} onSavePersonal={saveGraphPresentation} onReloadPersonal={() => void loadPersonalView()} batch={graphBatch} batchBusy={batchBusy} batchError={batchError} onBatch={(ids, operation, relation) => runGraphBatch('apply', { ids, operation, relation })} onResumeBatch={() => void runGraphBatch('resume')} onReadBatch={() => void runGraphBatch('read')} onUndoBatch={() => void runGraphBatch('undo')} loading={graphLoading} error={graphError} hasMore={!!graphProjection?.nextCursor} onLoadMore={() => void loadGraph(graphProjection?.nextCursor)} onRefresh={() => void loadGraph()} onFilter={filterGraph} onNeighborhood={loadGraphNeighborhood} contextIds={contextItems.filter(item=>item.status==='active').map(item=>item.sourceId??'')} onContext={async(node,remove)=>{if(remove){const item=contextItems.find(item=>item.sourceId===node.id);if(item)await updateStatus(item.id,'excluded');}else await addContextSource(node.objectType==='segment'?'segment':'node',node.id);}} onNavigateObject={async node=>{let parent=node.parentId;const parentObject=graphProjection?.objects.find(item=>item.ref.objectId===parent);if(parentObject?.ref.objectType==='segment')parent=graphProjection?.relations.find(edge=>edge.relationType==='contains'&&edge.target.objectId===parent)?.source.objectId;if(parent)await activateNode(parent,true);const message=node.objectType==='message'?node.id:anchors.find(anchor=>anchor.segmentId===node.id)?.messageId??messages.find(message=>message.segmentId===node.id)?.id;if(message)setTimeout(()=>document.getElementById(`message-${message}`)?.scrollIntoView({block:'center'}),50);}} onPath={highlightGraphPath} nodes={graphModel.nodes} edges={graphModel.edges} activeNodeId={activeNode.id} onMove={moveNode} onActivate={id => activateNode(id, true)} onCreateNode={createGraphNode} onArchiveNode={archiveGraphNode} onRestoreNode={restoreGraphNode} onPurgeNode={purgeGraphNode} onCreateEdge={createGraphEdge} onDeleteEdge={deleteGraphEdge}/>,
-      state: <StateView/>,
-      runs: <RunHistory key={currentWorkspaceId} focusedRunId={focusedRunId} onInspectContext={id => void inspectMessageContext('', id)} onChanged={() => void loadWorkspace(true)}/>,
+      graph: <GraphView readOnly={workspaceRecord()?.status === 'archived'} key={currentWorkspaceId} initialPresentation={navigationRestoration?.graph as GraphNavigationPresentation | undefined} onPresentationChange={navigationRememberGraph} focusedObjectId={location.kind === 'graph' ? location.objectId : undefined} onInspectObject={node => navigationNavigate({kind:'graph',workspaceId:currentWorkspaceId,objectType:node.objectType ?? 'conversation',objectId:node.id},true)} personalView={graphPersonal} personalLoading={personalLoading} onSavePersonal={saveGraphPresentation} onReloadPersonal={() => void loadPersonalView()} batch={graphBatch} batchBusy={batchBusy} batchError={batchError} onBatch={(ids, operation, relation) => runGraphBatch('apply', { ids, operation, relation })} onResumeBatch={() => void runGraphBatch('resume')} onReadBatch={() => void runGraphBatch('read')} onUndoBatch={() => void runGraphBatch('undo')} loading={graphLoading} error={graphError} hasMore={!!graphProjection?.nextCursor} onLoadMore={() => void loadGraph(graphProjection?.nextCursor)} onRefresh={() => void loadGraph()} onFilter={filterGraph} onNeighborhood={loadGraphNeighborhood} contextIds={contextItems.filter(item=>item.status==='active').map(item=>item.sourceId??'')} onContext={async(node,remove)=>{if(remove){const item=contextItems.find(item=>item.sourceId===node.id);if(item)await updateStatus(item.id,'excluded');}else await addContextSource(node.objectType==='segment'?'segment':'node',node.id);}} onNavigateObject={async node => { const message = messages.find(item => item.id === node.id); const segment = segments.find(item => item.id === node.id); if (message) navigationNavigate({ kind: 'message', workspaceId: currentWorkspaceId, nodeId: message.nodeId, objectId: message.id }); else if (segment) navigationNavigate({ kind: 'segment', workspaceId: currentWorkspaceId, nodeId: segment.nodeId, objectId: segment.id }); else setRouteReadError('无法访问此位置。'); }} onPath={highlightGraphPath} nodes={graphModel.nodes} edges={graphModel.edges} activeNodeId={activeNode.id} onMove={moveNode} onActivate={id => activateNode(id, true)} onCreateNode={createGraphNode} onArchiveNode={archiveGraphNode} onRestoreNode={restoreGraphNode} onPurgeNode={purgeGraphNode} onCreateEdge={createGraphEdge} onDeleteEdge={deleteGraphEdge}/>,
+      state: <StateView items={contextItems} onSource={item => { if (item.sourceType === 'node') void activateNode(item.sourceId!); else if (item.sourceType === 'segment') navigationNavigate({ kind: 'segment', workspaceId: currentWorkspaceId, nodeId: segments.find(segment => segment.id === item.sourceId)?.nodeId ?? item.sourceNodeId, objectId: item.sourceId }); else navigationNavigate({ kind: 'resources', workspaceId: currentWorkspaceId }); }}/>,
+      runs: <RunHistory key={currentWorkspaceId} focusedRun={focusedRun} onRefreshFocused={location.objectId ? () => readRunLocation(location) : undefined} readOnly={workspaceRecord()?.status === 'archived'} onInspectContext={id => void inspectMessageContext('', id)} onChanged={() => void loadWorkspace(true).then(() => readRunLocation(location))}/>,
       activity: <ActivityView activity={activity} loading={activityLoading} error={activityError} onRefresh={() => void loadActivity()}/>,
     }}
-    contextSurface={<ContextPanel key={currentWorkspaceId} preview={contextPreview} loading={previewLoading} error={previewError} deciding={decidingContext} onRefresh={() => setPreviewRevision(value => value + 1)} onDecision={decideContext} onClose={closeContext} history={contextHistory} onBackToCurrent={openCurrentContext} onRetryHistory={() => { if (contextHistory) void inspectMessageContext(contextHistory.messageId, contextHistory.manifestId); }} items={contextItems} mode={mode} nodes={discussionNodes} segments={segments} attachments={attachments} onMode={updateMode} onStatus={updateStatus} onPin={updatePin} onAddSource={addContextSource}/>}
+    contextSurface={location.kind === 'context' && viewedNodeId !== activeNodeId ? <aside className="context-panel"><h2>当前执行上下文</h2><p>当前浏览讨论尚未成为执行讨论。</p><button onClick={() => void ensureExecutionNode().catch(error => setSyncError(presentErrorText(error,{message:'无法继续讨论。',recovery:'请重新读取后重试。'})))}>继续此讨论</button></aside> : <ContextPanel readOnly={locationReadOnly} key={currentWorkspaceId} preview={contextPreview} loading={previewLoading} error={previewError} deciding={decidingContext} onRefresh={() => setPreviewRevision(value => value + 1)} onDecision={decideContext} onClose={closeContext} history={contextHistory ? {...contextHistory,sourceIndex:location.kind==='manifest'?location.sourceIndex:undefined} : undefined} onSelectHistorySource={index => navigationNavigate({kind:'manifest',workspaceId:currentWorkspaceId,objectId:contextHistory?.data?.manifest.id,sourceIndex:index})} onBackToCurrent={openCurrentContext} onRetryHistory={() => { if (contextHistory) void readMessageContext(contextHistory.messageId, contextHistory.manifestId); }} items={contextItems} mode={mode} nodes={discussionNodes} segments={segments} attachments={attachments} onMode={updateMode} onStatus={updateStatus} onPin={updatePin} onAddSource={addContextSource}/>}
     overlayLayer={<>
       {workspaceForm&&<WorkspaceForm key={currentWorkspaceId} rename={workspaceForm==='rename'} initialName={workspaceForm==='rename'?workspaceRecord()?.name:undefined} onSave={workspaceForm==='rename'?renameWorkspace:createWorkspace} onClose={()=>setWorkspaceForm(undefined)}/>}
       {mergeSource&&discussionNodes.find(node=>node.id===mergeSource)&&<MergeDialog source={discussionNodes.find(node=>node.id===mergeSource)!} nodes={discussionNodes} latestReply={[...messages].reverse().find(message=>message.nodeId===mergeSource&&message.kind==='assistant')?.text??''} onClose={()=>setMergeSource(undefined)} onSave={async(targetNodeId,summary)=>{const current=workspaceMutation();const {workspace}=await api.mergeNode(mergeSource,targetNodeId,summary);if(current())applyWorkspace(workspace);}}/>}
 
-      {dataOpen && <div className="dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setDataOpen(false); }}><section className="workspace-data-dialog" role="dialog" aria-modal="true" aria-labelledby="workspace-data-title"><header><div><h2 id="workspace-data-title">数据与备份</h2><p>{workspaceRecord()?.name ?? '当前工作区'} · {currentWorkspaceId}</p></div><button aria-label="关闭数据与备份" onClick={() => setDataOpen(false)}>×</button></header><BundleControls key={currentWorkspaceId} workspaceId={currentWorkspaceId} catalog={providerCatalog} backups={backups} backupsLoading={backupsLoading} backupsError={backupsError} onRefreshBackups={() => void refreshBackups()} onSettings={() => { setDataOpen(false); void openSettings(); }} onPreview={api.previewWorkspaceBundle} onHydrate={api.hydrateWorkspaceBundle} onBackupArchive={api.getManagedBackupArchive} onBackup={async (key, retryOf) => { const scope = selectedWorkspaceRef.current; await api.createManagedBackup(key, retryOf); if (scope === selectedWorkspaceRef.current) await refreshBackups(); }} onImport={async (file, key, mappings) => { const scope = selectedWorkspaceRef.current; const result = await api.importWorkspaceBundle(file, key, mappings); if (scope !== selectedWorkspaceRef.current) return; await refreshWorkspaces(); if (scope === selectedWorkspaceRef.current) { await switchWorkspace(result.workspaceId); setView('chat'); } }}/></section></div>}
-      {settingsOpen && <ProviderSettings catalog={providerCatalog} presets={providerPresets} onClose={() => setSettingsOpen(false)} onSave={saveProvider} onDiscover={discoverModels} onDiscoverBatch={discoverProviderBatch} onToggleModel={updateModel} onSelectModel={selectModel}/>}
-      {paletteOpen && <div className="dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setPaletteOpen(false); }}><section ref={activeModalRef} className="command-palette" role="dialog" aria-modal="true" aria-label="命令面板"><header><strong>搜索或运行命令</strong><kbd>Esc</kbd></header><WorkspaceSearch key={currentWorkspaceId} onOpen={async(nodeId,segmentId,query)=>{await activateNode(nodeId,true);setPaletteOpen(false);const message=segmentId?messages.find(message=>message.segmentId===segmentId):messages.find(message=>message.nodeId===nodeId&&message.text.toLocaleLowerCase().includes(query?.toLocaleLowerCase()??''));if(message)setTimeout(()=>document.getElementById(`message-${message.id}`)?.scrollIntoView({block:'center'}),50);}}/><label>工作区默认模型<select value={workspaceModelId??''} onChange={event=>{const current=workspaceMutation();void api.setWorkspaceModel(event.target.value||null).then(({workspace})=>{if(current())applyWorkspace(workspace);}).catch(()=>setSyncError('工作区模型保存失败，请重试。'));}}><option value="">继承全局默认模型</option>{providerCatalog.models.map(model=><option key={model.id} value={model.id}>{model.displayName}</option>)}</select></label><details><summary>已归档讨论</summary>{discussionNodes.filter(node=>node.status==='archived').map(node=><div key={node.id}>{node.title}<button onClick={()=>void restoreGraphNode(node.id)}>恢复讨论</button></div>)}</details><button onClick={() => runCommand(() => setView('chat'))}>当前讨论 <kbd>⌘1</kbd></button><button onClick={() => runCommand(() => setView('graph'))}>对话图谱 <kbd>⌘2</kbd></button><button onClick={() => runCommand(() => setView('state'))}>知识状态 <kbd>⌘3</kbd></button><button onClick={() => runCommand(() => setView('activity'))}>活动时间线 <kbd>⌘4</kbd></button><button onClick={() => runCommand(() => setContextOpen(true))}>打开 Context <kbd>⌘⇧C</kbd></button><button onClick={() => runCommand(() => { setView('chat'); setFocusComposerRequest(value => value + 1); })}>聚焦消息输入框 <kbd>/</kbd></button><button onClick={() => runCommand(() => setOnboardingOpen(true))}>帮助与快捷键</button></section></div>}
+      {dataOpen && <div className="dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) closeData(); }}><section className="workspace-data-dialog" role="dialog" aria-modal="true" aria-labelledby="workspace-data-title"><header><div><h2 id="workspace-data-title">数据与备份</h2><p>{workspaceRecord()?.name ?? '当前工作区'} · {currentWorkspaceId}</p></div><button aria-label="关闭数据与备份" onClick={closeData}>×</button></header><BundleControls key={currentWorkspaceId} workspaceId={currentWorkspaceId} catalog={providerCatalog} backups={backups} backupsLoading={backupsLoading} backupsError={backupsError} onRefreshBackups={() => void refreshBackups()} onSettings={() => { setDataOpen(false); void openSettings(); }} onPreview={api.previewWorkspaceBundle} onHydrate={api.hydrateWorkspaceBundle} onBackupArchive={api.getManagedBackupArchive} onBackup={async (key, retryOf) => { const scope = selectedWorkspaceRef.current; await api.createManagedBackup(key, retryOf); if (scope === selectedWorkspaceRef.current) await refreshBackups(); }} onImport={async (file, key, mappings) => { const scope = selectedWorkspaceRef.current; const result = await api.importWorkspaceBundle(file, key, mappings); if (scope !== selectedWorkspaceRef.current) return; await refreshWorkspaces(); if (scope === selectedWorkspaceRef.current) { navigationNavigate({kind:'workspace',workspaceId:result.workspaceId}); } }}/></section></div>}
+      {settingsOpen && <ProviderSettings catalog={providerCatalog} presets={providerPresets} onClose={closeSettings} onSave={saveProvider} onDiscover={discoverModels} onDiscoverBatch={discoverProviderBatch} onToggleModel={updateModel} onSelectModel={selectModel}/>}
+      {paletteOpen && <div className="dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setPaletteOpen(false); }}><section ref={activeModalRef} className="command-palette" role="dialog" aria-modal="true" aria-label="命令面板"><header><strong>搜索或运行命令</strong><kbd>Esc</kbd></header><WorkspaceSearch key={currentWorkspaceId} onOpen={async (nodeId, segmentId) => { navigationNavigate(segmentId ? { kind: 'segment', workspaceId: currentWorkspaceId, nodeId, objectId: segmentId } : { kind: 'conversation', workspaceId: currentWorkspaceId, nodeId }); setPaletteOpen(false); }}/><label>工作区默认模型<select value={workspaceModelId??''} onChange={event=>{const current=workspaceMutation();void api.setWorkspaceModel(event.target.value||null).then(({workspace})=>{if(current())applyWorkspace(workspace);}).catch(()=>setSyncError('工作区模型保存失败，请重试。'));}}><option value="">继承全局默认模型</option>{providerCatalog.models.map(model=><option key={model.id} value={model.id}>{model.displayName}</option>)}</select></label><details><summary>已归档讨论</summary>{discussionNodes.filter(node=>node.status==='archived').map(node=><div key={node.id}>{node.title}<button onClick={()=>void restoreGraphNode(node.id)}>恢复讨论</button></div>)}</details><button onClick={() => runCommand(() => setView('chat'))}>当前讨论 <kbd>⌘1</kbd></button><button onClick={() => runCommand(() => setView('graph'))}>对话图谱 <kbd>⌘2</kbd></button><button onClick={() => runCommand(() => setView('state'))}>知识状态 <kbd>⌘3</kbd></button><button onClick={() => runCommand(() => setView('activity'))}>活动时间线 <kbd>⌘4</kbd></button><button onClick={() => runCommand(openCurrentContext)}>打开 Context <kbd>⌘⇧C</kbd></button><button onClick={() => runCommand(() => { setView('chat'); setFocusComposerRequest(value => value + 1); })}>聚焦消息输入框 <kbd>/</kbd></button><button onClick={() => runCommand(() => setOnboardingOpen(true))}>帮助与快捷键</button></section></div>}
       {onboardingOpen && <div className="dialog-backdrop" role="presentation"><section ref={activeModalRef} className="onboarding-dialog" role="dialog" aria-modal="true" aria-labelledby="onboarding-title"><h2 id="onboarding-title">欢迎来到 Rhiza</h2><p>用四个对象把研究和决策留在同一个工作区：</p><dl><div><dt>Project</dt><dd>一个完整的研究或决策空间。</dd></div><div><dt>Node</dt><dd>围绕一个问题持续展开的讨论。</dd></div><div><dt>Graph</dt><dd>展示讨论之间的衍生、引用和合并关系。</dd></div><div><dt>Context</dt><dd>明确控制本轮发送给模型的材料。</dd></div></dl><button className="primary-button" autoFocus onClick={closeOnboarding}>开始使用</button></section></div>}
     </>}
   />;

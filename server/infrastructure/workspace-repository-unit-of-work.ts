@@ -23,7 +23,11 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
 
   get tracksRuns() { return Boolean(this.repository.getRun); }
   async getCollaboration(id: string) { return this.runRepository().getCollaboration?.(id); }
-  async listCollaborations(limit = 50) { return this.runRepository().listCollaborations?.(limit) ?? []; }
+  async listCollaborations(limit = 50, nodeId?: string) {
+    const repository = this.runRepository();
+    if (nodeId && !repository.listCollaborations) throw new Error('COLLABORATION_OWNERSHIP_UNAVAILABLE');
+    return repository.listCollaborations?.(limit, nodeId) ?? [];
+  }
   private runRepository() {
     const workspaceId = this.scope.getStore();
     return workspaceId ? this.repository.forWorkspace?.(workspaceId) ?? this.repository : this.repository;

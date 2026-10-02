@@ -112,3 +112,39 @@ it('restores personal positions/zoom and saves collapse/filter state through the
   fireEvent.click(screen.getByRole('button', { name: '保存个人视图' })); await screen.findByText('个人视图已保存。');
   expect(save).toHaveBeenCalledWith(expect.objectContaining({ positions: personal.positions, viewport: personal.viewport, collapsedIds: ['root'], relationFilter: 'references' }));
 });
+
+it('marquee and modifier selection stay bounded to conversations without opening or moving them', async () => {
+ const handlers=callbacks();const target={...node,id:'target',title:'Second',x:540};const onBatch=vi.fn().mockResolvedValue(undefined);
+ render(<GraphView nodes={[node,target,{...node,id:'message',title:'Message',objectType:'message',x:450}]} edges={[]} activeNodeId="root" {...handlers} onBatch={onBatch}/>);
+ const canvas=screen.getByRole('region',{name:'讨论关系图'});canvas.setPointerCapture=vi.fn();canvas.hasPointerCapture=()=>false;
+ const event=(name:string,x:number,y:number)=>fireEvent(canvas,new MouseEvent(name,{bubbles:true,clientX:x,clientY:y,button:0,shiftKey:true}));
+ event('pointerdown',-200,-200);event('pointermove',900,700);event('pointerup',900,700);
+ expect(await screen.findByRole('checkbox',{name:'选择讨论 根节点'})).toBeChecked();expect(screen.getByRole('checkbox',{name:'选择讨论 Second'})).toBeChecked();expect(screen.queryByRole('checkbox',{name:'选择讨论 Message'})).not.toBeInTheDocument();
+ const root=screen.getByRole('button',{name:'讨论节点：根节点'});root.hasPointerCapture=()=>false;
+ fireEvent(root,new MouseEvent('pointerup',{bubbles:true,shiftKey:true}));expect(screen.getByRole('checkbox',{name:'选择讨论 根节点'})).not.toBeChecked();
+ expect(handlers.onActivate).not.toHaveBeenCalled();expect(handlers.onMove).not.toHaveBeenCalled();
+});
+
+it('restores tab navigation filters, selection and zoom before personal metadata can override them', async () => {
+ const target={...node,id:'target',title:'Second',x:540};const presentation={positions:{root:{x:320,y:160}},viewport:{x:0,y:0,scale:.8},collapsedIds:[],relationFilter:'references' as const,query:'',statusFilter:'',since:'',pathTarget:'target',pathIds:['root','target'],selectedEdgeId:null,listOpen:true,selection:['target'],batchMode:true};
+ render(<GraphView nodes={[node,target]} edges={[]} activeNodeId="root" {...callbacks()} initialPresentation={presentation} personalView={{positions:{root:{x:800,y:800}},viewport:{x:0,y:0,scale:1.2},collapsedIds:[],relationFilter:''}}/>);
+ expect(screen.getByLabelText('当前缩放比例')).toHaveTextContent('80%');expect(screen.getByLabelText('关系')).toHaveValue('references');expect(screen.getByRole('checkbox',{name:'选择讨论 Second'})).toBeChecked();
+ expect(screen.getByRole('button',{name:'讨论节点：根节点'}).style.left).toBe('320px');
+});
+
+
+it('shows a focused child and containment ancestors from a different discussion', async () => {
+ const other={...node,id:'other',title:'Other discussion'};const segment={...node,id:'other-segment',title:'Other segment',objectType:'segment' as const,parentId:other.id};const message={...node,id:'other-message',title:'Other message',objectType:'message' as const,parentId:segment.id};const handlers=callbacks();
+ render(<GraphView nodes={[node,other,segment,message]} edges={[]} activeNodeId={node.id} focusedObjectId={message.id} {...handlers}/>);
+ await screen.findByRole('button',{name:'讨论节点：Other message'});expect(screen.getByRole('button',{name:'讨论节点：Other segment'})).toBeInTheDocument();expect(handlers.onActivate).not.toHaveBeenCalled();
+});
+
+it('keeps every domain mutation disabled in an archived Workspace graph', async () => {
+ const handlers=callbacks(),context=vi.fn(),purge=vi.fn(),resume=vi.fn(),undo=vi.fn();
+ const archived={...node,id:'archived',title:'Archived',status:'archived' as const};
+ render(<GraphView readOnly nodes={[node,archived]} edges={[{id:'edge',source:node.id,target:node.id,relation:'references',label:'Old relation'}]} activeNodeId={node.id} {...handlers} onContext={context} onPurgeNode={purge} onResumeBatch={resume} onUndoBatch={undo} batch={{batchId:'batch',workspaceId:'w',status:'partial',outcomes:[{itemId:node.id,status:'succeeded',undoable:true}]}}/>);
+ for(const name of ['新建图谱节点','创建图谱关系','恢复','永久清除','继续原批次','撤销已完成项'])expect(screen.getByRole('button',{name})).toBeDisabled();
+ fireEvent.click(screen.getByText('Old relation'));expect(screen.getByRole('button',{name:'删除选中关系'})).toBeDisabled();
+ fireEvent.click(screen.getByText('图谱节点列表（键盘导航）'));expect(await screen.findByRole('button',{name:'加入 Context'})).toBeDisabled();
+ fireEvent.click(screen.getByRole('button',{name:'新建图谱节点'}));expect(handlers.onCreateNode).not.toHaveBeenCalled();expect(context).not.toHaveBeenCalled();expect(purge).not.toHaveBeenCalled();
+});

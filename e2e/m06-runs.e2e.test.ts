@@ -1014,6 +1014,10 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     });
     const uploaded = await request(app).post('/api/attachments').send({ name: 'evidence.txt', mimeType: 'text/plain', dataBase64: Buffer.from('freeze exact evidence payment '.repeat(200)).toString('base64') }).expect(201);
     const attachment = uploaded.body.attachment;
+    // Assisted no longer auto-selects unconfirmed candidates; exercise every source family explicitly.
+    const initial = await store.read();
+    await request(app).post('/api/workspace/context').send({sourceType:'segment',sourceId:initial.segments[0].id}).expect(201);
+    await request(app).post('/api/workspace/context').send({sourceType:'file',sourceId:attachment.id}).expect(201);
     const response = await request(app).post('/api/chat').send({ message: 'freeze exact evidence', attachmentIds: [attachment.id] }).expect(201);
     const manifest = response.body.manifest as import('../server/domain').ContextManifest;
     expect(manifest.schemaVersion).toBe('1.0.0');
