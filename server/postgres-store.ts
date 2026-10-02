@@ -53,6 +53,7 @@ import { reclaimKnownLegacyResourceFiles } from './infrastructure/legacy-file-au
 import { manifestReferenceProjection, SealedManifestContent, type SealedManifestRef } from './infrastructure/sealed-manifest-content';
 
 interface QueryResult<Row> { rows: Row[] }
+interface PreparedReceiptResult { result: string | null; reference: string | null }
 type PendingContent = { workspaceId: string; commandId: string; reference: SealedReceiptRef; kind?: 'result' | 'error' }
   | { workspaceId: string; runId: string; reference: SealedRunInputRef }
   | { workspaceId: string; eventId: string; reference: SealedJournalRef }
@@ -376,7 +377,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     return { payload: JSON.stringify({ sealed: true }), reference: JSON.stringify(reference) };
   }
 
-  private async insertCommittedReceipt(database: SqlQueryable, workspaceId: string, commandId: string, commandType: string, firstSequence: number, lastSequence: number, value: unknown) {
+  private async prepareReceiptResult(database: SqlQueryable, workspaceId: string, commandId: string, value: unknown): Promise<PreparedReceiptResult> {
     let reference: SealedReceiptRef | undefined;
     if (this.receiptContent) {
       const pending = this.transactionContent.get(database);
@@ -384,9 +385,13 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       reference = await this.receiptContent.seal(workspaceId, commandId, value);
       pending.push({ workspaceId, commandId, reference });
     }
+    return { result: reference ? null : JSON.stringify(value ?? null), reference: reference ? JSON.stringify(reference) : null };
+  }
+
+  private async insertCommittedReceipt(database: SqlQueryable, workspaceId: string, commandId: string, commandType: string, firstSequence: number, lastSequence: number, prepared: PreparedReceiptResult) {
     await database.query(`INSERT INTO command_receipts (workspace_id,command_id,command_type,status,first_sequence,last_sequence,result,result_content_ref)
       VALUES ($1,$2,$3,'committed',$4,$5,$6::jsonb,$7::jsonb)`,
-    [workspaceId, commandId, commandType, firstSequence, lastSequence, reference ? null : JSON.stringify(value ?? null), reference ? JSON.stringify(reference) : null]);
+    [workspaceId, commandId, commandType, firstSequence, lastSequence, prepared.result, prepared.reference]);
   }
 
   async sealLegacyReceiptResults(limit = 100): Promise<number> {
@@ -1019,7 +1024,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         journalSource(command.workspaceId), journalSubject('workspace', command.workspaceId), journalDataSchema(eventType), record.revision,
         JSON.stringify(context.actor), JSON.stringify({ scopeType: 'workspace', scopeId: command.workspaceId }), context.commandId,
         context.causationId || null, context.correlationId || null, sealed.payload, context.occurredAt, sealed.reference]);
-      await this.insertCommittedReceipt(database, command.workspaceId, context.commandId, context.commandType, sequence, sequence, record);
+      await this.insertCommittedReceipt(database, command.workspaceId, context.commandId, context.commandType, sequence, sequence, await this.prepareReceiptResult(database, command.workspaceId, context.commandId, record));
       return record;
     });
   }
@@ -1239,9 +1244,24 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       `, [this.defaultWorkspaceId, events.length]);
       const lastSequence = Number(head.rows[0]!.last_sequence);
       const firstSequence = lastSequence - events.length + 1;
+      // Both lanes publish durable content only after shadow validation. Join every seal before
+      // rollback can discard PendingContent; a late publisher must never escape key cleanup.
+      const [preparedEvents, preparedReceipt] = await Promise.allSettled([
+        (async () => {
+          const prepared = [];
+          for (const [offset, event] of events.entries()) {
+            const eventId = randomUUID();
+            const sealed = await this.prepareJournalPayload(database, this.defaultWorkspaceId, eventId, { ...event.payload, reconcileChecksum: nextChecksum, stateSchema: 'rhiza.workspace-semantic.v1', ...(offset === events.length - 1 ? { stateChanges: workspaceSemanticChanges(current, next) } : {}) });
+            prepared.push({ eventId, sealed });
+          }
+          return prepared;
+        })(),
+        this.prepareReceiptResult(database, this.defaultWorkspaceId, command.context.commandId, result.value),
+      ]);
+      if (preparedEvents.status === 'rejected') throw preparedEvents.reason;
+      if (preparedReceipt.status === 'rejected') throw preparedReceipt.reason;
       for (const [offset, event] of events.entries()) {
-        const eventId = randomUUID();
-        const sealed = await this.prepareJournalPayload(database, this.defaultWorkspaceId, eventId, { ...event.payload, reconcileChecksum: nextChecksum, stateSchema: 'rhiza.workspace-semantic.v1', ...(offset === events.length - 1 ? { stateChanges: workspaceSemanticChanges(current, next) } : {}) });
+        const { eventId, sealed } = preparedEvents.value[offset];
         await database.query(`
           INSERT INTO workspace_events
             (event_id,workspace_id,sequence,ce_specversion,rhiza_envelope_version,event_type,event_source,subject,data_schema,aggregate_type,aggregate_id,aggregate_revision,actor_ref,scope_ref,command_id,event_index,causation_id,correlation_id,payload,occurred_at,payload_content_ref)
@@ -1254,7 +1274,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       }
       if (graphBefore) await new PostgresGraphProjectionAdapter({ query: database.query.bind(database), transaction: work => work(database) }, this.defaultWorkspaceId)
         .applyDelta(graphBefore, await this.graphFacts(database, recovered));
-      await this.insertCommittedReceipt(database, this.defaultWorkspaceId, command.context.commandId, command.context.commandType, firstSequence, lastSequence, result.value);
+      await this.insertCommittedReceipt(database, this.defaultWorkspaceId, command.context.commandId, command.context.commandType, firstSequence, lastSequence, preparedReceipt.value);
       return { workspace: recovered, value: result.value, duplicate: false };
     });
   }
@@ -1861,7 +1881,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         journalSource(this.defaultWorkspaceId), journalSubject('workspace', this.defaultWorkspaceId), journalDataSchema('workspace.baseline.backfilled'),
         JSON.stringify({ actorType: 'system', actorId: 'journal-backfill-v1' }),
         JSON.stringify({ scopeType: 'workspace', scopeId: this.defaultWorkspaceId }), commandId, sealed.payload, occurredAt, sealed.reference]);
-      await this.insertCommittedReceipt(database, this.defaultWorkspaceId, commandId, 'BackfillWorkspaceBaseline', 1, 1, { checksum });
+      await this.insertCommittedReceipt(database, this.defaultWorkspaceId, commandId, 'BackfillWorkspaceBaseline', 1, 1, await this.prepareReceiptResult(database, this.defaultWorkspaceId, commandId, { checksum }));
       return { checksum, created: true, eventCount: 1 };
     });
   }
@@ -1959,10 +1979,28 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     for (const row of messageAttachmentsResult.rows) attachmentIds.set(row.message_id, [...(attachmentIds.get(row.message_id) || []), row.attachment_id]);
     const layouts = new Map(layoutResult.rows.map(row => [String(row.object_id), { x: Number(row.x), y: Number(row.y) }]));
     const nodes: DiscussionNode[] = nodesResult.rows.map(row => ({ id: String(row.id), title: String(row.title), summary: String(row.summary), status: row.status as DiscussionNode['status'], ...(row.preferred_model_id ? { preferredModelId: String(row.preferred_model_id) } : {}), kind: row.kind as DiscussionNode['kind'], sourceNodeId: row.source_node_id ? String(row.source_node_id) : undefined, sourceMessageId: row.source_message_id ? String(row.source_message_id) : undefined, anchorText: row.anchor_text ? String(row.anchor_text) : undefined, x: layouts.get(String(row.id))?.x ?? Number(row.position_x), y: layouts.get(String(row.id))?.y ?? Number(row.position_y), createdAt: asIso(row.created_at), updatedAt: asIso(row.updated_at) }));
-    for (const [index, row] of nodesResult.rows.entries()) {
-      if (row.content_ref == null) continue;
-      if (!this.nodeContent) throw new Error('NODE_CONTENT_STORE_UNAVAILABLE');
-      Object.assign(nodes[index], await this.nodeContent.read(project.id, String(row.id), asJson<SealedNodeRef>(row.content_ref)));
+    for (let cursor = 0; cursor < nodesResult.rows.length;) {
+      const batch: Array<{ index: number; reference: SealedNodeRef }> = [];
+      let bytes = 0;
+      while (cursor < nodesResult.rows.length && batch.length < 8) {
+        const row = nodesResult.rows[cursor];
+        if (row.content_ref == null) { cursor++; continue; }
+        const reference = asJson<SealedNodeRef>(row.content_ref);
+        const declaredSize = reference?.reference?.size;
+        const size = Number.isSafeInteger(declaredSize) && declaredSize >= 0 ? declaredSize : 8 * 1024 ** 2;
+        // A document over the batch budget is read alone; its reader retains the document-size limit.
+        if (batch.length && bytes + size > 8 * 1024 ** 2) break;
+        batch.push({ index: cursor++, reference }); bytes += size;
+      }
+      if (!batch.length) continue;
+      const content = this.nodeContent;
+      if (!content) throw new Error('NODE_CONTENT_STORE_UNAVAILABLE');
+      const decoded = await Promise.allSettled(batch.map(async ({ index, reference }) => {
+        Object.assign(nodes[index], await content.read(project.id, nodes[index].id, reference));
+      }));
+      // Keep in-flight reads inside the transaction/read-cache lifetime, including failure paths.
+      const failed = decoded.find(result => result.status === 'rejected');
+      if (failed?.status === 'rejected') throw failed.reason;
     }
     const messages = await Promise.all(messagesResult.rows.map(row => this.decodeMessage(row, attachmentIds.get(String(row.id)) || [])));
     const versions = resourceVersionsResult.rows.map(storedResourceVersion);

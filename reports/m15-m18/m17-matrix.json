@@ -1,8 +1,8 @@
 {
   "schemaVersion": "1.0.0",
-  "matrixRevision": 1,
-  "frozenAt": "2026-10-02T12:21:00.192199+00:00",
-  "sourceCommit": "75fc15b2c6f6a91ec504de6205688046284697e0",
+  "matrixRevision": 2,
+  "frozenAt": "2026-10-02T13:43:50.970948+00:00",
+  "sourceCommit": "8882165",
   "authority": "INH-136 and approved M15-M18 implementation plan",
   "status": "engineering_matrix_frozen; formal M16/M17 gates remain pending",
   "changePolicy": "Any threshold, environment, fixture or user-task change requires a new matrix revision and affected revalidation. Do not retrospectively relax thresholds.",
@@ -17,7 +17,7 @@
     },
     {
       "path": "e2e/m17-transaction-reads.e2e.test.ts",
-      "sha256": "e1c186308f88819c721cf6829e6effc0eb1dbb7437ab63e72714b93ec0e7c795"
+      "sha256": "9e33139d85aea95ec788261c0adb4fa2d2e03edb79bfaa401f05841b83263b0b"
     },
     {
       "path": "e2e/m16-collaboration.e2e.test.ts",
@@ -38,6 +38,10 @@
     {
       "path": "src/App.test.tsx",
       "sha256": "8df2d33bfb459e65e44da0746bd47d0cceabe1b96a6c288c0654e479d29988b4"
+    },
+    {
+      "path": "e2e/m17-publication-rollback.e2e.test.ts",
+      "sha256": "a186cda4abd13e52327e5d43998ccbe0ddb4e621ae97c8e146334c5b0a780d21"
     }
   ],
   "performance": {
@@ -159,5 +163,6 @@
       ],
       "status": "not run"
     }
-  }
+  },
+  "revisionReason": "Add bounded read/publication rollback coverage after the measured serial I/O diagnosis; performance profile and all thresholds unchanged."
 }
