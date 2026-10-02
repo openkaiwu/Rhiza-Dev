@@ -22,3 +22,10 @@ The LibreChat product UI, Mongo conversation model, Admin Panel and Sandpack/Nod
 Run `npm run licenses:generate` to reproduce `reports/third-party-licenses.json`
 from the locked production dependency tree. CI runs `npm run licenses:verify` and
 fails when that report is missing or stale.
+
+## Gitleaks development and CI tool
+
+- Pinned version: `v8.30.1`, official release `https://github.com/gitleaks/gitleaks/releases/tag/v8.30.1`.
+- Role: local/CI secret detection and explicit exported-artifact scans; no production dependency or runtime model integration.
+- License: MIT; full upstream notice retained in `licenses/upstream/Gitleaks-MIT.txt` and alongside the installed binary.
+- `tools/gitleaks.lock.json` pins the official checksum manifest and Darwin/Linux arm64/x64 release archive digests. The installer verifies both before extracting bytes, and scans verify the installed executable against that verified archive.

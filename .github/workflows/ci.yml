@@ -8,6 +8,25 @@ permissions:
   contents: read
 
 jobs:
+  security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run security:install
+      - name: Pinned secret scan and fixed positive fixtures
+        run: pnpm run security:checks
   blocking:
     runs-on: ubuntu-24.04
     timeout-minutes: 15

@@ -1,0 +1,92 @@
+{
+  "schemaVersion": "1.0.0",
+  "ok": false,
+  "installed": {
+    "ok": true,
+    "tool": "gitleaks",
+    "version": "8.30.1",
+    "platform": "darwin-arm64",
+    "checksumVerified": true
+  },
+  "positiveFixtures": {
+    "schemaVersion": "1.0.0",
+    "tool": "gitleaks",
+    "version": "8.30.1",
+    "fixtureCount": 4,
+    "detected": 4,
+    "detectionPercent": 100,
+    "negativeClean": true,
+    "ok": true,
+    "results": [
+      {
+        "fixture": "github",
+        "detected": true,
+        "sanitized": true
+      },
+      {
+        "fixture": "aws",
+        "detected": true,
+        "sanitized": true
+      },
+      {
+        "fixture": "generic",
+        "detected": true,
+        "sanitized": true
+      },
+      {
+        "fixture": "archive",
+        "detected": true,
+        "sanitized": true
+      }
+    ]
+  },
+  "repositoryHistory": {
+    "schemaVersion": "1.0.0",
+    "ok": false,
+    "tool": "gitleaks",
+    "version": "8.30.1",
+    "checksumVerified": true,
+    "scope": "git",
+    "coverage": {
+      "maxArchiveDepth": 1,
+      "maxDecodeDepth": 2,
+      "timeoutSeconds": 30
+    },
+    "findingCount": 5,
+    "findings": [
+      {
+        "ruleRef": "9d881e62cdea6c933acbed58dcbaab2c1b6738e906169d00d1de1427ab34a4f9",
+        "fileRef": "88ccfc3736a8ef6347e32c784385fdd283cdbd3c15f82345b4597d797b87b9ac",
+        "line": 10
+      },
+      {
+        "ruleRef": "9d881e62cdea6c933acbed58dcbaab2c1b6738e906169d00d1de1427ab34a4f9",
+        "fileRef": "65a20f0ab96b81825ce77c1177d7838f0d4fbfb8a96ca15076478cc2a8144c3a",
+        "line": 8
+      },
+      {
+        "ruleRef": "9d881e62cdea6c933acbed58dcbaab2c1b6738e906169d00d1de1427ab34a4f9",
+        "fileRef": "88ccfc3736a8ef6347e32c784385fdd283cdbd3c15f82345b4597d797b87b9ac",
+        "line": 7
+      },
+      {
+        "ruleRef": "9d881e62cdea6c933acbed58dcbaab2c1b6738e906169d00d1de1427ab34a4f9",
+        "fileRef": "e52a39a8d6126bc8762f0b19f18ead626a6c02f7563b87b33f167b95a1ed9f53",
+        "line": 38
+      },
+      {
+        "ruleRef": "9d881e62cdea6c933acbed58dcbaab2c1b6738e906169d00d1de1427ab34a4f9",
+        "fileRef": "b335630551682c19a781afebcf4d07bf978fb1f8ac04c6bf87428ed5106870f5",
+        "line": 36
+      }
+    ],
+    "code": "SECRET_FINDINGS"
+  },
+  "classification": {
+    "verifiedPublicVersionLiteralFindings": 3,
+    "unreviewedHistoricalDocumentationFindings": 2,
+    "suppressionsAdded": 0
+  },
+  "exportSemanticMetadataAcceptance": "pending real export safety integration; existing M09 DTO safeguards retained",
+  "formalGate": "pending"
+}
