@@ -158,7 +158,8 @@ describe('Rhiza API', () => {
   });
 
   it('persists context status updates', async () => {
-    const { app, filePath } = await testApp();
+    const { app, filePath, store } = await testApp();
+    await store.update(current => ({ ...current, contextItems: [...current.contextItems, { id: 'c3', title: 'Fixture recommendation', detail: 'Fixture source', role: 'Reference', status: 'recommended', tokens: 4, sourceType: 'reference', sourceId: 'fixture-recommendation' }] }));
     await request(app).patch('/api/workspace/context/c3').send({ status: 'active' }).expect(200);
     const persisted = JSON.parse(await readFile(filePath, 'utf8'));
     expect(persisted.contextItems.find((item: { id: string }) => item.id === 'c3').status).toBe('active');

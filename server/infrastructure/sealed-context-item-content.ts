@@ -5,7 +5,7 @@ import { NodeContentKeys } from './node-content-keys';
 import { NodeFilesystemBlobStore } from './node-host-runtime';
 import { NodeSealedContentStore, type SealedContentRef } from './node-sealed-content-store';
 
-type ContextItemContent = Pick<ContextItem, 'title' | 'detail' | 'reason' | 'content'>;
+type ContextItemContent = Pick<ContextItem, 'title' | 'detail' | 'reason' | 'content' | 'sourceRevision'>;
 export interface SealedContextItemRef { format: 'rhiza.sealed-context-item.v1'; contentId: string; reference: SealedContentRef }
 
 /** Explicit storage projection: never spread caller-owned fields into plaintext JSON. */
@@ -36,7 +36,7 @@ export class SealedContextItemContent {
   }
   async seal(workspaceId: string, itemId: string, item: ContextItemContent): Promise<SealedContextItemRef> {
     const contentId = randomUUID();
-    const bytes = Buffer.from(JSON.stringify({ title: item.title, detail: item.detail, reason: item.reason, content: item.content }));
+    const bytes = Buffer.from(JSON.stringify({ title: item.title, detail: item.detail, reason: item.reason, content: item.content, sourceRevision: item.sourceRevision }));
     try {
       return { format: 'rhiza.sealed-context-item.v1', contentId, reference: await this.content.put(this.identity(workspaceId, itemId, contentId), bytes) };
     } finally { bytes.fill(0); }
@@ -50,7 +50,8 @@ export class SealedContextItemContent {
         || typeof value.title !== 'string' || typeof value.detail !== 'string'
         || (value.reason !== undefined && typeof value.reason !== 'string')
         || (value.content !== undefined && typeof value.content !== 'string')
-        || Object.keys(value).some(key => !['title', 'detail', 'reason', 'content'].includes(key))) throw new Error('CONTEXT_ITEM_CONTENT_INVALID');
+        || (value.sourceRevision !== undefined && (typeof value.sourceRevision !== 'string' || !/^[a-f0-9]{64}$/.test(value.sourceRevision)))
+        || Object.keys(value).some(key => !['title', 'detail', 'reason', 'content', 'sourceRevision'].includes(key))) throw new Error('CONTEXT_ITEM_CONTENT_INVALID');
       return value;
     } finally { bytes.fill(0); }
   }

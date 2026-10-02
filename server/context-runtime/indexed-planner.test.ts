@@ -4,7 +4,7 @@ import { embedTerms, planCandidates, tokenize } from '../context-planner';
 import type { CandidateIndexSnapshot, ContextPlanningInput } from './contracts';
 import { CONTEXT_VERSIONS, contextCacheIdentity, DeterministicContextPlanner, IndexedContextPlanner } from './indexed-planner';
 
-const input: ContextPlanningInput = { workspaceId: 'workspace', nodeId: 'node', mode: 'Assisted', query: 'payment', selection: [], attachmentIds: [], budget: 100 };
+const input: ContextPlanningInput = { workspaceId: 'workspace', nodeId: 'node', mode: 'Auto', query: 'payment', selection: [], attachmentIds: [], budget: 100 };
 const fixture = (): CandidateIndexSnapshot => ({
   version: 'candidate-v1', revision: '1', graphCheckpoint: 1,
   candidates: [{ text: 'payment', terms: tokenize('payment'), embedding: embedTerms(tokenize('payment')), graphDistance: 0, item: { id: 'candidate', title: 'Payment', detail: 'Evidence', content: 'payment', tokens: 2, role: 'Reference', status: 'active', sourceType: 'node', sourceId: 'node' } }],

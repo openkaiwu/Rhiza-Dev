@@ -7,7 +7,6 @@ import { ApplicationError, applicationError } from '../contracts/application-err
 import type { Application, CommandEnvelope, CommandExecutionOptions, CommandMap, CommandResult, CommandType, QueryEnvelope, QueryMap, QueryResult, QueryType } from '../contracts/application';
 import type { AuditEvent, ChatOperation, ContextManifest, ContextMode, ContextStatus, GenerationOptions, Resource, ResourceMaterialization, ResourceVersion, StoredAttachment, StoredMessage, WorkspaceData } from '../domain';
 import { deriveVersionIdentity } from '../domain/message-version';
-import { canonicalJson } from '../domain/canonical-json';
 import type { ContextPlannerPort } from '../context-runtime/port';
 import type { LegacyTextExtractionPort } from './ports/legacy-upload';
 import type { ProviderManagementPort } from './ports/provider-management';
@@ -17,6 +16,9 @@ import type { HostRuntimePort } from './ports/host-runtime';
 import { WorkspaceDirectory } from '../identity/workspace-directory';
 import { DEFAULT_WORKSPACE_ID, LOCAL_USER_ID } from '../identity/workspace-scope';
 import { completeBundleImport } from './prepare-bundle-import';
+import { activeContextSelection, estimateTokens } from '../context-runtime/port';
+import { contextSourceSnapshot, validateContextConfirmation } from '../context-runtime/source-snapshot';
+import { assessReplay } from './replay-preflight';
 
 const nodeStatuses = new Set(['draft', 'active', 'resolved', 'stale', 'archived']);
 const textMimeTypes = new Set(['text/plain', 'text/markdown', 'text/csv', 'application/json', 'application/xml', 'text/xml', 'application/javascript', 'text/javascript']);
@@ -159,7 +161,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
     catch (error) {
       if (dependencies.indexedPlanner) throw error;
       log?.error('[planner] degraded to explicit context', error);
-      const items = current.contextItems.filter(item => item.status === 'active');
+      const items = activeContextSelection(current.mode, current.contextItems);
       plan = { items, diagnostics: { candidateCount: 0, selectedCount: items.length, elapsedMs: 0, fallback: true, budget, usedTokens: items.reduce((sum, item) => sum + item.tokens, 0) } };
     }
     const source = payload.sourceMessageId ? current.messages.find(message => message.id === payload.sourceMessageId && message.nodeId === nodeId) : undefined;
@@ -188,7 +190,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
     const manifest: ContextManifest = {
       ...(dependencies.contextCompiler ? { schemaVersion: '1.0.0' as const, versions: dependencies.contextVersions, omissions: plan.omissions, cache: plan.cache } : {}),
       id: manifestId, projectId: current.projectId, nodeId, requestId, createdAt, mode: current.mode, model: model.model, provider: model.provider, runtime: runtime.kind || 'provider-adapter',
-      contextItemIds: current.contextItems.filter(item => item.status === 'active').map(item => item.id), excludedItemIds: current.contextItems.filter(item => item.status === 'excluded').map(item => item.id),
+      contextItemIds: activeContextSelection(current.mode, current.contextItems).map(item => item.id), excludedItemIds: current.contextItems.filter(item => item.status === 'excluded').map(item => item.id),
       contextItems: plan.items.map((item, index) => ({ ...(frozen[index] ? { resourceId: frozen[index].resource.id, resourceVersionId: frozen[index].resourceVersion.id, digest: frozen[index].resourceVersion.digest, priority: frozen[index].priority, contributorVersion: frozen[index].contributorVersion, originResourceVersionId: plan.sourceVersions?.find(source => source.sourceType === item.sourceType && source.sourceId === item.sourceId)?.resourceVersionId, originDigest: plan.sourceVersions?.find(source => source.sourceType === item.sourceType && source.sourceId === item.sourceId)?.resourceDigest } : {}), sourceType: item.sourceType || 'reference', sourceId: item.sourceId || item.id, sourceNodeId: item.sourceNodeId, title: item.title, detail: item.detail, role: item.role, selectionMode: item.selectionMode || 'CURRENT', pinned: Boolean(item.pinned), reason: item.reason || (item.selectionMode === 'CURRENT' ? '当前讨论节点。' : '已加入 Active Context。'), tokenCount: item.tokens, contentVersion: item.contentVersion || 1 })),
       estimatedTokens: plan.items.reduce((sum, item) => sum + item.tokens, 0), generation: payload.generation, operation: payload.operation, sourceMessageId: payload.sourceMessageId, attachmentIds: payload.attachmentIds, planner: plan.diagnostics,
     };
@@ -407,35 +409,15 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
           if (previous?.found) return previous.value;
           const { runId, policy } = envelope.payload;
           if (!['exact', 'partial', 'current-model'].includes(policy)) throw legacyError('Replay 策略无效。', 400, 'INVALID_REPLAY_POLICY');
-          const original = await unitOfWork.getRun?.(runId).catch(error => {
-            if ((error as { code?: string }).code === 'RUN_PURGED') throw legacyError('历史执行内容已清除。', 409, 'REPLAY_MISSING_RESOURCE');
-            throw error;
-          });
-          if (!original) throw legacyError('执行记录不存在。', 404, 'RUN_NOT_FOUND');
-          const facts = await unitOfWork.readContextHistory?.({ manifestId: original.input.request.manifestId });
-          if (!facts || facts.manifest.schemaVersion !== '1.0.0') throw legacyError('历史上下文不可解析。', 409, 'REPLAY_MISSING_RESOURCE');
-          const history = await resolveContextHistory(facts, host.blobs);
-          if (history.sources.some(source => source.status !== 'resolved')) throw legacyError('历史资源缺失或完整性校验失败。', 409, 'REPLAY_MISSING_RESOURCE');
-          const current = await unitOfWork.read(workspace => workspace);
-          for (const attachment of original.input.request.attachments ?? []) {
-            if (!attachment.blobRef || !attachment.digest || !attachment.resourceVersionId) throw legacyError('历史附件没有版本证据。', 409, 'REPLAY_MISSING_RESOURCE');
-            const version = current.resourceVersions.find(version => version.id === attachment.resourceVersionId && version.resourceId === attachment.resourceId);
-            if (!version || version.digest !== attachment.digest || version.blobRef !== attachment.blobRef) throw legacyError('历史附件版本缺失。', 409, 'REPLAY_MISSING_RESOURCE');
-            try { await host.blobs.read(attachment.blobRef, attachment.digest); }
-            catch { throw legacyError('历史附件缺失或完整性校验失败。', 409, 'REPLAY_MISSING_RESOURCE'); }
+          const assessment = await assessReplay(runId, unitOfWork, runtime, host);
+          const selected = assessment.preflight.policies.find(item => item.policy === policy)!;
+          if (!selected.allowed || !assessment.ready) {
+            const code = selected.code ?? 'REPLAY_MISSING_RESOURCE';
+            const messages: Record<string, string> = { RUN_NOT_FOUND: '执行记录不存在。', REPLAY_MISSING_RESOURCE: '历史资源缺失或完整性校验失败。', REPLAY_MODEL_UNAVAILABLE: '历史模型不可用，请显式选择当前模型 Replay。', REPLAY_CONTRACT_CHANGED: '执行配置已变化，请显式选择 Partial 或 Current-model Replay。', NODE_ARCHIVED: '讨论已归档或不存在。' };
+            throw legacyError(messages[code] ?? 'Replay 不可用。', code === 'RUN_NOT_FOUND' ? 404 : 409, code);
           }
-          const models = await runtime.listModels();
-          const model = policy === 'current-model' ? models.find(model => model.active) : models.find(model => model.id === original.input.executor.modelSpecRef);
-          if (!model) throw legacyError('历史模型不可用，请显式选择当前模型 Replay。', 409, 'REPLAY_MODEL_UNAVAILABLE');
-          const snapshot = original.input.request.modelSnapshot;
-          const exact = !original.originInputHash && model.model === original.input.executor.model && model.provider === original.input.executor.provider
-            && (model.providerEndpointRef ?? model.id) === original.input.executor.providerEndpointRef
-            && (runtime.kind ?? 'provider-adapter') === original.input.executor.runtime
-            && model.endpointVersion === snapshot?.endpointVersion
-            && canonicalJson(model.endpoint ?? null) === canonicalJson(snapshot?.endpoint ?? null);
-          if (policy === 'exact' && !exact) throw legacyError('执行配置已变化，请显式选择 Partial 或 Current-model Replay。', 409, 'REPLAY_CONTRACT_CHANGED');
-          const node = current.discussionNodes.find(node => node.id === original.nodeId);
-          if (!node || node.status === 'archived') throw legacyError('讨论已归档或不存在。', 409, 'NODE_ARCHIVED');
+          const { original, facts, historicalModel, currentModel } = assessment.ready;
+          const model = (policy === 'current-model' ? currentModel : historicalModel)!;
           const createdAt = now(); const requestId = id(); const manifestId = id();
           const request: RuntimeRequest = { ...structuredClone(original.input.request), requestId, manifestId, modelId: model.id, modelSnapshot: model };
           const prepared: PreparedRun = { frozen: [], request, createdAt, userMessageId: id(), versionGroupId: id(), version: 1,
@@ -459,9 +441,29 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
           if (!['Auto', 'Assisted', 'Strict'].includes(payload.mode)) throw legacyError('无效的 Context 模式。', 400, 'INVALID_MODE');
           return mutateWorkspace(current => ({ next: { ...current, mode: payload.mode }, value: undefined }));
         }
+        case 'DecideContextRecommendation': return mutateWorkspace(current => {
+          const decision = envelope.payload as CommandMap['DecideContextRecommendation']['payload'];
+          if (!['node', 'segment', 'file', 'chunk', 'reference'].includes(decision.sourceType) || !decision.sourceId || !/^[a-f0-9]{64}$/.test(decision.sourceRevision) || !['accept', 'reject'].includes(decision.decision) || typeof decision.reason !== 'string' || !decision.reason.trim() || decision.reason.length > 500) throw legacyError('Context 确认参数无效。', 400, 'INVALID_CONTEXT_DECISION');
+          const source = contextSourceSnapshot(current, decision.sourceType, decision.sourceId);
+          if (!source) throw legacyError('Context 来源不存在或已归档。', 409, 'CONTEXT_SOURCE_NOT_FOUND');
+          if (source.sourceRevision !== decision.sourceRevision) throw legacyError('来源已变化，请重新确认 Context 推荐。', 409, 'CONTEXT_SELECTION_STALE');
+          const existing = current.contextItems.find(item => (item.sourceType ?? 'reference') === decision.sourceType && (item.sourceId ?? item.id) === decision.sourceId);
+          const item = { ...existing, id: existing?.id ?? id(), title: source.title, detail: existing?.detail ?? '经用户审阅的来源', role: existing?.role ?? 'Reference' as const, tokens: estimateTokens(source.content), content: source.content, sourceType: decision.sourceType, sourceId: decision.sourceId, sourceNodeId: source.nodeId, sourceRevision: source.sourceRevision, status: decision.decision === 'accept' ? 'active' as const : 'excluded' as const, selectionMode: 'AI_RECOMMENDED_ACCEPTED' as const, pinned: decision.decision === 'reject' ? false : Boolean(existing?.pinned), reason: decision.reason.trim() };
+          return { next: { ...current, contextItems: [...current.contextItems.filter(value => value.id !== existing?.id), item] }, value: undefined };
+        });
         case 'ChangeContextSelection': return mutateWorkspace(current => {
           let found = false;
-          const next = { ...current, contextItems: current.contextItems.map(item => { if (item.id !== payload.contextItemId) return item; found = true; const status = payload.status || (payload.pinned ? 'active' : item.status); return { ...item, status, pinned: payload.pinned ?? item.pinned, ...(item.status === 'recommended' && payload.status === 'active' ? { selectionMode: 'AI_RECOMMENDED_ACCEPTED' as const } : {}), ...(payload.status === 'excluded' ? { pinned: false, reason: '用户显式排除，本轮不会发送给模型。' } : {}) }; }) };
+          const next = { ...current, contextItems: current.contextItems.map(item => {
+            if (item.id !== payload.contextItemId) return item;
+            found = true;
+            const status = payload.status || (payload.pinned ? 'active' : item.status);
+            const accepting = item.status === 'recommended' && status === 'active';
+            const source = accepting ? contextSourceSnapshot(current, item.sourceType ?? 'reference', item.sourceId ?? item.id) : undefined;
+            if (accepting && !source) throw legacyError('Context 来源不存在或已归档。', 409, 'CONTEXT_SOURCE_NOT_FOUND');
+            return { ...item, status, pinned: payload.pinned ?? item.pinned,
+              ...(accepting ? { selectionMode: 'AI_RECOMMENDED_ACCEPTED' as const, sourceRevision: source!.sourceRevision, reason: item.reason || '用户已确认推荐。' } : {}),
+              ...(payload.status === 'excluded' ? { pinned: false, reason: '用户显式排除，本轮不会发送给模型。' } : {}) };
+          }) };
           if (!found) throw legacyError('Context 条目不存在。', 404, 'CONTEXT_NOT_FOUND'); return { next, value: next };
         });
         case 'AddContextSource': return mutateWorkspace(current => { const node=payload.sourceType==='node'?current.discussionNodes.find(node=>node.id===payload.sourceId):payload.sourceType==='segment'?current.discussionNodes.find(node=>node.id===current.segments.find(segment=>segment.id===payload.sourceId)?.nodeId):undefined; if(node?.status==='archived'||(payload.sourceType==='segment'&&current.segments.find(segment=>segment.id===payload.sourceId)?.status==='archived'))throw legacyError('归档来源不能加入 Context。',409,'CONTEXT_SOURCE_ARCHIVED'); const found = current.contextItems.find(item => item.sourceType === payload.sourceType && item.sourceId === payload.sourceId); const next = found ? { ...current, contextItems: current.contextItems.map(item => item.id === found.id ? { ...item, status: 'active' as const, selectionMode: 'USER_SELECTED' as const, reason: '由用户显式加入。' } : item) } : { ...current, contextItems: [...current.contextItems, planner.sourceItem(current, payload.sourceType, payload.sourceId)] }; return { next, value: undefined }; });
@@ -521,6 +523,19 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
   const dispatchQueryScoped = async (envelope: AnyQueryEnvelope): Promise<unknown> => {
     try {
       switch (envelope.queryType) {
+        case 'GetReplayPreflight': return (await assessReplay(envelope.payload.runId, unitOfWork, runtime, host)).preflight;
+        case 'GetContextPreview': {
+          const payload = envelope.payload as QueryMap['GetContextPreview']['payload'];
+          if (typeof payload.query !== 'string' || payload.query.length > 32_000 || (payload.attachmentIds !== undefined && (!Array.isArray(payload.attachmentIds) || payload.attachmentIds.length > 100 || payload.attachmentIds.some(value => typeof value !== 'string')))) throw legacyError('Context 预览参数无效。', 400, 'INVALID_CONTEXT_PREVIEW');
+          const attachmentIds = payload.attachmentIds ?? [];
+          const workspace = dependencies.indexedPlanner ? undefined : await unitOfWork.read(value => value);
+          const current = workspace ?? await unitOfWork.readConversationPreparation?.(attachmentIds);
+          if (!current) throw new Error('CONVERSATION_PREPARATION_UNAVAILABLE');
+          const plan = dependencies.indexedPlanner
+            ? await dependencies.indexedPlanner.plan({ workspaceId: current.projectId, nodeId: current.activeNodeId, mode: current.mode, query: payload.query, selection: current.contextItems, attachmentIds, budget })
+            : planner.plan(workspace!, payload.query, attachmentIds, budget);
+          return { mode: current.mode, items: plan.items, recommendations: plan.recommendations ?? [], omissions: plan.omissions ?? [], budget, usedTokens: plan.diagnostics.usedTokens, overBudget: plan.diagnostics.usedTokens > budget };
+        }
         case 'ExportWorkspaceBundle': {
           if (!dependencies.portableBundle || !unitOfWork.readPortableWorkspace) throw legacyError('Bundle 导出不可用。', 503, 'BUNDLE_UNAVAILABLE');
           return dependencies.portableBundle.export(await unitOfWork.readPortableWorkspace());
@@ -623,7 +638,9 @@ function mergeRevision(current: WorkspaceData, sourceId: string, targetId: strin
 async function temporaryConversation(payload: Extract<CommandEnvelope<'ExecuteTemporaryConversation'>['payload'], object>, uow: WorkspaceUnitOfWork, activeModel: (preferredModelId?: string) => Promise<Awaited<ReturnType<RuntimePort['listModels']>>[number]>, id: () => string, now: () => string, execute: (request: RuntimeRequest, resultFor: (completion: Completion) => CommandMap['ExecuteTemporaryConversation']['result']) => Promise<CommandMap['ExecuteTemporaryConversation']['result']>) {
   const current = await uow.read(workspace => workspace); if (!current.discussionNodes.some(node => node.id === payload.sourceNodeId)) throw legacyError('来源讨论节点不存在。', 404, 'NODE_NOT_FOUND');
   const temporaryNodeId = `temp:${payload.sourceNodeId}`; const createdAt = now(); const history = [...current.messages.filter(message => message.nodeId === payload.sourceNodeId).slice(-8), ...(payload.history || []).map(item => ({ id: id(), nodeId: temporaryNodeId, kind: item.kind, text: item.text, createdAt: item.createdAt || createdAt }))]; const source = current.discussionNodes.find(node => node.id === payload.sourceNodeId)!; if (source.status === 'archived') throw legacyError('归档讨论为只读。',409,'NODE_ARCHIVED'); const model = await activeModel(source.preferredModelId ?? current.defaultModelId);
-  const request: RuntimeRequest = { modelSnapshot: model, requestId: id(), manifestId: `temporary:${id()}`, projectId: current.projectId, nodeId: temporaryNodeId, modelId: model.id, prompt: `围绕下列选中内容回答临时支线问题。不要偏离锚点：\n\n「${payload.anchorText}」\n\n问题：${payload.prompt}`, history, contextItems: current.contextItems.filter(item => item.status === 'active'), mode: current.mode };
+  const contextItems = activeContextSelection(current.mode, current.contextItems);
+  for (const item of contextItems) validateContextConfirmation(item, contextSourceSnapshot(current, item.sourceType ?? 'reference', item.sourceId ?? item.id)?.sourceRevision);
+  const request: RuntimeRequest = { modelSnapshot: model, requestId: id(), manifestId: `temporary:${id()}`, projectId: current.projectId, nodeId: temporaryNodeId, modelId: model.id, prompt: `围绕下列选中内容回答临时支线问题。不要偏离锚点：\n\n「${payload.anchorText}」\n\n问题：${payload.prompt}`, history, contextItems, mode: current.mode };
   return execute(request, completion => ({ userMessage: { id: id(), nodeId: temporaryNodeId, kind: 'user' as const, text: payload.prompt, createdAt }, assistantMessage: { id: id(), nodeId: temporaryNodeId, kind: 'assistant' as const, text: completion.text, createdAt }, model: completion.model }));
 }
 

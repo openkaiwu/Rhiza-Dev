@@ -10,7 +10,6 @@ export function createSeedWorkspace(): WorkspaceData {
     contextItems: [
       { id: 'c1', title: '信息架构方向', detail: '当前讨论节点 · 包含本节点最近的对话历史', role: 'Constraint', status: 'active', tokens: 1840, selectionMode: 'CURRENT', sourceType: 'node', sourceId: 'information-architecture', sourceNodeId: 'information-architecture', pinned: false, contentVersion: 1, reason: '当前讨论节点始终进入本轮上下文。' },
       { id: 'c2', title: '访谈发现 · 第 02 轮', detail: '用户对上下文失控的高频反馈', role: 'Fact', status: 'active', tokens: 2360, selectionMode: 'USER_SELECTED', sourceType: 'reference', sourceId: 'interview-round-02', pinned: true, contentVersion: 1, reason: '由用户显式加入并固定。' },
-      { id: 'c3', title: '竞品模式拆解', detail: '与当前讨论有 86% 语义关联', role: 'Reference', status: 'recommended', tokens: 1120, sourceType: 'reference', sourceId: 'competitor-patterns', contentVersion: 1, reason: '当前问题涉及信息架构，该节点包含竞品导航模式的对照结论。' },
       { id: 'c4', title: '早期定价假设', detail: '已被新版商业假设替代', role: 'Decision', status: 'excluded', tokens: 760, sourceType: 'reference', sourceId: 'pricing-assumption-v1', contentVersion: 1, reason: '用户显式排除：该假设已失效。' },
     ],
     messages: [

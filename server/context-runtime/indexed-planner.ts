@@ -1,4 +1,4 @@
-import { planCandidates, type PlannerResult } from '../context-planner';
+import { activeContextSelection, planCandidates, type PlannerResult } from '../context-planner';
 import { createHash } from 'node:crypto';
 import { canonicalJson } from '../domain/canonical-json';
 import type { CandidateIndex, CandidateIndexSnapshot, ContextPlanner, ContextPlanningInput, ContextVersionVector } from './contracts';
@@ -6,8 +6,8 @@ import type { CandidateIndex, CandidateIndexSnapshot, ContextPlanner, ContextPla
 const semanticStateChecksum = (value: Record<string, unknown>) => createHash('sha256').update(canonicalJson(value)).digest('hex');
 
 export const CONTEXT_VERSIONS: ContextVersionVector = {
-  contributors: { lexical: 'lexical-v1' }, planner: 'deterministic-v1', compiler: 'frozen-resource-v1',
-  tokenizer: 'nfkc-cjk-bigram-v1', selectionPolicy: 'explicit-first-v1',
+  contributors: { lexical: 'lexical-v1' }, planner: 'deterministic-v2', compiler: 'frozen-resource-v1',
+  tokenizer: 'nfkc-cjk-bigram-v1', selectionPolicy: 'confirmed-modes-v2',
 };
 
 export class DeterministicContextPlanner implements ContextPlanner {
@@ -50,9 +50,9 @@ export class IndexedContextPlanner {
       plan = reason === 'hit' ? structuredClone(this.cached!.plan) : this.planner.plan(input, snapshot);
       this.cached = { identity, plan: structuredClone(plan) };
     } catch {
-      const items = snapshot.selection.filter(item => item.status === 'active');
+      const items = activeContextSelection(input.mode, snapshot.selection);
       const current = snapshot.candidates.find(candidate => candidate.item.sourceType === 'node' && candidate.item.sourceId === input.nodeId)?.item;
-      if (current && !snapshot.selection.some(item => item.sourceType === 'node' && item.sourceId === input.nodeId && ['active', 'excluded'].includes(item.status))) items.push({ ...current, selectionMode: 'CURRENT', reason: '规划暂不可用，保留当前讨论。' });
+      if (input.mode === 'Auto' && current && !snapshot.selection.some(item => item.sourceType === 'node' && item.sourceId === input.nodeId && ['active', 'excluded'].includes(item.status))) items.push({ ...current, selectionMode: 'CURRENT', reason: '规划暂不可用，保留当前讨论。' });
       plan = { items, diagnostics: { candidateCount: snapshot.candidates.length, selectedCount: items.length, elapsedMs: 0, fallback: true, budget: input.budget, usedTokens: items.reduce((sum, item) => sum + item.tokens, 0) } };
       reason = 'planner_failed';
       this.cached = undefined;

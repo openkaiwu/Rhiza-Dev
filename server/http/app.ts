@@ -395,6 +395,15 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
     } catch (error) { next(error); }
   });
 
+  app.get('/api/workspace/context/preview', async (request, response, next) => {
+    try { response.json(await query(response, 'GetContextPreview', { query: typeof request.query.query === 'string' ? request.query.query : '', attachmentIds: typeof request.query.attachmentIds === 'string' ? request.query.attachmentIds.split(',').filter(Boolean) : undefined })); }
+    catch (error) { next(error); }
+  });
+  app.post('/api/workspace/context/decisions', async (request, response, next) => {
+    try { response.json({ workspace: await execute(response, 'DecideContextRecommendation', { sourceType: request.body?.sourceType, sourceId: request.body?.sourceId, sourceRevision: request.body?.sourceRevision, decision: request.body?.decision, reason: request.body?.reason }) }); }
+    catch (error) { next(error); }
+  });
+
   app.post('/api/workspace/context', async (request, response, next) => {
     try {
       const sourceType = request.body?.sourceType as 'node' | 'segment' | 'file';
@@ -554,6 +563,10 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
       const workspaceId = typeof request.body?.workspaceId === 'string' && request.path.startsWith('/api/v1/') ? request.body.workspaceId : response.locals.workspaceIdentity.workspaceId;
       response.status(201).json(await executeScoped(response, workspaceId, 'ReplayExecutionRun', { runId: String(request.params.runId), policy }));
     } catch (error) { next(error); }
+  });
+  app.get('/api/runs/:runId/replay/preflight', async (request, response, next) => {
+    try { response.json(await query(response, 'GetReplayPreflight', { runId: request.params.runId })); }
+    catch (error) { next(error); }
   });
   app.post('/api/runs/:runId/cancel', async (request, response, next) => {
     try { response.json({ run: await execute(response, 'CancelExecutionRun', { runId: request.params.runId }) }); } catch (error) { next(error); }

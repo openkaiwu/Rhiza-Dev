@@ -27,6 +27,7 @@ export interface ContextItem {
   contentVersion?: number;
   content?: string;
   score?: number;
+  sourceRevision?: string;
 }
 
 export interface Segment {

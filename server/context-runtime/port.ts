@@ -1,4 +1,5 @@
-import type { ContextItem, ContextManifest, FileChunk, WorkspaceData } from '../domain';
+import type { ContextItem, FileChunk, WorkspaceData } from '../domain';
+export { activeContextSelection, estimateTokens } from '../context-planner';
 
 /** Context assembly seam consumed by Application without exposing host details. */
 export interface ContextPlannerPort {
@@ -7,7 +8,7 @@ export interface ContextPlannerPort {
     prompt: string,
     attachmentIds: string[],
     budget: number,
-  ): { items: ContextItem[]; diagnostics: NonNullable<ContextManifest['planner']> };
+  ): import('../context-planner').PlannerResult;
   sourceItem(workspace: WorkspaceData, sourceType: 'node' | 'segment' | 'file', sourceId: string): ContextItem;
   processAttachment(
     attachmentId: string,

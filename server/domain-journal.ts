@@ -96,6 +96,7 @@ const eventByCommand: Record<string, DomainEventType> = {
   ReplayExecutionRun: 'conversation.run.committed',
   ChangeContextMode: 'context.mode.changed',
   ChangeContextSelection: 'context.selection.changed',
+  DecideContextRecommendation: 'context.selection.changed',
   AddContextSource: 'context.source.added',
   CreateGraphNode: 'graph.node.created',
   ActivateNode: 'graph.node.activated',

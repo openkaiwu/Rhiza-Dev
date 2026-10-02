@@ -27,8 +27,8 @@ const attachment = object({ id, name: text, mimeType: text, size: integer, kind:
   summary: text, chunkCount: integer, resourceId: id, resourceVersionId: id, digest, blobRef: id, createdAt: date },
 ['extractedText', 'summary', 'chunkCount', 'resourceId', 'resourceVersionId', 'digest', 'blobRef']);
 const context = object({ id, title: text, detail: text, role, status: enumeration('active', 'recommended', 'excluded'), tokens: integer,
-  reason: text, selectionMode, sourceType, sourceId: id, sourceNodeId: id, pinned: boolean, contentVersion: integer, content: text, score: number },
-['reason', 'selectionMode', 'sourceType', 'sourceId', 'sourceNodeId', 'pinned', 'contentVersion', 'content', 'score']);
+  reason: text, selectionMode, sourceType, sourceId: id, sourceNodeId: id, pinned: boolean, contentVersion: integer, content: text, score: number, sourceRevision: digest },
+['reason', 'selectionMode', 'sourceType', 'sourceId', 'sourceNodeId', 'pinned', 'contentVersion', 'content', 'score', 'sourceRevision']);
 const manifest = object({ schemaVersion: { const: '1.0.0' }, id, projectId: id, nodeId: id, requestId: id, createdAt: date, mode,
   model: text, provider: text, runtime: enumeration('provider-adapter', 'librechat'), contextItemIds: strings, excludedItemIds: strings,
   contextItems: array(object({ sourceType, sourceId: id, sourceNodeId: id, title: text, detail: text, role, selectionMode, pinned: boolean,

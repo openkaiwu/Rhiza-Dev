@@ -80,6 +80,7 @@ export interface CommandMap {
   };
   ChangeContextMode: { payload: { mode: ContextMode }; result: WorkspaceData };
   ChangeContextSelection: { payload: { contextItemId: string; status?: ContextStatus; pinned?: boolean }; result: WorkspaceData };
+  DecideContextRecommendation: { payload: { sourceType: NonNullable<import('../domain').ContextItem['sourceType']>; sourceId: string; sourceRevision: string; decision: 'accept' | 'reject'; reason: string }; result: WorkspaceData };
   AddContextSource: { payload: { sourceType: 'node' | 'segment' | 'file'; sourceId: string; status?: ContextStatus }; result: WorkspaceData };
   CreateBranch: { payload: { title: string; sourceMessageId?: string; anchorText?: string; anchorStart?: number; anchorEnd?: number; messages?: Array<{ kind: 'user' | 'assistant'; text: string; createdAt?: string }> }; result: WorkspaceData };
   CreateGraphNode: { payload: { title: string; summary?: string; sourceMessageId?: string; x?: number; y?: number }; result: WorkspaceData };
@@ -100,6 +101,8 @@ export interface CommandMap {
 }
 
 export interface QueryMap {
+  GetReplayPreflight: { payload: { runId: string }; result: { runId: string; sourceManifestId?: string; missingRefs: string[]; policies: Array<{ policy: 'exact' | 'partial' | 'current-model'; allowed: boolean; code?: string; differences: string[] }> } };
+  GetContextPreview: { payload: { query: string; attachmentIds?: string[] }; result: { mode: ContextMode; items: import('../domain').ContextItem[]; recommendations: import('../domain').ContextItem[]; omissions: import('../domain').ContextOmission[]; budget: number; usedTokens: number; overBudget: boolean } };
   ExportWorkspaceBundle: { payload: Empty; result: import('../domain/portable-bundle').BundleExport };
   GetProvenance: { payload: { outputId: string }; result: import('../domain').ProvenanceLink };
   GetContextHistory: { payload: { manifestId: string } | { messageId: string }; result: import('../domain').ContextHistory };

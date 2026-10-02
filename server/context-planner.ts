@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { inflateSync } from 'node:zlib';
 import type { ContextOmission, ContextItem, FileChunk, StoredAttachment, WorkspaceData } from './domain';
+import { contextSourceSnapshot, validateContextConfirmation } from './context-runtime/source-snapshot';
 
 export const DEFAULT_CONTEXT_TOKEN_BUDGET = 32_000;
 export const FILE_CHUNK_CHARACTERS = 4_000;
@@ -17,6 +18,7 @@ export interface PlannerDiagnostics {
 
 export interface PlannerResult {
   omissions?: ContextOmission[];
+  recommendations?: ContextItem[];
   items: ContextItem[];
   diagnostics: PlannerDiagnostics;
 }
@@ -132,12 +134,24 @@ function candidates(workspace: WorkspaceData): PlannerCandidate[] {
     if (!file) continue;
     result.push({ attachmentId: chunk.attachmentId, text: chunk.text, terms: chunk.terms, embedding: chunk.embedding, graphDistance: 2, item: { id: `planner:chunk:${chunk.id}`, title: `${file.name} · chunk ${chunk.ordinal + 1}`, detail: `文件片段 · 字符 ${chunk.startOffset.toLocaleString()}–${chunk.endOffset.toLocaleString()}`, role: 'Reference', status: 'active', tokens: chunk.tokens, selectionMode: 'AUTO_RETRIEVED', sourceType: 'chunk', sourceId: chunk.id, contentVersion: 1, content: chunk.text } });
   }
-  return result;
+  return result.filter(candidate => candidate.item.sourceType !== 'node' || workspace.discussionNodes.some(node => node.id === candidate.item.sourceId && node.status !== 'archived'))
+    .map(candidate => {
+      const source = contextSourceSnapshot(workspace, candidate.item.sourceType!, candidate.item.sourceId!);
+      return { ...candidate, item: { ...candidate.item, sourceRevision: source?.sourceRevision } };
+    });
 }
 
 function sourceKey(item: ContextItem): string { return `${item.sourceType || 'reference'}:${item.sourceId || item.id}`; }
 
+/** Active automatic entries from earlier plans are not user confirmation. */
+export function activeContextSelection(mode: WorkspaceData['mode'], selection: readonly ContextItem[]): ContextItem[] {
+  return selection.filter(item => item.status === 'active' && (mode === 'Auto' || item.selectionMode !== 'AUTO_RETRIEVED'));
+}
+
 function explicitItemContent(workspace: WorkspaceData, item: ContextItem): ContextItem {
+  const source = contextSourceSnapshot(workspace, item.sourceType ?? 'reference', item.sourceId ?? item.id);
+  validateContextConfirmation(item, source?.sourceRevision);
+  if (source && item.sourceRevision) return { ...item, content: source.content, tokens: estimateTokens(source.content) };
   if (item.content) return item;
   if (item.sourceType === 'node') {
     const node = workspace.discussionNodes.find(value => value.id === item.sourceId);
@@ -160,7 +174,7 @@ export function planContext(workspace: WorkspaceData, query: string, attachmentI
 export function planCandidates(input: { mode: WorkspaceData['mode']; query: string; attachmentIds: string[]; budget: number; selection: ContextItem[] }, allCandidates: readonly PlannerCandidate[]): PlannerResult {
   const startedAt = performance.now();
   const { query, attachmentIds, budget } = input;
-  const explicit = input.selection.filter(item => item.status === 'active');
+  const explicit = activeContextSelection(input.mode, input.selection);
   const used = new Set(explicit.map(sourceKey));
   const excluded = new Set(input.selection.filter(item => item.status === 'excluded').flatMap(item => [sourceKey(item), item.sourceId || item.id]));
   const omissions: ContextOmission[] = [];
@@ -169,7 +183,7 @@ export function planCandidates(input: { mode: WorkspaceData['mode']; query: stri
   let usedTokens = explicit.reduce((sum, item) => sum + item.tokens, 0);
   if (input.mode === 'Strict') {
     for (const candidate of allCandidates) if (!used.has(sourceKey(candidate.item)) && !excluded.has(sourceKey(candidate.item))) omit(candidate.item, 'strict', 'Strict 模式只使用显式选择的来源。');
-    return { items: explicit, omissions, diagnostics: { candidateCount: allCandidates.length, selectedCount: explicit.length, elapsedMs: performance.now() - startedAt, fallback: false, budget, usedTokens } };
+    return { items: explicit, recommendations: [], omissions, diagnostics: { candidateCount: allCandidates.length, selectedCount: explicit.length, elapsedMs: performance.now() - startedAt, fallback: false, budget, usedTokens } };
   }
 
   const queryTerms = tokenize(query);
@@ -190,9 +204,14 @@ export function planCandidates(input: { mode: WorkspaceData['mode']; query: stri
     .sort((left, right) => right.score - left.score || sourceKey(left.item).localeCompare(sourceKey(right.item)));
 
   const selected = [...explicit];
+  const recommendations: ContextItem[] = [];
   const attachedChunkCounts = new Map<string, number>();
   for (const candidate of ranked) {
     const isAttached = candidate.item.selectionMode === 'USER_SELECTED';
+    if (input.mode === 'Assisted' && !isAttached) {
+      recommendations.push({ ...candidate.item, status: 'recommended' });
+      continue;
+    }
     const attachmentId = candidate.attachmentId;
     if (isAttached && attachmentId && (attachedChunkCounts.get(attachmentId) || 0) >= 4) { omit(candidate.item, 'chunk_limit', '该附件已选入四个优先片段。'); continue; }
     if (usedTokens + candidate.item.tokens > budget) { omit(candidate.item, 'budget', '剩余预算不足；优先保留已选来源。'); continue; }
@@ -200,7 +219,7 @@ export function planCandidates(input: { mode: WorkspaceData['mode']; query: stri
     usedTokens += candidate.item.tokens;
     if (isAttached && attachmentId) attachedChunkCounts.set(attachmentId, (attachedChunkCounts.get(attachmentId) || 0) + 1);
   }
-  return { items: selected, omissions, diagnostics: { candidateCount: allCandidates.length, selectedCount: selected.length, elapsedMs: performance.now() - startedAt, fallback: false, budget, usedTokens } };
+  return { items: selected, recommendations, omissions, diagnostics: { candidateCount: allCandidates.length, selectedCount: selected.length, elapsedMs: performance.now() - startedAt, fallback: false, budget, usedTokens } };
 }
 
 export function attachmentContextItem(attachment: StoredAttachment): ContextItem {

@@ -12,6 +12,9 @@ function withFile(text: string, chunkCharacters = 80): WorkspaceData {
 }
 
 describe('Context Planner M5', () => {
+  it('M15 starts without static seed recommendations', () => {
+    expect(createSeedWorkspace().contextItems.filter(item => item.status === 'recommended')).toEqual([]);
+  });
   it('chunks long resources with provenance instead of retaining extractedText on the file', () => {
     // Large-file throughput remains observed by benchmark:m5; this checks the chunk contract.
     const workspace = withFile('检索证据与来源追踪。\n'.repeat(1_200), 400);
@@ -24,6 +27,7 @@ describe('Context Planner M5', () => {
 
   it('hybrid ranking deterministically selects the relevant chunk and explains why', () => {
     const workspace = withFile(['支付系统采用幂等键避免重复扣款，并使用事务型 outbox。', '园艺团队每周修剪灌木并记录土壤湿度。', '设计系统使用蓝色按钮与八像素网格。'].join('\n'.repeat(20)));
+    workspace.mode = 'Auto';
     const first = planContext(workspace, '怎样避免支付重复扣款？');
     const second = planContext(workspace, '怎样避免支付重复扣款？');
     const selected = first.items.find(item => item.sourceType === 'chunk');

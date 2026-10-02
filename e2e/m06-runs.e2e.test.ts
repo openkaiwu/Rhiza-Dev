@@ -912,6 +912,9 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     const planner = vi.spyOn(PostgresWorkspaceStore.prototype, 'queryContextCandidates');
     try {
       const url = `/api/v1/workspaces/${original.workspaceId}/runs/${original.id}/replay`;
+      const preflight = await request(app).get(`${url}/preflight`).expect(200);
+      expect(preflight.body.policies).toMatchObject([{ policy: 'exact', allowed: true }, { policy: 'partial', allowed: true }, { policy: 'current-model', allowed: true }]);
+      expect(requests).toHaveLength(1);
       const replayed = await request(app).post(url).set('Idempotency-Key', 'replay-once').send({ policy: 'exact' }).expect(201);
       const repeated = await request(app).post(url).set('Idempotency-Key', 'replay-once').send({ policy: 'exact' }).expect(201);
       expect(repeated.body).toEqual(replayed.body);
@@ -922,6 +925,9 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
       expect((await store.listRuns()).find(run => run.id !== original.id)).toMatchObject({ parentRunRef: original.id,
         input: { replay: { classification: 'exact', sourceRunRef: original.id, sourceManifestRef: original.input.request.manifestId } } });
       const models = vi.spyOn(runtime, 'listModels').mockResolvedValue([{ ...model, endpointVersion: 'changed' }]);
+      const changed = await request(app).get(`${url}/preflight`).expect(200);
+      expect(changed.body.policies[0]).toMatchObject({ allowed: false, code: 'REPLAY_CONTRACT_CHANGED', differences: ['endpoint_version'] });
+      expect(requests).toHaveLength(2);
       const refused = await request(app).post(url).send({ policy: 'exact' }).expect(409);
       expect(refused.body.error.code).toBe('REPLAY_CONTRACT_CHANGED');
       expect(requests).toHaveLength(2);
@@ -934,6 +940,9 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
       expect(requests.at(-1)?.prompt).toBe(original.input.request.prompt);
       const blobRead = vi.spyOn(NodeEncryptedBlobStore.prototype, 'read').mockRejectedValue(Object.assign(new Error('missing'), { reason: 'missing_blob' }));
       try {
+        const blocked = await request(app).get(`${url}/preflight`).expect(200);
+        expect(blocked.body.policies.every((policy: { allowed: boolean; code: string }) => !policy.allowed && policy.code === 'REPLAY_MISSING_RESOURCE')).toBe(true);
+        expect(requests).toHaveLength(4);
         const missing = await request(app).post(url).send({ policy: 'current-model' }).expect(409);
         expect(missing.body.error.code).toBe('REPLAY_MISSING_RESOURCE');
         expect(requests).toHaveLength(4);

@@ -1,14 +1,14 @@
-import { createHash } from 'node:crypto';
 import type { ContextItem, WorkspaceData } from '../domain';
-import { tokenize, type PlannerCandidate } from '../context-planner';
+import { activeContextSelection, tokenize, type PlannerCandidate } from '../context-planner';
 import type { SqlQueryable } from '../postgres-store';
 import type { CandidateIndexSnapshot, ContextPlanningInput, ContextSource } from './contracts';
 import { LexicalContextContributor } from './lexical-contributor';
+import { contextSourceDigest, contextSourceRevision, contextSourceSnapshot, validateContextConfirmation } from './source-snapshot';
 
 export const CANDIDATE_INDEX_VERSION = 'candidate-v1';
 const sourceKey = (type: string, id: string) => `${type}:${id}`;
 const itemKey = (item: ContextItem) => sourceKey(item.sourceType ?? 'reference', item.sourceId ?? item.id);
-const digest = (text: string) => createHash('sha256').update(text).digest('hex');
+const digest = contextSourceDigest;
 const changed = <T extends { id: string }>(current: readonly T[], previous: readonly T[] = []) => {
   const before = new Map(previous.map(item => [item.id, JSON.stringify(item)]));
   const after = new Map(current.map(item => [item.id, JSON.stringify(item)]));
@@ -50,22 +50,16 @@ export async function materializeContextCandidates(database: SqlQueryable, curre
     writes += 1;
   };
   for (const id of nodeIds) {
-    const node = current.discussionNodes.find(item => item.id === id);
-    await write('node', id, node && node.status !== 'archived' ? { title: node.title, nodeId: id, content: `${node.title}\n${node.summary}\n${current.messages.filter(item => item.nodeId === id).map(item => item.text).join('\n')}` } : undefined);
+    await write('node', id, contextSourceSnapshot(current, 'node', id));
   }
   for (const id of segmentIds) {
-    const segment = current.segments.find(item => item.id === id);
-    const active = segment && segment.status !== 'archived' && current.discussionNodes.some(node => node.id === segment.nodeId && node.status !== 'archived');
-    await write('segment', id, active ? { title: segment.title, nodeId: segment.nodeId, content: current.anchors.find(anchor => anchor.segmentId === id)?.selectedText || current.messages.filter(item => item.segmentId === id).map(item => item.text).join('\n') || segment.title } : undefined);
+    await write('segment', id, contextSourceSnapshot(current, 'segment', id));
   }
   for (const id of attachmentIds) {
-    const file = current.attachments.find(item => item.id === id);
-    await write('file', id, file ? { title: file.name, attachmentId: id, content: file.summary || file.name } : undefined);
+    await write('file', id, contextSourceSnapshot(current, 'file', id));
   }
   for (const id of chunkIds) {
-    const chunk = current.fileChunks.find(item => item.id === id);
-    const file = current.attachments.find(item => item.id === chunk?.attachmentId);
-    await write('chunk', id, chunk && file ? { title: `${file.name} · chunk ${chunk.ordinal + 1}`, attachmentId: file.id, content: chunk.text } : undefined);
+    await write('chunk', id, contextSourceSnapshot(current, 'chunk', id));
   }
   for (const id of referenceIds) { const item = references.find(item => item.id === id); await write('reference', id, item ? { title: item.title, content: item.content || item.detail } : undefined); }
   if (writes || !head.rows.length || changed(current.discussionEdges, previous?.discussionEdges).size) await database.query(`INSERT INTO context_candidate_heads(workspace_id,index_version,revision) VALUES ($1,$2,1)
@@ -87,7 +81,7 @@ export async function queryContextCandidates(database: SqlQueryable, input: Cont
   const head = await database.query<{ index_version: string; revision: string }>('SELECT index_version,revision FROM context_candidate_heads WHERE workspace_id=$1', [input.workspaceId]);
   if (!head.rows.length) throw Object.assign(new Error('Context index requires rebuild'), { code: 'CONTEXT_INDEX_NOT_READY', status: 409 });
   if (head.rows[0].index_version !== CANDIDATE_INDEX_VERSION) throw Object.assign(new Error('Context index version requires rebuild'), { code: 'CONTEXT_INDEX_VERSION_MISMATCH', status: 409 });
-  const selectedKeys = input.selection.filter(item => item.status === 'active').map(itemKey);
+  const selectedKeys = activeContextSelection(input.mode, input.selection).map(itemKey);
   if (selectedKeys.length > 500) throw Object.assign(new Error('Too many explicit context sources'), { code: 'CONTEXT_SELECTION_LIMIT', status: 400 });
   const distances = new Map<string, number>([[input.nodeId, 0]]);
   let frontier = [input.nodeId];
@@ -102,12 +96,13 @@ export async function queryContextCandidates(database: SqlQueryable, input: Cont
     ORDER BY ((source_type || ':' || source_id) = ANY($2::text[])) DESC,
     (attachment_id=ANY($5::text[])) DESC NULLS LAST, (terms && $4::text[]) DESC,source_type,source_id LIMIT 500`,
   [input.workspaceId, selectedKeys, [...distances.keys()], tokenize(input.query), input.attachmentIds]);
-  const candidates = result.rows.map(row => ({ ...row.candidate, graphDistance: row.candidate.item.sourceType === 'chunk' ? 2 : distances.get(row.candidate.item.sourceNodeId ?? '') ?? 8 }));
+  const candidates = result.rows.map(row => ({ ...row.candidate, item: { ...row.candidate.item, sourceRevision: contextSourceRevision(row.source_digest, row.resource_version_id ?? undefined, row.resource_digest ?? undefined) }, graphDistance: row.candidate.item.sourceType === 'chunk' ? 2 : distances.get(row.candidate.item.sourceNodeId ?? '') ?? 8 }));
   const bySource = new Map(candidates.map(candidate => [itemKey(candidate.item), candidate]));
   const selection = input.selection.map(item => {
-    if (item.status !== 'active') return item;
+    if (!activeContextSelection(input.mode, [item]).length) return item;
     const candidate = bySource.get(itemKey(item));
     if (!candidate) throw Object.assign(new Error('Explicit context source is unavailable'), { code: 'CONTEXT_SOURCE_NOT_FOUND', status: 409 });
+    validateContextConfirmation(item, candidate.item.sourceRevision);
     return { ...item, content: candidate.text, tokens: candidate.item.tokens };
   });
   const sequence = await database.query<{ sequence: string }>('SELECT COALESCE(MAX(sequence),0)::text AS sequence FROM workspace_events WHERE workspace_id=$1', [input.workspaceId]);
