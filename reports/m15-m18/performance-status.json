@@ -3,27 +3,27 @@
   "ok": false,
   "assertions": {
     "frozen_profile": true,
-    "command_p95": false,
-    "command_p99": false,
+    "command_p95": true,
+    "command_p99": true,
     "graph_p95": true,
     "graph_p99": true,
     "context_p95": true,
     "trace_count": true,
-    "trace_regression": true
+    "trace_regression": false
   },
   "metrics": {
     "command": {
-      "p95": 405.91608300000007,
-      "p99": 558.1581660000011
+      "p95": 118.54766599999857,
+      "p99": 131.80825000000186
     },
     "graph": {
-      "p95": 21.547124999997322,
-      "p99": 25.033416000005673
+      "p95": 22.24354100000346,
+      "p99": 23.738125000003492
     },
     "context": {
-      "p95": 7.1152080000028946
+      "p95": 7.487709000000905
     },
-    "traceRegression": 0.630610637812401
+    "traceRegression": 165.41496818673096
   },
   "g0Relative": "pending"
 }
