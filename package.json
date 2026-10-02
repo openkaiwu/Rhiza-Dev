@@ -95,11 +95,11 @@
     "benchmark:m11": "tsx scripts/benchmark-m11.ts",
     "m11:checks": "pnpm vitest run e2e/m11-graph.e2e.test.ts server/m11-seams.test.ts server/graph-projection/model.test.ts server/infrastructure/node-host-runtime.test.ts scripts/m10-inspection.test.ts --maxWorkers=1 --testTimeout=30000 && pnpm vitest run e2e/m06-runs.e2e.test.ts -t \"stores 10k traces\" --maxWorkers=1 --testTimeout=30000 && pnpm run benchmark:m11",
     "m12:checks": "pnpm vitest run e2e/m06-runs.e2e.test.ts -t \"M12|canceled|interrupt|concurrent|retry\" --maxWorkers=1 --testTimeout=30000 && pnpm vitest run src/App.test.tsx src/api.test.ts src/components/RunHistory.test.tsx src/error-presentation.test.ts --maxWorkers=1",
-    "m13:checks": "pnpm vitest run e2e/m06-runs.e2e.test.ts -t \"M12–M13 HTTP\" --maxWorkers=1 --testTimeout=30000 && pnpm vitest run src/components/ConversationManager.test.tsx server/application/create-application.test.ts server/infrastructure/portable-semantic-schema.test.ts --maxWorkers=1",
+    "m13:checks": "pnpm vitest run e2e/m06-runs.e2e.test.ts -t \"M12\u2013M13 HTTP\" --maxWorkers=1 --testTimeout=30000 && pnpm vitest run src/components/ConversationManager.test.tsx server/application/create-application.test.ts server/infrastructure/portable-semantic-schema.test.ts --maxWorkers=1",
     "m16:collaboration:checks": "vitest run server/application/collaboration-policy.test.ts server/application/collaboration-synthesis.test.ts server/application/portable-collaboration.test.ts server/infrastructure/portable-attachment-history.test.ts e2e/m16-collaboration.e2e.test.ts e2e/m16-collaboration-recovery.e2e.test.ts e2e/m16-collaboration-stream.e2e.test.ts --maxWorkers=1 --testTimeout=30000",
     "m14:checks": "pnpm vitest run src/components/GraphView.test.tsx src/components/graph-model.test.ts src/components/graph-viewport.test.ts e2e/m11-graph.e2e.test.ts --maxWorkers=1 --testTimeout=30000 && pnpm vitest run e2e/m06-runs.e2e.test.ts -t \"M14 Graph Context\" --maxWorkers=1 --testTimeout=30000 && pnpm vitest run src/App.test.tsx -t \"graph|Graph|neighborhood|path\" --maxWorkers=1",
     "benchmark:m17": "tsx scripts/benchmark-m11.ts --output reports/m15-m18/performance.json && tsx scripts/m17-performance-status.ts",
-    "m17:recovery:checks": "vitest run server/infrastructure/verified-content-reads.test.ts server/infrastructure/node-sealed-content-store.test.ts server/infrastructure/sealed-content.test.ts e2e/m17-transaction-reads.e2e.test.ts e2e/m17-publication-rollback.e2e.test.ts e2e/m16-collaboration-recovery.e2e.test.ts --maxWorkers=1 --testTimeout=30000",
+    "m17:recovery:checks": "vitest run server/infrastructure/verified-content-reads.test.ts server/infrastructure/node-sealed-content-store.test.ts server/infrastructure/sealed-content.test.ts e2e/m17-transaction-reads.e2e.test.ts e2e/m17-publication-rollback.e2e.test.ts e2e/m17-trace-fairness.e2e.test.ts e2e/m16-restore-drill.e2e.test.ts e2e/m16-collaboration-recovery.e2e.test.ts --maxWorkers=1 --testTimeout=30000",
     "m17:performance:status": "tsx scripts/m17-performance-status.ts",
     "security:install": "tsx scripts/security/gitleaks.ts install",
     "security:scan": "tsx scripts/security/gitleaks.ts git .",
@@ -107,7 +107,9 @@
     "security:fixtures": "tsx scripts/security/positive-fixtures.ts",
     "security:export:fixtures": "tsx scripts/security/export-fixtures.ts",
     "security:checks": "pnpm vitest run scripts/security/gitleaks.test.ts scripts/security/export-scan.test.ts server/infrastructure/portable-export-security.test.ts --maxWorkers=1 && pnpm run security:fixtures && pnpm run security:export:fixtures && pnpm run security:scan",
-    "m16:restore:drill": "tsx scripts/m16-restore-drill.ts"
+    "m16:restore:drill": "tsx scripts/m16-restore-drill.ts",
+    "m16:backups:checks": "vitest run e2e/m16-managed-backups.e2e.test.ts e2e/m16-restore-drill.e2e.test.ts --maxWorkers=1 --testTimeout=30000",
+    "m18:views:checks": "vitest run e2e/m18-personal-graph-view.e2e.test.ts --maxWorkers=1 --testTimeout=30000"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",

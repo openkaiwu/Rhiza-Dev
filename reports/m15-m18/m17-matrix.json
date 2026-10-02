@@ -1,8 +1,8 @@
 {
   "schemaVersion": "1.0.0",
-  "matrixRevision": 2,
-  "frozenAt": "2026-10-02T13:43:50.970948+00:00",
-  "sourceCommit": "8882165",
+  "matrixRevision": 3,
+  "frozenAt": "2026-10-02T14:29:29.724463+00:00",
+  "sourceCommit": "d5a1025b224c002f626038f6a278d219084ca258",
   "authority": "INH-136 and approved M15-M18 implementation plan",
   "status": "engineering_matrix_frozen; formal M16/M17 gates remain pending",
   "changePolicy": "Any threshold, environment, fixture or user-task change requires a new matrix revision and affected revalidation. Do not retrospectively relax thresholds.",
@@ -42,6 +42,26 @@
     {
       "path": "e2e/m17-publication-rollback.e2e.test.ts",
       "sha256": "a186cda4abd13e52327e5d43998ccbe0ddb4e621ae97c8e146334c5b0a780d21"
+    },
+    {
+      "path": "e2e/m17-trace-fairness.e2e.test.ts",
+      "sha256": "a5bd474d53bab55d1a69d27588f8ac2c8364b548093ad487e6cf2812ba844b4d"
+    },
+    {
+      "path": "e2e/m16-managed-backups.e2e.test.ts",
+      "sha256": "9936db174dd6a25241d52c7ecaac5fbebe0d7f4bd23323192e17731ed8de8f01"
+    },
+    {
+      "path": "e2e/m16-restore-drill.e2e.test.ts",
+      "sha256": "de1d5a044e72a51e8344b77864898101c0a2dcc2d113f6732d77647a2bdb9f62"
+    },
+    {
+      "path": "scripts/m16-restore-drill.ts",
+      "sha256": "163d9ad63bc45eed7180175f4e4c10a191d29dc698efdefcbf7b38196948acf8"
+    },
+    {
+      "path": "e2e/m18-personal-graph-view.e2e.test.ts",
+      "sha256": "3ecbafaf6e26cd3c3765ae1408fe3a292b7c61ae823f552dba47cc44992a1e0d"
     }
   ],
   "performance": {
@@ -105,7 +125,7 @@
       "owner": "engineering",
       "fixture": "network/SSE/timeout/restart/full storage/write failure; multi-Workspace attachment/history/collaboration Bundle and managed backup",
       "evidence": "fault and semantic checksum reports",
-      "status": "partial backend fixtures; backup/full-storage pending"
+      "status": "managed backup + Bundle recovery, receipt/publication rollback and trace scheduling fixtures passed; final sweep and full-storage/production UI acceptance pending"
     },
     {
       "family": "ux_a11y",
@@ -164,5 +184,5 @@
       "status": "not run"
     }
   },
-  "revisionReason": "Add bounded read/publication rollback coverage after the measured serial I/O diagnosis; performance profile and all thresholds unchanged."
+  "revisionReason": "Add actual managed backup/Bundle clean recovery, personal-metadata rollback and durable trace fairness fixtures before changed-code measurement. Performance profile and all thresholds unchanged."
 }
