@@ -20,7 +20,7 @@ Migration `0037_product_preferences.up.sql` is additive. Historical Message/Mani
 | M06 durable Run/Stop/Retry/10k trace separation | `m06-runs.e2e.test.ts`, including M12–M13 HTTP regressions |
 | M07 graph rebuild/checkpoint/layout/rollback | `postgres-store.e2e.test.ts`, `m11-graph.e2e.test.ts` |
 | M09 Bundle/Provenance/Purge/privacy | `m09-default-bundle.e2e.test.ts`, `m09-provenance.e2e.test.ts`, `m09-purge-checkpoint.e2e.test.ts`, Bundle archive/security unit tests |
-| M10 State/Journal/Receipt/recovery/writes | `m10-write-path.e2e.test.ts`, `m10-rollback.e2e.test.ts`, `scripts/m10-inspection.test.ts`; `m10:reconcile`, `m10:legacy-writes`, `m10:rollback-drill` |
+| M10 State/Journal/Receipt/recovery/writes | `m10-write-path.e2e.test.ts`, `m10-rollback.e2e.test.ts`, `scripts/m10-inspection.test.ts`; `m10:reconcile`, `m10:legacy-writes`, `m10:rollback` |
 | M13 immutable range/optional history | Application command tests; portable semantic schema/history tests |
 | M14 cache/viewport | `GraphView.test.tsx`, `graph-model.test.ts`, `graph-viewport.test.ts`; desktop/narrow browser reports |
 
@@ -31,3 +31,13 @@ Repository commands are derived from package.json: `pnpm run lint`, `pnpm run bu
 `reports/m11-m14/performance.json` records the local encrypted PGlite profile with 300 Conversations, 10k graph objects/50k relations, 20 warmups/200 samples, concurrency 1 and no external network. Command p95 673.1 ms/p99 2624.1 ms exceeds the 200/500 ms gate. Graph p95 22.1 ms/p99 23.1 ms passes 150/400 ms; Context p95 7.7 ms passes 250 ms. 10k Trace concurrent primary p95 regression is -21.7%, within 25%. These are synthetic local observations, not business staging or dogfood evidence. Absolute Command performance remains open; do not close INH-99 or M11 Gate. Archived Linux JSON G0 measurements are not comparable with this macOS encrypted PGlite profile; the relative gate remains pending.
 
 Real staging, cross-session complex-project dogfood, backup expiry and continuous observation are deferred. No ready local PostgreSQL was available; its existing integration cases report skipped, while PGlite is the functional backend. M11–M14 formal Gates remain pending external/dependency/performance evidence. INH-90 is architectural observation only; no deferred Task/Workflow/Executor platform is invented. Verification results and browser observations are finalized alongside the delivery commits and synchronized to Linear without claiming Gate Done.
+
+## Independent review and compatibility observations
+
+One fresh review found one Critical and five Important issues. The same fix pass addressed all six: retained-namespace Segment Purge content/edges, ambiguous Retry identity, delayed Retry cancellation, independent relation-page caching, stale detail/path responses, and older materializer upgrades. Each finding has a failing reproduction and targeted passing regression; no second review loop was run. Recovery text now distinguishes local transport termination from a confirmed persisted outcome.
+
+INH-90 is observational only. `server/m11-seams.test.ts` carries application-owned Task/Conversation/Artifact and WorkflowDefinition/WorkflowRun refs through generic bounded read seams, and exercises a fake side-effecting executor through RuntimePort. Current production fact mapping, Command types and Host/Run metadata do not yet define Task/Workflow persistence, effect receipts, approval or fencing. Those gaps remain inputs to M20/M24/M25; no future platform API is introduced.
+
+Archived G0 snapshots/evidence are immutable commit-bound records. Current additive contract snapshots are retained under `docs/architecture-gates/M11/contract-snapshots/`; normal `verify:g0` still reports current contract drift. Characterization and current boundary checks are separate evidence, not a new G0 pass. Compatible code rollback floor: `1145401`, which includes migration 0037; rollback preserves schema/encryption/history.
+
+The browser covers desktop 1440×900 and narrow 390×844. The 300-node graph report records 20 warmups/200 event-to-React-DOM-commit samples, p95 0.4 ms/p99 0.6 ms, zero offscreen cards, and unchanged Domain facts. This equivalent interaction budget excludes browser compositor/display latency and does not claim real multi-session dogfood.

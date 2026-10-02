@@ -1230,6 +1230,15 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
 }
 
 describe('M12–M13 HTTP product contracts (PGlite)', () => {
+  it('cancels a disconnected Retry before its delayed preparation can dispatch',async()=>{
+    let calls=0;const {app,store}=await fixture(async function*(input){calls++;yield {type:'RUN_ERROR',requestId:input.requestId,code:'PROVIDER_UNREACHABLE',message:'fixture',status:502};},'embedded');
+    await request(app).post('/api/chat').send({message:'first failure'}).expect(502);const originalRun=(await store.listRuns())[0]!;
+    let entered!:()=>void,release!:()=>void;const ready=new Promise<void>(resolve=>entered=resolve),hold=new Promise<void>(resolve=>release=resolve);const prepare=store.readConversationPreparation.bind(store);vi.spyOn(store,'readConversationPreparation').mockImplementationOnce(async(...args)=>{entered();await hold;return prepare(...args);});
+    const controller=new AbortController();const address=app.address() as {port:number};const pending=fetch(`http://127.0.0.1:${address.port}/api/runs/${originalRun.id}/retry`,{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':'delayed-retry'},signal:controller.signal}).catch(error=>error);
+    await ready;controller.abort();await pending;await new Promise(resolve=>setTimeout(resolve,50));release();
+    for(let i=0;i<30;i++){const runs=await store.listRuns();if(runs.some(run=>run.parentRunRef===originalRun.id&&['completed','failed','canceled'].includes(run.status)))break;await new Promise(resolve=>setTimeout(resolve,50));}
+    expect(calls).toBe(1);expect((await store.listRuns()).find(run=>run.parentRunRef===originalRun.id)?.status).toBe('canceled');
+  });
   it('streams temporary output with durable identity and no permanent Conversation content', async () => {
     const {app,store} = await fixture(async function* (input) { yield {type:'CONTENT_DELTA',requestId:input.requestId,delta:'live'};yield* success(input); },'embedded');
     const before=await store.read();const key=randomUUID();
@@ -1250,6 +1259,16 @@ describe('M12–M13 HTTP product contracts (PGlite)', () => {
     await request(app).post(`/api/runs/${original.id}/retry`).set('Idempotency-Key',retryKey).expect(201);expect(calls).toBe(2);
     const other=await request(app).post('/api/v1/workspaces').send({name:'Other'}).expect(201);
     expect((await request(app).get(`/api/v1/workspaces/${other.body.workspace.workspaceId}/runs/by-command/${retryKey}?idempotencyKey=true`).expect(200)).body.run).toBeNull();
+  });
+  it('M14 Graph Context selection changes the next Manifest while preserving earlier history',async()=>{
+    const {app,store}=await fixture(success,'embedded');const before=await store.read();const node=before.activeNodeId;const source=before.messages.find(message=>message.nodeId===node)!;
+    const created=await request(app).post(`/api/nodes/${node}/segments`).send({title:'Graph selected segment',messageIds:[source.id],range:{messageId:source.id,startOffset:0,endOffset:3,selectedText:source.text.slice(0,3)}}).expect(201);const id=created.body.segment.id;
+    const graph=await request(app).get(`/api/graph/neighborhood?objectId=${node}&depth=2&objectTypes=conversation,segment,message`).expect(200);expect(graph.body.graph.objects.some((item:{ref:{objectId:string}})=>item.ref.objectId===id)).toBe(true);
+    const selected=await request(app).post('/api/workspace/context').send({sourceType:'segment',sourceId:id}).expect(201);const item=selected.body.workspace.contextItems.find((item:{sourceId:string})=>item.sourceId===id);
+    const first=await request(app).post('/api/chat').send({message:'Use Graph selection'}).expect(201);expect(first.body.manifest.contextItems.some((item:{sourceId:string})=>item.sourceId===id)).toBe(true);
+    await request(app).patch(`/api/workspace/context/${item.id}`).send({status:'excluded'}).expect(200);
+    const second=await request(app).post('/api/chat').send({message:'Exclude Graph selection'}).expect(201);expect(second.body.manifest.contextItems.some((item:{sourceId:string})=>item.sourceId===id)).toBe(false);
+    expect((await store.read()).manifests.find(manifest=>manifest.id===first.body.manifest.id)?.contextItems.some(item=>item.sourceId===id)).toBe(true);
   });
   it('persists model inheritance, anchored Segments and indexed Chinese/case search through Bundle history', async () => {
     const {app,store}=await fixture(success,'embedded');const before=await store.read();const node=before.activeNodeId;const message=before.messages.find(message=>message.nodeId===node)!;

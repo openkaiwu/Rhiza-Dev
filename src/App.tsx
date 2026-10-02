@@ -131,6 +131,7 @@ export function App() {
   const loadGraph = useCallback(async (cursor?: string) => {
     const workspaceId = selectedWorkspaceRef.current; const generation = workspaceGenerationRef.current;
     const requestId = ++graphRequestRef.current;
+    if(!cursor)graphDetailKeys.current.clear();
     const current = () => requestId === graphRequestRef.current && generation === workspaceGenerationRef.current && workspaceId === selectedWorkspaceRef.current;
     setGraphLoading(true); setGraphError('');
     try {
@@ -140,13 +141,14 @@ export function App() {
       const targetPages = cursor ? 1 : Math.min(10,graphPagesRef.current + Number(graphCompleteRef.current));
       while (graph.nextCursor && pages < targetPages && current()) {
         const next = (await api.getGraphNeighborhood({ nodeLimit: 100, cursor: graph.nextCursor,...graphFiltersRef.current })).graph;
+        if(next.version!==graph.version||next.checkpoint!==graph.checkpoint) throw new Error('图谱已更新，请刷新图谱后继续。');
         graph = boundedGraphCache({ ...next, objects: [...graph.objects, ...next.objects], relations: [...graph.relations, ...next.relations] });
         pages += 1;
       }
       if (!current()) return;
       graphPagesRef.current = cursor ? graphPagesRef.current + 1 : pages;
       graphCompleteRef.current = !graph.nextCursor;
-      setGraphProjection(previous => boundedGraphCache(cursor && previous && previous.checkpoint === graph.checkpoint ? {
+      setGraphProjection(previous => boundedGraphCache(cursor && previous && previous.version === graph.version && previous.checkpoint === graph.checkpoint ? {
         ...graph,
         objects: [...new Map([...previous.objects, ...graph.objects].map(item => [item.ref.objectId, item])).values()],
         relations: [...new Map([...previous.relations, ...graph.relations].map(item => [item.id, item])).values()],
@@ -159,10 +161,18 @@ export function App() {
   const graphDetailKeys=useRef(new Set<string>());
   const loadGraphNeighborhood=useCallback((objectId:string)=>{
     if(!graphProjection?.version)return;
-    const workspaceId=selectedWorkspaceRef.current;const generation=workspaceGenerationRef.current;const cacheKey=`${workspaceId}:${graphProjection?.version}:${graphProjection?.checkpoint}:${objectId}:conversation,segment,message:${JSON.stringify(graphFiltersRef.current)}`;
+    const workspaceId=selectedWorkspaceRef.current;const generation=workspaceGenerationRef.current;const request=graphRequestRef.current;const filters=JSON.stringify(graphFiltersRef.current);const cacheKey=`${workspaceId}:${graphProjection?.version}:${graphProjection?.checkpoint}:${objectId}:conversation,segment,message:${filters}`;
     if(graphDetailKeys.current.has(cacheKey))return;graphDetailKeys.current.add(cacheKey);if(graphDetailKeys.current.size>100)graphDetailKeys.current.delete(graphDetailKeys.current.values().next().value!);
-    void api.getGraphNeighborhood({objectId,depth:2,nodeLimit:200,edgeLimit:800,objectTypes:['conversation','segment','message'],...graphFiltersRef.current}).then(({graph})=>{if(workspaceId===selectedWorkspaceRef.current&&generation===workspaceGenerationRef.current)setGraphProjection(previous=>boundedGraphCache(previous&&previous.checkpoint===graph.checkpoint&&previous.version===graph.version?{...previous,objects:[...previous.objects,...graph.objects],relations:[...previous.relations,...graph.relations]}:graph));}).catch(()=>{graphDetailKeys.current.delete(cacheKey);});
+    void api.getGraphNeighborhood({objectId,depth:2,nodeLimit:200,edgeLimit:800,objectTypes:['conversation','segment','message'],...graphFiltersRef.current}).then(({graph})=>{if(workspaceId===selectedWorkspaceRef.current&&generation===workspaceGenerationRef.current&&request===graphRequestRef.current&&filters===JSON.stringify(graphFiltersRef.current))setGraphProjection(previous=>previous&&previous.checkpoint===graph.checkpoint&&previous.version===graph.version?boundedGraphCache({...previous,objects:[...previous.objects,...graph.objects],relations:[...previous.relations,...graph.relations]}):previous);}).catch(()=>{graphDetailKeys.current.delete(cacheKey);});
   },[graphProjection]);
+  const highlightGraphPath=async(from:string,to:string)=>{
+    const current=workspaceMutation();const request=graphRequestRef.current;const filters=JSON.stringify(graphFiltersRef.current);
+    const version=graphProjection?.version;const checkpoint=graphProjection?.checkpoint;
+    const {graph}=await api.getGraphPath(from,to);
+    if(!current()||request!==graphRequestRef.current||filters!==JSON.stringify(graphFiltersRef.current)||graph.version!==version||graph.checkpoint!==checkpoint)return [];
+    setGraphProjection(previous=>previous&&previous.version===version&&previous.checkpoint===checkpoint?boundedGraphCache({...previous,objects:[...previous.objects,...graph.objects],relations:[...previous.relations,...graph.relations]}):previous);
+    return graph.objects.map(item=>item.ref.objectId);
+  };
   useEffect(() => { if (view === 'graph' && boot === 'ready') void loadGraph(); }, [view, boot, currentWorkspaceId, discussionNodes, loadGraph]);
   useEffect(() => { if (api.listWorkspaces) void api.listWorkspaces(true).then(result => setWorkspaces(result.workspaces)).catch(() => undefined); }, []);
   const openCurrentContext = () => { historyRequestRef.current++; setContextHistory(undefined); setContextOpen(true); };
@@ -486,7 +496,7 @@ export function App() {
         onActivateNode={id => activateNode(id, true)} onMerge={mergeNode} onSelectModel={async modelId=>{const current=workspaceMutation();const {workspace}=await api.setConversationModel(activeNode.id,modelId);if(current())applyWorkspace(workspace);}}
         onSettings={openSettings} onOpenContext={() => { if (contextHistory) openCurrentContext(); else setContextOpen(open => !open); }} onInspectContext={id => void inspectMessageContext(id)} onGraph={() => setView('graph')} onRuns={() => setView('runs')}
       />,
-      graph: <GraphView key={currentWorkspaceId} loading={graphLoading} error={graphError} hasMore={!!graphProjection?.nextCursor} onLoadMore={() => void loadGraph(graphProjection?.nextCursor)} onRefresh={() => void loadGraph()} onFilter={filterGraph} onNeighborhood={loadGraphNeighborhood} contextIds={contextItems.filter(item=>item.status==='active').map(item=>item.sourceId??'')} onContext={async(node,remove)=>{if(remove){const item=contextItems.find(item=>item.sourceId===node.id);if(item)await updateStatus(item.id,'excluded');}else await addContextSource(node.objectType==='segment'?'segment':'node',node.id);}} onNavigateObject={async node=>{let parent=node.parentId;const parentObject=graphProjection?.objects.find(item=>item.ref.objectId===parent);if(parentObject?.ref.objectType==='segment')parent=graphProjection?.relations.find(edge=>edge.relationType==='contains'&&edge.target.objectId===parent)?.source.objectId;if(parent)await activateNode(parent,true);const message=node.objectType==='message'?node.id:anchors.find(anchor=>anchor.segmentId===node.id)?.messageId??messages.find(message=>message.segmentId===node.id)?.id;if(message)setTimeout(()=>document.getElementById(`message-${message}`)?.scrollIntoView({block:'center'}),50);}} onPath={async(from,to)=>{const current=workspaceMutation();const {graph}=await api.getGraphPath(from,to);if(current())setGraphProjection(previous=>boundedGraphCache({...graph,objects:[...(previous?.objects??[]),...graph.objects],relations:[...(previous?.relations??[]),...graph.relations]}));return graph.objects.map(item=>item.ref.objectId);}} nodes={graphModel.nodes} edges={graphModel.edges} activeNodeId={activeNode.id} onMove={moveNode} onActivate={id => activateNode(id, true)} onCreateNode={createGraphNode} onArchiveNode={archiveGraphNode} onRestoreNode={restoreGraphNode} onPurgeNode={purgeGraphNode} onCreateEdge={createGraphEdge} onDeleteEdge={deleteGraphEdge}/>,
+      graph: <GraphView key={currentWorkspaceId} loading={graphLoading} error={graphError} hasMore={!!graphProjection?.nextCursor} onLoadMore={() => void loadGraph(graphProjection?.nextCursor)} onRefresh={() => void loadGraph()} onFilter={filterGraph} onNeighborhood={loadGraphNeighborhood} contextIds={contextItems.filter(item=>item.status==='active').map(item=>item.sourceId??'')} onContext={async(node,remove)=>{if(remove){const item=contextItems.find(item=>item.sourceId===node.id);if(item)await updateStatus(item.id,'excluded');}else await addContextSource(node.objectType==='segment'?'segment':'node',node.id);}} onNavigateObject={async node=>{let parent=node.parentId;const parentObject=graphProjection?.objects.find(item=>item.ref.objectId===parent);if(parentObject?.ref.objectType==='segment')parent=graphProjection?.relations.find(edge=>edge.relationType==='contains'&&edge.target.objectId===parent)?.source.objectId;if(parent)await activateNode(parent,true);const message=node.objectType==='message'?node.id:anchors.find(anchor=>anchor.segmentId===node.id)?.messageId??messages.find(message=>message.segmentId===node.id)?.id;if(message)setTimeout(()=>document.getElementById(`message-${message}`)?.scrollIntoView({block:'center'}),50);}} onPath={highlightGraphPath} nodes={graphModel.nodes} edges={graphModel.edges} activeNodeId={activeNode.id} onMove={moveNode} onActivate={id => activateNode(id, true)} onCreateNode={createGraphNode} onArchiveNode={archiveGraphNode} onRestoreNode={restoreGraphNode} onPurgeNode={purgeGraphNode} onCreateEdge={createGraphEdge} onDeleteEdge={deleteGraphEdge}/>,
       state: <StateView/>,
       runs: <RunHistory key={currentWorkspaceId} onChanged={() => void loadWorkspace(true)}/>,
       activity: <ActivityView activity={activity} loading={activityLoading} error={activityError} onRefresh={() => void loadActivity()}/>,

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { App } from './App';
 import { contextHistoryFixture } from './test/context-history-fixture';
 import { initialContext } from './data';
@@ -24,7 +24,7 @@ const mocks = vi.hoisted(() => { const temporary = vi.fn(); return ({
   selectModel: vi.fn(),
   createBranch: vi.fn(), activateNode: vi.fn(), moveNode: vi.fn(), mergeNode: vi.fn(), archiveGraphNode: vi.fn(), restoreGraphNode: vi.fn(),
   sendTemporaryMessage: temporary, streamTemporaryMessage: temporary,
-  workspaceId: vi.fn(), cancelAttempt: vi.fn(), searchWorkspace: vi.fn(),
+  workspaceId: vi.fn(), findAttemptRun: vi.fn(), cancelAttempt: vi.fn(), searchWorkspace: vi.fn(),
   setConversationModel: vi.fn(), setWorkspaceModel: vi.fn(), renameConversation: vi.fn(),
   setNodeStatus: vi.fn(), updateSegment: vi.fn(), createSegment: vi.fn(), retryRun: vi.fn(),
   setWorkspace: vi.fn(),
@@ -73,7 +73,7 @@ const projectedGraph = (nodes: readonly DiscussionNode[] = workspace.discussionN
 beforeEach(() => {
   localStorage.clear();
   mocks.workspaceId.mockReturnValue(undefined);
-  mocks.cancelAttempt.mockResolvedValue(undefined);
+  mocks.cancelAttempt.mockResolvedValue(undefined);mocks.findAttemptRun.mockResolvedValue(null);
   mocks.searchWorkspace.mockResolvedValue({ results: [] });
   mocks.setConversationModel.mockResolvedValue({ workspace });
   mocks.setWorkspaceModel.mockResolvedValue({ workspace });
@@ -366,7 +366,7 @@ describe('Rhiza MVP', () => {
     fireEvent.click(screen.getByRole('button', { name: '发送' }));
     expect(await screen.findByText('无法完成本轮对话。请重试。')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
-    await waitFor(() => expect(mocks.streamMessage).toHaveBeenLastCalledWith('请重试', expect.any(Function), expect.objectContaining({ operation: 'retry' })));
+    await waitFor(() => expect(mocks.streamMessage).toHaveBeenLastCalledWith('请重试', expect.any(Function), expect.objectContaining({ operation: 'send' })));
   });
 
   it('stops an in-flight generation through AbortSignal', async () => {
@@ -378,7 +378,7 @@ describe('Rhiza MVP', () => {
     fireEvent.change(screen.getByLabelText('输入消息'), { target: { value: '长回答' } });
     fireEvent.click(screen.getByRole('button', { name: '发送' }));
     fireEvent.click(await screen.findByRole('button', { name: '停止生成' }));
-    expect(await screen.findByText('生成已停止，本轮未写入历史。可以修改输入后重新发送。')).toBeInTheDocument();
+    expect(await screen.findByText('已停止接收生成。请查看执行历史，确认状态后重新发送。')).toBeInTheDocument();
     expect(screen.queryByText('长回答', { selector: 'p' })).not.toBeInTheDocument();
   });
 
@@ -577,4 +577,29 @@ describe('Rhiza MVP', () => {
     expect(screen.getByRole('heading', { level: 1, name: /信息架构方向/ })).toBeInTheDocument();
     expect(await screen.findByText('网络已恢复，但工作区刷新失败。')).toBeInTheDocument();
   });
+});
+
+it('reuses an unresolved attempt identity after transport loss before RUN_CREATED', async () => {
+ const calls=mocks.streamMessage.mock.calls.length;
+ mocks.streamMessage.mockRejectedValueOnce(new TypeError('connection lost'));
+ render(<App/>);await screen.findByLabelText('输入消息');
+ fireEvent.change(screen.getByLabelText('输入消息'),{target:{value:'ambiguous request'}});fireEvent.click(screen.getByRole('button',{name:'发送'}));
+ await screen.findByRole('button',{name:'重试'});fireEvent.click(screen.getByRole('button',{name:'重试'}));
+ await waitFor(()=>expect(mocks.streamMessage).toHaveBeenCalledTimes(calls+2));
+ expect(mocks.streamMessage.mock.calls[calls+1]![2].idempotencyKey).toBe(mocks.streamMessage.mock.calls[calls]![2].idempotencyKey);
+ expect(mocks.streamMessage.mock.calls[calls+1]![2].operation).toBe('send');
+});
+
+it('discards a stale neighborhood after a newer graph refresh',async()=>{
+ const late=deferred<ReturnType<typeof projectedGraph>>();const original=projectedGraph();const newer={graph:{...projectedGraph([{...workspace.discussionNodes[0]!,title:'Current title'}]).graph,checkpoint:2}};
+ mocks.getGraphNeighborhood.mockImplementation((input:{objectId?:string})=>input.objectId?late.promise:Promise.resolve(original));
+ render(<App/>);fireEvent.click(await screen.findByRole('button',{name:'对话图谱'}));await waitFor(()=>expect(mocks.getGraphNeighborhood.mock.calls.some(([input])=>input.objectId)).toBe(true));
+ mocks.getGraphNeighborhood.mockImplementation((input:{objectId?:string})=>input.objectId?Promise.resolve(newer):Promise.resolve(newer));
+ fireEvent.click(screen.getByRole('button',{name:'刷新图谱'}));await screen.findByRole('button',{name:'讨论节点：Current title'});
+ await act(async()=>{late.resolve(original);await late.promise;});expect(screen.queryByRole('button',{name:'讨论节点：信息架构方向'})).not.toBeInTheDocument();
+});
+
+it('reconciles an ambiguous completed Chat without sending it again',async()=>{
+ const calls=mocks.streamMessage.mock.calls.length;mocks.streamMessage.mockRejectedValueOnce(new TypeError('lost commit'));mocks.findAttemptRun.mockResolvedValue({id:'completed',status:'completed'});
+ render(<App/>);await screen.findByLabelText('输入消息');fireEvent.change(screen.getByLabelText('输入消息'),{target:{value:'completed request'}});fireEvent.click(screen.getByRole('button',{name:'发送'}));fireEvent.click(await screen.findByRole('button',{name:'重试'}));await waitFor(()=>expect(screen.queryByRole('button',{name:'重试'})).not.toBeInTheDocument());expect(mocks.streamMessage).toHaveBeenCalledTimes(calls+1);
 });

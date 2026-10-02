@@ -540,7 +540,9 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
     try { response.json({ run: await query(response,'GetRunByCommand',{ commandId: request.query.idempotencyKey === 'true' ? idempotentWorkspaceId('00000000-0000-4000-8000-000000000002',request.params.commandId) : request.params.commandId }) }); } catch(error) { next(error); }
   });
   app.post('/api/runs/:runId/retry', async (request,response,next) => {
-    try { response.status(201).json(await execute(response,'RetryExecutionRun',{ runId: request.params.runId })); } catch(error) { next(error); }
+    const controller = new AbortController();
+    response.on('close', () => { if (!response.writableEnded) controller.abort(); });
+    try { response.status(201).json(await execute(response,'RetryExecutionRun',{ runId: request.params.runId },{ signal: controller.signal })); } catch(error) { next(error); }
   });
   app.get('/api/runs/:runId', async (request, response, next) => {
     try { response.json({ run: await query(response, 'GetExecutionRun', { runId: request.params.runId }) }); } catch (error) { next(error); }

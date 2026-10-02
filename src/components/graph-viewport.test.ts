@@ -14,3 +14,11 @@ describe('M14 viewport and cache', () => {
     const ids=new Set(result.objects.map(item=>item.ref.objectId));expect(result.relations.every(edge=>ids.has(edge.source.objectId)&&ids.has(edge.target.objectId))).toBe(true);
   });
 });
+
+it('retains a bounded relation until its later object page arrives', () => {
+ const a={ref:{workspaceId:'w',objectType:'conversation',objectId:'a'}},b={ref:{workspaceId:'w',objectType:'conversation',objectId:'b'}};
+ const edge={id:'cross-page',source:a.ref,target:b.ref};
+ const first=boundedGraphCache({objects:[a],relations:[edge]});
+ expect(first.relations).toEqual([edge]);
+ expect(boundedGraphCache({...first,objects:[...first.objects,b]}).relations).toEqual([edge]);
+});

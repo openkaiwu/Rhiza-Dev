@@ -75,3 +75,15 @@ describe('GraphView', () => {
     vi.restoreAllMocks();
   });
 });
+
+it('filters status/relation/time, highlights a path and connects accessible Context actions',async()=>{
+ const target={...node,id:'target',title:'目标',status:'resolved' as const,x:520,updatedAt:'2026-09-30T12:00:00Z'};
+ const onFilter=vi.fn(),onPath=vi.fn().mockResolvedValue(['root','target']),onContext=vi.fn().mockResolvedValue(undefined);
+ const props={nodes:[{...node,objectType:'conversation' as const,updatedAt:'2026-09-01T12:00:00Z'},target],edges:[{id:'edge',source:'root',target:'target',relation:'related-to' as const,label:'关联'}],activeNodeId:'root',...callbacks(),onFilter,onPath,onContext};
+ const view=render(<GraphView {...props}/>);
+ fireEvent.change(screen.getByLabelText('路径目标'),{target:{value:'target'}});fireEvent.click(screen.getByRole('button',{name:'高亮路径'}));await waitFor(()=>expect(document.querySelectorAll('.path-highlight')).toHaveLength(2));expect(onPath).toHaveBeenCalledWith('root','target');
+ fireEvent.change(screen.getByLabelText('关系'),{target:{value:'references'}});expect(screen.queryByText('关联')).not.toBeInTheDocument();
+ fireEvent.change(screen.getByLabelText('状态'),{target:{value:'resolved'}});fireEvent.change(screen.getByLabelText('更新时间之后'),{target:{value:'2026-09-20'}});await waitFor(()=>expect(onFilter).toHaveBeenLastCalledWith(expect.objectContaining({statuses:['resolved'],updatedAfter:new Date('2026-09-20').toISOString()})));expect(screen.queryByRole('button',{name:'讨论节点：根节点'})).not.toBeInTheDocument();
+ fireEvent.click(screen.getByText('图谱节点列表（键盘导航）'));fireEvent.click(await screen.findByRole('button',{name:'加入 Context'}));expect(onContext).toHaveBeenCalledWith(expect.objectContaining({id:'target'}),false);
+ view.rerender(<GraphView {...props} contextIds={['target']}/>);fireEvent.click(screen.getByRole('button',{name:'移出 Context'}));expect(onContext).toHaveBeenLastCalledWith(expect.objectContaining({id:'target'}),true);
+});

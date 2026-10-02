@@ -46,8 +46,8 @@ function inferCategory(error: ErrorLike): ApiErrorCategory | undefined {
 export function presentError(error: unknown, fallback: PresentedError): PresentedError {
   const details = asErrorLike(error);
   const code = typeof details.code === 'string' ? details.code : '';
-  if (code === 'GENERATION_STOPPED') return { message: '生成已停止，本轮未写入历史。', recovery: '可以修改输入后重新发送。' };
-  if (code === 'STREAM_UNAVAILABLE' || code === 'INCOMPLETE_STREAM') return { message: '生成连接意外中断。', recovery: '请重试；本轮未写入历史。' };
+  if (code === 'GENERATION_STOPPED') return { message: '已停止接收生成。', recovery: '请查看执行历史，确认状态后重新发送。' };
+  if (code === 'STREAM_UNAVAILABLE' || code === 'INCOMPLETE_STREAM') return { message: '生成连接意外中断。', recovery: '请先查看执行历史确认状态，再手动重试。' };
 
   const specific: Record<string, PresentedError> = {
     PROVIDER_INPUT_INVALID: { message: '模型无法处理当前输入。', recovery: '请调整消息、附件或生成参数。' },

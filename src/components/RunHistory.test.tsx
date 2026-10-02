@@ -44,3 +44,14 @@ it('does not apply responses belonging to an unmounted workspace', async () => {
   await act(async () => resolve({ runs: [run] }));
   expect(screen.queryByText('生成中 · Test model')).not.toBeInTheDocument();
 });
+
+it('retains the logical Retry identity when its response is lost',async()=>{
+ vi.spyOn(api,'findAttemptRun').mockResolvedValue(null);
+ vi.spyOn(api,'listRuns').mockResolvedValue({runs:[{...run,status:'failed'}]});vi.spyOn(api,'activateNode').mockResolvedValue({workspace:{} as never});const retry=vi.spyOn(api,'retryRun').mockRejectedValueOnce(new TypeError('lost response')).mockResolvedValue({} as never);
+ render(<RunHistory onChanged={()=>{}}/>);fireEvent.click(await screen.findByRole('button',{name:'重试为新 Run'}));await screen.findByText('操作未完成，请查看执行状态后重试。');fireEvent.click(screen.getByRole('button',{name:'重试为新 Run'}));await waitFor(()=>expect(retry).toHaveBeenCalledTimes(2));expect(retry.mock.calls[1]![1]).toBe(retry.mock.calls[0]![1]);
+});
+
+it('reconciles a completed Retry after transport loss without another external attempt',async()=>{
+ vi.spyOn(api,'listRuns').mockResolvedValue({runs:[{...run,status:'failed'}]});vi.spyOn(api,'activateNode').mockResolvedValue({workspace:{} as never});const retry=vi.spyOn(api,'retryRun').mockRejectedValueOnce(new TypeError('lost response'));vi.spyOn(api,'findAttemptRun').mockResolvedValue({...run,id:'child',status:'completed'});const changed=vi.fn();
+ render(<RunHistory onChanged={changed}/>);fireEvent.click(await screen.findByRole('button',{name:'重试为新 Run'}));await screen.findByText('操作未完成，请查看执行状态后重试。');fireEvent.click(screen.getByRole('button',{name:'重试为新 Run'}));await waitFor(()=>expect(changed).toHaveBeenCalledOnce());expect(retry).toHaveBeenCalledOnce();
+});

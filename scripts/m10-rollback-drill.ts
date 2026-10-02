@@ -20,7 +20,8 @@ import { inspectM10Store } from './m10-inspection';
 import { semanticStateChecksum } from '../server/infrastructure/workspace-semantic-checksum';
 import { portableWorkspaceFacts } from '../server/application/portable-workspace';
 
-const baseline = '5bc8466';
+// This reader includes the additive M11 model/Segment metadata and identical schema.
+const baseline = '1145401';
 export async function runRollbackDrill(compatibleRef = baseline) {
   const commit = execFileSync('git', ['rev-parse', '--verify', `${compatibleRef}^{commit}`], { encoding: 'utf8' }).trim();
   for (const migration of await loadMigrations()) {

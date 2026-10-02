@@ -14,6 +14,7 @@ export function RunHistory({ onChanged }: { onChanged: () => void }) {
   const [replayNotice, setReplayNotice] = useState('');
   const action = useRef(false);
   const replayKeys = useRef(new Map<string, string>());
+  const retryKeys = useRef(new Map<string,{key:string;parentId:string}>());
   const live = useRef(true);
   const sequence = useRef(0);
   const refresh = async () => {
@@ -33,9 +34,20 @@ export function RunHistory({ onChanged }: { onChanged: () => void }) {
     setBusy(true);
     try {
       if (retry) {
+        const workspaceId=api.workspaceId();
+        let attempt=retryKeys.current.get(run.id);
+        if(attempt){
+          const previous=await api.findAttemptRun(attempt.key,workspaceId);
+          if(!live.current||workspaceId!==api.workspaceId())return;
+          if(previous?.status==='completed'){retryKeys.current.delete(run.id);await refresh();if(live.current)onChanged();return;}
+          if(previous&&active(previous)){setError('原执行仍在进行，请等待执行状态更新。');return;}
+          if(previous)attempt={key:crypto.randomUUID(),parentId:previous.id};
+        }
+        attempt??={key:crypto.randomUUID(),parentId:run.id};retryKeys.current.set(run.id,attempt);
         await api.activateNode(run.nodeId);
-        if (!live.current) return;
-        await api.retryRun(run.id,crypto.randomUUID());
+        if (!live.current||workspaceId!==api.workspaceId()) return;
+        await api.retryRun(attempt.parentId,attempt.key);
+        retryKeys.current.delete(run.id);
       } else await api.cancelRun(run.id);
       if (live.current) { await refresh(); if (live.current) onChanged(); }
     } catch { if (live.current) { await refresh(); setError('操作未完成，请查看执行状态后重试。'); } }

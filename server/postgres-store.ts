@@ -1652,8 +1652,8 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
 
   private async boundedGraph<T>(query: (graph: BoundedGraphQueries) => Promise<T>): Promise<T> {
     // Cold initialization is explicit; subsequent reads select bounded rows under the same lock as writers.
-    const alias = await this.database.query("SELECT active_version FROM projection_aliases WHERE workspace_id=$1 AND projection_name='graph'", [this.defaultWorkspaceId]);
-    if (!alias.rows.length) await this.materializeGraph(false);
+    const alias = await this.database.query<{ active_version: string }>("SELECT active_version FROM projection_aliases WHERE workspace_id=$1 AND projection_name='graph'", [this.defaultWorkspaceId]);
+    if (!alias.rows[0]?.active_version.startsWith('graph-v2-')) await this.materializeGraph(false);
     return this.inTransaction(async database => {
       await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
       return query(new BoundedGraphQueries(database, this.defaultWorkspaceId));
@@ -2212,6 +2212,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     const fileChunks = await this.prepareFileChunks(database, workspace, previous);
     if (options?.purge && previous) {
       const removedMessages = new Set(previous.messages.filter(item => !workspace.messages.some(candidate => candidate.id === item.id)).map(item => item.id));
+      const removedSegments = previous.segments.filter(item => !workspace.segments.some(candidate => candidate.id === item.id)).map(item => item.id);
       const removedManifests = new Set(previous.manifests.filter(item => !workspace.manifests.some(candidate => candidate.id === item.id)).map(item => item.id));
       const removedEdges = previous.discussionEdges.filter(item => !workspace.discussionEdges.some(candidate => candidate.id === item.id)).map(item => item.id);
       const purgedResourceIds = [...new Set(workspace.resourceVersions.filter(version => version.purgedAt
@@ -2227,10 +2228,15 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       }
       await database.query(`UPDATE workspace_objects SET title='[purged]',summary='',metadata='{}'::jsonb,
         lifecycle_status='tombstoned',object_status='tombstoned' WHERE workspace_id=$1 AND
-        ((object_type='conversation' AND object_id=$2) OR (object_type='message' AND object_id=ANY($3::text[])))`,
-      [workspace.projectId, options.purge.nodeId, [...removedMessages]]);
+        ((object_type='conversation' AND object_id=$2) OR (object_type='message' AND object_id=ANY($3::text[]))
+          OR (object_type='segment' AND object_id=ANY($4::text[])))`,
+      [workspace.projectId, options.purge.nodeId, [...removedMessages], removedSegments]);
       await database.query(`UPDATE graph_relations SET label='',lifecycle_status='retracted' WHERE workspace_id=$1 AND
-        (source_id=$2 OR target_id=$2 OR relation_id=ANY($3::text[]))`, [workspace.projectId, options.purge.nodeId, removedEdges]);
+        ((source_type='conversation' AND source_id=$2) OR (target_type='conversation' AND target_id=$2)
+          OR (source_type='message' AND source_id=ANY($3::text[])) OR (target_type='message' AND target_id=ANY($3::text[]))
+          OR (source_type='segment' AND source_id=ANY($4::text[])) OR (target_type='segment' AND target_id=ANY($4::text[]))
+          OR relation_id=ANY($5::text[]))`,
+      [workspace.projectId, options.purge.nodeId, [...removedMessages], removedSegments, removedEdges]);
       const links = await database.query<{ output_ref: string; record: ProvenanceLink }>('SELECT output_ref,record FROM provenance_links WHERE workspace_id=$1', [workspace.projectId]);
       for (const row of links.rows) {
         const link = asJson<ProvenanceLink>(row.record);

@@ -26,6 +26,12 @@ describe('presentError', () => {
   });
 
   it('keeps the explicit cancelled-generation recovery message', () => {
-    expect(presentErrorText(new ApiError('internal cancellation trace', 'GENERATION_STOPPED', 499), fallback)).toBe('生成已停止，本轮未写入历史。可以修改输入后重新发送。');
+    expect(presentErrorText(new ApiError('internal cancellation trace', 'GENERATION_STOPPED', 499), fallback)).toBe('已停止接收生成。请查看执行历史，确认状态后重新发送。');
   });
+});
+
+it.each([
+ ['GENERATION_STOPPED','执行历史'],['PROVIDER_TIMEOUT','执行状态'],['PROVIDER_ERROR','检查服务配置'],['PROVIDER_UNREACHABLE','检查网络'],['PROCESS_INTERRUPTED','执行历史'],['RUN_COMMIT_FAILED','执行记录'],['PROVIDER_AUTH_FAILED','检查凭据'],['PROVIDER_RATE_LIMITED','手动重试'],['PROVIDER_INPUT_INVALID','调整消息'],
+])('provides safe recovery for %s', (code,recovery)=>{
+ const result=presentErrorText(new ApiError('secret raw body',code,502),fallback);expect(result).toContain(recovery);expect(result).not.toContain('secret');
 });

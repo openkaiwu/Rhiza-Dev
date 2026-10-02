@@ -69,7 +69,7 @@ async function streamRequest<T>(path: string, body: unknown, onEvent: (event: Ru
   try {
     response = await fetch(scopedPath(path), { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', 'Idempotency-Key': options.idempotencyKey ?? crypto.randomUUID() }, body: JSON.stringify(body), signal: options.signal });
   } catch (error) {
-    if (options.signal?.aborted) throw new ApiError('生成已停止，本轮未写入历史。', 'GENERATION_STOPPED', 499);
+    if (options.signal?.aborted) throw new ApiError('已停止接收生成，请查看执行历史确认状态。', 'GENERATION_STOPPED', 499);
     throw error;
   }
   if (!response.ok) {
@@ -102,7 +102,7 @@ async function streamRequest<T>(path: string, body: unknown, onEvent: (event: Ru
   while (true) {
     let chunk;
     try { chunk = await reader.read(); } catch (error) {
-      if (options.signal?.aborted) throw new ApiError('生成已停止，本轮未写入历史。', 'GENERATION_STOPPED', 499);
+      if (options.signal?.aborted) throw new ApiError('已停止接收生成，请查看执行历史确认状态。', 'GENERATION_STOPPED', 499);
       throw error;
     }
     const { done, value } = chunk;
@@ -127,13 +127,18 @@ async function streamTemporaryMessage(input: TemporaryInput,onEvent: (event: Run
   return streamRequest('/api/temp-chat/stream',input,onEvent,options,'TEMP_RESULT');
 }
 /** Abort transport first; resolve its durable identity in the original Workspace without dispatching again. */
+async function findAttemptRun(commandId: string, workspaceId = currentWorkspaceId) {
+  const prefix = workspaceId ? `/api/v1/workspaces/${encodeURIComponent(workspaceId)}` : '/api';
+  return (await request<{ run: import('./types').ExecutionRun | null }>(`${prefix}/runs/by-command/${encodeURIComponent(commandId)}?idempotencyKey=true`)).run;
+}
 async function cancelAttempt(commandId: string,runId?: string,workspaceId = currentWorkspaceId) {
   const prefix = workspaceId ? `/api/v1/workspaces/${encodeURIComponent(workspaceId)}` : '/api';
   for (let attempt=0;attempt<5;attempt++) {
-    const run = runId ? { id: runId,status: 'running' } : (await request<{ run: import('./types').ExecutionRun | null }>(`${prefix}/runs/by-command/${encodeURIComponent(commandId)}?idempotencyKey=true`)).run;
+    const run = runId ? { id: runId,status: 'running' } : await findAttemptRun(commandId,workspaceId);
     if (run) { if (['created','dispatching','running'].includes(run.status)) await request(`${prefix}/runs/${encodeURIComponent(run.id)}/cancel`,{ method:'POST' }); return; }
     await new Promise(resolve => setTimeout(resolve,200*(attempt+1)));
   }
+  throw new ApiError('停止状态待确认，请查看执行历史。','RUN_LOOKUP_PENDING',409);
 }
 
 async function uploadAttachment(file: File): Promise<Attachment> {
@@ -179,7 +184,7 @@ export const api = {
   setContextPin: (id: string, pinned: boolean) => request<{ workspace: WorkspaceSnapshot }>(`/api/workspace/context/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ pinned }) }),
   addContextSource: (sourceType: 'node' | 'segment' | 'file', sourceId: string) => request<{ workspace: WorkspaceSnapshot }>('/api/workspace/context', { method: 'POST', body: JSON.stringify({ sourceType, sourceId }) }),
   sendMessage: (message: string) => request<{ userMessage: Message; assistantMessage: Message; manifest: { id: string } }>('/api/chat', { method: 'POST', body: JSON.stringify({ message }) }),
-  streamMessage, streamTemporaryMessage, cancelAttempt,
+  streamMessage, streamTemporaryMessage, cancelAttempt, findAttemptRun,
   workspaceId: () => currentWorkspaceId,
   retryRun: (runId: string, idempotencyKey: string, signal?:AbortSignal) => request<Omit<ChatCommit,'type'>>(`/api/runs/${encodeURIComponent(runId)}/retry`,{ method: 'POST', headers: { 'Idempotency-Key': idempotencyKey },signal }),
   searchWorkspace: (query: string) => request<{ results: Array<{ sourceType: 'node' | 'segment'; sourceId: string; nodeId: string; title: string; excerpt: string; titleMatch: boolean }> }>(`/api/search?q=${encodeURIComponent(query)}`),

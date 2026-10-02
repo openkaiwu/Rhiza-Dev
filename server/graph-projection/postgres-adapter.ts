@@ -10,7 +10,7 @@ interface TransactionalGraphSql extends SqlQueryable {
 
 const asIso = (value: unknown) => value instanceof Date ? value.toISOString() : new Date(String(value)).toISOString();
 
-/** PostgreSQL/PGlite adapter for the rebuildable graph-v1 projection namespace. */
+/** v2 materialization includes Segment objects and containment relations. */
 export class PostgresGraphProjectionAdapter {
   constructor(private readonly database: TransactionalGraphSql, private readonly workspaceId: string) {}
 
@@ -30,6 +30,7 @@ export class PostgresGraphProjectionAdapter {
   async materialize(projection: WorkspaceGraphProjection, force = false): Promise<WorkspaceGraphProjection> {
     const alias = await this.database.query<{ active_version: string }>("SELECT active_version FROM projection_aliases WHERE workspace_id=$1 AND projection_name='graph'", [this.workspaceId]);
     const activeVersion = alias.rows[0]?.active_version;
+    force ||= !!activeVersion && !activeVersion.startsWith('graph-v2-');
     if (!force && activeVersion) {
       const checkpoint = await this.database.query<{ last_sequence: number; semantic_checksum: string }>("SELECT last_sequence,semantic_checksum FROM projection_checkpoints WHERE workspace_id=$1 AND projection_name='graph' AND projection_version=$2", [this.workspaceId, activeVersion]);
       if (Number(checkpoint.rows[0]?.last_sequence) === projection.checkpoint && checkpoint.rows[0]?.semantic_checksum === projection.checksum) return this.load(activeVersion);
@@ -38,7 +39,7 @@ export class PostgresGraphProjectionAdapter {
     // Explicit rebuilds use a fresh namespace and switch the alias only after it is complete.
     const version = activeVersion && !force
       ? activeVersion
-      : `graph-v1-${projection.checkpoint}-${projection.checksum.slice(0, 12)}-${randomUUID().slice(0, 8)}`;
+      : `graph-v2-${projection.checkpoint}-${projection.checksum.slice(0, 12)}-${randomUUID().slice(0, 8)}`;
     const previous = activeVersion && !force ? await this.load(activeVersion) : undefined;
     await this.writeDelta(projection, previous, version);
     return this.load(version);
@@ -47,7 +48,9 @@ export class PostgresGraphProjectionAdapter {
   /** The command owns the transaction; delta calculation never reads the full SQL projection. */
   async applyDelta(previous: WorkspaceGraphProjection, projection: WorkspaceGraphProjection): Promise<void> {
     const alias = await this.database.query<{ active_version: string }>("SELECT active_version FROM projection_aliases WHERE workspace_id=$1 AND projection_name='graph'", [this.workspaceId]);
-    if (alias.rows[0]) await this.writeDelta(projection, previous, alias.rows[0].active_version);
+    const version = alias.rows[0]?.active_version;
+    if (version && !version.startsWith('graph-v2-')) await this.materialize(projection, true);
+    else if (version) await this.writeDelta(projection, previous, version);
   }
 
   private async writeDelta(projection: WorkspaceGraphProjection, previous: WorkspaceGraphProjection | undefined, version: string): Promise<void> {

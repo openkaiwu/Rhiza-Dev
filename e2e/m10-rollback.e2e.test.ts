@@ -3,7 +3,7 @@ import { expect, it } from 'vitest';
 import { runRollbackDrill } from '../scripts/m10-rollback-drill';
 
 it('preserves new history, attachment identity and receipts across a schema-compatible code rollback without resurrecting Purged content', async () => {
-  const report = await runRollbackDrill('5bc8466');
+  const report = await runRollbackDrill('1145401');
   expect(report.ok).toBe(true);
   expect(report.compatibleReader).toBe(true);
   expect(report.recoveredWithoutDuplicateCall).toBe(true);

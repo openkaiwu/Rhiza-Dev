@@ -82,7 +82,8 @@ function ManifestSummary({ manifest }: { manifest: ContextManifest }) {
 export function ChatView({ activeNode, nodes, edges, mode, activeCount, messages, manifests, attachments, provider, providerCatalog, syncError, online, focusComposerRequest, onSend, onUpload, onTempSend, onCreateBranch, onActivateNode, onMerge, onSelectModel, onSettings, onOpenContext, onInspectContext, onGraph, onRuns, segments = [], anchors = [], onWorkspaceChanged, onReconcile, onRetry }: ChatViewProps) {
   const [segmentRange,setSegmentRange]=useState<SegmentRange>();
   const tempAbortRef=useRef<AbortController|null>(null); const tempRunRef=useRef<string | undefined>(undefined);
-  const attemptRef=useRef<{key:string;workspaceId?:string} | undefined>(undefined); const tempAttemptRef=useRef<{key:string;workspaceId?:string} | undefined>(undefined);
+  const attemptRef=useRef<{key:string;workspaceId?:string;nodeId:string;text:string;options:ChatRequestOptions} | undefined>(undefined); const tempAttemptRef=useRef<{key:string;workspaceId?:string} | undefined>(undefined);
+  const liveRef=useRef(true);const resolvingRetryRef=useRef(false);
   const [draft, setDraft] = useState('');
   const [thinking, setThinking] = useState(false);
   const [chatError, setChatError] = useState('');
@@ -117,31 +118,47 @@ export function ChatView({ activeNode, nodes, edges, mode, activeCount, messages
   useEffect(() => { setVisibleCount(80); }, [activeNode.id]);
   useEffect(() => { if (typeof endRef.current?.scrollIntoView === 'function') endRef.current.scrollIntoView({ behavior: 'smooth' }); }, [messages, thinking]);
   useEffect(() => { if (typeof tempEndRef.current?.scrollIntoView === 'function') tempEndRef.current.scrollIntoView({ behavior: 'smooth' }); }, [temporary?.messages, tempThinking]);
-  useEffect(() => () => { abortRef.current?.abort(); tempAbortRef.current?.abort(); }, []);
+  useEffect(() => {liveRef.current=true;return () => {liveRef.current=false;abortRef.current?.abort(); tempAbortRef.current?.abort(); };}, []);
   useEffect(() => { composerRef.current?.focus(); }, [focusComposerRequest]);
 
-  const execute = async (text: string, options: ChatRequestOptions) => {
-    if (!text.trim() || thinking || !online) return;
+  const execute = async (text: string, options: ChatRequestOptions, reuseKey?:string) => {
+    if (!text.trim() || abortRef.current || !online) return;
     const controller = new AbortController();
     abortRef.current = controller;
     runIdRef.current = undefined;
-    const key=crypto.randomUUID(); attemptRef.current={key,workspaceId:api.workspaceId()};
-    const requestOptions = { ...options, idempotencyKey:key, signal: controller.signal, generation, onRunCreated: (runId: string) => { runIdRef.current = runId; setLastAttempt({ text, options: { ...options, parentRunRef: runId } }); } };
+    const key=reuseKey??crypto.randomUUID();
+    const frozen={...options,generation:{...(options.generation??generation)},attachmentIds:options.attachmentIds?[...options.attachmentIds]:undefined};
+    attemptRef.current={key,workspaceId:api.workspaceId(),nodeId:activeNode.id,text,options:frozen};
+    const requestOptions = { ...frozen, idempotencyKey:key, signal: controller.signal, onRunCreated: (runId: string) => { runIdRef.current = runId; } };
     if (options.operation === 'send' || options.operation === 'retry') setDraft('');
-    setThinking(true); setChatError(''); setLastAttempt({ text, options });
+    setThinking(true); setChatError(''); setLastAttempt({ text, options:frozen });
     try {
       if(options.operation==='retry'&&options.parentRunRef&&onRetry)await onRetry(options.parentRunRef,key,controller.signal);else await onSend(text, requestOptions);
-      setDraft(''); setSelectedAttachmentIds([]); setLastAttempt(null);
+      if(liveRef.current){setDraft(''); setSelectedAttachmentIds([]); setLastAttempt(null);attemptRef.current=undefined;}
     } catch (error) {
-      setChatError(presentErrorText(error, { message: '无法完成本轮对话。', recovery: '请重试。' }));
-      if (options.operation === 'send' || options.operation === 'retry') setDraft(text);
+      if(liveRef.current){setChatError(presentErrorText(error, { message: '无法完成本轮对话。', recovery: '请重试。' }));
+      if (options.operation === 'send' || options.operation === 'retry') setDraft(text);}
     } finally {
-      abortRef.current = null; setThinking(false);
+      abortRef.current = null; if(liveRef.current)setThinking(false);
     }
   };
 
-  const send = () => execute(draft.trim(), { operation: lastAttempt ? 'retry' : 'send', attachmentIds: selectedAttachmentIds });
-  const retry = () => lastAttempt && execute(lastAttempt.text, { ...lastAttempt.options, operation: 'retry' });
+  const retry = async () => {
+    const attempt=attemptRef.current;
+    if(!lastAttempt||!attempt||resolvingRetryRef.current||abortRef.current||!online)return;
+    if(attempt.nodeId!==activeNode.id){setChatError('请返回来源讨论后确认执行状态。');return;}
+    resolvingRetryRef.current=true;
+    try{
+      const run=await api.findAttemptRun(attempt.key,attempt.workspaceId);
+      if(!liveRef.current||attempt.workspaceId!==api.workspaceId()||attemptRef.current!==attempt)return;
+      if(run?.status==='completed'){onReconcile?.();setLastAttempt(null);attemptRef.current=undefined;setChatError('');setDraft('');return;}
+      if(run&&['created','dispatching','running'].includes(run.status)){setChatError('原执行仍在进行，请查看执行历史。');return;}
+      if(run)await execute(attempt.text,{...attempt.options,operation:'retry',parentRunRef:run.id});
+      else await execute(attempt.text,attempt.options,attempt.key);
+    }catch(error){if(liveRef.current)setChatError(presentErrorText(error,{message:'执行状态待确认。',recovery:'请查看执行历史后重试。'}));}
+    finally{resolvingRetryRef.current=false;}
+  };
+  const send = () => lastAttempt ? retry() : execute(draft.trim(), { operation:'send', attachmentIds: selectedAttachmentIds });
   const regenerate = (message: Message) => execute('重新生成上一轮回答', { operation: 'regenerate', sourceMessageId: message.id });
   const editAndResend = (message: Message) => {
     const text = editDraft.trim();
@@ -255,7 +272,7 @@ export function ChatView({ activeNode, nodes, edges, mode, activeCount, messages
       {(chatError || syncError || !online) && <div className="composer-error" role="alert"><span>{!online ? '当前离线，恢复网络后即可继续发送。' : chatError || syncError}</span>{lastAttempt && online && <button onClick={() => void retry()}><RotateCcw size={13}/>重试</button>}</div>}
       {renderAttachments(selectedAttachmentIds, true)}
       {controlsOpen && <div className="generation-controls"><label>Temperature <input aria-label="Temperature" type="number" min="0" max="2" step="0.1" value={generation.temperature} onChange={event => setGeneration(current => ({ ...current, temperature: Number(event.target.value) }))}/></label><label>Top P <input aria-label="Top P" type="number" min="0.05" max="1" step="0.05" value={generation.topP} onChange={event => setGeneration(current => ({ ...current, topP: Number(event.target.value) }))}/></label><label>Max tokens <input aria-label="Max tokens" type="number" min="1" max="32768" step="128" value={generation.maxTokens} onChange={event => setGeneration(current => ({ ...current, maxTokens: Number(event.target.value) }))}/></label></div>}
-      <div className="composer"><textarea ref={composerRef} aria-label="输入消息" value={draft} onChange={event => { setDraft(event.target.value); setLastAttempt(null); }} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} placeholder={online ? '继续这段讨论…' : '离线时不能发送消息'} rows={2} disabled={!online}/><div className="composer-tools"><div><input ref={fileInputRef} className="file-input" type="file" multiple accept={providerCatalog.filePolicy?.supportedMimeTypes.join(',')} onChange={event => void uploadFiles(event.target.files)}/><button aria-label="添加附件" onClick={() => fileInputRef.current?.click()} disabled={!online || uploading || providerCatalog.filePolicy?.disabled}><Paperclip size={16}/></button><button aria-label="引用节点" onClick={onOpenContext}><AtSign size={16}/></button><button aria-label="添加文件" onClick={() => fileInputRef.current?.click()} disabled={!online || uploading}><FilePlus2 size={16}/></button><button className={controlsOpen ? 'active' : ''} aria-label="生成参数" onClick={() => setControlsOpen(open => !open)}><SlidersHorizontal size={16}/></button></div><div className="send-side"><ModelSelector catalog={providerCatalog} onSelect={onSelectModel} onSettings={onSettings}/><span className={provider.configured && online ? 'provider-online' : 'provider-offline'}><Sparkles size={13}/>{online ? (provider.configured ? 'Ready' : '未连接') : '离线'} · {mode} · {activeCount} sources</span>{thinking ? <button className="send-button stop-button" onClick={() => { abortRef.current?.abort(); const attempt=attemptRef.current; if(attempt)void api.cancelAttempt(attempt.key,runIdRef.current,attempt.workspaceId).then(()=>onReconcile?.()).catch(()=>setChatError('停止状态待确认，请查看执行历史。')); }} aria-label="停止生成"><Square size={13} fill="currentColor"/></button> : <button className="send-button" onClick={() => void send()} disabled={!draft.trim() || !provider.configured || !online || uploading} aria-label="发送"><ArrowUp size={17}/></button>}</div></div></div>
+      <div className="composer"><textarea ref={composerRef} aria-label="输入消息" value={draft} onChange={event => { setDraft(event.target.value); setLastAttempt(null);attemptRef.current=undefined; }} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} placeholder={online ? '继续这段讨论…' : '离线时不能发送消息'} rows={2} disabled={!online}/><div className="composer-tools"><div><input ref={fileInputRef} className="file-input" type="file" multiple accept={providerCatalog.filePolicy?.supportedMimeTypes.join(',')} onChange={event => void uploadFiles(event.target.files)}/><button aria-label="添加附件" onClick={() => fileInputRef.current?.click()} disabled={!online || uploading || providerCatalog.filePolicy?.disabled}><Paperclip size={16}/></button><button aria-label="引用节点" onClick={onOpenContext}><AtSign size={16}/></button><button aria-label="添加文件" onClick={() => fileInputRef.current?.click()} disabled={!online || uploading}><FilePlus2 size={16}/></button><button className={controlsOpen ? 'active' : ''} aria-label="生成参数" onClick={() => setControlsOpen(open => !open)}><SlidersHorizontal size={16}/></button></div><div className="send-side"><ModelSelector catalog={providerCatalog} onSelect={onSelectModel} onSettings={onSettings}/><span className={provider.configured && online ? 'provider-online' : 'provider-offline'}><Sparkles size={13}/>{online ? (provider.configured ? 'Ready' : '未连接') : '离线'} · {mode} · {activeCount} sources</span>{thinking ? <button className="send-button stop-button" onClick={() => { abortRef.current?.abort(); const attempt=attemptRef.current; if(attempt)void api.cancelAttempt(attempt.key,runIdRef.current,attempt.workspaceId).then(()=>onReconcile?.()).catch(()=>setChatError('停止状态待确认，请查看执行历史。')); }} aria-label="停止生成"><Square size={13} fill="currentColor"/></button> : <button className="send-button" onClick={() => void send()} disabled={!draft.trim() || !provider.configured || !online || uploading} aria-label="发送"><ArrowUp size={17}/></button>}</div></div></div>
       <p className="composer-caption"><span className="live-dot"/> Rhiza Domain 将冻结上下文、附件与生成参数，再交由 AI Runtime 执行</p>
     </div>
   </main>;

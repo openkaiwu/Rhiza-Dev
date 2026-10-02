@@ -4,7 +4,7 @@ import { api } from './api';
 
 afterEach(() => {
   api.setWorkspace();
-  vi.unstubAllGlobals();
+  vi.unstubAllGlobals();vi.useRealTimers();
 });
 
 it('uploads raw bundle content globally with a stable retry key', async () => {
@@ -50,4 +50,8 @@ it('binds workspace data requests to the selected path while keeping provider re
     `/api/v1/workspaces/${workspaceId}/chat`,
     '/api/providers',
   ]);
+});
+
+it('reports pending cancellation when command lookup never finds the Run',async()=>{
+ vi.useFakeTimers();vi.stubGlobal('fetch',vi.fn().mockImplementation(async()=>new Response(JSON.stringify({run:null}),{status:200})));const result=api.cancelAttempt('not-created',undefined,'original-workspace');const assertion=expect(result).rejects.toMatchObject({code:'RUN_LOOKUP_PENDING'});await vi.runAllTimersAsync();await assertion;vi.useRealTimers();
 });
