@@ -25,7 +25,7 @@
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
-  --sidebar-width: 238px;
-  --context-width: 328px;
+  --sidebar-width: 220px;
+  --context-width: 304px;
   --ease: cubic-bezier(.2, .8, .2, 1);
 }

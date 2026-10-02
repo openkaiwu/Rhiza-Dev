@@ -150,6 +150,15 @@ async function uploadAttachment(file: File): Promise<Attachment> {
 }
 
 export const api = {
+  getContextPreview: (query = '', attachmentIds: string[] = []) => {
+    const parameters = new URLSearchParams({ query });
+    if (attachmentIds.length) parameters.set('attachmentIds', attachmentIds.join(','));
+    return request<import('./types').ContextPreview>(`/api/workspace/context/preview?${parameters}`);
+  },
+  decideContextRecommendation: (decision: import('./types').ContextRecommendationDecision, idempotencyKey: string) => request<{ workspace: WorkspaceSnapshot }>('/api/workspace/context/decisions', {
+    method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(decision),
+  }),
+  getReplayPreflight: (runId: string) => request<import('./types').ReplayPreflight>(`/api/runs/${encodeURIComponent(runId)}/replay/preflight`),
   previewWorkspaceBundle: (file: File) => request<{ workspaceId: string; name: string; archiveDigest: string; messages: number; runs: number; resourceVersions: number }>('/api/bundle/preview', {
     method: 'POST', headers: { 'Content-Type': 'application/vnd.rhiza.workspace+zip' }, body: file,
   }),
@@ -180,6 +189,7 @@ export const api = {
   getGraphPath: (fromId:string,toId:string) => request<{graph:import('./types').GraphProjectionResult}>(`/api/graph/path?${new URLSearchParams({fromId,toId,nodeLimit:'500'})}`),
   setMode: (mode: ContextMode) => request<{ workspace: WorkspaceSnapshot }>('/api/workspace/mode', { method: 'PATCH', body: JSON.stringify({ mode }) }),
   getMessageContext: (id: string) => request<ContextHistory>(`/api/messages/${encodeURIComponent(id)}/context`),
+  getManifestContext: (manifestId: string) => request<ContextHistory>(`/api/context/manifests/${encodeURIComponent(manifestId)}`),
   setContextStatus: (id: string, status: ContextStatus) => request<{ workspace: WorkspaceSnapshot }>(`/api/workspace/context/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   setContextPin: (id: string, pinned: boolean) => request<{ workspace: WorkspaceSnapshot }>(`/api/workspace/context/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ pinned }) }),
   addContextSource: (sourceType: 'node' | 'segment' | 'file', sourceId: string) => request<{ workspace: WorkspaceSnapshot }>('/api/workspace/context', { method: 'POST', body: JSON.stringify({ sourceType, sourceId }) }),

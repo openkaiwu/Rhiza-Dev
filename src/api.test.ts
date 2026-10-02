@@ -7,6 +7,31 @@ afterEach(() => {
   vi.unstubAllGlobals();vi.useRealTimers();
 });
 
+it('previews current Context and Replay without mutations, then confirms the exact reviewed source in the same Workspace', async () => {
+  const fetch = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ items: [], recommendations: [], policies: [] }), { status: 200 }));
+  vi.stubGlobal('fetch', fetch);
+  api.setWorkspace('research workspace');
+  await api.getContextPreview('预算 & 来源', ['file/1']);
+  await api.getReplayPreflight('run/1');
+  const decision = { sourceType: 'node' as const, sourceId: 'source/1', sourceRevision: 'a'.repeat(64), decision: 'accept' as const, reason: '本轮需要这份证据' };
+  await api.decideContextRecommendation(decision, 'decision-key');
+  expect(fetch.mock.calls[0]).toEqual(['/api/v1/workspaces/research%20workspace/workspace/context/preview?query=%E9%A2%84%E7%AE%97+%26+%E6%9D%A5%E6%BA%90&attachmentIds=file%2F1', { headers: { 'Content-Type': 'application/json' } }]);
+  expect(fetch.mock.calls[1]).toEqual(['/api/v1/workspaces/research%20workspace/runs/run%2F1/replay/preflight', { headers: { 'Content-Type': 'application/json' } }]);
+  expect(fetch.mock.calls[2]).toEqual(['/api/v1/workspaces/research%20workspace/workspace/context/decisions', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': 'decision-key' }, body: JSON.stringify(decision) }]);
+  await api.getManifestContext('manifest/1');
+  expect(fetch.mock.calls[3][0]).toBe('/api/v1/workspaces/research%20workspace/context/manifests/manifest%2F1');
+});
+
+it('preserves a stale Context decision as a conflict and never retries or replaces its reviewed version automatically', async () => {
+  const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { code: 'CONTEXT_SELECTION_STALE', message: '来源已变化', category: 'conflict', retryable: false } }), { status: 409 }));
+  vi.stubGlobal('fetch', fetch);
+  api.setWorkspace('original');
+  const decision = { sourceType: 'file' as const, sourceId: 'file', sourceRevision: 'b'.repeat(64), decision: 'accept' as const, reason: '已审阅' };
+  await expect(api.decideContextRecommendation(decision, 'same-operation')).rejects.toMatchObject({ code: 'CONTEXT_SELECTION_STALE', status: 409, category: 'conflict', retryable: false });
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual(decision);
+});
+
 it('uploads raw bundle content globally with a stable retry key', async () => {
   const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ workspaceId: 'imported', importId: 'job' }), { status: 201 }));
   vi.stubGlobal('fetch', fetch);

@@ -1,15 +1,15 @@
-import { ArrowLeft, Check, EyeOff } from 'lucide-react';
+import { ArrowLeft, Check, EyeOff, X } from 'lucide-react';
 import type { ContextHistory } from '../types';
 
-export interface ContextHistoryState { messageId: string; loading: boolean; data?: ContextHistory; error?: string }
+export interface ContextHistoryState { messageId: string; manifestId?: string; loading: boolean; data?: ContextHistory; error?: string }
 const missingLabels = { missing_resource: '来源记录缺失', missing_version: '来源版本缺失', missing_blob: '冻结内容缺失', digest_mismatch: '内容校验失败', legacy_unversioned: '旧记录未保存来源版本' };
 const modes = { CURRENT: '当前讨论', USER_SELECTED: '手动选择', AI_RECOMMENDED_ACCEPTED: '已接受推荐', AUTO_RETRIEVED: '自动检索' };
 
-export function ContextHistoryPanel({ history, onBack, onRetry }: { history: ContextHistoryState; onBack: () => void; onRetry: () => void }) {
+export function ContextHistoryPanel({ history, onBack, onRetry, onClose }: { history: ContextHistoryState; onBack: () => void; onRetry: () => void; onClose?: () => void }) {
   const manifest = history.data?.manifest;
   const budget = manifest?.planner?.budget;
   return <aside className="context-panel context-history" aria-label="历史上下文">
-    <header className="panel-header"><div><span className="eyebrow">CONTEXT HISTORY</span><h2>当时的上下文</h2><p>查看这一轮使用的冻结证据。</p></div><button className="icon-button" onClick={onBack} aria-label="返回当前上下文"><ArrowLeft size={18}/></button></header>
+    <header className="panel-header"><div><span className="eyebrow">历史上下文</span><h2>当时的上下文</h2><p>查看这一轮使用的冻结证据。</p></div><button className="icon-button" onClick={onBack} aria-label="返回当前上下文"><ArrowLeft size={18}/></button>{onClose && <button className="icon-button" onClick={onClose} aria-label="关闭上下文"><X size={18}/></button>}</header>
     {history.loading && <p className="context-history-notice" role="status">正在读取历史上下文…</p>}
     {history.error && <div className="context-history-notice" role="alert"><p>{history.error}</p><button onClick={onRetry}>重新加载</button></div>}
     {manifest && <div className="context-scroll">

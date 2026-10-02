@@ -52,3 +52,13 @@ describe('AppShell', () => {
     expect(screen.getByText('runs surface')).toBeInTheDocument();
   });
 });
+
+it('releases the context rail and keeps mobile navigation inside the same workspace', () => {
+  const onView = vi.fn(); const open = vi.fn();
+  render(<AppShell view="chat" hasDiscussionNodes contextOpen={false} networkNotice="" sidebar={<nav>sidebar</nav>} surfaces={surfaces} emptySurface={<main>empty</main>} contextSurface={<aside>context surface</aside>} onCloseContext={vi.fn()} onOpenContext={open} onView={onView} title="当前讨论" contextCount={3}/>);
+  expect(screen.queryByText('context surface')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '关闭上下文面板' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '上下文 3' })); expect(open).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole('button', { name: '图谱' })); expect(onView).toHaveBeenCalledWith('graph');
+  expect(screen.queryByRole('button', { name: '协作' })).not.toBeInTheDocument();
+});

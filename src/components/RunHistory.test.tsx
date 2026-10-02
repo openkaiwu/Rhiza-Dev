@@ -9,11 +9,14 @@ const run: ExecutionRun = { id: 'run-1', commandId: 'command-1', workspaceId: 'w
 
 it('requires an explicit replay policy and reuses the retry key after failure', async () => {
   vi.spyOn(api, 'listRuns').mockResolvedValue({ runs: [{ ...run, status: 'completed' }] });
+  vi.spyOn(api, 'getReplayPreflight').mockResolvedValue({ runId: run.id, missingRefs: [], policies: [{ policy: 'exact', allowed: true, differences: [] }, { policy: 'partial', allowed: true, differences: ['模型配置不同'] }] });
   const replay = vi.spyOn(api, 'replayRun').mockRejectedValueOnce(new Error('历史资源缺失')).mockResolvedValue({ replay: { classification: 'partial' } });
   const changed = vi.fn();
   render(<RunHistory onChanged={changed}/>);
   fireEvent.click(await screen.findByText('历史回放'));
-  fireEvent.change(screen.getByLabelText('回放策略'), { target: { value: 'partial' } });
+  fireEvent.change(await screen.findByLabelText('回放策略'), { target: { value: 'partial' } });
+  expect(screen.getByRole('button', { name: '按所选策略回放' })).toBeDisabled();
+  fireEvent.click(screen.getByLabelText('我接受以上配置差异'));
   fireEvent.click(screen.getByRole('button', { name: '按所选策略回放' }));
   await screen.findByText('历史资源缺失');
   fireEvent.click(screen.getByRole('button', { name: '按所选策略回放' }));
@@ -54,4 +57,16 @@ it('retains the logical Retry identity when its response is lost',async()=>{
 it('reconciles a completed Retry after transport loss without another external attempt',async()=>{
  vi.spyOn(api,'listRuns').mockResolvedValue({runs:[{...run,status:'failed'}]});vi.spyOn(api,'activateNode').mockResolvedValue({workspace:{} as never});const retry=vi.spyOn(api,'retryRun').mockRejectedValueOnce(new TypeError('lost response'));vi.spyOn(api,'findAttemptRun').mockResolvedValue({...run,id:'child',status:'completed'});const changed=vi.fn();
  render(<RunHistory onChanged={changed}/>);fireEvent.click(await screen.findByRole('button',{name:'重试为新 Run'}));await screen.findByText('操作未完成，请查看执行状态后重试。');fireEvent.click(screen.getByRole('button',{name:'重试为新 Run'}));await waitFor(()=>expect(changed).toHaveBeenCalledOnce());expect(retry).toHaveBeenCalledOnce();
+});
+
+it('blocks all replay policies when frozen resources are missing without any model action', async () => {
+  vi.spyOn(api, 'listRuns').mockResolvedValue({ runs: [{ ...run, status: 'completed' }] });
+  const preflight = vi.spyOn(api, 'getReplayPreflight').mockResolvedValue({ runId: run.id, missingRefs: ['blob:missing'], policies: [{ policy: 'exact', allowed: false, differences: [] }, { policy: 'current-model', allowed: false, differences: [] }] });
+  const replay = vi.spyOn(api, 'replayRun');
+  render(<RunHistory onChanged={vi.fn()}/>);
+  expect(preflight).not.toHaveBeenCalled();
+  fireEvent.click(await screen.findByText('历史回放'));
+  await screen.findByText(/历史资源缺失或损坏，无法回放/);
+  expect(screen.getByRole('button', { name: '按所选策略回放' })).toBeDisabled();
+  expect(replay).not.toHaveBeenCalled();
 });

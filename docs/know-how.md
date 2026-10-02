@@ -20,6 +20,7 @@
 
 - 领域状态由 `App` 统一持有，表现组件通过回调修改，避免 Context 数量和预算显示不一致。
 - `AppShell` 只组合 Sidebar、Workspace surface、Context 与 overlay；API 调用、持久化 mutation、streaming 和 reconciliation 必须留在 `App` coordinator/application 边界。
+- 本轮 Context 数量、预算与推荐必须来自服务端 preview，不能由存储列表推算；推荐确认绑定 sourceRevision 与用户理由。历史消息的来源数量只读自身 Manifest，不得使用当前预览补齐。Replay 先预检冻结资源，展示策略可用性与差异，缺失资源不提供执行入口。
 - Graph 前端通过 `graph-model.ts` 的 UI-facing model 消费数据。M07 bounded API 已作为适配器输入，但 projector cursor、projection table schema、Journal sequence 与 hover/zoom/panel 等 UI-only 状态不得进入 `GraphView` 契约或 Domain relation。
 - Graph 列表分页必须保留跨页关系，并在展示前筛选已加载的端点。分页 cursor 绑定 checkpoint；失效后刷新第一页，不混合两次投影。Workspace 切换要同时清空 Graph DTO 和作废在途页。
 - Graph Projection 的 active namespace、checkpoint 与 semantic checksum 必须在同一事务更新。正常 checkpoint 推进复用 active namespace；clean rebuild 写新 namespace，只有完整写入后才能切换 alias，且旧 namespace 保留给回滚。

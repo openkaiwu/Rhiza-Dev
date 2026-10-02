@@ -55,3 +55,13 @@ Project verification commands are defined in package.json (`pnpm run lint`, `pnp
 ## Remaining boundary
 
 Approval of the concrete preview is pending under ui-ux-design-suite. Production implementation, full shared-consumer regression, desktop/narrow real import/source/Replay/Purge checks and external acceptance remain separate work. The prototype and simulated states must not be reported as those features having passed production acceptance.
+
+### Approved production unit: conversation, Context and Replay
+
+The user explicitly approved the concrete preview on 2026-10-02. The production React workbench now uses a 220px collapsible navigation column, one 56px title bar, an optional 304px Context rail, and four named narrow-screen destinations. At 1200px Context becomes a modal drawer; at 760px it becomes a bottom sheet. The composer occupies its own flex row. Discussion management remains available through disclosure.
+
+Context preview, version-bound accept/reject with user reasons, frozen Manifest history and provenance navigation use the scoped existing HTTP interfaces. Replay first checks frozen resources and available policies; listed differences require explicit acceptance. Missing resources disable all execution choices. Historical message counts come only from that message's Manifest.
+
+The affected UI run verified 48 cases initially; the two failures (safe error wording and an empty-workspace fallback title) were fixed and both affected cases passed. Additional shell/provenance checks passed. Typecheck and lint passed after the final changes. The prepared real HTTP/PGlite client regression passed in the preceding implementation step. A desktop browser pass on the actual React UI completed selection → Chat → provenance → frozen history → Exact Replay with an isolated encrypted PGlite store and an explicitly offline model. A 390×844 pass verified the Context bottom sheet, focus isolation and Escape recovery. Document width was 390px; composer bottom and navigation top were both 784px.
+
+Evidence: `product-context-desktop.jpg`, `product-chat-narrow.jpg`, `product-context-narrow.jpg`. This unit does not complete collaboration, data migration, graph delivery or any external milestone Gate.

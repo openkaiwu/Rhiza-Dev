@@ -3,7 +3,7 @@ import { WorkspaceSearch } from './components/WorkspaceSearch';
 import { MergeDialog } from './components/MergeDialog';
 import { boundedGraphCache } from './components/graph-viewport';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Anchor, Attachment, ContextManifest, ContextMode, ContextStatus, DiscussionEdge, DiscussionNode, GraphProjectionResult, Message, ProviderCatalog, ProviderPresetInfo, ProviderStatus, Segment, View, WorkspaceActivityItem, WorkspaceSnapshot, WorkspaceRecord } from './types';
+import type { Anchor, Attachment, ContextManifest, ContextMode, ContextPreview, ContextRecommendationDecision, ContextStatus, DiscussionEdge, DiscussionNode, GraphProjectionResult, Message, ProviderCatalog, ProviderPresetInfo, ProviderStatus, Segment, View, WorkspaceActivityItem, WorkspaceSnapshot, WorkspaceRecord } from './types';
 import { api, type ChatRequestOptions } from './api';
 import { presentErrorText } from './error-presentation';
 import { Sidebar } from './components/Sidebar';
@@ -36,6 +36,17 @@ export function App() {
   const [contextOpen, setContextOpen] = useState(false);
   const [contextHistory, setContextHistory] = useState<ContextHistoryState>();
   const historyRequestRef = useRef(0);
+  const [contextPreview, setContextPreview] = useState<ContextPreview>();
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState('');
+  const [previewRevision, setPreviewRevision] = useState(0);
+  const [draftContext, setDraftContext] = useState({ query: '', attachmentIds: [] as string[] });
+  const [decidingContext, setDecidingContext] = useState(false);
+  const decisionInFlight = useRef(false);
+  const decisionKeys = useRef(new Map<string, string>());
+  const [focusedRunId, setFocusedRunId] = useState<string>();
+  const closeContext = useCallback(() => setContextOpen(false), []);
+  const updateDraftContext = useCallback((query: string, attachmentIds: string[]) => setDraftContext({ query, attachmentIds }), []);
   const [manifests, setManifests] = useState<ContextManifest[]>([]);
   const [anchors,setAnchors]=useState<Anchor[]>([]);
   const [segments, setSegments] = useState<Segment[]>([]);
@@ -113,6 +124,38 @@ export function App() {
   }, [applyWorkspace]);
 
   useEffect(() => { void loadWorkspace(); }, [loadWorkspace]);
+  useEffect(() => {
+    if (boot !== 'ready' || !currentWorkspaceId || !activeNodeId) return;
+    let current = true;
+    const generation = workspaceGenerationRef.current;
+    const workspaceId = selectedWorkspaceRef.current;
+    setPreviewLoading(true); setPreviewError(''); setContextPreview(undefined);
+    const timer = setTimeout(() => {
+      void api.getContextPreview(draftContext.query, draftContext.attachmentIds).then(preview => {
+        if (current && generation === workspaceGenerationRef.current && workspaceId === selectedWorkspaceRef.current) setContextPreview(preview);
+      }).catch(error => {
+        if (current && generation === workspaceGenerationRef.current && workspaceId === selectedWorkspaceRef.current) setPreviewError(presentErrorText(error, { message: '无法预览本轮上下文。', recovery: '请重新预览。' }));
+      }).finally(() => { if (current && generation === workspaceGenerationRef.current && workspaceId === selectedWorkspaceRef.current) setPreviewLoading(false); });
+    }, 250);
+    return () => { current = false; clearTimeout(timer); };
+  }, [boot, currentWorkspaceId, activeNodeId, mode, contextItems, messages, draftContext, previewRevision]);
+  useEffect(() => { setDraftContext({ query: '', attachmentIds: [] }); }, [currentWorkspaceId, activeNodeId]);
+  const decideContext = async (decision: ContextRecommendationDecision) => {
+    if (decisionInFlight.current) return;
+    const current = workspaceMutation();
+    const identity = JSON.stringify([selectedWorkspaceRef.current, decision]);
+    const key = decisionKeys.current.get(identity) ?? crypto.randomUUID();
+    decisionKeys.current.set(identity, key);
+    decisionInFlight.current = true; setDecidingContext(true); setPreviewError('');
+    try {
+      const { workspace } = await api.decideContextRecommendation(decision, key);
+      decisionKeys.current.delete(identity);
+      if (current()) { applyWorkspace(workspace); setPreviewRevision(value => value + 1); }
+    } catch (error) {
+      if (current()) setPreviewError(presentErrorText(error, { message: '推荐确认未完成。', recovery: '来源可能已更新，请重新预览后确认。' }));
+    } finally { decisionInFlight.current = false; if (current()) setDecidingContext(false); }
+  };
+
   const loadActivity = useCallback(async () => {
     const workspaceId = selectedWorkspaceRef.current;
     const generation = workspaceGenerationRef.current;
@@ -176,19 +219,20 @@ export function App() {
   useEffect(() => { if (view === 'graph' && boot === 'ready') void loadGraph(); }, [view, boot, currentWorkspaceId, discussionNodes, loadGraph]);
   useEffect(() => { if (api.listWorkspaces) void api.listWorkspaces(true).then(result => setWorkspaces(result.workspaces)).catch(() => undefined); }, []);
   const openCurrentContext = () => { historyRequestRef.current++; setContextHistory(undefined); setContextOpen(true); };
-  const inspectMessageContext = async (messageId: string) => {
+  const inspectMessageContext = async (messageId: string, manifestId?: string) => {
     const request = ++historyRequestRef.current;
     const generation = workspaceGenerationRef.current;
-    setContextOpen(true); setContextHistory({ messageId, loading: true });
+    setContextOpen(true); setContextHistory({ messageId, manifestId, loading: true });
     try {
-      const data = await api.getMessageContext(messageId);
-      if (request === historyRequestRef.current && generation === workspaceGenerationRef.current) setContextHistory({ messageId, loading: false, data });
+      const data = await (manifestId ? api.getManifestContext(manifestId) : api.getMessageContext(messageId));
+      if (request === historyRequestRef.current && generation === workspaceGenerationRef.current) setContextHistory({ messageId, manifestId, loading: false, data });
     } catch (error) {
-      if (request === historyRequestRef.current && generation === workspaceGenerationRef.current) setContextHistory({ messageId, loading: false, error: presentErrorText(error, { message: '无法读取这轮上下文。', recovery: '请重新加载。' }) });
+      if (request === historyRequestRef.current && generation === workspaceGenerationRef.current) setContextHistory({ messageId, manifestId, loading: false, error: presentErrorText(error, { message: '无法读取这轮上下文。', recovery: '请重新加载。' }) });
     }
   };
   const switchWorkspace = async (workspaceId: string) => {
     historyRequestRef.current++; setContextHistory(undefined);
+    setContextPreview(undefined); setPreviewError(''); setDecidingContext(false); setFocusedRunId(undefined);
     const generation = ++workspaceGenerationRef.current;
     selectedWorkspaceRef.current = workspaceId;
     graphRequestRef.current += 1; graphPagesRef.current = 1; graphCompleteRef.current = false; setGraphProjection(undefined); setGraphError('');
@@ -459,7 +503,7 @@ export function App() {
     setSyncError('');
   };
   const mergeNode = async (id:string) => { setMergeSource(id); };
-  const activeCount = contextItems.filter(item => item.status === 'active').length;
+  const activeCount = contextPreview?.items.length ?? 0;
   const navigableNodes = discussionNodes.filter(node => node.status !== 'archived');
   const activeNode = navigableNodes.find(node => node.id === activeNodeId) || navigableNodes[0] || initialNode;
   const activeMessages = messages.filter(message => message.nodeId === activeNode.id);
@@ -479,7 +523,12 @@ export function App() {
     hasDiscussionNodes={discussionNodes.length > 0}
     contextOpen={contextOpen}
     networkNotice={workspaceRecord()?.status==='archived'?'工作区已归档，可在工作区菜单恢复。':networkNotice}
-    onCloseContext={() => setContextOpen(false)}
+    onCloseContext={closeContext}
+    onOpenContext={() => { if (contextHistory) openCurrentContext(); else setContextOpen(open => !open); }}
+    onView={setView}
+    title={view === 'chat' ? (discussionNodes.length ? activeNode.title : '尚无讨论') : ({ graph: '对话图谱', state: '知识状态', activity: '活动时间线', runs: '执行历史' })[view]}
+    workspaceName={workspaceRecord()?.name}
+    contextCount={previewLoading ? undefined : activeCount}
     sidebar={<Sidebar view={view} nodes={navigableNodes} messages={messages} activeNodeId={activeNode.id} onView={setView} onNode={id => activateNode(id, true)} onSettings={openSettings} onCommand={() => setPaletteOpen(true)} onHelp={() => setOnboardingOpen(true)} workspaces={workspaces} currentWorkspaceId={currentWorkspaceId} onWorkspace={id => void switchWorkspace(id)} onCreateWorkspace={() => setWorkspaceForm('create')} onRenameWorkspace={() => setWorkspaceForm('rename')} onArchiveWorkspace={() => void archiveWorkspace()} onRestoreWorkspace={() => void restoreWorkspace()} onBundleImported={async workspaceId => {
       if (selectedWorkspaceRef.current !== currentWorkspaceId) return;
       const current = workspaceMutation();
@@ -490,6 +539,7 @@ export function App() {
     surfaces={{
       chat: <ChatView
         key={`${currentWorkspaceId}:${activeNode.id}`} activeNode={activeNode} nodes={navigableNodes} edges={discussionEdges} mode={mode}
+        onDraftChange={updateDraftContext} onInspectManifest={id => void inspectMessageContext('', id)} onOpenRun={id => { setFocusedRunId(id); setView('runs'); }}
         activeCount={activeCount} messages={activeMessages} manifests={manifests} attachments={attachments}
         segments={segments} anchors={anchors} onWorkspaceChanged={applyWorkspace} onReconcile={()=>void loadWorkspace(true)} onRetry={async(runId,key,signal)=>{const current=workspaceMutation();const result=await api.retryRun(runId,key,signal);if(current()){setMessages(messages=>[...messages,result.userMessage,result.assistantMessage]);setManifests(manifests=>[...manifests,result.manifest]);}}} provider={provider} providerCatalog={{...providerCatalog,activeModelId:activeNode.preferredModelId??workspaceModelId??providerCatalog.activeModelId}} syncError={syncError} online={online&&workspaceRecord()?.status!=='archived'} focusComposerRequest={focusComposerRequest} onSend={sendMessage}
         onUpload={uploadAttachment} onTempSend={sendTemporaryMessage} onCreateBranch={createBranch}
@@ -498,10 +548,10 @@ export function App() {
       />,
       graph: <GraphView key={currentWorkspaceId} loading={graphLoading} error={graphError} hasMore={!!graphProjection?.nextCursor} onLoadMore={() => void loadGraph(graphProjection?.nextCursor)} onRefresh={() => void loadGraph()} onFilter={filterGraph} onNeighborhood={loadGraphNeighborhood} contextIds={contextItems.filter(item=>item.status==='active').map(item=>item.sourceId??'')} onContext={async(node,remove)=>{if(remove){const item=contextItems.find(item=>item.sourceId===node.id);if(item)await updateStatus(item.id,'excluded');}else await addContextSource(node.objectType==='segment'?'segment':'node',node.id);}} onNavigateObject={async node=>{let parent=node.parentId;const parentObject=graphProjection?.objects.find(item=>item.ref.objectId===parent);if(parentObject?.ref.objectType==='segment')parent=graphProjection?.relations.find(edge=>edge.relationType==='contains'&&edge.target.objectId===parent)?.source.objectId;if(parent)await activateNode(parent,true);const message=node.objectType==='message'?node.id:anchors.find(anchor=>anchor.segmentId===node.id)?.messageId??messages.find(message=>message.segmentId===node.id)?.id;if(message)setTimeout(()=>document.getElementById(`message-${message}`)?.scrollIntoView({block:'center'}),50);}} onPath={highlightGraphPath} nodes={graphModel.nodes} edges={graphModel.edges} activeNodeId={activeNode.id} onMove={moveNode} onActivate={id => activateNode(id, true)} onCreateNode={createGraphNode} onArchiveNode={archiveGraphNode} onRestoreNode={restoreGraphNode} onPurgeNode={purgeGraphNode} onCreateEdge={createGraphEdge} onDeleteEdge={deleteGraphEdge}/>,
       state: <StateView/>,
-      runs: <RunHistory key={currentWorkspaceId} onChanged={() => void loadWorkspace(true)}/>,
+      runs: <RunHistory key={currentWorkspaceId} focusedRunId={focusedRunId} onInspectContext={id => void inspectMessageContext('', id)} onChanged={() => void loadWorkspace(true)}/>,
       activity: <ActivityView activity={activity} loading={activityLoading} error={activityError} onRefresh={() => void loadActivity()}/>,
     }}
-    contextSurface={<ContextPanel history={contextHistory} onBackToCurrent={openCurrentContext} onRetryHistory={() => { if (contextHistory) void inspectMessageContext(contextHistory.messageId); }} items={contextItems} mode={mode} nodes={discussionNodes} segments={segments} attachments={attachments} onMode={updateMode} onStatus={updateStatus} onPin={updatePin} onAddSource={addContextSource}/>}
+    contextSurface={<ContextPanel key={currentWorkspaceId} preview={contextPreview} loading={previewLoading} error={previewError} deciding={decidingContext} onRefresh={() => setPreviewRevision(value => value + 1)} onDecision={decideContext} onClose={closeContext} history={contextHistory} onBackToCurrent={openCurrentContext} onRetryHistory={() => { if (contextHistory) void inspectMessageContext(contextHistory.messageId, contextHistory.manifestId); }} items={contextItems} mode={mode} nodes={discussionNodes} segments={segments} attachments={attachments} onMode={updateMode} onStatus={updateStatus} onPin={updatePin} onAddSource={addContextSource}/>}
     overlayLayer={<>
       {workspaceForm&&<WorkspaceForm key={currentWorkspaceId} rename={workspaceForm==='rename'} initialName={workspaceForm==='rename'?workspaceRecord()?.name:undefined} onSave={workspaceForm==='rename'?renameWorkspace:createWorkspace} onClose={()=>setWorkspaceForm(undefined)}/>}
       {mergeSource&&discussionNodes.find(node=>node.id===mergeSource)&&<MergeDialog source={discussionNodes.find(node=>node.id===mergeSource)!} nodes={discussionNodes} latestReply={[...messages].reverse().find(message=>message.nodeId===mergeSource&&message.kind==='assistant')?.text??''} onClose={()=>setMergeSource(undefined)} onSave={async(targetNodeId,summary)=>{const current=workspaceMutation();const {workspace}=await api.mergeNode(mergeSource,targetNodeId,summary);if(current())applyWorkspace(workspace);}}/>}

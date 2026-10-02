@@ -1,10 +1,10 @@
 # Rhiza compact workbench — preview contract
 
-Status: concrete preview ready for approval; production UI implementation has not started. This supersedes the earlier card-based preview in this directory. The current user request prioritizes layout, space efficiency, simplicity and product quality before the remaining M15–M18 work.
+Status: user explicitly approved this preview on 2026-10-02 (接受，开始实施吧); production implementation is in progress. This supersedes the earlier card-based preview in this directory. The current user request prioritizes layout, space efficiency, simplicity and product quality before the remaining M15–M18 work.
 
 ## Evidence and direction
 
-Current application was verified at `http://127.0.0.1:4173/` (Rhiza title, Vite entry and isolated fixture API). Fresh desktop, narrow and Graph captures are in this directory. See `audit.md` for findings and references. The product-design audit specialist owns diagnosis; ui-ux-design-suite internal prototype/impact playbooks own the visual proposal. No production component, token, API or persisted data changed.
+Current application was verified at `http://127.0.0.1:4173/` (Rhiza title, Vite entry and isolated fixture API). Fresh desktop, narrow and Graph captures are in this directory. See `audit.md` for findings and references. The product-design audit specialist owns diagnosis; ui-ux-design-suite internal prototype/impact playbooks own the visual proposal. The approved compact shell and Context/provenance/Replay flow are now connected to the existing scoped APIs. Other flows remain in implementation.
 
 - 220px collapsible sidebar: workspace switch, search, named navigation, discussion tree, settings/data utilities. Keep Chat, Graph, Knowledge, Runs and Activity available. Collaboration belongs to the current conversation and has no separate page or navigation destination.
 - One 56px desktop title bar. Chat drops its duplicate large discussion introduction. Discussion metadata and management stay available in the object menu.

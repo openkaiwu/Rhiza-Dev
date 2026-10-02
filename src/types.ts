@@ -57,6 +57,30 @@ export interface ContextHistory {
   sources: Array<{ sourceId: string } & ({ status: 'resolved'; content: string; resourceVersion: { id: string; version: number; digest: string } } | { status: 'missing_resource' | 'missing_version' | 'missing_blob' | 'digest_mismatch' | 'legacy_unversioned' })>;
 }
 
+export interface ContextPreview {
+  mode: ContextMode;
+  items: ContextItem[];
+  recommendations: ContextItem[];
+  omissions: NonNullable<ContextManifest['omissions']>;
+  budget: number;
+  usedTokens: number;
+  overBudget: boolean;
+}
+export interface ContextRecommendationDecision {
+  sourceType: NonNullable<ContextItem['sourceType']>;
+  sourceId: string;
+  sourceRevision: string;
+  decision: 'accept' | 'reject';
+  reason: string;
+}
+export type ReplayPolicy = 'exact' | 'partial' | 'current-model';
+export interface ReplayPreflight {
+  runId: string;
+  sourceManifestId?: string;
+  missingRefs: string[];
+  policies: Array<{ policy: ReplayPolicy; allowed: boolean; code?: string; differences: string[] }>;
+}
+
 export interface Message {
   segmentId?: string;
   id: string;
@@ -210,6 +234,6 @@ export interface ProvenanceLink {
   modelSpecRef?: string;
   providerEndpointRef?: string;
   runtimeSnapshotRef?: string;
-  status: 'recorded' | 'pre-run' | 'broken-reference';
+  status: 'recorded' | 'pre-run' | 'broken-reference' | 'purged';
   missingRefs: string[];
 }

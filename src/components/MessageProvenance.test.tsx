@@ -26,3 +26,14 @@ it('ignores an old request when the displayed output changes', async () => {
   finish(link);
   await waitFor(() => expect(screen.queryByText('来源存在缺失引用')).not.toBeInTheDocument());
 });
+
+it('navigates through the recorded Manifest and Run references without dispatching', async () => {
+  vi.spyOn(api, 'getProvenance').mockResolvedValue({ ...link, contextManifestRef: 'frozen-manifest', status: 'purged' });
+  const context = vi.fn(); const run = vi.fn();
+  render(<MessageProvenance outputId="output" onInspectContext={context} onOpenRun={run}/>);
+  fireEvent.click(screen.getByRole('button', { name: '查看来源' }));
+  await screen.findByText(/内容已永久清除/);
+  fireEvent.click(screen.getByRole('button', { name: '查看历史上下文' }));
+  fireEvent.click(screen.getByRole('button', { name: '执行记录与回放' }));
+  expect(context).toHaveBeenCalledWith('frozen-manifest'); expect(run).toHaveBeenCalledWith('run');
+});

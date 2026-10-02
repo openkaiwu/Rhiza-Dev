@@ -7,7 +7,7 @@ import type { ContextManifest, DiscussionNode, Message } from './types';
 
 const mocks = vi.hoisted(() => { const temporary = vi.fn(); return ({
   getWorkspace: vi.fn(),
-  getMessageContext: vi.fn(),
+  getMessageContext: vi.fn(), getManifestContext: vi.fn(), getContextPreview: vi.fn(), decideContextRecommendation: vi.fn(),
   getWorkspaceActivity: vi.fn(),
   getGraphNeighborhood: vi.fn(), getGraphPath: vi.fn(),
   setMode: vi.fn(),
@@ -37,7 +37,7 @@ vi.mock('./api', () => ({ api: mocks }));
 
 const workspace = {
   projectId: 'rhiza-product-research', nodeId: 'information-architecture', mode: 'Assisted' as const,
-  contextItems: initialContext,
+  contextItems: initialContext.map(item => ({ ...item, sourceType: 'node' as const, sourceId: `source-${item.id}`, sourceRevision: `revision-${item.id}` })),
   messages: [
     { id: 'm1', nodeId: 'information-architecture', kind: 'user' as const, text: '原始问题', createdAt: '2026-08-09T12:00:00.000Z' },
     { id: 'm2', nodeId: 'information-architecture', kind: 'assistant' as const, text: '原始回答', createdAt: '2026-08-09T12:00:01.000Z', manifestId: 'manifest-history' },
@@ -73,6 +73,10 @@ const projectedGraph = (nodes: readonly DiscussionNode[] = workspace.discussionN
 beforeEach(() => {
   localStorage.clear();
   mocks.workspaceId.mockReturnValue(undefined);
+  mocks.getContextPreview.mockResolvedValue({ mode: workspace.mode, items: workspace.contextItems.filter(item => item.status === 'active'), recommendations: workspace.contextItems.filter(item => item.status === 'recommended'), omissions: [], budget: 32000, usedTokens: 4200, overBudget: false });
+  mocks.decideContextRecommendation.mockResolvedValue({ workspace });
+  mocks.getManifestContext.mockResolvedValue(contextHistoryFixture);
+
   mocks.cancelAttempt.mockResolvedValue(undefined);mocks.findAttemptRun.mockResolvedValue(null);
   mocks.searchWorkspace.mockResolvedValue({ results: [] });
   mocks.setConversationModel.mockResolvedValue({ workspace });
@@ -151,55 +155,66 @@ describe('Rhiza MVP', () => {
     expect(await screen.findByText('为什么未使用')).toBeInTheDocument();
   });
 
-  it('opens with the focused discussion experience', async () => {
-    render(<App />);
+  it('opens a compact discussion with context available on demand', async () => {
+    render(<App/>);
     expect(await screen.findByRole('heading', { level: 1, name: /信息架构方向/ })).toBeInTheDocument();
-    expect(screen.getByText('本轮上下文')).toBeInTheDocument();
+    expect(screen.queryByText('本轮上下文')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^上下文/ }));
+    expect(await screen.findByText('本轮上下文')).toBeInTheDocument();
+    expect(screen.getByText('推荐来源需确认后才会发送。')).toBeInTheDocument();
     expect(screen.getByText('根系')).toBeInTheDocument();
     expect(screen.getByText('Rhiza')).toBeInTheDocument();
-    expect(screen.getByText('Recommended · 待确认')).toBeInTheDocument();
-    expect(screen.getByText('Strict 仅使用显式选择；其他模式按相关性补充。')).toBeInTheDocument();
   });
 
-  it('binds the configured default returned by the legacy bootstrap before later workspace requests', async () => {
+  it('binds the configured default before sending a version-bound recommendation decision', async () => {
     const customDefault = 'custom-default-workspace';
-    const readsBeforeBoot = mocks.getWorkspace.mock.calls.length;
     mocks.getWorkspace.mockResolvedValueOnce({ workspace: { ...workspace, projectId: customDefault }, provider: { configured: true, name: 'Test Provider', model: 'test-model', baseUrl: 'https://example.test/v1' }, providerCatalog });
-    render(<App />);
+    render(<App/>);
     await screen.findByRole('heading', { level: 1, name: /信息架构方向/ });
-    expect(mocks.getWorkspace).toHaveBeenCalledTimes(readsBeforeBoot + 1);
     expect(mocks.setWorkspace).toHaveBeenCalledWith(customDefault);
-    fireEvent.click(screen.getByRole('button', { name: '加入' }));
-    await waitFor(() => expect(mocks.setContextStatus).toHaveBeenCalledWith('c3', 'active'));
+    fireEvent.click(screen.getByRole('button', { name: /^上下文/ }));
+    fireEvent.click(await screen.findByRole('tab', { name: '待确认 1' }));
+    fireEvent.change(screen.getByLabelText('确认理由 竞品模式拆解'), { target: { value: '需要比较导航模式' } });
+    fireEvent.click(screen.getByRole('button', { name: '加入本轮' }));
+    await waitFor(() => expect(mocks.decideContextRecommendation).toHaveBeenCalledWith({ sourceType: 'node', sourceId: 'source-c3', sourceRevision: 'revision-c3', decision: 'accept', reason: '需要比较导航模式' }, expect.any(String)));
+    expect(mocks.setContextStatus).not.toHaveBeenCalled();
   });
 
-  it('moves recommended context into active context', async () => {
-    render(<App />);
-    expect(await screen.findByText('2 项上下文')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '加入' }));
-    expect(screen.getByText('3 项上下文')).toBeInTheDocument();
-    await waitFor(() => expect(mocks.setContextStatus).toHaveBeenCalledWith('c3', 'active'));
+  it('shows a stale decision and keeps its retry identity without invoking the model', async () => {
+    mocks.decideContextRecommendation.mockRejectedValue(new Error('推荐来源已更新'));
+    render(<App/>);
+    await screen.findByLabelText('输入消息');
+    fireEvent.click(screen.getByRole('button', { name: /^上下文/ }));
+    fireEvent.click(await screen.findByRole('tab', { name: '待确认 1' }));
+    fireEvent.change(screen.getByLabelText('确认理由 竞品模式拆解'), { target: { value: '核对当前设计' } });
+    fireEvent.click(screen.getByRole('button', { name: '加入本轮' }));
+    await screen.findByText(/推荐确认未完成/);
+    fireEvent.click(screen.getByRole('button', { name: '加入本轮' }));
+    await waitFor(() => expect(mocks.decideContextRecommendation).toHaveBeenCalledTimes(2));
+    expect(mocks.decideContextRecommendation.mock.calls[1]).toEqual(mocks.decideContextRecommendation.mock.calls[0]);
+    expect(mocks.streamMessage).not.toHaveBeenCalled();
   });
 
-  it('ignores a late workspace mutation after switching to another workspace', async () => {
+  it('ignores a late recommendation decision after switching workspace', async () => {
     const delayed = deferred<{ workspace: typeof workspace }>();
     const workspaceB = { ...scopedWorkspace('Workspace B'), projectId: 'workspace-b', contextItems: [] };
     mocks.listWorkspaces.mockResolvedValue({ workspaces: [
       { workspaceId: workspace.projectId, name: 'Workspace A', status: 'active', createdBy: 'local', revision: 1 },
       { workspaceId: 'workspace-b', name: 'Workspace B', status: 'active', createdBy: 'local', revision: 1 },
     ] });
-    mocks.setContextStatus.mockReturnValueOnce(delayed.promise);
+    mocks.decideContextRecommendation.mockReturnValueOnce(delayed.promise);
     mocks.getScopedWorkspace.mockResolvedValueOnce({ workspace: workspaceB });
-    render(<App />);
-    await screen.findByRole('heading', { level: 1, name: /信息架构方向/ });
-    await waitFor(() => expect(screen.getByLabelText('切换工作区')).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: '加入' }));
+    render(<App/>);
+    await screen.findByLabelText('输入消息');
+    fireEvent.click(screen.getByRole('button', { name: /^上下文/ }));
+    fireEvent.click(await screen.findByRole('tab', { name: '待确认 1' }));
+    fireEvent.change(screen.getByLabelText('确认理由 竞品模式拆解'), { target: { value: '比较方案' } });
+    fireEvent.click(screen.getByRole('button', { name: '加入本轮' }));
     fireEvent.change(screen.getByLabelText('切换工作区'), { target: { value: 'workspace-b' } });
     await screen.findByRole('heading', { level: 1, name: /Workspace B/ });
-    delayed.resolve({ workspace: { ...workspace, contextItems: [...workspace.contextItems, { ...workspace.contextItems[0], id: 'late-a' }] } });
-    await waitFor(() => expect(screen.queryByText('3 项上下文')).not.toBeInTheDocument());
-    expect(screen.getByText('0 项上下文')).toBeInTheDocument();
+    await act(async () => delayed.resolve({ workspace }));
     expect(screen.getByRole('heading', { level: 1, name: /Workspace B/ })).toBeInTheDocument();
+    expect(screen.queryByText('推荐来源已更新')).not.toBeInTheDocument();
   });
 
   it('ignores late SSE deltas and commits after switching workspaces', async () => {
@@ -235,7 +250,8 @@ describe('Rhiza MVP', () => {
   it('pins explicit context and exposes the immutable historical Manifest summary', async () => {
     render(<App />);
     await screen.findByText('原始回答');
-    fireEvent.click(screen.getAllByRole('button', { name: /固定/ })[0]);
+    fireEvent.click(screen.getByRole('button', { name: /^上下文/ }));
+    fireEvent.click((await screen.findAllByRole('button', { name: '固定' }))[0]);
     await waitFor(() => expect(mocks.setContextPin).toHaveBeenCalled());
     fireEvent.click(screen.getByText(/Context Manifest · manifest/));
     expect(screen.getByText('Test Provider / history-model')).toBeInTheDocument();
