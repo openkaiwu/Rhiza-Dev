@@ -361,6 +361,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
         case 'InvokeCollaboration': return await collaborations.invoke(envelope as CommandEnvelope<'InvokeCollaboration'>, options);
         case 'RetryCollaborationParticipant': return await collaborations.retry(envelope as CommandEnvelope<'RetryCollaborationParticipant'>, options);
         case 'StopCollaboration': return await collaborations.stop(envelope as CommandEnvelope<'StopCollaboration'>);
+        case 'RunCollaboration': return await collaborations.run(envelope as CommandEnvelope<'RunCollaboration'>, options);
         case 'SynthesizeCollaboration': return await collaborations.synthesize(envelope as CommandEnvelope<'SynthesizeCollaboration'>, options);
         case 'RetainCollaboration': {
           const previous = await unitOfWork.readCommittedResult?.<CommandMap['RetainCollaboration']['result']>();

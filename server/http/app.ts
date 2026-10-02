@@ -569,6 +569,28 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
   app.post('/api/collaborations/:id/retain', async (request, response, next) => {
     try { response.status(201).json(await execute(response, 'RetainCollaboration', { collaborationId: request.params.id, targetNodeId: request.body?.targetNodeId })); } catch (error) { next(error); }
   });
+  app.post('/api/collaborations/:id/stream', async (request, response, next) => {
+    const controller = new AbortController();
+    response.on('close', () => { if (!response.writableEnded) controller.abort(); });
+    try {
+      const result = await execute(response, 'RunCollaboration', { collaborationId: request.params.id }, {
+        signal: controller.signal,
+        onReady: () => {
+          response.status(200); response.setHeader('Content-Type','text/event-stream; charset=utf-8');
+          response.setHeader('Cache-Control','no-cache, no-transform'); response.setHeader('Connection','keep-alive');
+          response.setHeader('X-Accel-Buffering','no'); response.flushHeaders();
+        },
+        onRuntimeEvent: event => writeSseWithBackpressure(response, 'collaboration', event),
+      });
+      if (!response.destroyed) { writeSse(response, 'commit', { type: 'COLLABORATION_COMMIT', ...result }); response.end(); }
+    } catch (error) {
+      if (!response.headersSent) return next(error);
+      if (response.destroyed || response.writableEnded) return;
+      const normalized = error instanceof ApplicationError ? error : applicationError('协作执行未完成。','RUNTIME_ERROR','infrastructure','retry',true,502);
+      writeSse(response, 'error', { type: 'COLLABORATION_ERROR', code: normalized.details.code, message: normalized.message, status: normalized.details.status, correlationId: correlationId(response) });
+      response.end();
+    }
+  });
 
   app.get('/api/runs', async (request, response, next) => {
     try { response.json({ runs: await query(response, 'ListExecutionRuns', { limit: Number(request.query.limit || 50) }) }); } catch (error) { next(error); }

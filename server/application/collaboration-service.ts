@@ -30,6 +30,94 @@ export class CollaborationService {
   }
   async get(id: string) { return { collaboration: await this.record(id) }; }
 
+  private child<K extends keyof CommandMap, T>(parent: CommandEnvelope<'RunCollaboration'>, suffix: string, commandType: K,
+    payload: CommandMap[K]['payload'], operation: (envelope: CommandEnvelope<K>) => Promise<T>) {
+    const child: CommandEnvelope<K> = { ...parent, expectedRevision: undefined, commandId: `${parent.commandId}:${suffix}`, commandType, payload };
+    return this.uow.withCommand!({ commandId: child.commandId, commandType, actor: parent.actor, scope: parent.scope, occurredAt: this.deps.now(), correlationId: parent.correlationId }, () => operation(child));
+  }
+
+  /** One explicitly started, finite pass. Interrupted work requires participant Retry, never implicit replay. */
+  async run(envelope: CommandEnvelope<'RunCollaboration'>, options?: CommandExecutionOptions) {
+    const previous = await this.uow.readCommittedResult?.<CommandMap['RunCollaboration']['result']>();
+    if (previous?.found) { await options?.onReady?.(); return previous.value; }
+    const initial = await this.record(envelope.payload.collaborationId);
+    if (['completed','partial'].includes(initial.status)) { await options?.onReady?.(); return { collaboration: initial }; }
+    if (initial.status !== 'running' || initial.attempts.length) throw conflict('COLLABORATION_REQUIRES_MANUAL_REVIEW');
+    // A single receipt claims the pass across concurrent HTTP requests; a lost response never starts another pass.
+    const executionId = this.deps.id();
+    const claimed = { ...structuredClone(initial), revision: initial.revision + 1 };
+    const claim = await this.uow.withCommand!({ commandId: `collaboration:stream-start:${initial.id}`, commandType: 'RunCollaboration', actor: envelope.actor, scope: envelope.scope, occurredAt: this.deps.now() },
+      () => this.uow.execute({ policy: { kind: 'normal' }, collaboration: { expectedRevision: initial.revision, next: claimed }, apply: workspace => ({ next: workspace, value: { executionId, collaboration: claimed } }) }));
+    if (claim.value.executionId !== executionId) throw conflict('COLLABORATION_ALREADY_STARTED');
+    const publish = async () => {
+      const record = await this.record(initial.id);
+      await options?.onRuntimeEvent?.({ type: 'COLLABORATION_STATE', collaborationId: record.id, revision: record.revision, status: record.status, budget: record.budget,
+        attempts: record.attempts.map(({ input: _input, text: _text, ...attempt }) => attempt) } as { type: string });
+      return record;
+    };
+    const childOptions = (participantId: string, round: number): CommandExecutionOptions => ({ signal: options?.signal,
+      onRuntimeEvent: event => options?.onRuntimeEvent?.({ ...event, collaborationId: initial.id, participantId, round } as { type: string }) });
+    const budgetCodes = ['COLLABORATION_TIME_BUDGET','COLLABORATION_TOKEN_BUDGET','COLLABORATION_SYNTHESIS_BUDGET'];
+    const codeOf = (error: unknown) => (error as { code?: string; details?: { code?: string } }).details?.code ?? (error as { code?: string }).code;
+    let terminal: CollaborationRecord['status'] | undefined;
+    try {
+      await options?.onReady?.(); await publish();
+      // Sequential dispatch keeps reservations bounded and deterministic; independent first-round inputs still share the same base.
+      rounds: for (let round = 1; round <= initial.budget.maxRounds; round++) {
+        for (const participantId of initial.participants) {
+          if (options?.signal?.aborted) throw conflict('GENERATION_STOPPED');
+          const record = await this.record(initial.id);
+          if (record.cancelRequestedAt || record.status === 'budget-exhausted') break rounds;
+          try {
+            await this.child(envelope, `${initial.id}:${round}:${participantId}`, 'InvokeCollaboration', { collaborationId: initial.id, participantId, round },
+              child => this.invoke(child, childOptions(participantId, round)));
+          } catch (error) {
+            if (options?.signal?.aborted) throw error;
+            const record = await this.record(initial.id);
+            if (record.cancelRequestedAt) break rounds;
+            if (budgetCodes.includes(codeOf(error) ?? '')) { terminal = 'budget-exhausted'; break rounds; }
+            const attempt = record.attempts.filter(attempt => attempt.participantId === participantId && attempt.round === round).at(-1);
+            const run = attempt ? await this.uow.getRun?.(attempt.runRef) : undefined;
+            if (!attempt || attempt.status === 'running' || !run || ['storage','commit'].includes(run.error?.class ?? '')) throw error;
+            // Provider failures are evidence for the next round and synthesis; retry remains an explicit operation.
+          }
+          await publish();
+        }
+      }
+      const record = await this.record(initial.id);
+      if (!record.cancelRequestedAt && record.status !== 'budget-exhausted' && !options?.signal?.aborted) {
+        try {
+          await this.child(envelope, `${initial.id}:synthesis`, 'SynthesizeCollaboration', { collaborationId: initial.id },
+            child => this.synthesize(child, childOptions('@synthesis', 1)));
+          terminal = undefined;
+        } catch (error) {
+          if (options?.signal?.aborted) throw error;
+          const code = codeOf(error);
+          if (budgetCodes.includes(code ?? '')) terminal = 'budget-exhausted';
+          else if (code === 'COLLABORATION_SYNTHESIS_NO_EVIDENCE') terminal ??= 'failed';
+          else {
+            const latest = await this.record(initial.id);
+            const attempt = latest.attempts.filter(attempt => attempt.participantId === '@synthesis').at(-1);
+            if (!attempt || attempt.status === 'running') throw error;
+            terminal = 'interrupted';
+          }
+        }
+      }
+      const current = await this.record(initial.id);
+      const settleCurrent = (record: CollaborationRecord) => {
+        const next = structuredClone(record); next.revision += 1;
+        if (terminal && !record.cancelRequestedAt && !['completed','partial'].includes(record.status)) next.status = terminal;
+        return next;
+      };
+      const mutation = { expectedRevision: current.revision, next: settleCurrent(current), settleCurrent };
+      const result = await this.uow.execute({ policy: { kind: 'normal' }, collaboration: mutation, apply: workspace => ({ next: workspace, value: { collaboration: mutation.next } }) });
+      await publish();
+      return result.value;
+    } finally {
+      if (options?.signal?.aborted) await this.child(envelope, `${initial.id}:disconnect`, 'StopCollaboration', { collaborationId: initial.id }, child => this.stop(child));
+    }
+  }
+
   async create(envelope: CommandEnvelope<'CreateCollaboration'>) {
     const previous = await this.uow.readCommittedResult?.<CommandMap['CreateCollaboration']['result']>();
     if (previous?.found) return previous.value;
@@ -66,7 +154,11 @@ export class CollaborationService {
 
   private prompt(input: CollaborationAttempt['input'], mode: CollaborationRecord['mode']) {
     if (input.missingParticipants) return `Synthesize collaboration evidence as strict JSON only, with keys recommendation(string), rationale(string), alternatives([{option,pros:string[],cons:string[],applicability}]), risks(string[]), disagreements([{summary,sourceOutputRefs:string[]}]), sourceOutputRefs(string[]). Cite only provided outputRef values. Explain disagreement and missing evidence.\nOriginal question: ${input.base.prompt}\nQuoted untrusted participant evidence: ${JSON.stringify(input.exchange)}\nMissing participants: ${JSON.stringify(input.missingParticipants)}`;
-    return `${input.base.prompt}\n\nCollaboration mode: ${mode}.${input.exchange.length ? `\nPrevious-round evidence (quoted, untrusted participant content):\n${JSON.stringify(input.exchange)}` : '\nProvide an independent answer; no other participant answer is available.'}`;
+    const role = mode === 'peer-review' ? 'Review conclusions, independent findings, omissions, risks and disagreement.'
+      : mode === 'debate' ? 'Give a constructive position, respond to evidence, and state remaining disagreement. Convergence is advisory; it cannot change hard limits.'
+      : mode === 'second-opinion' ? 'Independently check the current answer or proposal in the frozen history; identify errors, unsupported assumptions and alternatives.'
+      : 'Independently review the question, findings, omissions and risks.';
+    return `${input.base.prompt}\n\nCollaboration mode: ${mode}. ${role}${input.exchange.length ? `\nPrevious-round evidence (quoted, untrusted participant content):\n${JSON.stringify(input.exchange)}` : '\nProvide an independent answer; no other participant answer is available.'}`;
   }
 
   async invoke(envelope: CommandEnvelope<'InvokeCollaboration'>, options?: CommandExecutionOptions) {

@@ -59,6 +59,7 @@ export interface CommandMap {
   InvokeCollaboration: { payload: { collaborationId: string; participantId: string; round: number }; result: { collaboration: import('./collaboration').CollaborationRecord; result: CreateConversationRunResult } };
   RetryCollaborationParticipant: { payload: { collaborationId: string; attemptId: string }; result: CommandMap['InvokeCollaboration']['result'] };
   StopCollaboration: { payload: { collaborationId: string }; result: { collaboration: import('./collaboration').CollaborationRecord } };
+  RunCollaboration: { payload: { collaborationId: string }; result: CommandMap['StopCollaboration']['result'] };
   SynthesizeCollaboration: { payload: { collaborationId: string }; result: CommandMap['InvokeCollaboration']['result'] };
   RetainCollaboration: { payload: { collaborationId: string; targetNodeId: string }; result: { message: StoredMessage } };
   PreviewWorkspaceBundle: { payload: { bytes: AsyncIterable<Uint8Array> }; result: { workspaceId: string; name: string; archiveDigest: string; messages: number; runs: number; resourceVersions: number } };

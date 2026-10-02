@@ -257,4 +257,6 @@ M16 collaboration is owned by Conversation Application. `collaboration.changed` 
 
 The outer Bundle stays v1. Exports containing Context `sourceRevision` or collaboration facts use inner document v2, while the new reader accepts old v1 documents. Portable collaboration records validate same-Workspace identities, base hash, frozen resource digests and Run/Manifest/output references; import rebuilds the identity index and rebinds encrypted Blob locations without changing content identity. Purge collects snapshots introduced by collaboration creation, protects active/cross-object references and redacts every owning Journal copy through existing scoped key checkpoints; unrelated collaboration history survives. Managed backup, external-file/endpoint mapping and production UI remain separate pending M16 units.
 
+The explicit collaboration stream entrypoint runs a finite sequence through the same participant/synthesis commands, using stable child identities and a single start receipt. Sequential reservations avoid adding scheduling infrastructure. SSE disconnect invokes durable Stop; interrupted passes require manual review instead of automatic replay.
+
 These are backend implementation facts. M15 production UI and formal acceptance remain open; the separate M15–M18 interaction preview awaits approval under ui-ux-design-suite.
