@@ -2,8 +2,8 @@
   "schemaVersion": "1.0.0",
   "status": "partial backend verified; INH-130 incomplete",
   "observedAt": "2026-10-02T14:43:33.576551+00:00",
-  "baseCommit": "fce29d2cb8468eb73dd2574b9224e5fd97ef3416",
-  "verificationSubject": "tested uncommitted Bundle content changes; not whole-branch or formal acceptance",
+  "baseCommit": "ef7ecdb",
+  "verificationSubject": "tested uncommitted hydration core added to committed content preflight; not whole-branch or formal acceptance",
   "fixtures": [
     {
       "path": "server/infrastructure/portable-content.ts",
@@ -15,7 +15,7 @@
     },
     {
       "path": "server/infrastructure/node-bundle-import.ts",
-      "sha256": "3891a0f0213e32779d0b32151a388b1afe6d441bf87bd89ffa5313ef0cfb5b8c"
+      "sha256": "4995fb2f39bf4771aed6c6170688507d63d4ba5997854d37b64f947c1267ddf9"
     },
     {
       "path": "server/infrastructure/portable-external-resources.test.ts",
@@ -28,6 +28,18 @@
     {
       "path": "scripts/security/export-scan.test.ts",
       "sha256": "7bab4dea3a44accd08013cc68f43d4dfb982f90bae37572d44566c7bf01ffb27"
+    },
+    {
+      "path": "server/infrastructure/portable-hydration.ts",
+      "sha256": "a8ea935019bf1f61da6a5710e20fee82c68a7c1dcedef7d81488bdbd0ff06709"
+    },
+    {
+      "path": "server/infrastructure/portable-hydration.test.ts",
+      "sha256": "d6b0c725e1577d4af0c406da9b563f77a94cf5209163bec69e52d4d14f517c2e"
+    },
+    {
+      "path": "server/application/create-application.test.ts",
+      "sha256": "30e899eda379436706ab5187d83e60c7f9f1b0eec20caac2e5a9725943c36dbc"
     }
   ],
   "passed": [
@@ -42,10 +54,12 @@
     "M09 complete portable archive compatibility E2E",
     "updated managed Backup/Bundle clean restore CLI E2E",
     "thin security adapter control with only executable mocked",
-    "both ingest helpers reject missing exact bytes without Blob writes"
+    "both ingest helpers reject missing exact bytes without Blob writes",
+    "exact-file hydration core: wrong/unknown/duplicate/missing supply rejected, shared digest roundtrip, original staging independence",
+    "owner-checked HydrateWorkspaceBundle Application command without Domain writes/model dispatch"
   ],
   "remaining": [
-    "exact-file hydration transport and complete retained recovery artifact",
+    "bounded HTTP resource upload transport and hydrated-artifact retained restart recovery integration",
     "explicit model/endpoint mapping and local credential readiness",
     "production UI approval/implementation and desktop/narrow acceptance",
     "final whole-branch verification and formal gates"

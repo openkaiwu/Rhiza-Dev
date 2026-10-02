@@ -290,6 +290,15 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
         expectedRevision: envelope.expectedRevision,
         occurredAt: now(),
       };
+      if (envelope.commandType === 'HydrateWorkspaceBundle') {
+        if (!dependencies.bundleImport) throw legacyError('Bundle 文件补齐不可用。', 503, 'BUNDLE_IMPORT_UNAVAILABLE');
+        if (envelope.actor.actorType !== 'human') throw legacyError('文件补齐需要用户身份。', 403, 'BUNDLE_IMPORT_FORBIDDEN');
+        const staged = await dependencies.bundleImport.receive(envelope.payload.bytes);
+        try {
+          if (!staged.facts.members.some(member => member.userId === envelope.actor.actorId && member.role === 'owner')) throw legacyError('当前用户不是归档中的 Workspace owner。', 403, 'BUNDLE_IMPORT_FORBIDDEN');
+          return await staged.hydrate(envelope.payload.resources);
+        } finally { await staged.dispose(); }
+      }
       if (envelope.commandType === 'PreviewWorkspaceBundle') {
         if (!dependencies.bundleImport) throw legacyError('Bundle 导入不可用。', 503, 'BUNDLE_IMPORT_UNAVAILABLE');
         if (envelope.actor?.actorType !== 'human') throw legacyError('导入需要用户身份。', 403, 'BUNDLE_IMPORT_FORBIDDEN');

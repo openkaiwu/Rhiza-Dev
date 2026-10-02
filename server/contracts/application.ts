@@ -68,6 +68,7 @@ export interface CommandMap {
     missingResourceCount: number; missingResources: import('../domain/portable-bundle').ExternalResourceDescriptor[]; missingResourcesTruncated: boolean;
     executionRequirementCount: number; executionRequirements: import('../domain/portable-bundle').BundleExecutionRequirement[]; executionRequirementsTruncated: boolean } };
   ImportWorkspaceBundle: { payload: { bytes: AsyncIterable<Uint8Array> }; result: { workspaceId: string; importId: string } };
+  HydrateWorkspaceBundle: { payload: { bytes: AsyncIterable<Uint8Array>; resources: AsyncIterable<import('../domain/portable-bundle').ProvidedBundleResource> }; result: import('../domain/portable-bundle').BundleExport };
   CreateManagedBackup: { payload: { retryOf?: string }; result: import('./managed-backup').ManagedBackup };
   ReplayExecutionRun: { payload: { runId: string; policy: 'exact' | 'partial' | 'current-model' }; result: CreateConversationRunResult & { replay: { classification: 'exact' | 'partial' | 'current-model'; sourceRunRef: string; sourceManifestRef: string } } };
   CreateWorkspace: { payload: { name: string; workspaceId?: string }; result: WorkspaceRecord };

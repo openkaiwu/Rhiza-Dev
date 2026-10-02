@@ -40,7 +40,7 @@ Bundle 导出通过 `/api/v1/workspaces/:workspaceId/bundle` 读取同一事务�
 
 `POST /api/bundle/preview` 经 `PreviewWorkspaceBundle` Command 复用导入校验并检查归档 owner，返回名称、逻辑身份、归档摘要及消息/Run/资源版本数量。预检只使用临时 staging，结束后清理，不保留归档、不创建业务回执、Journal、checkpoint 或目标 Workspace。UI 先展示预检摘要，再由用户确认导入；正式导入重新校验并在事务中检查目标冲突。预检不是目标可激活的承诺。
 
-Bundle 外层 index/ZIP 继续为 v1，默认完整导出保持内层 v1/v2；`GET .../bundle?includeResources=false` 使用显式内层 v3，将实际省略的非 Purged ResourceVersion 写为无路径/URL/密钥的 externalResources 描述。Run envelope 始终携带，事实与历史 checksum 不因省略文件改变。唯一 assessment 验证 schema、引用、Journal、Run 身份和已携带字节；重复/伪造/未声明缺失描述失败。预检返回有界 missingResources/执行配置需求及 canImport；canImport 仅表达内容齐全，尚不代表目标模型配置就绪。缺失外部字节的正式导入在 checkpoint/归档保留/Blob 写入前拒绝，adapter retain/ingest 也独立拒绝。完整恢复归档仍需满足所有内容；精确文件补齐和目标端点映射还待接线。
+Bundle 外层 index/ZIP 继续为 v1，默认完整导出保持内层 v1/v2；`GET .../bundle?includeResources=false` 使用显式内层 v3，将实际省略的非 Purged ResourceVersion 写为无路径/URL/密钥的 externalResources 描述。Run envelope 始终携带，事实与历史 checksum 不因省略文件改变。唯一 assessment 验证 schema、引用、Journal、Run 身份和已携带字节；重复/伪造/未声明缺失描述失败。预检返回有界 missingResources/执行配置需求及 canImport；canImport 仅表达内容齐全，尚不代表目标模型配置就绪。缺失外部字节的正式导入在 checkpoint/归档保留/Blob 写入前拒绝，adapter retain/ingest 也独立拒绝。完整恢复归档仍需满足所有内容；`HydrateWorkspaceBundle` Command 校验 human 归档 owner 后，经无持久化副作用的 Node adapter 将精确文件补为独立完整 ZIP；校验真实字节，输入保持不变，原 staging 可在输出使用前释放。累计上传字节在去重前计入 quota。HTTP 上传传输、完整补齐产物的恢复集成证据与目标端点映射仍待接线。
 
 ## 2. Tech Stack
 

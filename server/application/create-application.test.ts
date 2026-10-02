@@ -5,7 +5,7 @@ import { createRhizaApplication } from './create-application';
 import { WorkspaceDirectory } from '../identity/workspace-directory';
 import { DEFAULT_WORKSPACE_ID, LOCAL_USER_ID } from '../identity/workspace-scope';
 
-function fixture(options: { indexedPlanning?: boolean; failMutation?: boolean; committedRun?: import('../contracts/application').CreateConversationRunResult; ensureWorkspaceInitialized?: (workspaceId: string, name: string) => Promise<import('../domain').WorkspaceData>; blobPut?: (bytes: Uint8Array) => Promise<{ digestAlgorithm: 'sha256'; digest: string; blobRef: string; size: number }>; blobRead?: (blobRef: string, digest: string) => Promise<Uint8Array>; workspaceDirectory?: WorkspaceDirectory; defaultWorkspaceId?: string; initialWorkspace?: import('../domain').WorkspaceData; getRun?: () => Promise<import('../execution-runtime/run').ExecutionRun | undefined> } = {}) {
+function fixture(options: { indexedPlanning?: boolean; failMutation?: boolean; committedRun?: import('../contracts/application').CreateConversationRunResult; ensureWorkspaceInitialized?: (workspaceId: string, name: string) => Promise<import('../domain').WorkspaceData>; blobPut?: (bytes: Uint8Array) => Promise<{ digestAlgorithm: 'sha256'; digest: string; blobRef: string; size: number }>; blobRead?: (blobRef: string, digest: string) => Promise<Uint8Array>; workspaceDirectory?: WorkspaceDirectory; defaultWorkspaceId?: string; initialWorkspace?: import('../domain').WorkspaceData; getRun?: () => Promise<import('../execution-runtime/run').ExecutionRun | undefined> } = {}, bundleImport?: import('./ports/bundle-import').BundleImportArchivePort) {
   let workspace = options.initialWorkspace ?? createSeedWorkspace();
   let sequence = 0;
   const commits: string[] = [];
@@ -41,6 +41,7 @@ function fixture(options: { indexedPlanning?: boolean; failMutation?: boolean; c
       },
       readCredential: async () => ({ state: 'unavailable', reason: 'test' }),
     },
+    bundleImport,
     textExtraction: { extractText: async (_mime, bytes) => new TextDecoder().decode(bytes) },
     indexedPlanner: options.indexedPlanning ? { plan: async input => ({ items: input.selection.filter(item => item.status === 'active'), diagnostics: { candidateCount: 1, selectedCount: 1, elapsedMs: 0, fallback: false, budget: input.budget, usedTokens: 1 } }) } : undefined,
     planner: {
@@ -57,6 +58,27 @@ function fixture(options: { indexedPlanning?: boolean; failMutation?: boolean; c
 }
 
 describe('Rhiza Application', () => {
+  it('hydrates only for the archive human owner, disposes staging, and does not write facts or dispatch a model', async () => {
+    const workspace = createSeedWorkspace();
+    const facts = { workspace, directory: { workspaceId: workspace.projectId, name: 'Hydration', status: 'active' as const, createdBy: LOCAL_USER_ID, revision: 1 },
+      members: [{ userId: LOCAL_USER_ID, role: 'owner' as const }], runs: [], provenance: [], journal: [] };
+    const output = { size: 1, bytes: (async function* () { yield new Uint8Array([1]); })(), dispose: vi.fn(async () => {}) };
+    const hydrate = vi.fn(async () => output); const dispose = vi.fn(async () => {});
+    const receive = vi.fn(async () => ({ facts, assessment: { documentVersion: '3.0.0' as const, externalResources: [], missingResources: [], executionRequirements: [] },
+      archiveDigest: 'a'.repeat(64), hydrate, dispose, retain: vi.fn(async () => {}), ingest: vi.fn(async () => facts) }));
+    const { application, commits, runtimeCalls } = fixture({}, { receive });
+    const command = createLegacyCommandEnvelope('hydrate', 'HydrateWorkspaceBundle', {
+      bytes: (async function* () { yield new Uint8Array([0]); })(), resources: (async function* () {})(),
+    });
+    expect(await application.execute(command)).toBe(output);
+    expect(dispose).toHaveBeenCalledTimes(1);
+    facts.members[0].userId = 'another-owner';
+    await expect(application.execute({ ...command, commandId: 'hydrate-denied' })).rejects.toMatchObject({ details: { code: 'BUNDLE_IMPORT_FORBIDDEN', status: 403 } });
+    await expect(application.execute({ ...command, actor: { actorType: 'executor', actorId: LOCAL_USER_ID } })).rejects.toMatchObject({ details: { code: 'BUNDLE_IMPORT_FORBIDDEN', status: 403 } });
+    expect(receive).toHaveBeenCalledTimes(2); expect(hydrate).toHaveBeenCalledTimes(1); expect(dispose).toHaveBeenCalledTimes(2);
+    expect(commits).toEqual([]); expect(runtimeCalls).toEqual([]);
+  });
+
   it('reports a purged Replay source as missing content without dispatching', async () => {
     const { application, runtimeCalls } = fixture({ getRun: async () => {
       throw Object.assign(new Error('ExecutionRun content was purged'), { code: 'RUN_PURGED', status: 410 });

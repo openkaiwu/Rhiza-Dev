@@ -7,6 +7,7 @@ import type { BundleImportArchivePort, StagedBundleImport } from '../application
 import type { BlobStorePort } from '../application/ports/host-runtime';
 import { BUNDLE_LIMITS, bundleError } from '../domain/portable-bundle';
 import { ingestPortableWorkspace, NodeImportArchiveStore, stagePortableWorkspace } from './portable-content';
+import { hydratePortableWorkspace } from './portable-hydration';
 
 export class NodeBundleImport implements BundleImportArchivePort {
   constructor(private readonly archiveRoot: string, private readonly blobs: BlobStorePort) {}
@@ -28,6 +29,7 @@ export class NodeBundleImport implements BundleImportArchivePort {
           return new NodeImportArchiveStore(this.archiveRoot).retain(path, staged.archiveDigest);
         },
         ingest: () => ingestPortableWorkspace(staged, this.blobs),
+        hydrate: resources => hydratePortableWorkspace(staged, resources, transient),
         dispose: async () => { try { await staged.dispose(); } finally { await rm(directory, { recursive: true, force: true }); } } };
     } catch (error) { await rm(directory, { recursive: true, force: true }); throw error; }
   }

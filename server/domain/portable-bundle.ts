@@ -24,6 +24,7 @@ export interface BundleExport {
 }
 
 export interface BundleExportOptions { includeResources?: boolean }
+export interface ProvidedBundleResource { resourceVersionId: string; bytes: AsyncIterable<Uint8Array> }
 export interface ExternalResourceDescriptor {
   resourceId: string;
   resourceVersionId: string;

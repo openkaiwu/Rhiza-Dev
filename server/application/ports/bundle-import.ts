@@ -22,6 +22,7 @@ export interface StagedBundleImport {
   archiveDigest: string;
   retain(): Promise<void>;
   ingest(): Promise<import('./portable-workspace').PortableWorkspaceFacts>;
+  hydrate(resources: AsyncIterable<import('../../domain/portable-bundle').ProvidedBundleResource>): Promise<import('../../domain/portable-bundle').BundleExport>;
   dispose(): Promise<void>;
 }
 export interface BundleImportArchivePort {

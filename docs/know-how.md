@@ -202,3 +202,5 @@
 - Personal Graph metadata must not pass through an aggregate layout mutation: that changes shared node coordinates, timestamps, Journal and Bundle semantics. Use the dedicated metadata UoW with Actor-derived ownership and a sealed receipt with no Journal sequence. Apply returned positions as overlays on the shared projection; no saved row changes a Domain object.
 
 - Thin Bundle descriptors describe omitted immutable ResourceVersions, never nonexistent ZIP entries. Keep every Run envelope physical, validate actual index bytes and every missing version identity, and block incomplete artifacts before checkpoint/retention/ingestion. A valid thin preflight is not execution-configuration readiness; completed recovery must retain a complete artifact rather than temporary external files.
+
+- Count supplied hydration bytes before digest deduplication. Limiting only the final ZIP entries lets repeated/shared-digest payloads consume unbounded private staging space. The complete output must own its bytes before original staging disposal; retained checkpoint recovery must not reference caller files.
