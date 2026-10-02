@@ -1547,6 +1547,8 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       SELECT r.run_id,$3,(t->>'sequence')::int,t FROM execution_runs r, jsonb_array_elements($4::jsonb) t
       WHERE r.workspace_id=$1 AND r.run_id=$2 AND r.attempt=$3 AND r.purged_at IS NULL
       ON CONFLICT (run_id,attempt,sequence) DO NOTHING`, [this.defaultWorkspaceId, runId, attempt, JSON.stringify(metadata)]);
+    // Embedded SQL can drain successive batches as microtasks, starving Command filesystem work.
+    await new Promise<void>(resolve => setImmediate(resolve));
   }
 
   async auditRunTraceMetadata(): Promise<{ total: number; invalid: number }> {
