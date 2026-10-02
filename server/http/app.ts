@@ -542,6 +542,34 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
     } catch (error) { next(error); }
   });
 
+  app.post('/api/collaborations', async (request, response, next) => {
+    try { response.status(201).json(await execute(response, 'CreateCollaboration', request.body)); } catch (error) { next(error); }
+  });
+  app.get('/api/collaborations', async (request, response, next) => {
+    try { response.json(await query(response, 'ListCollaborations', { limit: Number(request.query.limit || 50) })); } catch (error) { next(error); }
+  });
+  app.get('/api/collaborations/:id', async (request, response, next) => {
+    try { response.json(await query(response, 'GetCollaboration', { collaborationId: request.params.id })); } catch (error) { next(error); }
+  });
+  app.post('/api/collaborations/:id/invoke', async (request, response, next) => {
+    const controller = new AbortController(); response.on('close', () => { if (!response.writableEnded) controller.abort(); });
+    try { response.status(201).json(await execute(response, 'InvokeCollaboration', { collaborationId: request.params.id, participantId: request.body?.participantId, round: request.body?.round }, { signal: controller.signal })); } catch (error) { next(error); }
+  });
+  app.post('/api/collaborations/:id/retry', async (request, response, next) => {
+    const controller = new AbortController(); response.on('close', () => { if (!response.writableEnded) controller.abort(); });
+    try { response.status(201).json(await execute(response, 'RetryCollaborationParticipant', { collaborationId: request.params.id, attemptId: request.body?.attemptId }, { signal: controller.signal })); } catch (error) { next(error); }
+  });
+  app.post('/api/collaborations/:id/stop', async (request, response, next) => {
+    try { response.json(await execute(response, 'StopCollaboration', { collaborationId: request.params.id })); } catch (error) { next(error); }
+  });
+  app.post('/api/collaborations/:id/synthesize', async (request, response, next) => {
+    const controller = new AbortController(); response.on('close', () => { if (!response.writableEnded) controller.abort(); });
+    try { response.status(201).json(await execute(response, 'SynthesizeCollaboration', { collaborationId: request.params.id }, { signal: controller.signal })); } catch (error) { next(error); }
+  });
+  app.post('/api/collaborations/:id/retain', async (request, response, next) => {
+    try { response.status(201).json(await execute(response, 'RetainCollaboration', { collaborationId: request.params.id, targetNodeId: request.body?.targetNodeId })); } catch (error) { next(error); }
+  });
+
   app.get('/api/runs', async (request, response, next) => {
     try { response.json({ runs: await query(response, 'ListExecutionRuns', { limit: Number(request.query.limit || 50) }) }); } catch (error) { next(error); }
   });

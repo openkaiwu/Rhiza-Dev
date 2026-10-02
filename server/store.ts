@@ -24,6 +24,8 @@ export interface TransactionalWorkspaceCommandResult<T> {
 }
 
 export interface WorkspaceRepository {
+  getCollaboration?(id: string): Promise<import('./application/collaboration-policy').CollaborationRecord | undefined>;
+  listCollaborations?(limit?: number): Promise<import('./application/collaboration-policy').CollaborationRecord[]>;
   bundleImportCheckpoints?: import('./application/ports/bundle-import').BundleImportCheckpointPort;
   activatePortableImport?(importId: string, ownerId: string, facts: import('./application/ports/portable-workspace').PortableWorkspaceFacts): Promise<void>;
   readPortableWorkspace?(): Promise<import('./application/ports/portable-workspace').PortableWorkspaceFacts>;
@@ -64,6 +66,7 @@ export interface WorkspacePurgeCapability {
 }
 
 export interface WorkspaceUpdateOptions {
+  collaboration?: import('./application/ports/workspace-unit-of-work').CollaborationMutation;
   run?: import('./execution-runtime/run').RunMutation;
   purge?: WorkspacePurgeCapability;
 }

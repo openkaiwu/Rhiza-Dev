@@ -37,7 +37,14 @@ export type WorkspaceMutationPolicy =
 export interface WorkspaceMutation<T> {
   policy: WorkspaceMutationPolicy;
   run?: import('../../execution-runtime/run').RunMutation;
+  collaboration?: CollaborationMutation;
   apply(workspace: WorkspaceData): { next: WorkspaceData; value: T } | Promise<{ next: WorkspaceData; value: T }>;
+}
+
+export interface CollaborationMutation {
+  expectedRevision: number; next: import('../../contracts/collaboration').CollaborationRecord;
+  /** Recompute a terminal result against the locked current fact; never repeat Runtime dispatch. */
+  settleCurrent?: (current: import('../../contracts/collaboration').CollaborationRecord) => import('../../contracts/collaboration').CollaborationRecord;
 }
 
 export interface WorkspaceExecutionResult<T> {
@@ -51,6 +58,8 @@ export interface WorkspaceExecutionResult<T> {
  * enforce history rules; commands supply the next aggregate and explicit policy.
  */
 export interface WorkspaceUnitOfWork {
+  getCollaboration?(id: string): Promise<import('../collaboration-policy').CollaborationRecord | undefined>;
+  listCollaborations?(limit?: number): Promise<import('../collaboration-policy').CollaborationRecord[]>;
   activatePortableImport?(importId: string, ownerId: string, facts: import('./portable-workspace').PortableWorkspaceFacts): Promise<void>;
   readPortableWorkspace?(): Promise<import('./portable-workspace').PortableWorkspaceFacts>;
   readProvenance?(outputId: string): Promise<import('../../domain').ProvenanceLink | undefined>;

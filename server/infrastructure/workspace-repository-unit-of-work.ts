@@ -22,6 +22,8 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
   constructor(private readonly repository: WorkspaceRepository, private readonly options: { fixture?: true } = {}) {}
 
   get tracksRuns() { return Boolean(this.repository.getRun); }
+  async getCollaboration(id: string) { return this.runRepository().getCollaboration?.(id); }
+  async listCollaborations(limit = 50) { return this.runRepository().listCollaborations?.(limit) ?? []; }
   private runRepository() {
     const workspaceId = this.scope.getStore();
     return workspaceId ? this.repository.forWorkspace?.(workspaceId) ?? this.repository : this.repository;
@@ -100,9 +102,12 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
     if (context && target.executeCommand) {
       const result = await target.executeCommand({
         context,
-        options: { ...updateOptions(mutation.policy), run: mutation.run },
+        options: { ...updateOptions(mutation.policy), run: mutation.run, collaboration: mutation.collaboration },
         apply: async current => mutation.apply(current),
-        events: (previous, next, commandValue) => mutation.run ? runEvents(mutation.run, context, previous, next, commandValue) : eventForCommand(context, previous, next, commandValue),
+        events: (previous, next, commandValue) => [
+          ...(mutation.run ? runEvents(mutation.run, context, previous, next, commandValue) : mutation.collaboration ? [] : eventForCommand(context, previous, next, commandValue)),
+          ...(mutation.collaboration ? [{ eventType: 'collaboration.changed' as const, aggregateType: 'collaboration', aggregateId: mutation.collaboration.next.id, payload: { collaboration: mutation.collaboration.next } }] : []),
+        ],
       });
       return { workspace: result.workspace, value: result.value };
     }

@@ -55,6 +55,12 @@ export interface WorkspaceRecord { workspaceId: string; name: string; status: 'a
 
 /** Versioned operation registry. Additive changes receive a new command key. */
 export interface CommandMap {
+  CreateCollaboration: { payload: { prompt: string; mode: import('./collaboration').CollaborationMode; modelIds: string[]; synthesisModelId: string; attachmentIds?: string[]; tokenLimit?: number; timeLimitMs?: number; maxRounds?: number }; result: { collaboration: import('./collaboration').CollaborationRecord } };
+  InvokeCollaboration: { payload: { collaborationId: string; participantId: string; round: number }; result: { collaboration: import('./collaboration').CollaborationRecord; result: CreateConversationRunResult } };
+  RetryCollaborationParticipant: { payload: { collaborationId: string; attemptId: string }; result: CommandMap['InvokeCollaboration']['result'] };
+  StopCollaboration: { payload: { collaborationId: string }; result: { collaboration: import('./collaboration').CollaborationRecord } };
+  SynthesizeCollaboration: { payload: { collaborationId: string }; result: CommandMap['InvokeCollaboration']['result'] };
+  RetainCollaboration: { payload: { collaborationId: string; targetNodeId: string }; result: { message: StoredMessage } };
   PreviewWorkspaceBundle: { payload: { bytes: AsyncIterable<Uint8Array> }; result: { workspaceId: string; name: string; archiveDigest: string; messages: number; runs: number; resourceVersions: number } };
   ImportWorkspaceBundle: { payload: { bytes: AsyncIterable<Uint8Array> }; result: { workspaceId: string; importId: string } };
   ReplayExecutionRun: { payload: { runId: string; policy: 'exact' | 'partial' | 'current-model' }; result: CreateConversationRunResult & { replay: { classification: 'exact' | 'partial' | 'current-model'; sourceRunRef: string; sourceManifestRef: string } } };
@@ -101,6 +107,8 @@ export interface CommandMap {
 }
 
 export interface QueryMap {
+  GetCollaboration: { payload: { collaborationId: string }; result: { collaboration: import('./collaboration').CollaborationRecord } };
+  ListCollaborations: { payload: { limit?: number }; result: { collaborations: import('./collaboration').CollaborationRecord[] } };
   GetReplayPreflight: { payload: { runId: string }; result: { runId: string; sourceManifestId?: string; missingRefs: string[]; policies: Array<{ policy: 'exact' | 'partial' | 'current-model'; allowed: boolean; code?: string; differences: string[] }> } };
   GetContextPreview: { payload: { query: string; attachmentIds?: string[] }; result: { mode: ContextMode; items: import('../domain').ContextItem[]; recommendations: import('../domain').ContextItem[]; omissions: import('../domain').ContextOmission[]; budget: number; usedTokens: number; overBudget: boolean } };
   ExportWorkspaceBundle: { payload: Empty; result: import('../domain/portable-bundle').BundleExport };

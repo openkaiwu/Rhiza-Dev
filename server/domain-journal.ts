@@ -4,7 +4,7 @@ export type JournalScopeRef = { scopeType: 'user' | 'workspace' | 'conversation'
 
 export const DOMAIN_EVENT_SCHEMA_VERSION = '1.0.0' as const;
 
-export type DomainEventType = 'segment.updated' | 'conversation.renamed' | 'conversation.model.changed' | 'workspace.model.changed'
+export type DomainEventType = 'collaboration.changed' | 'segment.updated' | 'conversation.renamed' | 'conversation.model.changed' | 'workspace.model.changed'
   | 'run.created'
   | 'run.status.changed'
   | 'workspace.baseline.backfilled'
@@ -112,6 +112,7 @@ const eventByCommand: Record<string, DomainEventType> = {
   RetryExecutionRun: 'conversation.run.committed',
   CreateBranch: 'branch.created',
   CreateMergeRevision: 'message.merge_revision.created',
+  RetainCollaboration: 'message.merge_revision.created',
   RegisterLegacyAttachment: 'resource.registered',
   RegisterResource: 'resource.registered',
   CreateResourceVersion: 'resource.version.created',
@@ -183,6 +184,7 @@ export function workspaceSemanticChanges(previous: WorkspaceData, next: Workspac
 }
 
 const activityTitles: Record<DomainEventType, string> = {
+  'collaboration.changed': '更新协作进度',
   'segment.updated': '更新 Segment', 'conversation.renamed': '重命名讨论', 'conversation.model.changed': '更改讨论模型', 'workspace.model.changed': '更改工作区模型',
   'run.created': '创建执行记录',
   'run.status.changed': '更新执行状态',

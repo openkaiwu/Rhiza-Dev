@@ -102,3 +102,25 @@ export const portableWorkspaceSchema = {
   providerEndpoints: array(object({ id, runRef: id, providerType: text, configurationVersion: { type: ['string', 'null'] }, credential_ref: { type: 'null' }, credential_required: { const: true } })),
   modelSpecs: array(object({ id, runRef: id, model: text, provider: text })) }),
 };
+
+const modelSnapshot = object({ id, provider: text, model: text, displayName: text, active: boolean, providerEndpointRef: id, endpointVersion: text }, ['providerEndpointRef','endpointVersion']);
+const missingParticipants = array(object({ participantId: id, status: text, errorCode: text }, ['errorCode']));
+const collaborationBase = object({ workspaceId: id, nodeId: id, contextBaseHash: digest, prompt: text,
+  contextItems: array(context), history: array(message), attachmentIds: strings, attachments: array(attachment), mode, generation, manifest }, ['attachments']);
+const collaborationExchange = { participantId: id, round: { type: 'integer', minimum: 1, maximum: 5 },
+  status: enumeration('running','completed','failed','canceled','interrupted'), runRef: id, manifestRef: id, providerEndpointRef: id, outputRef: id, text, errorCode: text };
+const exchangeOptional = ['outputRef','text','errorCode'];
+export const portableCollaborationSchema = object({ id, workspaceId: id, nodeId: id, revision: { type: 'integer', minimum: 1 },
+  mode: enumeration('independent-review','peer-review','debate','second-opinion'), participants: { ...strings, minItems: 2, maxItems: 4, uniqueItems: true },
+  synthesisModelId: id, base: collaborationBase, status: enumeration('running','synthesizing','completed','partial','failed','canceled','interrupted','budget-exhausted'),
+  createdAt: date, cancelRequestedAt: date, budget: object({ tokenLimit: integer, synthesisTokens: integer, usedTokens: integer, reservedTokens: integer, deadlineAt: date, maxRounds: { type: 'integer', minimum: 1, maximum: 5 } }),
+  attempts: array(object({ ...collaborationExchange, id, attempt: { type: 'integer', minimum: 1 },
+    input: object({ base: collaborationBase, exchange: array(object(collaborationExchange, exchangeOptional)), missingParticipants }, ['missingParticipants']),
+    reservedTokens: integer, usedTokens: integer, usageEstimated: boolean, startedAt: date, terminalAt: date }, [...exchangeOptional,'usedTokens','usageEstimated','terminalAt'])),
+  models: array(modelSnapshot), synthesis: object({ recommendation: text, rationale: text,
+    alternatives: array(object({ option: text, pros: array(text), cons: array(text), applicability: text })), risks: array(text),
+    disagreements: array(object({ summary: text, sourceOutputRefs: strings })), sourceOutputRefs: strings, missingParticipants }) }, ['cancelRequestedAt','synthesis']);
+
+// The outer Bundle remains v1. Old readers explicitly reject this new inner document version.
+export const portableWorkspaceV2Schema = { ...portableWorkspaceSchema, $id: 'https://rhiza.dev/schemas/portable-workspace/v2',
+  properties: { ...portableWorkspaceSchema.properties, schemaVersion: { const: '2.0.0' } } };

@@ -14,11 +14,22 @@ function portableBlobReference<T extends Record<string, unknown>>(value: T): T {
   return value;
 }
 const portableName = (name: string) => /^(?:\/|[a-z]:[\\/]|\\\\)/i.test(name) ? name.split(/[\\/]/).filter(Boolean).at(-1) ?? 'resource' : name;
+
+export function portableDocumentVersion(facts: PortableWorkspaceFacts): '1.0.0' | '2.0.0' {
+  const pending: unknown[] = [facts];
+  while (pending.length) {
+    const value = pending.pop();
+    if (!value || typeof value !== 'object') continue;
+    if (!Array.isArray(value) && ('sourceRevision' in value || ('eventType' in value && value.eventType === 'collaboration.changed'))) return '2.0.0';
+    pending.push(...Object.values(value));
+  }
+  return '1.0.0';
+}
 const attachment = (value: StoredAttachment) => ({ ...select(value, ['id', 'name', 'mimeType', 'size', 'kind', 'extractedText', 'summary', 'chunkCount', 'resourceId', 'resourceVersionId', 'digest', 'blobRef', 'createdAt']), name: portableName(value.name) });
 const message = (value: StoredMessage): StoredMessage => ({ ...select(value, ['id', 'nodeId', 'kind', 'text', 'createdAt', 'manifestId', 'attachmentIds', 'operation', 'sourceMessageId', 'versionGroupId', 'version', 'replyToMessageId', 'segmentId', 'reasoning']),
   ...(value.usage ? { usage: select(value.usage, ['promptTokens', 'completionTokens', 'totalTokens', 'estimated']) } : {}),
   ...(value.toolCalls ? { toolCalls: value.toolCalls.map(call => select(call, ['id', 'name', 'arguments'])) } : {}) });
-const context = (value: WorkspaceData['contextItems'][number]) => select(value, ['id', 'title', 'detail', 'role', 'status', 'tokens', 'reason', 'selectionMode', 'sourceType', 'sourceId', 'sourceNodeId', 'pinned', 'contentVersion', 'content', 'score']);
+const context = (value: WorkspaceData['contextItems'][number]) => select(value, ['id', 'title', 'detail', 'role', 'status', 'tokens', 'reason', 'selectionMode', 'sourceType', 'sourceId', 'sourceNodeId', 'pinned', 'contentVersion', 'content', 'score', 'sourceRevision']);
 function manifest(value: ContextManifest): ContextManifest {
   const result = select(value, ['schemaVersion', 'versions', 'id', 'projectId', 'nodeId', 'requestId', 'createdAt', 'mode', 'model', 'provider', 'runtime', 'contextItemIds', 'excludedItemIds', 'estimatedTokens', 'operation', 'sourceMessageId', 'attachmentIds']);
   result.generation = select(value.generation, ['temperature', 'topP', 'maxTokens']);

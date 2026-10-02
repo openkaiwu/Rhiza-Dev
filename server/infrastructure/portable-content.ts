@@ -15,7 +15,8 @@ import { stageBundleArchive, type StagedBundleArchive } from './bundle-archive';
 import { semanticStateChecksum } from './workspace-semantic-checksum';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
-import { portableWorkspaceSchema, portableSemanticDeltaSchema } from '../domain/portable-workspace-schema';
+import { portableWorkspaceSchema, portableWorkspaceV2Schema, portableCollaborationSchema, portableSemanticDeltaSchema } from '../domain/portable-workspace-schema';
+import { validatePortableCollaborations } from '../application/portable-collaboration';
 import journalSchema from '../contracts/domain-event-envelope.schema.json';
 import { validatePortableReferences } from '../application/portable-references';
 import { validatePortableHistory } from '../application/portable-history';
@@ -31,6 +32,8 @@ const ajv = new Ajv2020({ strict: true });
 addFormats(ajv); ajv.addSchema(journalSchema);
 // Only the locally shipped schema is executable; schemas included in archives are documentation.
 const validateDocument = ajv.compile<PortableDocument>(portableWorkspaceSchema);
+const validateDocumentV2 = ajv.compile<PortableDocument>(portableWorkspaceV2Schema);
+const validateCollaboration = ajv.compile(portableCollaborationSchema);
 const validateSemanticFields = ajv.compile(portableSemanticDeltaSchema);
 
 export interface StagedPortableWorkspace extends StagedBundleArchive { facts: PortableWorkspaceFacts }
@@ -283,11 +286,22 @@ export async function ingestPortableWorkspace(staged: StagedPortableWorkspace, b
     for (const attachment of run.input.request.attachments) {
       const current = byAttachment.get(attachment.id);
       const version = byVersion.get(attachment.resourceVersionId ?? '');
-      if (!current || !version || version.purgedAt || current.resourceVersionId !== version.id
+      if (!current || !version || version.purgedAt || current.resourceId !== version.resourceId
         || version.resourceId !== attachment.resourceId || version.digest !== attachment.digest || version.size !== attachment.size) throw bundleError('BUNDLE_BROKEN_REFERENCES');
       attachment.blobRef = version.blobRef;
     }
     run.inputHash = semanticStateChecksum(run.input as unknown as Record<string, unknown>);
+  }
+  for (const event of facts.journal) {
+    const record = event.payload.collaboration as import('../contracts/collaboration').CollaborationRecord | undefined;
+    if (!record) continue;
+    for (const base of [record.base, ...record.attempts.map(attempt => attempt.input.base)]) {
+      for (const attachment of base.attachments ?? []) {
+        const version = byVersion.get(attachment.resourceVersionId ?? '');
+        if (!version || version.purgedAt || version.digest !== attachment.digest) throw bundleError('BUNDLE_BROKEN_COLLABORATION');
+        attachment.blobRef = version.blobRef;
+      }
+    }
   }
   return facts;
 }
@@ -322,14 +336,18 @@ export async function stagePortableWorkspace(path: string, limits: BundleLimits 
 }
 
 export function decodePortableDocument(value: unknown, index: BundleIndex): PortableWorkspaceFacts {
-  if (!validateDocument(value)) throw bundleError('BUNDLE_INVALID_DOCUMENT');
-  const { facts, runtimeSnapshots, providerEndpoints, modelSpecs } = value;
+  const v2 = !!value && typeof value === 'object' && 'schemaVersion' in value && value.schemaVersion === '2.0.0';
+  if (v2 ? !validateDocumentV2(value) : !validateDocument(value)) throw bundleError('BUNDLE_INVALID_DOCUMENT');
+  const document = value as PortableDocument;
+  const { facts, runtimeSnapshots, providerEndpoints, modelSpecs } = document;
   for (const event of facts.journal) {
+    if (event.eventType === 'collaboration.changed' && (!v2 || (event.payload.collaboration !== undefined && !validateCollaboration(event.payload.collaboration)))) throw bundleError('BUNDLE_INVALID_COLLABORATION');
     const snapshot = event.payload.snapshot as { state?: unknown } | undefined;
     if ((snapshot && !validateSemanticFields(snapshot.state))
       || (event.payload.stateChanges !== undefined && !validateSemanticFields(event.payload.stateChanges))) throw bundleError('BUNDLE_INVALID_HISTORY_DELTA');
   }
   validatePortableReferences(facts);
+  validatePortableCollaborations(facts, semanticStateChecksum);
   validatePortableContent(facts, index);
   validatePortableHistory(facts, semanticStateChecksum);
   const byRun = <T extends { runRef: string }>(items: T[]) => {

@@ -1,5 +1,5 @@
 import { purgeResourceIds, runFrozenResourceIds } from '../domain/purge-resources';
-import type { ContextCompiler, ContextVersionVector, FrozenContextItem, IndexedContextPlanningPort } from '../context-runtime/contracts';
+import type { ContextCompiler, ContextVersionVector, IndexedContextPlanningPort } from '../context-runtime/contracts';
 import { RunLifecycle } from './run-lifecycle';
 import { resolveContextHistory } from './context-history';
 import type { ContextEnvelope, RunMutation } from '../execution-runtime/run';
@@ -19,6 +19,8 @@ import { completeBundleImport } from './prepare-bundle-import';
 import { activeContextSelection, estimateTokens } from '../context-runtime/port';
 import { contextSourceSnapshot, validateContextConfirmation } from '../context-runtime/source-snapshot';
 import { assessReplay } from './replay-preflight';
+import { CollaborationService } from './collaboration-service';
+import type { PreparedRun } from './prepared-run';
 
 const nodeStatuses = new Set(['draft', 'active', 'resolved', 'stale', 'archived']);
 const textMimeTypes = new Set(['text/plain', 'text/markdown', 'text/csv', 'application/json', 'application/xml', 'text/xml', 'application/javascript', 'text/javascript']);
@@ -47,7 +49,6 @@ export interface RhizaApplicationDependencies {
 }
 
 type Completion = { text: string; model: string; provider: string; reasoning?: string; toolCalls?: StoredMessage['toolCalls']; usage?: StoredMessage['usage'] };
-type PreparedRun = { replay?: ContextEnvelope['replay']; frozen: FrozenContextItem[]; sourceRunId?: string; manifest: ContextManifest; request: RuntimeRequest; createdAt: string; userMessageId: string; versionGroupId: string; version: number };
 type AnyCommandEnvelope = { [K in CommandType]: Omit<CommandEnvelope<K>, 'commandType' | 'payload'> & { commandType: K; payload: CommandMap[K]['payload'] } }[CommandType];
 type AnyQueryEnvelope = { [K in QueryType]: Omit<QueryEnvelope<K>, 'queryType' | 'payload'> & { queryType: K; payload: QueryMap[K]['payload'] } }[QueryType];
 type DispatchPayload = {
@@ -138,8 +139,8 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
     if (!model) throw legacyError('请在模型设置中选择可用模型。', preferredModelId ? 409 : 503, preferredModelId ? 'MODEL_NOT_FOUND' : 'MODEL_NOT_SELECTED');
     return model;
   };
-  const mutate = async <T>(work: (current: WorkspaceData) => { next: WorkspaceData; value: T }, purge?: { nodeId: string; auditReceiptId: string }, run?: RunMutation) =>
-    unitOfWork.execute({ run, policy: purge ? { kind: 'purge', ...purge } : { kind: 'normal' }, apply: current => work(current) });
+  const mutate = async <T>(work: (current: WorkspaceData) => { next: WorkspaceData; value: T }, purge?: { nodeId: string; auditReceiptId: string }, run?: RunMutation, collaboration?: import('./ports/workspace-unit-of-work').WorkspaceMutation<T>['collaboration']) =>
+    unitOfWork.execute({ run, collaboration, policy: purge ? { kind: 'purge', ...purge } : { kind: 'normal' }, apply: current => work(current) });
   const mutateWorkspace = async (work: (current: WorkspaceData) => { next: WorkspaceData; value: unknown }) => (await mutate(work)).workspace;
 
   const prepareRun = async (payload: Extract<CommandEnvelope<'CreateConversationRun'>['payload'], object>): Promise<PreparedRun> => {
@@ -197,20 +198,23 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
     return { frozen, sourceRunId: current.sourceRunId, manifest, createdAt, userMessageId, versionGroupId: version.versionGroupId, version: version.version, request: { modelSnapshot: model, requestId, manifestId, projectId: current.projectId, nodeId, modelId: model.id, prompt, history, contextItems: plan.items, mode: current.mode, attachments: attachments.filter((item): item is StoredAttachment => Boolean(item)), generation: payload.generation, operation: payload.operation, sourceMessageId: payload.sourceMessageId } };
   };
 
-  const commitRun = async (run: PreparedRun, completion: Completion, mutation?: RunMutation) => {
+  const commitRun = async (run: PreparedRun, completion: Completion, mutation?: RunMutation, collaboration?: import('./ports/workspace-unit-of-work').WorkspaceMutation<unknown>['collaboration'], outputId?: string) => {
     const operation = run.request.operation || 'send';
     const userMessage: StoredMessage = { id: run.userMessageId, nodeId: run.request.nodeId, kind: 'user', text: run.request.prompt, createdAt: run.createdAt, attachmentIds: run.manifest.attachmentIds, operation, sourceMessageId: run.request.sourceMessageId, versionGroupId: run.versionGroupId, version: run.version };
-    const assistantMessage: StoredMessage = { id: id(), nodeId: run.request.nodeId, kind: 'assistant', text: completion.text, createdAt: run.createdAt, manifestId: run.manifest.id, operation, sourceMessageId: operation === 'regenerate' ? run.request.sourceMessageId : undefined, versionGroupId: run.versionGroupId, version: run.version, replyToMessageId: userMessage.id, usage: completion.usage, reasoning: completion.reasoning, toolCalls: completion.toolCalls };
+    const assistantMessage: StoredMessage = { id: outputId ?? id(), nodeId: run.request.nodeId, kind: 'assistant', text: completion.text, createdAt: run.createdAt, manifestId: run.manifest.id, operation, sourceMessageId: operation === 'regenerate' ? run.request.sourceMessageId : undefined, versionGroupId: run.versionGroupId, version: run.version, replyToMessageId: userMessage.id, usage: completion.usage, reasoning: completion.reasoning, toolCalls: completion.toolCalls };
     const value = { userMessage, assistantMessage, manifest: run.manifest, ...(run.replay ? { replay: run.replay } : {}) };
     const committed = await mutate(current => {
       if (current.manifests.some(manifest => manifest.requestId === run.request.requestId)) return { next: current, value };
       const target = current.discussionNodes.find(node => node.id === run.request.nodeId);
       if (!target) throw legacyError('生成期间讨论节点已被删除，结果未写入。', 409, 'NODE_REMOVED_DURING_RUN');
       if (target.status === 'archived') throw legacyError('生成期间讨论节点已归档，结果未写入。', 409, 'NODE_ARCHIVED_DURING_RUN');
-      return { next: { ...current, resources: [...current.resources, ...run.frozen.map(item => item.resource).filter(resource => !current.resources.some(item => item.id === resource.id))], resourceVersions: [...current.resourceVersions, ...run.frozen.map(item => item.resourceVersion).filter(version => !current.resourceVersions.some(item => item.id === version.id))], messages: [...current.messages, userMessage, assistantMessage], manifests: [...current.manifests, run.manifest] }, value };
-    }, undefined, mutation);
-    return committed.value;
+      return { next: { ...current, resources: [...current.resources, ...run.frozen.map(item => item.resource).filter(resource => !current.resources.some(item => item.id === resource.id))], resourceVersions: [...current.resourceVersions, ...run.frozen.map(item => item.resourceVersion).filter(version => !current.resourceVersions.some(item => item.id === version.id))], messages: [...current.messages, userMessage, assistantMessage], manifests: [...current.manifests, run.manifest] }, value: collaboration ? { collaboration: collaboration.next, result: value } : value };
+    }, undefined, mutation, collaboration);
+    return 'result' in committed.value ? committed.value.result : committed.value;
   };
+
+  const collaborations = new CollaborationService({ unitOfWork, runtime, runs, prepare: prepareRun, commit: commitRun, inputFor,
+    id, now, blobs: host.blobs, hash: dependencies.hashRunInput ?? (() => { throw new Error('Run input hash capability is unavailable'); }) });
 
   const registerResourceVersion = async (payload: Pick<DispatchPayload, 'name' | 'mimeType' | 'bytes' | 'attachmentId'>, workspaceId: string, existingAttachmentId?: string) => {
     const snapshot = await providers.snapshot();
@@ -324,7 +328,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
       const prior = unitOfWork.withWorkspace && unitOfWork.withCommand && unitOfWork.readCommittedResult
         ? await unitOfWork.withWorkspace(envelope.workspaceId, () => unitOfWork.withCommand!(factContext, () => unitOfWork.readCommittedResult!()))
         : undefined;
-      if (!prior?.found && record.status === 'archived' && !['RestoreWorkspace', 'CancelExecutionRun'].includes(envelope.commandType)) throw legacyError('归档工作区为只读，请先恢复。', 409, 'WORKSPACE_ARCHIVED');
+      if (!prior?.found && record.status === 'archived' && !['RestoreWorkspace', 'CancelExecutionRun', 'StopCollaboration'].includes(envelope.commandType)) throw legacyError('归档工作区为只读，请先恢复。', 409, 'WORKSPACE_ARCHIVED');
       if (envelope.commandType === 'RenameWorkspace' || envelope.commandType === 'ArchiveWorkspace' || envelope.commandType === 'RestoreWorkspace') {
         if (prior?.found) return prior.value;
         const expectedRevision = envelope.expectedRevision ?? record.revision;
@@ -353,6 +357,24 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
       // dispatch remains exhaustive while each runtime key maps to its contract payload.
       const payload = envelope.payload as unknown as DispatchPayload;
       switch (envelope.commandType) {
+        case 'CreateCollaboration': return await collaborations.create(envelope as CommandEnvelope<'CreateCollaboration'>);
+        case 'InvokeCollaboration': return await collaborations.invoke(envelope as CommandEnvelope<'InvokeCollaboration'>, options);
+        case 'RetryCollaborationParticipant': return await collaborations.retry(envelope as CommandEnvelope<'RetryCollaborationParticipant'>, options);
+        case 'StopCollaboration': return await collaborations.stop(envelope as CommandEnvelope<'StopCollaboration'>);
+        case 'SynthesizeCollaboration': return await collaborations.synthesize(envelope as CommandEnvelope<'SynthesizeCollaboration'>, options);
+        case 'RetainCollaboration': {
+          const previous = await unitOfWork.readCommittedResult?.<CommandMap['RetainCollaboration']['result']>();
+          if (previous?.found) return previous.value;
+          const { collaboration } = await collaborations.get(envelope.payload.collaborationId);
+          const output = collaboration.attempts.find(attempt => attempt.participantId === '@synthesis' && attempt.status === 'completed');
+          if (!collaboration.synthesis || !output?.outputRef) throw legacyError('协作尚无可保留的汇总。', 409, 'COLLABORATION_SYNTHESIS_MISSING');
+          const summary = `${collaboration.synthesis.recommendation}\n\n${collaboration.synthesis.rationale}\n\n${JSON.stringify({ alternatives: collaboration.synthesis.alternatives, risks: collaboration.synthesis.risks, disagreements: collaboration.synthesis.disagreements, missingParticipants: collaboration.synthesis.missingParticipants })}`;
+          const committed = await mutate(current => {
+            const next = mergeRevision(current, collaboration.nodeId, envelope.payload.targetNodeId, summary, id, now, planner, output.outputRef).next;
+            const message = next.messages.find(message => !current.messages.some(before => before.id === message.id))!;
+            return { next, value: { message } };
+          }); return committed.value;
+        }
         case 'SaveProvider': return providers.saveProvider(payload.body as never, payload.providerId);
         case 'DiscoverProviderModels': return providers.discoverModels(payload.providerId!);
         case 'UpdateModelPreference': return providers.updateModel(payload.modelId, { favorite: payload.favorite, pinned: payload.pinned });
@@ -522,7 +544,13 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
   };
   const dispatchQueryScoped = async (envelope: AnyQueryEnvelope): Promise<unknown> => {
     try {
-      switch (envelope.queryType) {
+    switch (envelope.queryType) {
+      case 'GetCollaboration': return collaborations.get(envelope.payload.collaborationId);
+      case 'ListCollaborations': {
+        const limit = envelope.payload.limit;
+        if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)) throw legacyError('协作列表范围无效。', 400, 'INVALID_LIMIT');
+        return { collaborations: await unitOfWork.listCollaborations?.(limit) ?? [] };
+      }
         case 'GetReplayPreflight': return (await assessReplay(envelope.payload.runId, unitOfWork, runtime, host)).preflight;
         case 'GetContextPreview': {
           const payload = envelope.payload as QueryMap['GetContextPreview']['payload'];
@@ -626,13 +654,14 @@ function createBranch(current: WorkspaceData, payload: Extract<CommandEnvelope<'
   const next = withCurrentNodeContext({ ...current, activeNodeId: nodeId, nodeId, messages: [...current.messages, ...messages], anchors: anchor ? [...current.anchors, anchor] : current.anchors, discussionNodes: [...current.discussionNodes.map(item => item.id === source.id ? { ...item, status: 'active' as const, updatedAt: createdAt } : item), node], discussionEdges: [...current.discussionEdges, edge] }, nodeId, planner); return { next, value: next };
 }
 
-function mergeRevision(current: WorkspaceData, sourceId: string, targetId: string, summary: string | undefined, id: () => string, now: () => string, planner: ContextPlannerPort) {
+function mergeRevision(current: WorkspaceData, sourceId: string, targetId: string, summary: string | undefined, id: () => string, now: () => string, planner: ContextPlannerPort, sourceMessageId?: string) {
   if (sourceId === targetId) throw legacyError('合并目标必须是另一讨论。',400,'INVALID_MERGE_TARGET');
   const source = current.discussionNodes.find(node => node.id === sourceId); if (!source || source.kind !== 'branch') throw legacyError('只有正式支线可以合并。', 400, 'INVALID_MERGE_SOURCE');
   const target = current.discussionNodes.find(node => node.id === targetId); if (!target) throw legacyError('合并目标不存在。', 404, 'MERGE_TARGET_NOT_FOUND');
   if (source.status === 'archived' || target.status === 'archived') throw legacyError('归档节点为只读；请先恢复。', 409, 'NODE_ARCHIVED_READ_ONLY'); if (source.status === 'resolved') throw legacyError('该支线已经合并。', 409, 'BRANCH_ALREADY_MERGED');
+  if (sourceMessageId && !current.messages.some(message => message.id === sourceMessageId && message.nodeId === source.id && message.kind === 'assistant')) throw legacyError('汇总来源不存在。', 409, 'COLLABORATION_OUTPUT_MISSING');
   const createdAt = now(); const content = summary || [...current.messages].reverse().find(message => message.nodeId === source.id && message.kind === 'assistant')?.text || source.summary;
-  const next = withCurrentNodeContext({ ...current, activeNodeId: target.id, nodeId: target.id, messages: [...current.messages, { id: id(), nodeId: target.id, kind: 'assistant' as const, text: `已从支线「${source.title}」合并引用：\n\n${content}`, createdAt }], discussionNodes: current.discussionNodes.map(node => node.id === source.id ? { ...node, status: 'resolved' as const, updatedAt: createdAt } : node), discussionEdges: [...current.discussionEdges, { id: id(), source: source.id, target: target.id, relation: 'merged-into' as const, label: '选择性合并', createdAt }] }, target.id, planner); return { next, value: next };
+  const next = withCurrentNodeContext({ ...current, activeNodeId: target.id, nodeId: target.id, messages: [...current.messages, { id: id(), nodeId: target.id, kind: 'assistant' as const, text: `已从支线「${source.title}」合并引用：\n\n${content}`, createdAt, ...(sourceMessageId ? { sourceMessageId } : {}) }], discussionNodes: current.discussionNodes.map(node => node.id === source.id ? { ...node, status: 'resolved' as const, updatedAt: createdAt } : node), discussionEdges: [...current.discussionEdges, { id: id(), source: source.id, target: target.id, relation: 'merged-into' as const, label: '选择性合并', createdAt }] }, target.id, planner); return { next, value: next };
 }
 
 async function temporaryConversation(payload: Extract<CommandEnvelope<'ExecuteTemporaryConversation'>['payload'], object>, uow: WorkspaceUnitOfWork, activeModel: (preferredModelId?: string) => Promise<Awaited<ReturnType<RuntimePort['listModels']>>[number]>, id: () => string, now: () => string, execute: (request: RuntimeRequest, resultFor: (completion: Completion) => CommandMap['ExecuteTemporaryConversation']['result']) => Promise<CommandMap['ExecuteTemporaryConversation']['result']>) {

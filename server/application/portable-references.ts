@@ -87,7 +87,7 @@ export function validatePortableReferences(facts: PortableWorkspaceFacts): void 
     for (const attachment of run.input.request.attachments ?? []) {
       const version = versionById.get(attachment.resourceVersionId ?? '');
       const current = attachmentById.get(attachment.id);
-      if (!current || !version || version.purgedAt || current.resourceVersionId !== attachment.resourceVersionId
+      if (!current || !version || version.purgedAt || current.resourceId !== attachment.resourceId
         || version.resourceId !== attachment.resourceId || version.digest !== attachment.digest
         || version.size !== attachment.size || version.blobRef !== attachment.blobRef) missing.push(`${run.id}:attachment-version`);
     }

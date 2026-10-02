@@ -5,6 +5,8 @@ import { observeLegacyWrite } from './infrastructure/legacy-write-observation';
 import { ContentDirectoryOwnership } from './infrastructure/content-directory-ownership';
 import { materializeContextCandidates, queryContextCandidates } from './context-runtime/postgres-index';
 import type { ContextPlanningInput } from './context-runtime/contracts';
+import { assertCollaborationPurge, recoverCollaboration, type CollaborationRecord } from './application/collaboration-policy';
+import { validatePortableCollaborations } from './application/portable-collaboration';
 import { isDeepStrictEqual } from 'node:util';
 import { createHash, randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
@@ -1159,7 +1161,8 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         await database.query('SELECT id FROM rhiza_projects WHERE id=$1 FOR UPDATE', [this.defaultWorkspaceId]);
       }
       const directoryRevision = await database.query<{ revision: number; status: string }>("SELECT COALESCE((settings->>'revision')::integer,1) revision,status FROM workspaces WHERE workspace_id=$1 FOR UPDATE", [this.defaultWorkspaceId]);
-      if (directoryRevision.rows[0]?.status === 'archived' && !(command.options?.run?.kind === 'transition' && ['failed', 'canceled', 'interrupted'].includes(command.options.run.patch.status))) throw Object.assign(new Error('归档工作区为只读，请先恢复。'), { code: 'WORKSPACE_ARCHIVED', status: 409 });
+      if (directoryRevision.rows[0]?.status === 'archived' && !(command.options?.run?.kind === 'transition' && ['failed', 'canceled', 'interrupted'].includes(command.options.run.patch.status))
+        && !['RecoverCollaboration','SettleCollaboration','StopCollaboration'].includes(command.context.commandType)) throw Object.assign(new Error('归档工作区为只读，请先恢复。'), { code: 'WORKSPACE_ARCHIVED', status: 409 });
       let aggregateRevision = Number(directoryRevision.rows[0]?.revision || 0);
       if (command.context.expectedRevision !== undefined) {
         if (!directoryRevision.rows[0] || aggregateRevision !== command.context.expectedRevision) {
@@ -1172,6 +1175,34 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       }
       const graphActive = (await database.query("SELECT active_version FROM projection_aliases WHERE workspace_id=$1 AND projection_name='graph'", [this.defaultWorkspaceId])).rows.length > 0;
       const graphBefore = graphActive ? await this.graphFacts(database, current) : undefined;
+      if (command.options?.collaboration) {
+        if (!this.journalContent) throw new Error('COLLABORATION_REQUIRES_SEALED_JOURNAL');
+        const { expectedRevision } = command.options.collaboration;
+        let next = command.options.collaboration.next;
+        const prior = await this.collaborationFrom(database, next.id);
+        if (prior && command.options.collaboration.settleCurrent) {
+          if (prior.revision < expectedRevision) throw Object.assign(new Error('COLLABORATION_REVISION_CONFLICT'), { code: 'COLLABORATION_REVISION_CONFLICT', status: 409 });
+          next = command.options.collaboration.settleCurrent(prior);
+          command.options.collaboration.next = next;
+        }
+        if (next.workspaceId !== this.defaultWorkspaceId || (command.options.collaboration.settleCurrent && !prior) || (prior && next.id !== prior.id)
+          || (!command.options.collaboration.settleCurrent && (prior?.revision ?? 0) !== expectedRevision)
+          || (!prior && next.revision !== 1) || (prior && next.revision < prior.revision))
+          throw Object.assign(new Error('COLLABORATION_REVISION_CONFLICT'), { code: 'COLLABORATION_REVISION_CONFLICT', status: 409 });
+        if (prior && (!isDeepStrictEqual(prior.base, next.base) || !isDeepStrictEqual(prior.participants, next.participants)
+          || prior.nodeId !== next.nodeId || prior.mode !== next.mode || !isDeepStrictEqual(prior.models, next.models)
+          || prior.attempts.some(attempt => {
+            const after = next.attempts.find(item => item.id === attempt.id);
+            return !after || !isDeepStrictEqual(attempt.input, after.input)
+              || (attempt.status !== 'running' && !isDeepStrictEqual(attempt, after));
+          }))) throw new Error('COLLABORATION_HISTORY_IMMUTABLE');
+        for (const attempt of next.attempts.filter(item => !prior?.attempts.some(before => before.id === item.id))) {
+          if (command.options.run?.kind === 'create' && !(await database.query("SELECT 1 FROM rhiza_nodes WHERE project_id=$1 AND id=$2 AND status<>'archived'", [this.defaultWorkspaceId, next.nodeId])).rows.length)
+            throw Object.assign(new Error('NODE_ARCHIVED'), { code: 'NODE_ARCHIVED', status: 409 });
+          await database.query('INSERT INTO collaboration_run_links(workspace_id,run_id,collaboration_id) VALUES ($1,$2,$3)',
+            [this.defaultWorkspaceId, attempt.runRef, next.id]);
+        }
+      }
       if (command.options?.run) await this.applyRunMutation(database, command.options.run);
       if (command.options?.purge) {
         const runs = await database.query<{ record: ExecutionRun; input_content_ref: unknown }>('SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1 AND purged_at IS NULL', [this.defaultWorkspaceId]);
@@ -1277,6 +1308,21 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       });
       count += 1;
     }
+    const workspaces = await this.database.query<{ workspace_id: string }>("SELECT DISTINCT workspace_id FROM workspace_events WHERE event_type='collaboration.changed'");
+    for (const { workspace_id } of workspaces.rows) {
+      const target = this.forWorkspace(workspace_id) as PostgresWorkspaceStore;
+      for (const record of await target.collaborationsFrom(this.database)) {
+        if (!['running','synthesizing'].includes(record.status)) continue;
+        const at = new Date().toISOString();
+        const next = recoverCollaboration(record, at);
+        await target.executeCommand({
+          context: { commandId: `collaboration:recover:${record.id}:${record.revision}`, commandType: 'RecoverCollaboration', actor: { actorType: 'system', actorId: 'rhiza-startup' }, scope: { scopeType: 'workspace', scopeId: workspace_id }, occurredAt: at },
+          options: { collaboration: { expectedRevision: record.revision, next } },
+          apply: async current => ({ next: current, value: { collaborationId: record.id } }),
+          events: () => [{ eventType: 'collaboration.changed', aggregateType: 'collaboration', aggregateId: record.id, payload: { collaboration: next } }],
+        });
+      }
+    }
     return count;
   }
 
@@ -1336,6 +1382,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     const portableFacts = portableWorkspaceFacts(facts, input => semanticStateChecksum(input as Record<string, unknown>));
     validatePortableReferences(portableFacts);
     validatePortableHistory(portableFacts, semanticStateChecksum);
+    validatePortableCollaborations(portableFacts, semanticStateChecksum);
     await this.inTransaction(async database => {
       const checkpoints = await database.query<BundleImportCheckpoint>('SELECT workspace_id AS "workspaceId",state_digest AS "stateDigest",phase FROM bundle_imports WHERE import_id=$1 AND owner_id=$2 FOR UPDATE', [importId, ownerId]);
       const checkpoint = checkpoints.rows[0];
@@ -1378,6 +1425,9 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         (event_id,workspace_id,sequence,ce_specversion,rhiza_envelope_version,event_type,event_source,subject,data_schema,aggregate_type,aggregate_id,aggregate_revision,actor_ref,scope_ref,command_id,event_index,causation_id,correlation_id,payload,occurred_at,recorded_at,payload_content_ref)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb,$15,$16,$17,$18,$19::jsonb,$20,$21,$22::jsonb)`,
       [event.eventId,event.workspaceId,event.sequence,event.ceSpecversion,event.envelopeVersion,event.eventType,event.eventSource,event.subject,event.dataSchema,event.aggregateType,event.aggregateId,event.aggregateRevision,JSON.stringify(event.actor),JSON.stringify(event.scope),event.commandId,event.eventIndex,event.causationId ?? null,event.correlationId ?? null,sealed.payload,event.occurredAt,event.recordedAt,sealed.reference]);
+      }
+      for (const collaboration of await this.collaborationsFrom(database)) {
+        for (const attempt of collaboration.attempts) await database.query('INSERT INTO collaboration_run_links(workspace_id,run_id,collaboration_id) VALUES ($1,$2,$3)', [record.workspaceId, attempt.runRef, collaboration.id]);
       }
       await database.query('INSERT INTO workspace_event_heads(workspace_id,last_sequence) VALUES ($1,$2)', [record.workspaceId, facts.journal.length]);
       await database.query("UPDATE bundle_imports SET phase='activated',revision=revision+1,updated_at=now() WHERE import_id=$1", [importId]);
@@ -1561,6 +1611,14 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       await this.insertRun(database, run);
       return;
     }
+    if (['dispatching','running','completed'].includes(mutation.patch.status)) {
+      const link = (await database.query<{ collaboration_id: string }>('SELECT collaboration_id FROM collaboration_run_links WHERE workspace_id=$1 AND run_id=$2', [this.defaultWorkspaceId, mutation.runId])).rows[0];
+      if (link) {
+        const record = await this.collaborationFrom(database, link.collaboration_id);
+        if (!record || record.cancelRequestedAt || record.attempts.find(attempt => attempt.runRef === mutation.runId)?.status !== 'running')
+          throw Object.assign(new Error('COLLABORATION_STOPPED'), { code: 'COLLABORATION_STOPPED', status: 409 });
+      }
+    }
     const result = await database.query(`UPDATE execution_runs SET status=$4,record=record || $5::jsonb
       WHERE workspace_id=$1 AND run_id=$2 AND attempt=$3 AND status=ANY($6::text[]) RETURNING run_id`,
       [this.defaultWorkspaceId,mutation.runId,mutation.attempt,mutation.patch.status,JSON.stringify(mutation.patch),mutation.from]);
@@ -1574,6 +1632,19 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     if (!this.journalContent) throw new Error('JOURNAL_CONTENT_STORE_UNAVAILABLE');
     return { ...event, payload: await this.journalContent.read(event.workspaceId, event.eventId, asJson<SealedJournalRef>(reference)) };
   }
+
+  private async collaborationsFrom(database: SqlQueryable, id?: string, limit?: number): Promise<CollaborationRecord[]> {
+    const result = await database.query<Record<string, unknown>>(`SELECT e.*,r.content_ref redacted_content_ref FROM
+      (SELECT DISTINCT ON (aggregate_id) * FROM workspace_events WHERE workspace_id=$1 AND event_type='collaboration.changed'
+        ${id ? 'AND aggregate_id=$2' : ''} ORDER BY aggregate_id,sequence DESC) e
+      LEFT JOIN journal_payload_redactions r ON r.event_id=e.event_id ORDER BY e.sequence DESC ${limit ? 'LIMIT $2' : ''}`,
+    [this.defaultWorkspaceId, ...(id ? [id] : limit ? [limit] : [])]);
+    return (await Promise.all(result.rows.map(row => this.decodeJournalEvent(row))))
+      .flatMap(event => event.payload.collaboration ? [event.payload.collaboration as CollaborationRecord] : []);
+  }
+  private async collaborationFrom(database: SqlQueryable, id: string) { return (await this.collaborationsFrom(database, id))[0]; }
+  async getCollaboration(id: string) { return this.collaborationFrom(this.database, id); }
+  async listCollaborations(limit = 50) { return this.collaborationsFrom(this.database, undefined, Math.min(100, Math.max(1, limit))); }
 
   async readJournal(limit = 50): Promise<DomainEventEnvelope[]> {
     const result = await this.database.query<Record<string, unknown>>(`
@@ -2122,6 +2193,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         previous.resourceVersions.filter(version => !version.purgedAt
           && workspace.resourceVersions.some(candidate => candidate.id === version.id && candidate.purgedAt)).flatMap(version => [version.id, version.resourceId]),
       ].flat()]);
+      assertCollaborationPurge(await this.collaborationsFrom(database), nodeId, affectedIds);
       // ponytail: Purge is rare; scan frozen Runs until a persisted reference index is justified by volume.
       const runs = await database.query<{ record: ExecutionRun; input_content_ref: unknown }>('SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1 AND purged_at IS NULL FOR UPDATE', [workspace.projectId]);
       const decodedRuns = await Promise.all(runs.rows.map(async row => ({ run: await this.decodeRun(row), reference: row.input_content_ref })));

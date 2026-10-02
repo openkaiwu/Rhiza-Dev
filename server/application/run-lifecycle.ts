@@ -17,9 +17,9 @@ export class RunLifecycle {
     private readonly now: () => string, private readonly id: () => string,
     private readonly hash: (input: ContextEnvelope) => string) {}
 
-  private async change<T>(envelope: CommandEnvelope<CommandType>, mutation: RunMutation, value: T, commandId = this.id(), frozen: readonly FrozenContextItem[] = []) {
+  private async change<T>(envelope: CommandEnvelope<CommandType>, mutation: RunMutation, value: T, commandId = this.id(), frozen: readonly FrozenContextItem[] = [], collaboration?: import('./ports/workspace-unit-of-work').WorkspaceMutation<T>['collaboration']) {
     const context: CommandFactContext = { commandId, commandType: commandId === envelope.commandId ? envelope.commandType : 'TransitionExecutionRun', actor: envelope.actor, scope: envelope.scope, occurredAt: this.now(), correlationId: envelope.correlationId, expectedRevision: mutation.kind === 'create' ? envelope.expectedRevision : undefined };
-    return this.uow.withCommand!(context, async () => (await this.uow.execute({ policy: { kind: 'normal' }, run: mutation, apply: current => ({ next: frozen.length ? { ...current, resources: [...current.resources, ...frozen.map(item => item.resource)], resourceVersions: [...current.resourceVersions, ...frozen.map(item => item.resourceVersion)] } : current, value }) })).value);
+    return this.uow.withCommand!(context, async () => (await this.uow.execute({ policy: { kind: 'normal' }, run: mutation, collaboration, apply: current => ({ next: frozen.length ? { ...current, resources: [...current.resources, ...frozen.map(item => item.resource)], resourceVersions: [...current.resourceVersions, ...frozen.map(item => item.resourceVersion)] } : current, value }) })).value);
   }
 
   async cancel(envelope: CommandEnvelope<CommandType>, runId: string): Promise<ExecutionRun> {
@@ -41,7 +41,7 @@ export class RunLifecycle {
   }
 
   async execute<T>(envelope: CommandEnvelope<CommandType>, request: RuntimeRequest, input: ContextEnvelope,
-    complete: (completion: Completion, mutation?: RunMutation) => Promise<T>, options?: CommandExecutionOptions, parentRunRef?: string, frozen: readonly FrozenContextItem[] = []): Promise<T> {
+    complete: (completion: Completion, mutation?: RunMutation) => Promise<T>, options?: CommandExecutionOptions, parentRunRef?: string, frozen: readonly FrozenContextItem[] = [], collaboration?: { creation: import('./ports/workspace-unit-of-work').WorkspaceMutation<T>['collaboration']; timeoutMs: number }): Promise<T> {
     if (!this.uow.tracksRuns) {
       request.signal = options?.signal;
       await options?.onReady?.();
@@ -60,7 +60,7 @@ export class RunLifecycle {
       const parent = await this.uow.getRun!(parentRunRef);
       if (!parent || parent.nodeId !== run.nodeId) throw applicationError('重试来源不属于当前讨论。', 'INVALID_PARENT_RUN', 'validation', 'none', false, 400);
     }
-    const stored = await this.change(envelope, { kind: 'create', run }, run, `run:create:${envelope.commandId}`, frozen);
+    const stored = await this.change(envelope, { kind: 'create', run }, run, `run:create:${envelope.commandId}`, frozen, collaboration?.creation);
     if (stored.id !== run.id) throw applicationError('该命令已有执行记录，请查询执行历史。', 'RUN_ALREADY_EXISTS', 'conflict', 'none', false, 409);
     const controller = new AbortController();
     this.controllers.set(run.id, controller);
@@ -72,7 +72,7 @@ export class RunLifecycle {
     this.summaries.set(run.id, () => ({ traceCount: trace.count, durationMs: Date.now() - started, ttftMs, usage }));
     let timeout = false;
     let committing = false;
-    const timer = setTimeout(() => { timeout = true; controller.abort(); }, 120_000);
+    const timer = setTimeout(() => { timeout = true; controller.abort(); }, Math.min(120_000, collaboration?.timeoutMs ?? 120_000));
     const disconnect = () => controller.abort();
     options?.signal?.addEventListener('abort', disconnect, { once: true });
     if (options?.signal?.aborted) controller.abort();

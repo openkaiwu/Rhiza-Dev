@@ -15,7 +15,9 @@ export function runFrozenResourceIds(workspace: WorkspaceData, nodeId: string, r
     const resources = snapshot?.state?.resources ?? changes?.resources;
     if (!resources) continue;
     const next = new Set(resources.map(resource => resource.id));
-    if (event.workspaceId === workspace.projectId && event.eventType === 'run.created' && ownedRuns.has(event.aggregateId)) {
+    const collaboration = event.payload.collaboration as { nodeId?: string; revision?: number } | undefined;
+    if (event.workspaceId === workspace.projectId && ((event.eventType === 'run.created' && ownedRuns.has(event.aggregateId))
+      || (event.eventType === 'collaboration.changed' && collaboration?.nodeId === nodeId && collaboration.revision === 1))) {
       for (const id of next) if (!prior.has(id) && live.has(id)) owned.add(id);
     }
     prior = next;

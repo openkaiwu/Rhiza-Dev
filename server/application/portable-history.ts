@@ -109,6 +109,9 @@ export function redactPortableHistory(
     if (event.eventType === 'graph.relation.removed' && event.payload.removedRelation) {
       payload.removedRelation = safeRelation(event.payload.removedRelation);
     }
+    // Unrelated collaboration history survives another object's Purge. Its own branch loses every historical copy.
+    if (event.eventType === 'collaboration.changed' && record(event.payload.collaboration)
+      && !removed.get('nodes')?.has(String(event.payload.collaboration.nodeId))) payload.collaboration = event.payload.collaboration;
     result.push({ eventId: event.eventId, payload });
     prior = state;
   }

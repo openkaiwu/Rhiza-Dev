@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { portableWorkspaceFacts } from '../application/portable-workspace';
+import { portableDocumentVersion, portableWorkspaceFacts } from '../application/portable-workspace';
 import { validatePortableReferences } from '../application/portable-references';
 import type { PortableBundlePort, PortableWorkspaceFacts, BundleExport } from '../application/ports/portable-workspace';
 import type { BlobStorePort } from '../application/ports/host-runtime';
@@ -14,7 +14,7 @@ import { semanticStateChecksum } from './workspace-semantic-checksum';
 import { describeBundleFile, writeBundleArchive } from './bundle-archive';
 import indexSchema from '../contracts/bundle-index.schema.json';
 import { decodePortableDocument } from './portable-content';
-import { portableWorkspaceSchema } from '../domain/portable-workspace-schema';
+import { portableWorkspaceSchema, portableWorkspaceV2Schema } from '../domain/portable-workspace-schema';
 import journalSchema from '../contracts/domain-event-envelope.schema.json';
 
 export class NodePortableBundle implements PortableBundlePort {
@@ -44,12 +44,14 @@ export class NodePortableBundle implements PortableBundlePort {
       await add('rhiza-layout.json', { formatVersion: '1.0.0', index: 'index.json' });
       await add('schemas/bundle-index-v1.json', indexSchema, 'application/schema+json');
       await add('schemas/portable-workspace-v1.json', portableWorkspaceSchema, 'application/schema+json');
+      const v2 = portableDocumentVersion(facts) === '2.0.0';
+      if (v2) await add('schemas/portable-workspace-v2.json', portableWorkspaceV2Schema, 'application/schema+json');
       await add('schemas/domain-event-envelope-v1.json', journalSchema, 'application/schema+json');
       const runtimeSnapshots = facts.runs.map(run => ({ id: `run:${run.id}:input:${run.originInputHash ?? run.inputHash}`, runRef: run.id, digest: `sha256:${run.inputHash}` }));
       const providerEndpoints = facts.runs.map(run => ({ id: run.input.executor.providerEndpointRef, runRef: run.id, providerType: run.input.executor.provider,
         configurationVersion: run.input.request.modelSnapshot?.endpointVersion ?? null, credential_ref: null, credential_required: true }));
       const modelSpecs = facts.runs.map(run => ({ id: run.input.executor.modelSpecRef, runRef: run.id, model: run.input.executor.model, provider: run.input.executor.provider }));
-      const document = { schemaVersion: '1.0.0', facts, runtimeSnapshots, providerEndpoints, modelSpecs };
+      const document = { schemaVersion: v2 ? '2.0.0' : '1.0.0', facts, runtimeSnapshots, providerEndpoints, modelSpecs };
       await add('workspace.json', document);
       for (const run of facts.runs) {
         const name = `blobs/sha256/${run.inputHash}`;
