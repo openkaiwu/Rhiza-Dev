@@ -5,7 +5,7 @@ import { contextHistoryFixture } from './test/context-history-fixture';
 import { initialContext } from './data';
 import type { ContextManifest, DiscussionNode, Message } from './types';
 
-const mocks = vi.hoisted(() => ({
+const mocks = vi.hoisted(() => { const temporary = vi.fn(); return ({
   getWorkspace: vi.fn(),
   getMessageContext: vi.fn(),
   getWorkspaceActivity: vi.fn(),
@@ -23,12 +23,15 @@ const mocks = vi.hoisted(() => ({
   updateModel: vi.fn(),
   selectModel: vi.fn(),
   createBranch: vi.fn(), activateNode: vi.fn(), moveNode: vi.fn(), mergeNode: vi.fn(), archiveGraphNode: vi.fn(), restoreGraphNode: vi.fn(),
-  sendTemporaryMessage: vi.fn(),
+  sendTemporaryMessage: temporary, streamTemporaryMessage: temporary,
+  workspaceId: vi.fn(), cancelAttempt: vi.fn(), searchWorkspace: vi.fn(),
+  setConversationModel: vi.fn(), setWorkspaceModel: vi.fn(), renameConversation: vi.fn(),
+  setNodeStatus: vi.fn(), updateSegment: vi.fn(), createSegment: vi.fn(), retryRun: vi.fn(),
   setWorkspace: vi.fn(),
   listWorkspaces: vi.fn(),
   getScopedWorkspace: vi.fn(),
   updateWorkspace: vi.fn(),
-}));
+}); });
 
 vi.mock('./api', () => ({ api: mocks }));
 
@@ -69,6 +72,11 @@ const projectedGraph = (nodes: readonly DiscussionNode[] = workspace.discussionN
 
 beforeEach(() => {
   localStorage.clear();
+  mocks.workspaceId.mockReturnValue(undefined);
+  mocks.cancelAttempt.mockResolvedValue(undefined);
+  mocks.searchWorkspace.mockResolvedValue({ results: [] });
+  mocks.setConversationModel.mockResolvedValue({ workspace });
+  mocks.setWorkspaceModel.mockResolvedValue({ workspace });
   mocks.getWorkspace.mockResolvedValue({ workspace, provider: { configured: true, name: 'Test Provider', model: 'test-model', baseUrl: 'https://example.test/v1' }, providerCatalog });
   mocks.getWorkspaceActivity.mockResolvedValue({ activity: [{ id: 'event-1', sequence: 2, type: 'conversation.run.committed', title: '完成一次对话', detail: 'conversation · information-architecture', occurredAt: '2026-08-30T00:00:00.000Z', aggregateType: 'conversation', aggregateId: 'information-architecture' }] });
   mocks.getGraphNeighborhood.mockResolvedValue(projectedGraph());
@@ -248,7 +256,7 @@ describe('Rhiza MVP', () => {
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: /对话图谱/ }));
     const more = await screen.findByRole('button', { name: '加载更多' });
-    expect(mocks.getGraphNeighborhood).toHaveBeenLastCalledWith({ nodeLimit: 100, cursor: undefined });
+    expect(mocks.getGraphNeighborhood).toHaveBeenCalledWith({ nodeLimit: 100, cursor: undefined });
     const next = { ...workspace.discussionNodes[0]!, id: 'next-page', title: '第二页节点' };
     mocks.getGraphNeighborhood.mockResolvedValueOnce(projectedGraph([next]));
     fireEvent.click(more);
@@ -321,7 +329,7 @@ describe('Rhiza MVP', () => {
 
   it('submits a new discussion turn through the backend', async () => {
     render(<App />);
-    await screen.findByText(/test-model/);
+    await screen.findByRole('button', { name: '选择模型' });
     const input = screen.getByLabelText('输入消息');
     fireEvent.change(input, { target: { value: '验证这个结构' } });
     fireEvent.click(screen.getByRole('button', { name: '发送' }));
@@ -353,7 +361,7 @@ describe('Rhiza MVP', () => {
   it('shows an explicit Retry action after a failed request', async () => {
     mocks.streamMessage.mockRejectedValueOnce(new Error('供应商暂时不可用'));
     render(<App />);
-    await screen.findByText(/test-model/);
+    await screen.findByRole('button', { name: '选择模型' });
     fireEvent.change(screen.getByLabelText('输入消息'), { target: { value: '请重试' } });
     fireEvent.click(screen.getByRole('button', { name: '发送' }));
     expect(await screen.findByText('无法完成本轮对话。请重试。')).toBeInTheDocument();
@@ -366,7 +374,7 @@ describe('Rhiza MVP', () => {
       options.signal.addEventListener('abort', () => reject(Object.assign(new Error('internal cancellation trace'), { code: 'GENERATION_STOPPED' })), { once: true });
     }));
     render(<App />);
-    await screen.findByText(/test-model/);
+    await screen.findByRole('button', { name: '选择模型' });
     fireEvent.change(screen.getByLabelText('输入消息'), { target: { value: '长回答' } });
     fireEvent.click(screen.getByRole('button', { name: '发送' }));
     fireEvent.click(await screen.findByRole('button', { name: '停止生成' }));
@@ -376,7 +384,7 @@ describe('Rhiza MVP', () => {
 
   it('uploads, displays and sends an attachment with generation controls', async () => {
     const { container } = render(<App />);
-    await screen.findByText(/test-model/);
+    await screen.findByRole('button', { name: '选择模型' });
     const file = new File(['约束'], 'brief.txt', { type: 'text/plain' });
     fireEvent.change(container.querySelector('.composer input[type="file"]')!, { target: { files: [file] } });
     expect(await screen.findByText('brief.txt')).toBeInTheDocument();

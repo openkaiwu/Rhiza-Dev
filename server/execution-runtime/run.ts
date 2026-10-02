@@ -26,17 +26,17 @@ export interface ExecutionRun {
   runningAt?: string;
   terminalAt?: string;
   cancelRequestedAt?: string;
-  error?: { code: string; class: 'canceled' | 'timeout' | 'provider' | 'network' | 'interrupted' | 'commit'; message: string };
+  error?: { code: string; class: 'canceled' | 'timeout' | 'provider' | 'network' | 'interrupted' | 'commit' | 'auth' | 'rate_limit' | 'validation' | 'storage'; message: string };
   telemetry: { durationMs?: number; ttftMs?: number; usage?: TokenUsage; traceCount: number };
 }
 export const RUN_ERROR_CODES = [
-  'GENERATION_STOPPED', 'INCOMPLETE_RUNTIME_STREAM', 'INVALID_PROVIDER_RESPONSE', 'LEGACY_RUN_ERROR_REDACTED',
+  'PROVIDER_INPUT_INVALID', 'PROVIDER_AUTH_FAILED', 'PROVIDER_RATE_LIMITED', 'GENERATION_STOPPED', 'INCOMPLETE_RUNTIME_STREAM', 'INVALID_PROVIDER_RESPONSE', 'LEGACY_RUN_ERROR_REDACTED',
   'MODEL_NOT_FOUND', 'MODEL_NOT_SELECTED', 'PROCESS_INTERRUPTED', 'PROVIDER_CONFIGURATION_CHANGED',
   'PROVIDER_ERROR', 'PROVIDER_NOT_CONFIGURED', 'PROVIDER_NOT_FOUND', 'PROVIDER_REQUEST_FAILED',
   'PROVIDER_TIMEOUT', 'PROVIDER_UNREACHABLE', 'RUN_COMMIT_FAILED', 'RUNTIME_ERROR',
   'UPSTREAM_STREAM_FAILED', 'UPSTREAM_TIMEOUT',
 ] as const;
-export const RUN_ERROR_CLASSES = ['canceled', 'timeout', 'provider', 'network', 'interrupted', 'commit'] as const;
+export const RUN_ERROR_CLASSES = ['canceled', 'timeout', 'provider', 'network', 'interrupted', 'commit', 'auth', 'rate_limit', 'validation', 'storage'] as const;
 export const RUN_ERROR_MESSAGES = [
   '用户已停止生成。', '生成已停止。', '执行未完成，请查看错误类别并重试。',
   '服务重启，无法确认外部执行完成；请手动重试。', '历史执行错误详情已清理。',

@@ -1,4 +1,4 @@
-import { Check, ChevronDown, EyeOff, FileText, GitBranch, Layers3, LockKeyhole, MoreHorizontal, PinOff, Plus, Sparkles, X } from 'lucide-react';
+import { Check, ChevronDown, EyeOff, FileText, GitBranch, Layers3, LockKeyhole, PinOff, Plus, Sparkles, X } from 'lucide-react';
 import type { Attachment, ContextItem, ContextMode, ContextStatus, DiscussionNode, Segment } from '../types';
 import { ContextHistoryPanel, type ContextHistoryState } from './ContextHistoryPanel';
 
@@ -27,15 +27,15 @@ export function ContextPanel({ items, mode, nodes, segments, attachments, onMode
   const pinnedTokens = activeItems.filter(item => item.pinned).reduce((sum, item) => sum + item.tokens, 0);
   const usedSources = new Set(items.map(item => `${item.sourceType}:${item.sourceId}`));
   const sourceCandidates = [
-    ...nodes.filter(node => !usedSources.has(`node:${node.id}`)).map(node => ({ type: 'node' as const, id: node.id, title: node.title, detail: node.summary })),
-    ...segments.filter(segment => !usedSources.has(`segment:${segment.id}`)).map(segment => ({ type: 'segment' as const, id: segment.id, title: segment.title, detail: nodes.find(node => node.id === segment.nodeId)?.title || '未知节点' })),
+    ...nodes.filter(node => node.status !== 'archived' && !usedSources.has(`node:${node.id}`)).map(node => ({ type: 'node' as const, id: node.id, title: node.title, detail: node.summary })),
+    ...segments.filter(segment => segment.status !== 'archived' && nodes.some(node => node.id === segment.nodeId && node.status !== 'archived') && !usedSources.has(`segment:${segment.id}`)).map(segment => ({ type: 'segment' as const, id: segment.id, title: segment.title, detail: nodes.find(node => node.id === segment.nodeId)?.title || '未知节点' })),
     ...attachments.filter(file => file.kind === 'file' && !usedSources.has(`file:${file.id}`)).map(file => ({ type: 'file' as const, id: file.id, title: `文件 · ${file.name}`, detail: `${file.chunkCount || 0} chunks · ${file.summary || '已建立本地索引'}` })),
   ];
   const overBudget = activeTokens > budget;
 
   return (
     <aside className="context-panel">
-      <header className="panel-header"><div><span className="eyebrow">CONTEXT INSPECTOR</span><h2>本轮上下文</h2><p>Strict 仅使用显式选择；其他模式按相关性补充。</p></div><button className="icon-button" aria-label="更多上下文操作"><MoreHorizontal size={18}/></button></header>
+      <header className="panel-header"><div><span className="eyebrow">CONTEXT INSPECTOR</span><h2>本轮上下文</h2><p>Strict 仅使用显式选择；其他模式按相关性补充。</p></div></header>
       <div className="mode-control" aria-label="上下文模式">
         {(['Auto', 'Assisted', 'Strict'] as ContextMode[]).map(option => <button key={option} className={mode === option ? 'active' : ''} onClick={() => onMode(option)}>{option}</button>)}
       </div>

@@ -3,6 +3,9 @@ import { readFileSync } from 'node:fs';
 import { checksumGateInput, extractApiRoutes, validateEvidenceExceptions, validateEvidenceSeverity } from './verify-g0';
 
 describe('G0 API snapshot extraction', () => {
+  it('retains routes registered as arrays in the API contract snapshot', () => {
+    expect(extractApiRoutes("app.post(['/api/chat/stream', '/api/temp-chat/stream'], handler);")).toEqual(['POST /api/chat/stream', 'POST /api/temp-chat/stream']);
+  });
   it('includes PUT routes and excludes SPA fallbacks', () => {
     const routes = extractApiRoutes("app.put('/api/providers/:id', handler); app.get('*path', handler);");
     expect(routes).toContain('PUT /api/providers/:id');

@@ -55,8 +55,8 @@ export async function materializeContextCandidates(database: SqlQueryable, curre
   }
   for (const id of segmentIds) {
     const segment = current.segments.find(item => item.id === id);
-    const active = segment && current.discussionNodes.some(node => node.id === segment.nodeId && node.status !== 'archived');
-    await write('segment', id, active ? { title: segment.title, nodeId: segment.nodeId, content: current.messages.filter(item => item.segmentId === id).map(item => item.text).join('\n') || segment.title } : undefined);
+    const active = segment && segment.status !== 'archived' && current.discussionNodes.some(node => node.id === segment.nodeId && node.status !== 'archived');
+    await write('segment', id, active ? { title: segment.title, nodeId: segment.nodeId, content: current.anchors.find(anchor => anchor.segmentId === id)?.selectedText || current.messages.filter(item => item.segmentId === id).map(item => item.text).join('\n') || segment.title } : undefined);
   }
   for (const id of attachmentIds) {
     const file = current.attachments.find(item => item.id === id);

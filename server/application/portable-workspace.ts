@@ -1,3 +1,4 @@
+import { applySemanticChanges } from '../domain-journal';
 import type { PortableWorkspaceFacts } from './ports/portable-workspace';
 import type { StoredAttachment, StoredMessage, ContextManifest, WorkspaceData } from '../domain';
 import { bundleError } from '../domain/portable-bundle';
@@ -41,16 +42,16 @@ export function stripOperationalMetadata(value: unknown): unknown {
 export function portableWorkspaceFacts(source: PortableWorkspaceFacts, hash: (input: unknown) => string): PortableWorkspaceFacts {
   const value = source.workspace;
   const workspace: WorkspaceData = {
-    ...select(value, ['projectId', 'projectTitle', 'nodeId', 'activeNodeId', 'mode', 'updatedAt']),
+    ...select(value, ['projectId', 'projectTitle', 'nodeId', 'activeNodeId', 'mode', 'defaultModelId', 'updatedAt']),
     contextItems: value.contextItems.map(context), messages: value.messages.map(message), attachments: value.attachments.map(attachment),
     resources: value.resources.map(item => ({ ...select(item, ['id', 'workspaceId', 'kind', 'logicalName', 'createdAt']), logicalName: portableName(item.logicalName) })),
     resourceVersions: value.resourceVersions.map(item => select(item, ['id', 'resourceId', 'version', 'digestAlgorithm', 'digest', 'canonicalization', 'mediaType', 'size', 'blobRef', 'createdAt', 'purgedAt'])),
     materializations: value.materializations.map(item => select(item, ['id', 'resourceVersionId', 'kind', 'generator', 'createdAt'])),
     fileChunks: value.fileChunks.map(item => select(item, ['id', 'attachmentId', 'ordinal', 'text', 'startOffset', 'endOffset', 'tokens', 'terms', 'embedding', 'resourceVersionId'])),
-    discussionNodes: value.discussionNodes.map(item => select(item, ['id', 'title', 'summary', 'status', 'kind', 'sourceNodeId', 'sourceMessageId', 'anchorText', 'x', 'y', 'createdAt', 'updatedAt'])),
+    discussionNodes: value.discussionNodes.map(item => select(item, ['id', 'title', 'summary', 'status', 'kind', 'sourceNodeId', 'sourceMessageId', 'anchorText', 'preferredModelId', 'x', 'y', 'createdAt', 'updatedAt'])),
     discussionEdges: value.discussionEdges.map(item => select(item, ['id', 'source', 'target', 'relation', 'anchorId', 'label', 'createdAt'])),
     anchors: value.anchors.map(item => select(item, ['id', 'nodeId', 'messageId', 'segmentId', 'selectedText', 'startOffset', 'endOffset', 'createdAt'])),
-    manifests: value.manifests.map(manifest), segments: value.segments.map(item => select(item, ['id', 'nodeId', 'ordinal', 'title', 'createdAt'])),
+    manifests: value.manifests.map(manifest), segments: value.segments.map(item => select(item, ['id', 'nodeId', 'ordinal', 'title', 'status', 'createdAt'])),
     auditEvents: value.auditEvents.map(item => ({ ...select(item, ['id', 'projectId', 'nodeId', 'action', 'entityType', 'entityId', 'createdAt']), metadata: {} })),
   };
   const runs = source.runs.map(run => {
@@ -79,7 +80,7 @@ export function portableWorkspaceFacts(source: PortableWorkspaceFacts, hash: (in
     const snapshot = event.payload.snapshot as { state?: Record<string, unknown> } | undefined;
     if (snapshot?.state) state = structuredClone(snapshot.state);
     if (state) {
-      if (event.payload.stateChanges) Object.assign(state, event.payload.stateChanges);
+      if (event.payload.stateChanges) applySemanticChanges(state, event.payload.stateChanges as Record<string, unknown>);
       const checksum = hash(state);
       if (event.payload.portableStateChecksum !== undefined && event.payload.portableStateChecksum !== checksum) throw bundleError('BUNDLE_EVENT_STATE_MISMATCH');
       event.payload.portableStateChecksum = checksum;

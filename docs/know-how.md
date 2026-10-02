@@ -168,3 +168,12 @@
 - Purge Resource redaction follows newly tombstoned ResourceVersions, never a display-name transition: a real attachment may already be named `[purged]`.
 - A pending Purge or unacknowledged key reference makes M10 inspection fail. Superseded document keys can retain body copies; only a bound single-database directory and the exclusive content-lifecycle lock permit online global document orphan reclamation. Legacy unbound directories stay pending until explicit offline reclamation. Blob/archive deletion remains identity-scoped.
 - Live Journal checksums describe a complete transaction, while portable Purge overlays can carry per-event checksums. Reconciliation must validate each at its own boundary; do not weaken the untrusted Bundle validator to accept a mixed live tail.
+
+### Chat and graph convergence constraints
+
+- The HTTP idempotency middleware derives a scoped command ID from the user's key. A Stop issued before RUN_CREATED must query `runs/by-command/:key?idempotencyKey=true` in the original Workspace; using the raw key as a persisted command ID silently misses the Run.
+- Optional model preferences and Segment archive status must be omitted when absent to preserve old Bundle/checksum semantics. Clearing a Workspace preference requires an explicit null semantic delta; replay then removes the property. Portable history redaction must preserve this deletion marker.
+- Segment navigation uses its saved Anchor's original Message ID, never the current selection or a regenerated Message. Archived Segment/Conversation candidates are excluded before planning; historical frozen resources are unaffected.
+- Graph cache identity includes the actual projection namespace, not the constant schema label `graph-v1`. Rebuilds can replace a namespace at the same checkpoint. Warm queries may not load the full projection or decrypt Run prompts; only explicit rebuilds may do so.
+- Browser-managed `<details>` open state must survive async form updates. Place Conversation management inside the scrollable discussion area, above the fixed composer, and keep stable accessible names for selects whose option text changes.
+- Additive migrations raise the checked code-rollback floor. The rollback drill must execute a prior reader that contains identical migration checksums; an older reader missing migration 0037 is rejected rather than bypassing schema validation.

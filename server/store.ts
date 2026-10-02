@@ -8,7 +8,7 @@ import { purgeResourceIds } from './domain/purge-resources';
 import type { WorkspaceDirectoryPort } from './identity/workspace-directory';
 import type { WorkspaceRecord } from './contracts/application';
 import type { CommandFactContext, DomainEventDraft, DomainEventEnvelope } from './domain-journal';
-import type { WorkspaceGraphProjection } from './contracts/graph-projection';
+import type { GraphNeighborhoodInput, GraphPathInput, GraphTreeInput, GraphChangesInput, GraphChangesResult, GraphQueryResult, WorkspaceGraphProjection } from './contracts/graph-projection';
 
 export interface TransactionalWorkspaceCommand<T> {
   context: CommandFactContext;
@@ -33,6 +33,8 @@ export interface WorkspaceRepository {
   queryContextCandidates?(input: import('./context-runtime/contracts').ContextPlanningInput): Promise<import('./context-runtime/contracts').CandidateIndexSnapshot>;
   rebuildContextCandidates?(): Promise<{ writes: number }>;
   listRuns?(limit?: number): Promise<import('./execution-runtime/run').ExecutionRun[]>;
+  getRunByCommand?(commandId: string): Promise<import('./execution-runtime/run').ExecutionRun | undefined>;
+  searchWorkspace?(query: string, limit: number): Promise<import('./contracts/application').QueryMap['SearchWorkspace']['result']>;
   getRun?(runId: string): Promise<import('./execution-runtime/run').ExecutionRun | undefined>;
   writeRunTraces?(runId: string, attempt: number, traces: import('./execution-runtime/run').RunTrace[]): Promise<void>;
   read(): Promise<WorkspaceData>;
@@ -47,6 +49,10 @@ export interface WorkspaceRepository {
   backfillJournal?(): Promise<{ checksum: string; created: boolean; eventCount: number }>;
   readCommandReceipt?(commandId: string): Promise<import('./domain-journal').CommandReceipt | undefined>;
   executeWorkspaceLifecycle?(context: CommandFactContext, command: import('./application/ports/workspace-unit-of-work').WorkspaceLifecycleCommand): Promise<WorkspaceRecord>;
+  queryGraphNeighborhood?(input: GraphNeighborhoodInput): Promise<GraphQueryResult>;
+  queryGraphPath?(input: GraphPathInput): Promise<GraphQueryResult>;
+  queryGraphTree?(input: GraphTreeInput): Promise<GraphQueryResult>;
+  queryGraphChanges?(input: GraphChangesInput): Promise<GraphChangesResult>;
   readGraphProjection?(): Promise<WorkspaceGraphProjection>;
   rebuildGraphProjection?(): Promise<WorkspaceGraphProjection>;
 }

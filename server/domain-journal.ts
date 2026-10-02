@@ -4,7 +4,7 @@ export type JournalScopeRef = { scopeType: 'user' | 'workspace' | 'conversation'
 
 export const DOMAIN_EVENT_SCHEMA_VERSION = '1.0.0' as const;
 
-export type DomainEventType =
+export type DomainEventType = 'segment.updated' | 'conversation.renamed' | 'conversation.model.changed' | 'workspace.model.changed'
   | 'run.created'
   | 'run.status.changed'
   | 'workspace.baseline.backfilled'
@@ -104,6 +104,11 @@ const eventByCommand: Record<string, DomainEventType> = {
   CreateRelation: 'graph.relation.created',
   RemoveRelation: 'graph.relation.removed',
   CreateSegment: 'segment.created',
+  UpdateSegment: 'segment.updated',
+  RenameConversation: 'conversation.renamed',
+  SetConversationModel: 'conversation.model.changed',
+  SetWorkspaceModel: 'workspace.model.changed',
+  RetryExecutionRun: 'conversation.run.committed',
   CreateBranch: 'branch.created',
   CreateMergeRevision: 'message.merge_revision.created',
   RegisterLegacyAttachment: 'resource.registered',
@@ -154,6 +159,7 @@ export function workspaceSemanticSnapshot(workspace: WorkspaceData): Record<stri
     projectTitle: workspace.projectTitle,
     activeNodeId: workspace.activeNodeId,
     mode: workspace.mode,
+    ...(workspace.defaultModelId ? { defaultModelId: workspace.defaultModelId } : {}),
     contextItems: byId(workspace.contextItems),
     nodes: byId(workspace.discussionNodes).map(({ createdAt: _createdAt, updatedAt: _updatedAt, ...item }) => item),
     messages: byId(workspace.messages).map(({ createdAt: _createdAt, ...item }) => ({ ...item, operation: item.operation ?? 'send', version: item.version ?? 1, attachmentIds: item.attachmentIds ?? [] })),
@@ -172,10 +178,11 @@ export function workspaceSemanticSnapshot(workspace: WorkspaceData): Record<stri
 /** Changed semantic sections for baseline + tail verification; Current State remains authoritative. */
 export function workspaceSemanticChanges(previous: WorkspaceData, next: WorkspaceData): Record<string, unknown> {
   const before = workspaceSemanticSnapshot(previous);
-  return Object.fromEntries(Object.entries(workspaceSemanticSnapshot(next)).filter(([key, value]) => JSON.stringify(before[key]) !== JSON.stringify(value)));
+  return { ...Object.fromEntries(Object.entries(workspaceSemanticSnapshot(next)).filter(([key, value]) => JSON.stringify(before[key]) !== JSON.stringify(value))), ...(previous.defaultModelId && !next.defaultModelId ? { defaultModelId: null } : {}) };
 }
 
 const activityTitles: Record<DomainEventType, string> = {
+  'segment.updated': '更新 Segment', 'conversation.renamed': '重命名讨论', 'conversation.model.changed': '更改讨论模型', 'workspace.model.changed': '更改工作区模型',
   'run.created': '创建执行记录',
   'run.status.changed': '更新执行状态',
   'workspace.baseline.backfilled': '建立 Workspace 历史基线',
@@ -213,4 +220,10 @@ export function toActivityItem(event: DomainEventEnvelope): WorkspaceActivityIte
     aggregateType: event.aggregateType,
     aggregateId: event.aggregateId,
   };
+}
+
+/** Only this additive nullable preference uses a deletion marker; old section semantics stay intact. */
+export function applySemanticChanges(state: Record<string, unknown>, changes: Record<string, unknown>): void {
+  Object.assign(state,changes);
+  if (state.defaultModelId === null) delete state.defaultModelId;
 }

@@ -5,7 +5,7 @@ import { RunHistory } from './RunHistory';
 import type { ExecutionRun } from '../types';
 
 afterEach(() => vi.restoreAllMocks());
-const run: ExecutionRun = { id: 'run-1', workspaceId: 'workspace', nodeId: 'node', status: 'running', attempt: 1, inputHash: 'abc', createdAt: '2026-08-31T00:00:00Z', input: { executor: { runtime: 'provider', modelSpecRef: 'model', providerEndpointRef: 'endpoint', model: 'Test model', provider: 'Test endpoint' }, request: { prompt: 'Hello', manifestId: 'manifest' } }, telemetry: { traceCount: 10 } };
+const run: ExecutionRun = { id: 'run-1', commandId: 'command-1', workspaceId: 'workspace', nodeId: 'node', status: 'running', attempt: 1, inputHash: 'abc', createdAt: '2026-08-31T00:00:00Z', input: { executor: { runtime: 'provider', modelSpecRef: 'model', providerEndpointRef: 'endpoint', model: 'Test model', provider: 'Test endpoint' }, request: { prompt: 'Hello', manifestId: 'manifest' } }, telemetry: { traceCount: 10 } };
 
 it('requires an explicit replay policy and reuses the retry key after failure', async () => {
   vi.spyOn(api, 'listRuns').mockResolvedValue({ runs: [{ ...run, status: 'completed' }] });

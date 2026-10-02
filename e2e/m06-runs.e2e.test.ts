@@ -1121,7 +1121,7 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
     await request(app).post('/api/chat').send({ message: 'cannot commit' }).expect(500);
     const [run] = await store.listRuns();
     expect(run.status).toBe('failed');
-    expect(run.error?.class).toBe('commit');
+    expect(run.error?.class).toBe('storage');
     expect(run.error?.code).toBe('RUN_COMMIT_FAILED');
     expect((await store.read()).messages).toEqual(before);
     expect((await store.readJournal()).some(event => event.eventType === 'conversation.run.committed')).toBe(false);
@@ -1228,3 +1228,43 @@ describe.skipIf(backend === 'postgres' && !process.env.DATABASE_URL)(`M06 durabl
 });
 
 }
+
+describe('M12–M13 HTTP product contracts (PGlite)', () => {
+  it('streams temporary output with durable identity and no permanent Conversation content', async () => {
+    const {app,store} = await fixture(async function* (input) { yield {type:'CONTENT_DELTA',requestId:input.requestId,delta:'live'};yield* success(input); },'embedded');
+    const before=await store.read();const key=randomUUID();
+    const response=await request(app).post('/api/temp-chat/stream').set('Idempotency-Key',key).send({sourceNodeId:before.activeNodeId,anchorText:'anchor',message:'temporary'}).expect(200);
+    expect(response.text).toContain('CONTENT_DELTA');expect(response.text).toContain('TEMP_RESULT');expect(response.text).toContain('RUN_CREATED');
+    const run=(await request(app).get(`/api/runs/by-command/${key}?idempotencyKey=true`).expect(200)).body.run;
+    expect(run.status).toBe('completed');expect(run.nodeId).toBe(`temp:${before.activeNodeId}`);
+    expect((await store.read()).messages).toEqual(before.messages);expect((await store.read()).discussionNodes).toEqual(before.discussionNodes);
+    expect((await store.readJournal(100)).filter(event=>event.aggregateId===run.id).length).toBeLessThanOrEqual(10);
+  });
+  it('reconstructs Retry on the server with new Run/Manifest and current model/context', async () => {
+    let calls=0;const {app,store}=await fixture(async function* (input) {calls++;if(calls===1){yield {type:'RUN_ERROR',requestId:input.requestId,code:'PROVIDER_ERROR',message:'private body',status:429};return;}yield* success(input);},'embedded');
+    const firstKey=randomUUID();await request(app).post('/api/chat').set('Idempotency-Key',firstKey).send({message:'original prompt'}).expect(429);
+    const original=(await store.listRuns())[0];expect(original.error?.class).toBe('rate_limit');expect(JSON.stringify(original.error)).not.toContain('private body');
+    const retryKey=randomUUID();const result=await request(app).post(`/api/runs/${original.id}/retry`).set('Idempotency-Key',retryKey).expect(201);
+    expect(result.body.userMessage.text).toBe('original prompt');expect(result.body.manifest.id).not.toBe(original.input.request.manifestId);
+    const retried=(await request(app).get(`/api/runs/by-command/${retryKey}?idempotencyKey=true`).expect(200)).body.run;expect(retried?.parentRunRef).toBe(original.id);expect(retried?.status).toBe('completed');
+    await request(app).post(`/api/runs/${original.id}/retry`).set('Idempotency-Key',retryKey).expect(201);expect(calls).toBe(2);
+    const other=await request(app).post('/api/v1/workspaces').send({name:'Other'}).expect(201);
+    expect((await request(app).get(`/api/v1/workspaces/${other.body.workspace.workspaceId}/runs/by-command/${retryKey}?idempotencyKey=true`).expect(200)).body.run).toBeNull();
+  });
+  it('persists model inheritance, anchored Segments and indexed Chinese/case search through Bundle history', async () => {
+    const {app,store}=await fixture(success,'embedded');const before=await store.read();const node=before.activeNodeId;const message=before.messages.find(message=>message.nodeId===node)!;
+    await request(app).patch('/api/workspace/model').send({modelId:model.id}).expect(200);
+    await request(app).patch(`/api/nodes/${node}/model`).send({modelId:model.id}).expect(200);
+    await request(app).patch(`/api/nodes/${node}/title`).send({title:'中文 Alpha 讨论'}).expect(200);
+    const segment=await request(app).post(`/api/nodes/${node}/segments`).send({title:'Selected ALPHA',messageIds:[message.id],range:{messageId:message.id,startOffset:0,endOffset:3,selectedText:message.text.slice(0,3)}}).expect(201);
+    const segmentId=segment.body.segment.id;
+    expect((await request(app).get('/api/search?q=alpha').expect(200)).body.results.map((item:{sourceId:string})=>item.sourceId)).toContain(segmentId);
+    expect((await request(app).get('/api/search?q=中文').expect(200)).body.results[0].sourceId).toBe(node);
+    await request(app).patch(`/api/segments/${segmentId}`).send({status:'archived'}).expect(200);
+    expect((await request(app).get('/api/search?q=alpha').expect(200)).body.results.map((item:{sourceId:string})=>item.sourceId)).not.toContain(segmentId);
+    const facts=portableWorkspaceFacts(await store.readPortableWorkspace(),input=>semanticStateChecksum(input as Record<string,unknown>));validatePortableHistory(facts,semanticStateChecksum);
+    expect(facts.workspace.discussionNodes.find(item=>item.id===node)?.preferredModelId).toBe(model.id);expect(facts.workspace.segments.find(item=>item.id===segmentId)?.status).toBe('archived');
+    await request(app).patch('/api/workspace/model').send({modelId:null}).expect(200);
+    validatePortableHistory(portableWorkspaceFacts(await store.readPortableWorkspace(),input=>semanticStateChecksum(input as Record<string,unknown>)),semanticStateChecksum);
+  });
+});

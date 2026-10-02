@@ -1,3 +1,4 @@
+import { BoundedGraphQueries } from './graph-projection/bounded-queries';
 import { runFrozenResourceIds } from './domain/purge-resources';
 import { collectionChanges, validateWorkspaceReferences } from './infrastructure/workspace-change-set';
 import { observeLegacyWrite } from './infrastructure/legacy-write-observation';
@@ -1169,6 +1170,8 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         aggregateRevision += 1;
         await database.query("UPDATE workspaces SET settings=jsonb_set(settings,'{revision}',to_jsonb($2::int),true),updated_at=now() WHERE workspace_id=$1", [this.defaultWorkspaceId, aggregateRevision]);
       }
+      const graphActive = (await database.query("SELECT active_version FROM projection_aliases WHERE workspace_id=$1 AND projection_name='graph'", [this.defaultWorkspaceId])).rows.length > 0;
+      const graphBefore = graphActive ? await this.graphFacts(database, current) : undefined;
       if (command.options?.run) await this.applyRunMutation(database, command.options.run);
       if (command.options?.purge) {
         const runs = await database.query<{ record: ExecutionRun; input_content_ref: unknown }>('SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1 AND purged_at IS NULL', [this.defaultWorkspaceId]);
@@ -1216,6 +1219,8 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
           command.context.commandId, offset, command.context.causationId || null, command.context.correlationId || null,
           sealed.payload, command.context.occurredAt, sealed.reference]);
       }
+      if (graphBefore) await new PostgresGraphProjectionAdapter({ query: database.query.bind(database), transaction: work => work(database) }, this.defaultWorkspaceId)
+        .applyDelta(graphBefore, await this.graphFacts(database, recovered));
       await this.insertCommittedReceipt(database, this.defaultWorkspaceId, command.context.commandId, command.context.commandType, firstSequence, lastSequence, result.value);
       return { workspace: recovered, value: result.value, duplicate: false };
     });
@@ -1283,6 +1288,16 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     if (!this.runContent) throw new Error('RUN_CONTENT_STORE_UNAVAILABLE');
     const input = await this.runContent.read<ExecutionRun['input']>(record.workspaceId, record.id, asJson<SealedRunInputRef>(row.input_content_ref), record.inputHash);
     return { ...record, input };
+  }
+
+  async getRunByCommand(commandId: string) {
+    const row = (await this.database.query<{ record: ExecutionRun; input_content_ref: unknown }>('SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1 AND command_id=$2 AND purged_at IS NULL ORDER BY attempt DESC LIMIT 1',[this.defaultWorkspaceId,commandId])).rows[0];
+    return row ? this.decodeRun(row) : undefined;
+  }
+  async searchWorkspace(query: string, limit: number): Promise<import('./contracts/application').QueryMap['SearchWorkspace']['result']> {
+    if (!query.trim()) return [];
+    const rows = await this.database.query<{ source_type: 'node' | 'segment'; source_id: string; source_node_id: string; candidate: { item: { title: string }; text: string }; title_match: boolean }>(`SELECT source_type,source_id,source_node_id,candidate,(position(lower($2) in lower(candidate->'item'->>'title'))>0) title_match FROM context_candidate_index WHERE workspace_id=$1 AND source_type IN ('node','segment') AND (position(lower($2) in lower(candidate->'item'->>'title'))>0 OR position(lower($2) in lower(candidate->>'text'))>0) ORDER BY title_match DESC,source_type,source_id LIMIT $3`,[this.defaultWorkspaceId,query.trim().slice(0,200),Math.min(50,Math.max(1,limit))]);
+    return rows.rows.map(row => { const content = row.candidate.text ?? ''; const at = Math.max(0,content.toLocaleLowerCase().indexOf(query.toLocaleLowerCase())); return { sourceType: row.source_type,sourceId: row.source_id,nodeId: row.source_node_id,title: row.candidate.item.title,excerpt: content.slice(Math.max(0,at-40),at+140),titleMatch: row.title_match }; });
   }
 
   async listRuns(limit = 50): Promise<ExecutionRun[]> {
@@ -1587,10 +1602,10 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     return this.inTransaction(async database => {
       await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
       const project = (await database.query<{ id: string; active_node_id: string | null; mode: WorkspaceData['mode'] | null; context_items: unknown }>(
-        "SELECT id,active_node_id,state->>'mode' AS mode,state->'contextItems' AS context_items FROM rhiza_projects WHERE id=$1", [this.defaultWorkspaceId])).rows[0];
+        "SELECT id,active_node_id,state->>'mode' AS mode,state->>'defaultModelId' AS default_model_id,state->'contextItems' AS context_items FROM rhiza_projects WHERE id=$1", [this.defaultWorkspaceId])).rows[0];
       if (!project) throw Object.assign(new Error('Workspace is unavailable'), { code: 'WORKSPACE_NOT_FOUND', status: 404 });
-      const node = (await database.query<{ id: string; status: DiscussionNode['status'] }>(
-        'SELECT id,status FROM rhiza_nodes WHERE project_id=$1 AND ($2::uuid IS NULL OR id=$2::uuid) ORDER BY created_at,id LIMIT 1', [project.id, project.active_node_id])).rows[0];
+      const node = (await database.query<{ id: string; status: DiscussionNode['status']; preferred_model_id: string | null }>(
+        'SELECT id,status,preferred_model_id FROM rhiza_nodes WHERE project_id=$1 AND ($2::uuid IS NULL OR id=$2::uuid) ORDER BY created_at,id LIMIT 1', [project.id, project.active_node_id])).rows[0];
       const nodeId = node?.id ?? project.active_node_id ?? '';
       const messages = node ? (await database.query<Record<string, unknown>>(
         'SELECT m.*,cm.request_id AS source_request_id,ARRAY(SELECT ma.attachment_id FROM rhiza_message_attachments ma WHERE ma.message_id=m.id ORDER BY ma.ordinal) AS attachment_ids FROM rhiza_messages m LEFT JOIN rhiza_context_manifests cm ON cm.id=m.manifest_id AND cm.project_id=$2 WHERE m.node_id=$1 ORDER BY m.event_ordinal,m.id', [node.id, project.id])).rows : [];
@@ -1598,7 +1613,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         `SELECT a.*,rv.digest,rv.blob_ref,rv.purged_at,purge.purge_created_at FROM rhiza_attachments a LEFT JOIN rhiza_resource_versions rv ON rv.resource_version_id=a.resource_version_id ${resourceVersionPurgeJoin} WHERE a.project_id=$1 AND a.id::text=ANY($2::text[]) ORDER BY a.created_at,a.id`, [project.id, attachmentIds])).rows : [];
       return {
         sourceRunId: (messages.find(row => row.id === sourceMessageId)?.source_request_id ?? undefined) as string | undefined,
-        projectId: project.id, activeNodeId: nodeId, node, mode: project.mode || 'Assisted', contextItems: await this.decodeContextItems(project.context_items || []),
+        projectId: project.id, activeNodeId: nodeId, node: node ? { id:node.id,status:node.status,...(node.preferred_model_id ? {preferredModelId:node.preferred_model_id} : {}) } : undefined, ...((project as typeof project & {default_model_id?:string}).default_model_id ? {defaultModelId:(project as typeof project & {default_model_id?:string}).default_model_id} : {}), mode: project.mode || 'Assisted', contextItems: await this.decodeContextItems(project.context_items || []),
         messages: await Promise.all(messages.map(row => this.decodeMessage(row, row.attachment_ids as string[]))),
         attachments: await Promise.all(attachments.map(row => {
           if (row.purged_at || row.purge_created_at) throw new Error('RESOURCE_PURGED_REFERENCE');
@@ -1627,6 +1642,28 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     });
   }
 
+  private async graphFacts(database: SqlQueryable, workspace: WorkspaceData) {
+    // Projection needs Run metadata only, never frozen prompt/body decryption.
+    const runs = await database.query<{ record: ExecutionRun; model_spec_ref: string }>('SELECT record,model_spec_ref FROM execution_runs WHERE workspace_id=$1 AND purged_at IS NULL', [this.defaultWorkspaceId]);
+    const sequence = await database.query<{ sequence: number }>('SELECT COALESCE(MAX(sequence),0)::bigint AS sequence FROM workspace_events WHERE workspace_id=$1', [this.defaultWorkspaceId]);
+    const removed = await database.query<Record<string, unknown>>(`SELECT e.*,r.content_ref redacted_content_ref FROM workspace_events e LEFT JOIN journal_payload_redactions r ON r.event_id=e.event_id WHERE e.workspace_id=$1 AND e.event_type IN ('object.purged','graph.relation.removed') ORDER BY e.sequence`, [this.defaultWorkspaceId]);
+    return buildWorkspaceGraphProjection(workspace, runs.rows.map(row => ({ ...asJson<ExecutionRun>(row.record), input: { ...asJson<ExecutionRun>(row.record).input, executor: { ...asJson<ExecutionRun>(row.record).input.executor, model: row.model_spec_ref } } })), Number(sequence.rows[0]?.sequence ?? 0), await Promise.all(removed.rows.map(row => this.decodeJournalEvent(row))));
+  }
+
+  private async boundedGraph<T>(query: (graph: BoundedGraphQueries) => Promise<T>): Promise<T> {
+    // Cold initialization is explicit; subsequent reads select bounded rows under the same lock as writers.
+    const alias = await this.database.query("SELECT active_version FROM projection_aliases WHERE workspace_id=$1 AND projection_name='graph'", [this.defaultWorkspaceId]);
+    if (!alias.rows.length) await this.materializeGraph(false);
+    return this.inTransaction(async database => {
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
+      return query(new BoundedGraphQueries(database, this.defaultWorkspaceId));
+    });
+  }
+  queryGraphNeighborhood(input: import('./contracts/graph-projection').GraphNeighborhoodInput) { return this.boundedGraph(graph => graph.neighborhood(input)); }
+  queryGraphPath(input: import('./contracts/graph-projection').GraphPathInput) { return this.boundedGraph(graph => graph.path(input.from,input.to,input.nodeLimit)); }
+  queryGraphTree(input: import('./contracts/graph-projection').GraphTreeInput) { return this.boundedGraph(graph => graph.neighborhood({ ...input, depth: input.depth ?? 3, nodeLimit: input.nodeLimit ?? 500, edgeLimit: 2000, relationTypes: ['derived_from','parent_of','contains'] })); }
+  queryGraphChanges(input: import('./contracts/graph-projection').GraphChangesInput) { return this.boundedGraph(graph => graph.changes(input)); }
+
   async readGraphProjection() { return this.materializeGraph(false); }
 
   async rebuildGraphProjection() { return this.materializeGraph(true); }
@@ -1638,14 +1675,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       await database.query("SELECT pg_advisory_xact_lock(hashtext('rhiza:workspace-write:' || $1))", [this.defaultWorkspaceId]);
       const workspace = await this.readFrom(database, true);
       if (!workspace) throw new Error('Workspace is unavailable');
-      const runs = await database.query<{ record: ExecutionRun; input_content_ref: unknown }>('SELECT record,input_content_ref FROM execution_runs WHERE workspace_id=$1 AND purged_at IS NULL', [this.defaultWorkspaceId]);
-      const sequence = await database.query<{ sequence: number }>('SELECT COALESCE(MAX(sequence),0)::bigint AS sequence FROM workspace_events WHERE workspace_id=$1', [this.defaultWorkspaceId]);
-      // Removal history must survive more than the activity endpoint's 10k-event window.
-      const removed = await database.query<Record<string, unknown>>(`SELECT e.*,r.content_ref redacted_content_ref FROM workspace_events e
-        LEFT JOIN journal_payload_redactions r ON r.event_id=e.event_id
-        WHERE e.workspace_id=$1 AND e.event_type IN ('object.purged','graph.relation.removed') ORDER BY e.sequence`, [this.defaultWorkspaceId]);
-      const events = await Promise.all(removed.rows.map(row => this.decodeJournalEvent(row)));
-      const projection = buildWorkspaceGraphProjection(workspace, await Promise.all(runs.rows.map(row => this.decodeRun(row))), Number(sequence.rows[0]?.sequence ?? 0), events);
+      const projection = await this.graphFacts(database, workspace);
       return new PostgresGraphProjectionAdapter({ query: database.query.bind(database), transaction: work => work(database) }, this.defaultWorkspaceId).materialize(projection, force);
     });
   }
@@ -1784,7 +1814,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
   }
 
   private async decodeSegment(row: Record<string, unknown>): Promise<Segment> {
-    const segment = { id: String(row.id), nodeId: String(row.node_id), ordinal: Number(row.ordinal), title: String(row.title), createdAt: asIso(row.created_at) };
+    const segment: Segment = { ...(row.status === 'archived' ? { status: 'archived' as const } : {}), id: String(row.id), nodeId: String(row.node_id), ordinal: Number(row.ordinal), title: String(row.title), createdAt: asIso(row.created_at) };
     if (row.content_ref == null) return segment;
     if (!this.segmentContent) throw new Error('SEGMENT_CONTENT_STORE_UNAVAILABLE');
     return { ...segment, ...await this.segmentContent.read(this.defaultWorkspaceId, segment.id, asJson<SealedSegmentRef>(row.content_ref)) };
@@ -1855,7 +1885,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     const attachmentIds = new Map<string, string[]>();
     for (const row of messageAttachmentsResult.rows) attachmentIds.set(row.message_id, [...(attachmentIds.get(row.message_id) || []), row.attachment_id]);
     const layouts = new Map(layoutResult.rows.map(row => [String(row.object_id), { x: Number(row.x), y: Number(row.y) }]));
-    const nodes: DiscussionNode[] = nodesResult.rows.map(row => ({ id: String(row.id), title: String(row.title), summary: String(row.summary), status: row.status as DiscussionNode['status'], kind: row.kind as DiscussionNode['kind'], sourceNodeId: row.source_node_id ? String(row.source_node_id) : undefined, sourceMessageId: row.source_message_id ? String(row.source_message_id) : undefined, anchorText: row.anchor_text ? String(row.anchor_text) : undefined, x: layouts.get(String(row.id))?.x ?? Number(row.position_x), y: layouts.get(String(row.id))?.y ?? Number(row.position_y), createdAt: asIso(row.created_at), updatedAt: asIso(row.updated_at) }));
+    const nodes: DiscussionNode[] = nodesResult.rows.map(row => ({ id: String(row.id), title: String(row.title), summary: String(row.summary), status: row.status as DiscussionNode['status'], ...(row.preferred_model_id ? { preferredModelId: String(row.preferred_model_id) } : {}), kind: row.kind as DiscussionNode['kind'], sourceNodeId: row.source_node_id ? String(row.source_node_id) : undefined, sourceMessageId: row.source_message_id ? String(row.source_message_id) : undefined, anchorText: row.anchor_text ? String(row.anchor_text) : undefined, x: layouts.get(String(row.id))?.x ?? Number(row.position_x), y: layouts.get(String(row.id))?.y ?? Number(row.position_y), createdAt: asIso(row.created_at), updatedAt: asIso(row.updated_at) }));
     for (const [index, row] of nodesResult.rows.entries()) {
       if (row.content_ref == null) continue;
       if (!this.nodeContent) throw new Error('NODE_CONTENT_STORE_UNAVAILABLE');
@@ -1864,10 +1894,10 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
     const messages = await Promise.all(messagesResult.rows.map(row => this.decodeMessage(row, attachmentIds.get(String(row.id)) || [])));
     const versions = resourceVersionsResult.rows.map(storedResourceVersion);
     const versionById = new Map(versions.map(version => [version.id, version]));
-    const state = asJson<{ mode?: WorkspaceData['mode']; contextItems?: WorkspaceData['contextItems']; fileChunks?: FileChunk[] }>(project.state || {});
+    const state = asJson<{ mode?: WorkspaceData['mode']; defaultModelId?: string; contextItems?: WorkspaceData['contextItems']; fileChunks?: FileChunk[] }>(project.state || {});
     return {
       projectId: project.id, projectTitle: project.title, nodeId: project.active_node_id || nodes[0]?.id || '', activeNodeId: project.active_node_id || nodes[0]?.id || '',
-      mode: state.mode || 'Assisted', contextItems: await this.decodeContextItems(state.contextItems || []), discussionNodes: nodes, messages,
+      mode: state.mode || 'Assisted', ...(state.defaultModelId ? { defaultModelId: state.defaultModelId } : {}), contextItems: await this.decodeContextItems(state.contextItems || []), discussionNodes: nodes, messages,
       segments: await Promise.all(segmentsResult.rows.map(row => this.decodeSegment(row))),
       anchors: await Promise.all(anchorsResult.rows.map(row => this.decodeAnchor(row))),
       discussionEdges: await Promise.all(edgesResult.rows.map(row => this.decodeEdge(row))),
@@ -2213,12 +2243,13 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       }
     }
     const stateChanges = {
+      ...(!previous || workspace.defaultModelId !== previous.defaultModelId ? { defaultModelId: workspace.defaultModelId ?? null } : {}),
       ...(!previous || workspace.mode !== previous.mode ? { mode: workspace.mode } : {}),
       ...(!previous || !isDeepStrictEqual(workspace.contextItems, previous.contextItems) ? { contextItems } : {}),
       ...(!previous || !isDeepStrictEqual(workspace.fileChunks, previous.fileChunks) ? { fileChunks } : {}),
     };
     if (previous || projectAlreadyCreated) await database.query('UPDATE rhiza_projects SET title=$2,state=state || $3::jsonb,updated_at=$4 WHERE id=$1', [workspace.projectId, workspace.projectTitle, JSON.stringify(stateChanges), workspace.updatedAt]);
-    else await database.query(`INSERT INTO rhiza_projects (id, title, state, created_at, updated_at) VALUES ($1,$2,$3::jsonb,$4,$4)`, [workspace.projectId, workspace.projectTitle, JSON.stringify({ mode: workspace.mode, contextItems, fileChunks }), workspace.updatedAt]);
+    else await database.query(`INSERT INTO rhiza_projects (id, title, state, created_at, updated_at) VALUES ($1,$2,$3::jsonb,$4,$4)`, [workspace.projectId, workspace.projectTitle, JSON.stringify({ mode: workspace.mode, contextItems, fileChunks, ...(workspace.defaultModelId ? { defaultModelId: workspace.defaultModelId } : {}) }), workspace.updatedAt]);
     await database.query(`INSERT INTO graph_layouts (workspace_id,layout_id,owner_scope) VALUES ($1,'default',$2::jsonb) ON CONFLICT DO NOTHING`, [workspace.projectId, JSON.stringify({ scopeType: 'workspace', scopeId: workspace.projectId })]);
     for (const node of nodes) {
       let reference: SealedNodeRef | undefined;
@@ -2228,8 +2259,8 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         reference = await this.nodeContent.seal(workspace.projectId, node.id, node);
         pending.push({ workspaceId: workspace.projectId, nodeId: node.id, reference });
       }
-      if (changes.nodes.updated.some(item => item.id === node.id)) await database.query(`UPDATE rhiza_nodes SET position_x=$7,position_y=$8,created_at=$9,title=$3,summary=$4,status=$5,kind=$6,updated_at=$10,anchor_text=$11,content_ref=$12 WHERE id=$1 AND project_id=$2`, [node.id,workspace.projectId,reference ? '[sealed]' : node.title,reference ? '' : node.summary,node.status,node.kind,node.x,node.y,node.createdAt,node.updatedAt,reference ? null : node.anchorText || null,reference ? JSON.stringify(reference) : null]);
-      else await database.query(`INSERT INTO rhiza_nodes (id,project_id,title,summary,status,kind,position_x,position_y,created_at,updated_at,anchor_text,content_ref) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)`, [node.id,workspace.projectId,reference ? '[sealed]' : node.title,reference ? '' : node.summary,node.status,node.kind,node.x,node.y,node.createdAt,node.updatedAt,reference ? null : node.anchorText || null,reference ? JSON.stringify(reference) : null]);
+      if (changes.nodes.updated.some(item => item.id === node.id)) await database.query(`UPDATE rhiza_nodes SET position_x=$7,position_y=$8,created_at=$9,title=$3,summary=$4,status=$5,kind=$6,updated_at=$10,anchor_text=$11,content_ref=$12,preferred_model_id=$13 WHERE id=$1 AND project_id=$2`, [node.id,workspace.projectId,reference ? '[sealed]' : node.title,reference ? '' : node.summary,node.status,node.kind,node.x,node.y,node.createdAt,node.updatedAt,reference ? null : node.anchorText || null,reference ? JSON.stringify(reference) : null,node.preferredModelId ?? null]);
+      else await database.query(`INSERT INTO rhiza_nodes (id,project_id,title,summary,status,kind,position_x,position_y,created_at,updated_at,anchor_text,content_ref,preferred_model_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13)`, [node.id,workspace.projectId,reference ? '[sealed]' : node.title,reference ? '' : node.summary,node.status,node.kind,node.x,node.y,node.createdAt,node.updatedAt,reference ? null : node.anchorText || null,reference ? JSON.stringify(reference) : null,node.preferredModelId ?? null]);
       await database.query(`INSERT INTO graph_layout_nodes (workspace_id,layout_id,object_type,object_id,x,y) VALUES ($1,'default','conversation',$2,$3,$4) ON CONFLICT (workspace_id,layout_id,object_type,object_id) DO UPDATE SET x=EXCLUDED.x,y=EXCLUDED.y`, [workspace.projectId,node.id,node.x,node.y]);
     }
     for (const segment of segments) {
@@ -2240,8 +2271,8 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         reference = await this.segmentContent.seal(workspace.projectId, segment.id, segment);
         pending.push({ workspaceId: workspace.projectId, segmentId: segment.id, reference });
       }
-      if (changes.segments.updated.some(item => item.id === segment.id)) await database.query(`UPDATE rhiza_segments SET created_at=$5,node_id=$2,ordinal=$3,title=$4,content_ref=$6 WHERE id=$1 AND node_id IN (SELECT id FROM rhiza_nodes WHERE project_id=$7)`, [segment.id,segment.nodeId,segment.ordinal,reference ? '' : segment.title,segment.createdAt,reference ? JSON.stringify(reference) : null,workspace.projectId]);
-      else await database.query(`INSERT INTO rhiza_segments (id,node_id,ordinal,title,created_at,content_ref) SELECT $1,$2,$3,$4,$5,$6::jsonb WHERE EXISTS (SELECT 1 FROM rhiza_nodes WHERE id=$2 AND project_id=$7)`, [segment.id,segment.nodeId,segment.ordinal,reference ? '' : segment.title,segment.createdAt,reference ? JSON.stringify(reference) : null,workspace.projectId]);
+      if (changes.segments.updated.some(item => item.id === segment.id)) await database.query(`UPDATE rhiza_segments SET created_at=$5,node_id=$2,ordinal=$3,title=$4,content_ref=$6,status=$8 WHERE id=$1 AND node_id IN (SELECT id FROM rhiza_nodes WHERE project_id=$7)`, [segment.id,segment.nodeId,segment.ordinal,reference ? '' : segment.title,segment.createdAt,reference ? JSON.stringify(reference) : null,workspace.projectId,segment.status ?? null]);
+      else await database.query(`INSERT INTO rhiza_segments (id,node_id,ordinal,title,created_at,content_ref,status) SELECT $1,$2,$3,$4,$5,$6::jsonb,$8 WHERE EXISTS (SELECT 1 FROM rhiza_nodes WHERE id=$2 AND project_id=$7)`, [segment.id,segment.nodeId,segment.ordinal,reference ? '' : segment.title,segment.createdAt,reference ? JSON.stringify(reference) : null,workspace.projectId,segment.status ?? null]);
     }
     for (const resource of resources) {
       let reference: SealedResourceRef | undefined;

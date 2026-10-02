@@ -265,6 +265,7 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
         root, depth: boundedInteger(request.query.depth, 1, 0, 3, 'INVALID_GRAPH_DEPTH'),
         nodeLimit: boundedInteger(request.query.nodeLimit, 200, 1, 500, 'INVALID_GRAPH_NODE_LIMIT'),
         edgeLimit: boundedInteger(request.query.edgeLimit, 800, 0, 2_000, 'INVALID_GRAPH_EDGE_LIMIT'),
+        query: typeof request.query.q==='string'?request.query.q:undefined,statuses:typeof request.query.statuses==='string'?request.query.statuses.split(',').slice(0,5):undefined,updatedAfter:typeof request.query.updatedAfter==='string'?request.query.updatedAfter:undefined,
         cursor: typeof request.query.cursor === 'string' ? request.query.cursor : undefined, objectTypes,
       });
       response.json({ graph });
@@ -430,6 +431,22 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
     } catch (error) { next(error); }
   });
 
+  app.get('/api/search', async (request,response,next) => {
+    try { response.json({ results: await query(response,'SearchWorkspace',{ query: typeof request.query.q === 'string' ? request.query.q : '',limit: boundedInteger(request.query.limit,20,1,50,'INVALID_SEARCH_LIMIT') }) }); } catch(error) { next(error); }
+  });
+  app.patch('/api/workspace/model', async (request,response,next) => {
+    try { response.json({ workspace: await execute(response,'SetWorkspaceModel',{ modelId: request.body?.modelId }) }); } catch(error) { next(error); }
+  });
+  app.patch('/api/nodes/:id/model', async (request,response,next) => {
+    try { response.json({ workspace: await execute(response,'SetConversationModel',{ nodeId: request.params.id,modelId: request.body?.modelId }) }); } catch(error) { next(error); }
+  });
+  app.patch('/api/nodes/:id/title', async (request,response,next) => {
+    try { response.json({ workspace: await execute(response,'RenameConversation',{ nodeId: request.params.id,title: String(request.body?.title ?? '') }) }); } catch(error) { next(error); }
+  });
+  app.patch('/api/segments/:id', async (request,response,next) => {
+    try { response.json({ workspace: await execute(response,'UpdateSegment',{ segmentId: request.params.id,title: request.body?.title,status: request.body?.status }) }); } catch(error) { next(error); }
+  });
+
   app.post('/api/temp-chat', async (request, response, next) => {
     try {
       const sourceNodeId = typeof request.body?.sourceNodeId === 'string' ? request.body.sourceNodeId : '';
@@ -462,7 +479,7 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
         ? [...new Set<string>((request.body.messageIds as unknown[]).filter((id): id is string => typeof id === 'string'))]
         : [];
       if (!title || title.length > 200) rejectInput('Segment 标题不能为空且不能超过 200 字符。', 'INVALID_SEGMENT_TITLE');
-      response.status(201).json(await execute(response, 'CreateSegment', { nodeId: request.params.id, title, messageIds }));
+      response.status(201).json(await execute(response, 'CreateSegment', { nodeId: request.params.id, title, messageIds, range: request.body?.range }));
     } catch (error) { next(error); }
   });
 
@@ -519,6 +536,12 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
   app.get('/api/runs', async (request, response, next) => {
     try { response.json({ runs: await query(response, 'ListExecutionRuns', { limit: Number(request.query.limit || 50) }) }); } catch (error) { next(error); }
   });
+  app.get('/api/runs/by-command/:commandId', async (request,response,next) => {
+    try { response.json({ run: await query(response,'GetRunByCommand',{ commandId: request.query.idempotencyKey === 'true' ? idempotentWorkspaceId('00000000-0000-4000-8000-000000000002',request.params.commandId) : request.params.commandId }) }); } catch(error) { next(error); }
+  });
+  app.post('/api/runs/:runId/retry', async (request,response,next) => {
+    try { response.status(201).json(await execute(response,'RetryExecutionRun',{ runId: request.params.runId })); } catch(error) { next(error); }
+  });
   app.get('/api/runs/:runId', async (request, response, next) => {
     try { response.json({ run: await query(response, 'GetExecutionRun', { runId: request.params.runId }) }); } catch (error) { next(error); }
   });
@@ -541,12 +564,13 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
     } catch (error) { next(error); }
   });
 
-  app.post('/api/chat/stream', async (request, response, next) => {
+  app.post(['/api/chat/stream','/api/temp-chat/stream'], async (request, response, next) => {
     const controller = new AbortController();
     let terminalRuntimeErrorObserved = false;
     response.on('close', () => { if (!response.writableEnded) controller.abort(); });
     try {
-      const result = await execute(response, 'CreateConversationRun', parseChatInput(request.body), {
+      const temporary = request.path.endsWith('/temp-chat/stream');
+      const runOptions = {
         signal: controller.signal,
         onReady: () => {
           response.status(200);
@@ -556,15 +580,22 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
           response.setHeader('X-Accel-Buffering', 'no');
           response.flushHeaders();
         },
-        onRuntimeEvent: event => {
+        onRuntimeEvent: (event: { type: string }) => {
           terminalRuntimeErrorObserved ||= event.type === 'RUN_ERROR';
           const runtimeError = event as { type: string; status?: number };
           return writeSseWithBackpressure(response, 'runtime', event.type === 'RUN_ERROR' ? {
             ...event, category: 'infrastructure', retryable: (runtimeError.status ?? 500) >= 500, correlationId: correlationId(response),
           } : event);
         },
-      });
-      writeSse(response, 'commit', { type: 'COMMIT', ...result });
+      };
+      let result;
+      if (temporary) {
+        const sourceNodeId = String(request.body?.sourceNodeId ?? ''); const anchorText = String(request.body?.anchorText ?? '').trim().slice(0,4000); const prompt = String(request.body?.message ?? '').trim();
+        const history = Array.isArray(request.body?.history) ? request.body.history.slice(-20) : [];
+        if (!sourceNodeId || !anchorText || !prompt || prompt.length > 20000 || !history.every(isDraftMessage)) rejectInput('临时对话输入无效。','INVALID_TEMP_CHAT');
+        result = await execute(response,'ExecuteTemporaryConversation',{ sourceNodeId,anchorText,prompt,history },runOptions);
+      } else result = await execute(response,'CreateConversationRun',parseChatInput(request.body),runOptions);
+      writeSse(response, 'commit', { type: temporary ? 'TEMP_RESULT' : 'COMMIT', ...result });
       response.end();
     } catch (error) {
       if (!response.headersSent) return next(error);

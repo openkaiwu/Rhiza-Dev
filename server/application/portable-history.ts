@@ -1,3 +1,4 @@
+import { applySemanticChanges } from '../domain-journal';
 import type { PortableWorkspaceFacts } from './ports/portable-workspace';
 import type { DomainEventEnvelope } from '../domain-journal';
 import { workspaceSemanticSnapshot } from '../domain-journal';
@@ -6,9 +7,10 @@ import { bundleError } from '../domain/portable-bundle';
 /** Reconcile the portable baseline and tail with the portable current state before activation. */
 export function validatePortableHistory(facts: PortableWorkspaceFacts, hash: (state: Record<string, unknown>) => string): string {
   const expected = workspaceSemanticSnapshot(facts.workspace);
-  const keys = new Set(Object.keys(expected));
+  const keys = new Set([...Object.keys(expected),'defaultModelId']);
   const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
   const validTypes = (value: Record<string, unknown>) => Object.entries(value).every(([key, item]) => {
+    if (key === 'defaultModelId') return item === null || typeof item === 'string';
     const target = expected[key];
     if (Array.isArray(target)) {
       if (!Array.isArray(item)) return false;
@@ -24,7 +26,7 @@ export function validatePortableHistory(facts: PortableWorkspaceFacts, hash: (st
   const first = facts.journal[0];
   const snapshot = first?.payload.snapshot;
   if (!record(snapshot) || snapshot.stateSchema !== 'rhiza.workspace-semantic.v1' || !record(snapshot.state)) throw bundleError('BUNDLE_INVALID_BASELINE');
-  if (Object.keys(snapshot.state).length !== keys.size || Object.keys(snapshot.state).some(key => !keys.has(key))) throw bundleError('BUNDLE_INVALID_BASELINE');
+  if (Object.keys(snapshot.state).filter(key => key !== 'defaultModelId').length !== Object.keys(expected).filter(key => key !== 'defaultModelId').length || Object.keys(snapshot.state).some(key => !keys.has(key))) throw bundleError('BUNDLE_INVALID_BASELINE');
   if (!validTypes(snapshot.state)) throw bundleError('BUNDLE_INVALID_BASELINE');
   const state = structuredClone(snapshot.state);
   const hasPortableChecksums = facts.journal.some(event => event.payload.portableStateChecksum !== undefined);
@@ -38,7 +40,7 @@ export function validatePortableHistory(facts: PortableWorkspaceFacts, hash: (st
     const changes = event.payload.stateChanges;
     if (changes === undefined) { verifyChecksum(event.payload); continue; }
     if (!record(changes) || Object.keys(changes).some(key => !keys.has(key)) || !validTypes(changes)) throw bundleError('BUNDLE_INVALID_HISTORY_DELTA');
-    Object.assign(state, changes);
+    applySemanticChanges(state, changes);
     verifyChecksum(event.payload);
   }
   const checksum = hash(state);
@@ -88,11 +90,11 @@ export function redactPortableHistory(
       }
       source = structuredClone(snapshot.state);
     } else if (event.payload.stateChanges) {
-      Object.assign(source, event.payload.stateChanges);
+      applySemanticChanges(source, event.payload.stateChanges as Record<string, unknown>);
     }
     const state = scrub(source);
     const previousState = prior;
-    const changes = previousState ? Object.fromEntries(Object.entries(state).filter(([key, value]) => JSON.stringify(previousState[key]) !== JSON.stringify(value))) : undefined;
+    const changes = previousState ? { ...Object.fromEntries(Object.entries(state).filter(([key, value]) => JSON.stringify(previousState[key]) !== JSON.stringify(value))), ...(previousState.defaultModelId && !state.defaultModelId ? { defaultModelId:null } : {}) } : undefined;
     const payload: Record<string, unknown> = prior
       ? { stateChanges: changes, portableStateChecksum: hash(state), redacted: true }
       : { snapshot: { stateSchema: 'rhiza.workspace-semantic.v1', sourceSequence: 0, state }, portableStateChecksum: hash(state), redacted: true };

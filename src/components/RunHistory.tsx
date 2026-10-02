@@ -35,7 +35,7 @@ export function RunHistory({ onChanged }: { onChanged: () => void }) {
       if (retry) {
         await api.activateNode(run.nodeId);
         if (!live.current) return;
-        await api.streamMessage(run.input.request.prompt, () => undefined, { operation: 'retry', parentRunRef: run.id, attachmentIds: run.input.request.attachments?.map(item => item.id), generation: run.input.request.generation });
+        await api.retryRun(run.id,crypto.randomUUID());
       } else await api.cancelRun(run.id);
       if (live.current) { await refresh(); if (live.current) onChanged(); }
     } catch { if (live.current) { await refresh(); setError('操作未完成，请查看执行状态后重试。'); } }
@@ -64,7 +64,7 @@ export function RunHistory({ onChanged }: { onChanged: () => void }) {
       <article><strong>{labels[run.status] ?? run.status} · {run.input.executor.model}</strong><p>{run.input.executor.provider} · {new Date(run.createdAt).toLocaleString()}</p>
         {run.error && <p role="status">{run.error.message} ({run.error.class} / {run.error.code})</p>}
         <details><summary>执行详情</summary><dl><dt>Run</dt><dd>{run.id}</dd><dt>输入 SHA-256</dt><dd>{run.inputHash}</dd><dt>模型 / Endpoint</dt><dd>{run.input.executor.modelSpecRef} / {run.input.executor.providerEndpointRef}</dd><dt>重试来源</dt><dd>{run.parentRunRef ?? '首次执行'}</dd><dt>耗时 / 首 token</dt><dd>{run.telemetry.durationMs ?? '—'} ms / {run.telemetry.ttftMs ?? '—'} ms</dd><dt>Token / Trace</dt><dd>{run.telemetry.usage?.totalTokens ?? '—'} / {run.telemetry.traceCount}</dd></dl><p>{run.input.request.prompt}</p></details>
-        {active(run) ? <button disabled={busy} onClick={() => void act(run, false)}>停止</button> : !run.nodeId.startsWith('temp:') && <button disabled={busy} onClick={() => void act(run, true)}>重试为新 Run</button>}
+        {active(run) ? <button disabled={busy} onClick={() => void act(run, false)}>停止</button> : ['failed','canceled','interrupted'].includes(run.status) && !run.nodeId.startsWith('temp:') && <button disabled={busy} onClick={() => void act(run, true)}>重试为新 Run</button>}
         {!active(run) && !run.nodeId.startsWith('temp:') && <details className="run-replay"><summary>历史回放</summary>
           <p>创建新 Run，可能产生模型调用费用。历史资源缺失时拒绝执行，不会自动更换版本。</p>
           <label>回放策略<select disabled={busy} value={policies[run.id] ?? 'exact'} onChange={event => setPolicies(current => ({ ...current, [run.id]: event.target.value as ReplayPolicy }))}>

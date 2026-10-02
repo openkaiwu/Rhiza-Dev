@@ -122,7 +122,8 @@ function candidates(workspace: WorkspaceData): PlannerCandidate[] {
     result.push({ text, terms, embedding: embedTerms(terms), graphDistance: distances.get(node.id) ?? 8, item: { id: `planner:node:${node.id}`, title: node.title, detail: `讨论节点 · ${node.summary}`, role: 'Reference', status: 'active', tokens: estimateTokens(text), selectionMode: 'AUTO_RETRIEVED', sourceType: 'node', sourceId: node.id, sourceNodeId: node.id, contentVersion: 1, content: text } });
   }
   for (const segment of workspace.segments) {
-    const text = workspace.messages.filter(message => message.segmentId === segment.id).map(message => message.text).join('\n') || segment.title;
+    if(segment.status==='archived'||workspace.discussionNodes.find(node=>node.id===segment.nodeId)?.status==='archived')continue;
+    const text = workspace.anchors.find(anchor=>anchor.segmentId===segment.id)?.selectedText || workspace.messages.filter(message => message.segmentId === segment.id).map(message => message.text).join('\n') || segment.title;
     const terms = tokenize(text);
     result.push({ text, terms, embedding: embedTerms(terms), graphDistance: distances.get(segment.nodeId) ?? 8, item: { id: `planner:segment:${segment.id}`, title: segment.title, detail: `讨论片段`, role: 'Reference', status: 'active', tokens: estimateTokens(text), selectionMode: 'AUTO_RETRIEVED', sourceType: 'segment', sourceId: segment.id, sourceNodeId: segment.nodeId, contentVersion: 1, content: text } });
   }
@@ -143,7 +144,7 @@ function explicitItemContent(workspace: WorkspaceData, item: ContextItem): Conte
     const content = node ? `${node.summary}\n${workspace.messages.filter(message => message.nodeId === node.id).map(message => message.text).join('\n')}` : item.detail;
     return { ...item, content };
   }
-  if (item.sourceType === 'segment') return { ...item, content: workspace.messages.filter(message => message.segmentId === item.sourceId).map(message => message.text).join('\n') || item.detail };
+  if (item.sourceType === 'segment') return { ...item, content: workspace.anchors.find(anchor=>anchor.segmentId===item.sourceId)?.selectedText || workspace.messages.filter(message => message.segmentId === item.sourceId).map(message => message.text).join('\n') || item.detail };
   if (item.sourceType === 'file') return { ...item, content: workspace.attachments.find(file => file.id === item.sourceId)?.summary || item.detail };
   return { ...item, content: item.detail };
 }

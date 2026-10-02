@@ -1,10 +1,11 @@
+import { ConversationManager, type SegmentRange } from './ConversationManager';
 import { api } from '../api';
 import { MessageProvenance } from './MessageProvenance';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUp, AtSign, BookmarkPlus, Brain, Check, ChevronRight, Copy, Edit3, EyeOff, FilePlus2, FileText, GitBranch, GitMerge, Image, Link2, Paperclip, RefreshCw, RotateCcw, Send, SlidersHorizontal, Sparkles, Square, TextSelect, Trash2, Wrench, X } from 'lucide-react';
-import type { ChatRequestOptions } from '../api';
+import { ArrowUp, AtSign, BookmarkPlus, Brain, ChevronRight, Copy, Edit3, EyeOff, FilePlus2, FileText, GitBranch, GitMerge, Image, Paperclip, RefreshCw, RotateCcw, Send, SlidersHorizontal, Sparkles, Square, TextSelect, Trash2, Wrench, X } from 'lucide-react';
+import type { ChatRequestOptions, RuntimeStreamEvent } from '../api';
 import { presentErrorText } from '../error-presentation';
-import type { Attachment, ContextManifest, ContextMode, DiscussionEdge, DiscussionNode, GenerationOptions, Message, ProviderCatalog, ProviderStatus, TemporaryBranch } from '../types';
+import type { Anchor, Attachment, ContextManifest, ContextMode, DiscussionEdge, DiscussionNode, GenerationOptions, Message, ProviderCatalog, ProviderStatus, TemporaryBranch, Segment, WorkspaceSnapshot } from '../types';
 import { MarkdownContent } from './MarkdownContent';
 import { ModelSelector } from './ModelSelector';
 import { ParticleMark } from './ParticleMark';
@@ -30,7 +31,7 @@ interface ChatViewProps {
   focusComposerRequest: number;
   onSend: (text: string, options?: ChatRequestOptions) => Promise<void>;
   onUpload: (file: File) => Promise<Attachment>;
-  onTempSend: (input: TemporaryInput) => Promise<{ userMessage: Message; assistantMessage: Message; model: string }>;
+  onTempSend: (input: TemporaryInput, onEvent?: (event: RuntimeStreamEvent) => void, options?: ChatRequestOptions) => Promise<{ userMessage: Message; assistantMessage: Message; model: string }>;
   onCreateBranch: (input: BranchInput) => Promise<void>;
   onActivateNode: (id: string) => Promise<void>;
   onMerge: (id: string) => Promise<void>;
@@ -40,6 +41,11 @@ interface ChatViewProps {
   onInspectContext?: (messageId: string) => void;
   onGraph: () => void;
   onRuns?: () => void;
+  segments?: Segment[];
+  anchors?: Anchor[];
+  onWorkspaceChanged?: (workspace: WorkspaceSnapshot) => void;
+  onReconcile?: () => void;
+  onRetry?: (runId:string,key:string,signal:AbortSignal) => Promise<void>;
 }
 
 function nodePath(node: DiscussionNode, nodes: DiscussionNode[]) {
@@ -73,7 +79,10 @@ function ManifestSummary({ manifest }: { manifest: ContextManifest }) {
   </details>;
 }
 
-export function ChatView({ activeNode, nodes, edges, mode, activeCount, messages, manifests, attachments, provider, providerCatalog, syncError, online, focusComposerRequest, onSend, onUpload, onTempSend, onCreateBranch, onActivateNode, onMerge, onSelectModel, onSettings, onOpenContext, onInspectContext, onGraph, onRuns }: ChatViewProps) {
+export function ChatView({ activeNode, nodes, edges, mode, activeCount, messages, manifests, attachments, provider, providerCatalog, syncError, online, focusComposerRequest, onSend, onUpload, onTempSend, onCreateBranch, onActivateNode, onMerge, onSelectModel, onSettings, onOpenContext, onInspectContext, onGraph, onRuns, segments = [], anchors = [], onWorkspaceChanged, onReconcile, onRetry }: ChatViewProps) {
+  const [segmentRange,setSegmentRange]=useState<SegmentRange>();
+  const tempAbortRef=useRef<AbortController|null>(null); const tempRunRef=useRef<string | undefined>(undefined);
+  const attemptRef=useRef<{key:string;workspaceId?:string} | undefined>(undefined); const tempAttemptRef=useRef<{key:string;workspaceId?:string} | undefined>(undefined);
   const [draft, setDraft] = useState('');
   const [thinking, setThinking] = useState(false);
   const [chatError, setChatError] = useState('');
@@ -108,7 +117,7 @@ export function ChatView({ activeNode, nodes, edges, mode, activeCount, messages
   useEffect(() => { setVisibleCount(80); }, [activeNode.id]);
   useEffect(() => { if (typeof endRef.current?.scrollIntoView === 'function') endRef.current.scrollIntoView({ behavior: 'smooth' }); }, [messages, thinking]);
   useEffect(() => { if (typeof tempEndRef.current?.scrollIntoView === 'function') tempEndRef.current.scrollIntoView({ behavior: 'smooth' }); }, [temporary?.messages, tempThinking]);
-  useEffect(() => () => abortRef.current?.abort(), []);
+  useEffect(() => () => { abortRef.current?.abort(); tempAbortRef.current?.abort(); }, []);
   useEffect(() => { composerRef.current?.focus(); }, [focusComposerRequest]);
 
   const execute = async (text: string, options: ChatRequestOptions) => {
@@ -116,11 +125,12 @@ export function ChatView({ activeNode, nodes, edges, mode, activeCount, messages
     const controller = new AbortController();
     abortRef.current = controller;
     runIdRef.current = undefined;
-    const requestOptions = { ...options, signal: controller.signal, generation, onRunCreated: (runId: string) => { runIdRef.current = runId; setLastAttempt({ text, options: { ...options, parentRunRef: runId } }); } };
+    const key=crypto.randomUUID(); attemptRef.current={key,workspaceId:api.workspaceId()};
+    const requestOptions = { ...options, idempotencyKey:key, signal: controller.signal, generation, onRunCreated: (runId: string) => { runIdRef.current = runId; setLastAttempt({ text, options: { ...options, parentRunRef: runId } }); } };
     if (options.operation === 'send' || options.operation === 'retry') setDraft('');
     setThinking(true); setChatError(''); setLastAttempt({ text, options });
     try {
-      await onSend(text, requestOptions);
+      if(options.operation==='retry'&&options.parentRunRef&&onRetry)await onRetry(options.parentRunRef,key,controller.signal);else await onSend(text, requestOptions);
       setDraft(''); setSelectedAttachmentIds([]); setLastAttempt(null);
     } catch (error) {
       setChatError(presentErrorText(error, { message: '无法完成本轮对话。', recovery: '请重试。' }));
@@ -173,11 +183,12 @@ export function ChatView({ activeNode, nodes, edges, mode, activeCount, messages
 
   const sendTemp = async () => {
     if (!temporary || !tempDraft.trim() || tempThinking || !online) return;
-    const text = tempDraft.trim(); setTempDraft(''); setTempThinking(true); setTempError('');
+    const text = tempDraft.trim(); const controller=new AbortController();tempAbortRef.current=controller;tempRunRef.current=undefined;const key=crypto.randomUUID();tempAttemptRef.current={key,workspaceId:api.workspaceId()}; const pendingId=`temp-pending-${key}`;
+    setTempDraft(''); setTempThinking(true); setTempError('');
     try {
-      const result = await onTempSend({ sourceNodeId: temporary.sourceNodeId, anchorText: temporary.anchorText, message: text, history: temporary.messages.map(({ kind, text: messageText }) => ({ kind, text: messageText })) });
-      setTemporary(current => current ? { ...current, messages: [...current.messages, result.userMessage, result.assistantMessage] } : current);
-    } catch (error) { setTempDraft(text); setTempError(presentErrorText(error, { message: '无法完成临时对话。', recovery: '请重试。' })); } finally { setTempThinking(false); }
+      const result = await onTempSend({ sourceNodeId: temporary.sourceNodeId, anchorText: temporary.anchorText, message: text, history: temporary.messages.filter(message=>!message.pending).map(({ kind, text: messageText }) => ({ kind, text: messageText })) },event=>{ if(event.type==='CONTENT_DELTA')setTemporary(current=>{if(!current||current.id!==temporary.id)return current;const pending=current.messages.find(message=>message.id===pendingId)??{id:pendingId,nodeId:`temp:${temporary.sourceNodeId}`,kind:'assistant' as const,text:'',createdAt:new Date().toISOString(),pending:true};return {...current,messages:[...current.messages.filter(message=>message.id!==pendingId),{...pending,text:pending.text+event.delta}]};}); },{ signal:controller.signal,idempotencyKey:key,onRunCreated:runId=>{tempRunRef.current=runId;} });
+      setTemporary(current => current ? { ...current, messages: [...current.messages.filter(message=>message.id!==pendingId), result.userMessage, result.assistantMessage] } : current);
+    } catch (error) { setTempDraft(text); setTempError(presentErrorText(error, { message: '无法完成临时对话。', recovery: '请重试。' })); } finally { tempAbortRef.current=null;setTemporary(current=>current?{...current,messages:current.messages.filter(message=>message.id!==pendingId)}:current);setTempThinking(false); }
   };
 
   const preserveTemporary = async () => {
@@ -215,20 +226,21 @@ export function ChatView({ activeNode, nodes, edges, mode, activeCount, messages
     />}
     <div className="conversation" onScroll={() => setSelectionAction(null)}>
       <div className="conversation-intro"><span className="round-index">{String(messages.filter(message => message.kind === 'user').length).padStart(2, '0')}</span><div><span className="eyebrow">{activeNode.kind === 'branch' ? `FORMAL BRANCH · LEVEL ${path.length}` : 'DISCUSSION NODE'}</span><h2>{activeNode.title}</h2><p>{activeNode.summary}</p>{activeNode.anchorText && <blockquote className="branch-anchor"><span>来源锚点</span>{activeNode.anchorText}</blockquote>}</div></div>
+    {onWorkspaceChanged&&<ConversationManager key={activeNode.id} node={activeNode} segments={segments} anchors={anchors} messages={messages} catalog={providerCatalog} range={segmentRange} onMerge={()=>void onMerge(activeNode.id)} onChanged={workspace=>{setSegmentRange(undefined);onWorkspaceChanged(workspace);}} onLocate={id=>{setVisibleCount(messages.length);requestAnimationFrame(()=>document.getElementById(`message-${id}`)?.scrollIntoView({block:'center'}));}}/>}
       <div className="timeline">
         {messages.length === 0 && <div className="chat-empty"><Sparkles size={20}/><strong>从一个问题开始</strong><p>这个讨论节点还没有消息；输入问题即可建立第一轮上下文。</p></div>}
         {messages.length > visibleMessages.length && <button className="load-older" onClick={() => setVisibleCount(count => count + 80)}>加载更早消息 · 尚有 {messages.length - visibleMessages.length} 条</button>}
-        {visibleMessages.map((message, index) => message.kind === 'user' ? <article className={`message user-message ${message.pending ? 'pending' : ''}`} key={message.id}>
+        {visibleMessages.map((message, index) => message.kind === 'user' ? <article id={`message-${message.id}`} className={`message user-message ${message.pending ? 'pending' : ''}`} key={message.id}>
           <div className="message-meta"><span>YOU</span><time>第 {Math.floor((messages.length - visibleMessages.length + index) / 2) + 1} 轮</time>{message.version && message.version > 1 && <b>v{message.version} · {message.operation}</b>}</div>
           {editingId === message.id ? <div className="message-editor"><textarea aria-label="编辑消息" value={editDraft} onChange={event => setEditDraft(event.target.value)}/><div><button onClick={() => setEditingId(null)}>取消</button><button onClick={() => editAndResend(message)} disabled={!editDraft.trim()}>发送新版本</button></div></div> : <MarkdownContent content={message.text}/>} {renderAttachments(message.attachmentIds)}
           {!message.pending && <div className="message-actions">{onInspectContext && <button onClick={() => onInspectContext(message.id)}><FileText size={13}/>查看本轮上下文</button>}<button onClick={() => navigator.clipboard?.writeText(message.text)}><Copy size={13}/>复制</button><button onClick={() => { setEditingId(message.id); setEditDraft(message.text); }}><Edit3 size={13}/>编辑并重发</button><button onClick={() => void createFormalBranch(message)}><GitBranch size={13}/>创建正式支线</button></div>}
-        </article> : <article className={`message assistant-message selectable-answer ${message.pending ? 'pending' : ''}`} key={message.id} onMouseUp={event => captureSelection(event, message)}>
+        </article> : <article id={`message-${message.id}`} className={`message assistant-message selectable-answer ${message.pending ? 'pending' : ''}`} key={message.id} onMouseUp={event => captureSelection(event, message)}>
           <div className="assistant-head"><ParticleMark compact/><span>RHIZA</span>{message.version && message.version > 1 && <b>v{message.version}</b>}<small>基于 {manifestById.get(message.manifestId || '')?.contextItems?.length ?? activeCount} 项 Active Context</small></div>
           {message.reasoning && <details className="reasoning-panel"><summary><Brain size={13}/>Reasoning / Progress</summary><p>{message.reasoning}</p></details>}
           {message.toolCalls?.map(tool => <details className="tool-call" key={tool.id}><summary><Wrench size={13}/>Tool · {tool.name || '调用中'}</summary><pre>{tool.arguments || '{}'}</pre></details>)}
           {!message.pending && <MessageProvenance outputId={message.id}/>}
           <div className="answer-paragraph"><MarkdownContent content={message.text || (message.toolCalls?.length ? '正在等待工具结果…' : '')}/>{message.text && <button className="paragraph-branch" aria-label="讨论整个段落" title="将整段放入临时支线" onClick={() => openTemporary(message, message.text)}><TextSelect size={14}/></button>}</div>
-          {!message.pending && <div className="message-actions">{onInspectContext && <button onClick={() => onInspectContext(message.id)}><FileText size={13}/>查看本轮上下文</button>}<button onClick={() => navigator.clipboard?.writeText(message.text)}><Copy size={14}/>复制</button><button onClick={() => regenerate(message)}><RefreshCw size={14}/>重新生成</button><button onClick={() => void createFormalBranch(message)}><GitBranch size={14}/>创建正式支线</button><button onClick={() => openTemporary(message, message.text)}><GitBranch size={14}/>在临时支线中讨论</button><button><Link2 size={14}/>保存为引用</button><button><Check size={14}/>提取为状态</button></div>}
+          {!message.pending && <div className="message-actions">{onInspectContext && <button onClick={() => onInspectContext(message.id)}><FileText size={13}/>查看本轮上下文</button>}<button onClick={() => navigator.clipboard?.writeText(message.text)}><Copy size={14}/>复制</button><button onClick={() => regenerate(message)}><RefreshCw size={14}/>重新生成</button><button onClick={() => void createFormalBranch(message)}><GitBranch size={14}/>创建正式支线</button><button onClick={() => openTemporary(message, message.text)}><GitBranch size={14}/>在临时支线中讨论</button></div>}
           {message.usage && <div className="usage-line">{message.usage.estimated && '≈ '}Prompt {message.usage.promptTokens.toLocaleString()} · Completion {message.usage.completionTokens.toLocaleString()} · Total {message.usage.totalTokens.toLocaleString()} tokens</div>}
           {message.manifestId && manifestById.get(message.manifestId)?.contextItems ? <ManifestSummary manifest={manifestById.get(message.manifestId)!}/> : message.manifestId && <div className="branch-note"><span className="branch-line"/><GitMerge size={14}/><span>Context Manifest · {message.manifestId.slice(0, 8)}</span></div>}
         </article>)}
@@ -237,12 +249,13 @@ export function ChatView({ activeNode, nodes, edges, mode, activeCount, messages
       </div>
     </div>
     {selectionAction && <button className="selection-branch-action" style={{ left: selectionAction.x, top: selectionAction.y }} onMouseDown={event => event.preventDefault()} onClick={() => openTemporary(selectionAction.message, selectionAction.text, selectionAction.start, selectionAction.end)}><GitBranch size={13}/>讨论选中内容</button>}
-    {temporary && <aside className="temporary-branch" aria-label="临时支线"><header><div><span className="temp-status"><i/> TEMP · 未保存</span><input aria-label="临时支线标题" value={temporary.title} onChange={event => setTemporary(current => current ? { ...current, title: event.target.value } : current)}/></div><button aria-label="丢弃临时支线" onClick={() => setTemporary(null)}><X size={16}/></button></header><blockquote><span>选中内容</span>{temporary.anchorText}</blockquote><div className="temp-thread">{temporary.messages.length === 0 && <div className="temp-empty"><GitBranch size={18}/><strong>这是临时探索空间</strong><p>对话只存在于当前页面；点击“保留”后才会进入节点树与对话图谱。</p></div>}{temporary.messages.map(message => <article className={`temp-message ${message.kind}`} key={message.id}><span>{message.kind === 'user' ? 'YOU' : 'RHIZA'}</span><MarkdownContent content={message.text}/></article>)}{tempThinking && <div className="thinking"><ParticleMark compact/><span>沿锚点继续思考</span><i/><i/><i/></div>}<div ref={tempEndRef}/></div>{tempError && <div className="temp-error" role="alert">{tempError}</div>}<div className="temp-composer"><textarea aria-label="临时支线消息" rows={2} value={tempDraft} onChange={event => setTempDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void sendTemp(); } }} placeholder={online ? '围绕选中内容追问…' : '离线时不能发送消息'} disabled={!online}/><button aria-label="发送临时消息" onClick={() => void sendTemp()} disabled={!online || !tempDraft.trim() || tempThinking || !provider.configured}><Send size={15}/></button></div><footer><button className="discard-temp" onClick={() => setTemporary(null)}><Trash2 size={14}/>丢弃</button><button className="keep-temp" onClick={() => void preserveTemporary()} disabled={!online || !temporary.title.trim() || preserving}><BookmarkPlus size={14}/>{preserving ? '保留中…' : '保留为讨论流'}</button></footer></aside>}
+    {selectionAction && onWorkspaceChanged && <button className="selection-segment-action" onClick={()=>{setSegmentRange({messageId:selectionAction.message.id,selectedText:selectionAction.text,startOffset:selectionAction.start,endOffset:selectionAction.end});setSelectionAction(null);}}>保存选中内容为 Segment</button>}
+    {temporary && <aside className="temporary-branch" aria-label="临时支线"><header><div><span className="temp-status"><i/> TEMP · 未保存</span><input aria-label="临时支线标题" value={temporary.title} onChange={event => setTemporary(current => current ? { ...current, title: event.target.value } : current)}/></div><button aria-label="丢弃临时支线" onClick={() => { tempAbortRef.current?.abort(); setTemporary(null); }}><X size={16}/></button></header><blockquote><span>选中内容</span>{temporary.anchorText}</blockquote><div className="temp-thread">{temporary.messages.length === 0 && <div className="temp-empty"><GitBranch size={18}/><strong>这是临时探索空间</strong><p>对话只存在于当前页面；点击“保留”后才会进入节点树与对话图谱。</p></div>}{temporary.messages.map(message => <article className={`temp-message ${message.kind}`} key={message.id}><span>{message.kind === 'user' ? 'YOU' : 'RHIZA'}</span><MarkdownContent content={message.text}/></article>)}{tempThinking && <div className="thinking"><ParticleMark compact/><span>沿锚点继续思考</span><i/><i/><i/></div>}<div ref={tempEndRef}/>{tempThinking&&<button aria-label="停止临时生成" onClick={()=>{tempAbortRef.current?.abort();const attempt=tempAttemptRef.current;if(attempt)void api.cancelAttempt(attempt.key,tempRunRef.current,attempt.workspaceId).catch(()=>setTempError('停止状态待确认，请查看执行历史。'));}}>停止临时生成</button>}</div>{tempError && <div className="temp-error" role="alert">{tempError}</div>}<div className="temp-composer"><textarea aria-label="临时支线消息" rows={2} value={tempDraft} onChange={event => setTempDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void sendTemp(); } }} placeholder={online ? '围绕选中内容追问…' : '离线时不能发送消息'} disabled={!online}/><button aria-label="发送临时消息" onClick={() => void sendTemp()} disabled={!online || !tempDraft.trim() || tempThinking || !provider.configured}><Send size={15}/></button></div><footer><button className="discard-temp" onClick={() => { tempAbortRef.current?.abort(); setTemporary(null); }}><Trash2 size={14}/>丢弃</button><button className="keep-temp" onClick={() => void preserveTemporary()} disabled={!online || !temporary.title.trim() || preserving || tempThinking}><BookmarkPlus size={14}/>{preserving ? '保留中…' : '保留为讨论流'}</button></footer></aside>}
     <div className="composer-wrap">
       {(chatError || syncError || !online) && <div className="composer-error" role="alert"><span>{!online ? '当前离线，恢复网络后即可继续发送。' : chatError || syncError}</span>{lastAttempt && online && <button onClick={() => void retry()}><RotateCcw size={13}/>重试</button>}</div>}
       {renderAttachments(selectedAttachmentIds, true)}
       {controlsOpen && <div className="generation-controls"><label>Temperature <input aria-label="Temperature" type="number" min="0" max="2" step="0.1" value={generation.temperature} onChange={event => setGeneration(current => ({ ...current, temperature: Number(event.target.value) }))}/></label><label>Top P <input aria-label="Top P" type="number" min="0.05" max="1" step="0.05" value={generation.topP} onChange={event => setGeneration(current => ({ ...current, topP: Number(event.target.value) }))}/></label><label>Max tokens <input aria-label="Max tokens" type="number" min="1" max="32768" step="128" value={generation.maxTokens} onChange={event => setGeneration(current => ({ ...current, maxTokens: Number(event.target.value) }))}/></label></div>}
-      <div className="composer"><textarea ref={composerRef} aria-label="输入消息" value={draft} onChange={event => { setDraft(event.target.value); setLastAttempt(null); }} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={online ? '继续这段讨论…' : '离线时不能发送消息'} rows={2} disabled={!online}/><div className="composer-tools"><div><input ref={fileInputRef} className="file-input" type="file" multiple accept={providerCatalog.filePolicy?.supportedMimeTypes.join(',')} onChange={event => void uploadFiles(event.target.files)}/><button aria-label="添加附件" onClick={() => fileInputRef.current?.click()} disabled={!online || uploading || providerCatalog.filePolicy?.disabled}><Paperclip size={16}/></button><button aria-label="引用节点"><AtSign size={16}/></button><button aria-label="添加文件" onClick={() => fileInputRef.current?.click()} disabled={!online || uploading}><FilePlus2 size={16}/></button><button className={controlsOpen ? 'active' : ''} aria-label="生成参数" onClick={() => setControlsOpen(open => !open)}><SlidersHorizontal size={16}/></button></div><div className="send-side"><ModelSelector catalog={providerCatalog} onSelect={onSelectModel} onSettings={onSettings}/><span className={provider.configured && online ? 'provider-online' : 'provider-offline'}><Sparkles size={13}/>{online ? (provider.configured ? 'Ready' : '未连接') : '离线'} · {mode} · {activeCount} sources</span>{thinking ? <button className="send-button stop-button" onClick={() => { if (runIdRef.current) void api.cancelRun(runIdRef.current).catch(error => setChatError(presentErrorText(error, { message: '停止失败。', recovery: '请重试。' }))); else abortRef.current?.abort(); }} aria-label="停止生成"><Square size={13} fill="currentColor"/></button> : <button className="send-button" onClick={() => void send()} disabled={!draft.trim() || !provider.configured || !online || uploading} aria-label="发送"><ArrowUp size={17}/></button>}</div></div></div>
+      <div className="composer"><textarea ref={composerRef} aria-label="输入消息" value={draft} onChange={event => { setDraft(event.target.value); setLastAttempt(null); }} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} placeholder={online ? '继续这段讨论…' : '离线时不能发送消息'} rows={2} disabled={!online}/><div className="composer-tools"><div><input ref={fileInputRef} className="file-input" type="file" multiple accept={providerCatalog.filePolicy?.supportedMimeTypes.join(',')} onChange={event => void uploadFiles(event.target.files)}/><button aria-label="添加附件" onClick={() => fileInputRef.current?.click()} disabled={!online || uploading || providerCatalog.filePolicy?.disabled}><Paperclip size={16}/></button><button aria-label="引用节点" onClick={onOpenContext}><AtSign size={16}/></button><button aria-label="添加文件" onClick={() => fileInputRef.current?.click()} disabled={!online || uploading}><FilePlus2 size={16}/></button><button className={controlsOpen ? 'active' : ''} aria-label="生成参数" onClick={() => setControlsOpen(open => !open)}><SlidersHorizontal size={16}/></button></div><div className="send-side"><ModelSelector catalog={providerCatalog} onSelect={onSelectModel} onSettings={onSettings}/><span className={provider.configured && online ? 'provider-online' : 'provider-offline'}><Sparkles size={13}/>{online ? (provider.configured ? 'Ready' : '未连接') : '离线'} · {mode} · {activeCount} sources</span>{thinking ? <button className="send-button stop-button" onClick={() => { abortRef.current?.abort(); const attempt=attemptRef.current; if(attempt)void api.cancelAttempt(attempt.key,runIdRef.current,attempt.workspaceId).then(()=>onReconcile?.()).catch(()=>setChatError('停止状态待确认，请查看执行历史。')); }} aria-label="停止生成"><Square size={13} fill="currentColor"/></button> : <button className="send-button" onClick={() => void send()} disabled={!draft.trim() || !provider.configured || !online || uploading} aria-label="发送"><ArrowUp size={17}/></button>}</div></div></div>
       <p className="composer-caption"><span className="live-dot"/> Rhiza Domain 将冻结上下文、附件与生成参数，再交由 AI Runtime 执行</p>
     </div>
   </main>;

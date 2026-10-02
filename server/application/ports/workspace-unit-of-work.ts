@@ -6,7 +6,8 @@ export interface ConversationPreparation {
   sourceRunId?: string;
   projectId: string;
   activeNodeId: string;
-  node?: Pick<import('../../domain').DiscussionNode, 'id' | 'status'>;
+  node?: Pick<import('../../domain').DiscussionNode, 'id' | 'status' | 'preferredModelId'>;
+  defaultModelId?: string;
   mode: WorkspaceData['mode'];
   contextItems: WorkspaceData['contextItems'];
   messages: WorkspaceData['messages'];
@@ -57,6 +58,8 @@ export interface WorkspaceUnitOfWork {
   readConversationPreparation?(attachmentIds: string[], sourceMessageId?: string): Promise<ConversationPreparation>;
   readonly tracksRuns?: boolean;
   listRuns?(limit?: number): Promise<import('../../execution-runtime/run').ExecutionRun[]>;
+  getRunByCommand?(commandId: string): Promise<import('../../execution-runtime/run').ExecutionRun | undefined>;
+  searchWorkspace?(query: string, limit: number): Promise<import('../../contracts/application').QueryMap['SearchWorkspace']['result']>;
   getRun?(runId: string): Promise<import('../../execution-runtime/run').ExecutionRun | undefined>;
   writeRunTraces?(runId: string, attempt: number, traces: import('../../execution-runtime/run').RunTrace[]): Promise<void>;
   read<T>(reader: (workspace: Readonly<WorkspaceData>) => T | Promise<T>): Promise<T>;

@@ -3,6 +3,7 @@ import type { Attachment, ChatOperation, ContextHistory, ContextManifest, Contex
 export type ApiErrorCategory = 'validation' | 'conflict' | 'permission' | 'not_found' | 'infrastructure';
 
 export interface ApiErrorDetails {
+  recovery?: string;
   category?: ApiErrorCategory;
   retryable?: boolean;
   correlationId?: string;
@@ -18,13 +19,13 @@ export class ApiError extends Error {
   get correlationId() { return this.details.correlationId; }
 }
 
-type ErrorPayload = { code?: string; message?: string; category?: ApiErrorCategory; retryable?: boolean; correlationId?: string };
+type ErrorPayload = { code?: string; message?: string; category?: ApiErrorCategory; retryable?: boolean; correlationId?: string; recovery?: string };
 let currentWorkspaceId: string | undefined;
 const scopedPath = (path: string) => currentWorkspaceId && /^\/api\/(?!v1\/workspaces(?:\/|\?|$)|bundle\/(?:import|preview)$|health$|providers|models)/.test(path) ? `/api/v1/workspaces/${encodeURIComponent(currentWorkspaceId)}${path.slice(4)}` : path;
 
 function apiError(payload: ErrorPayload | undefined, status: number) {
   return new ApiError(payload?.message || `请求失败（${status}）`, payload?.code, status, {
-    category: payload?.category,
+    category: payload?.category, recovery: payload?.recovery,
     retryable: payload?.retryable,
     correlationId: payload?.correlationId,
   });
@@ -40,7 +41,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return payload;
 }
 
-type RuntimeStreamEvent =
+export type RuntimeStreamEvent =
   | { type: 'RUN_CREATED'; runId: string }
   | { type: 'RUN_START'; requestId: string; manifestId: string; model: string; provider: string }
   | { type: 'CONTENT_DELTA'; requestId: string; delta: string }
@@ -53,6 +54,7 @@ type RuntimeStreamEvent =
 type ChatCommit = { type: 'COMMIT'; userMessage: Message; assistantMessage: Message; manifest: ContextManifest };
 
 export interface ChatRequestOptions {
+  idempotencyKey?: string;
   parentRunRef?: string;
   onRunCreated?: (runId: string) => void;
   signal?: AbortSignal;
@@ -62,10 +64,10 @@ export interface ChatRequestOptions {
   sourceMessageId?: string;
 }
 
-async function streamMessage(message: string, onEvent: (event: RuntimeStreamEvent) => void, options: ChatRequestOptions = {}): Promise<Omit<ChatCommit, 'type'>> {
+async function streamRequest<T>(path: string, body: unknown, onEvent: (event: RuntimeStreamEvent) => void, options: ChatRequestOptions = {}, resultType = 'COMMIT'): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(scopedPath('/api/chat/stream'), { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' }, body: JSON.stringify({ message, attachmentIds: options.attachmentIds, generation: options.generation, operation: options.operation, sourceMessageId: options.sourceMessageId, parentRunRef: options.parentRunRef }), signal: options.signal });
+    response = await fetch(scopedPath(path), { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', 'Idempotency-Key': options.idempotencyKey ?? crypto.randomUUID() }, body: JSON.stringify(body), signal: options.signal });
   } catch (error) {
     if (options.signal?.aborted) throw new ApiError('生成已停止，本轮未写入历史。', 'GENERATION_STOPPED', 499);
     throw error;
@@ -79,7 +81,7 @@ async function streamMessage(message: string, onEvent: (event: RuntimeStreamEven
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-  let commit: ChatCommit | undefined;
+  let commit: (T & { type: string }) | undefined;
   let streamError: Extract<RuntimeStreamEvent, { type: 'RUN_ERROR' }> | undefined;
 
   const consumeFrame = (frame: string) => {
@@ -89,7 +91,7 @@ async function streamMessage(message: string, onEvent: (event: RuntimeStreamEven
     if (!data) return;
     let payload: RuntimeStreamEvent | ChatCommit;
     try { payload = JSON.parse(data) as RuntimeStreamEvent | ChatCommit; } catch { return; }
-    if (eventName === 'commit' && payload.type === 'COMMIT') commit = payload;
+    if (eventName === 'commit' && payload.type === resultType) commit = payload as unknown as T & { type: string };
     if (eventName === 'runtime' && payload.type !== 'COMMIT') {
       if (payload.type === 'RUN_CREATED') options.onRunCreated?.(payload.runId);
       onEvent(payload);
@@ -113,7 +115,25 @@ async function streamMessage(message: string, onEvent: (event: RuntimeStreamEven
   if (buffer.trim()) consumeFrame(buffer);
   if (streamError) throw new ApiError(streamError.message, streamError.code, streamError.status, { category: streamError.category, retryable: streamError.retryable, correlationId: streamError.correlationId });
   if (!commit) throw new ApiError('AI 事件流结束前未提交消息。', 'INCOMPLETE_STREAM', 502);
-  return { userMessage: commit.userMessage, assistantMessage: commit.assistantMessage, manifest: commit.manifest };
+  const result = { ...commit };Reflect.deleteProperty(result,'type');
+  return result as T;
+}
+
+async function streamMessage(message: string, onEvent: (event: RuntimeStreamEvent) => void, options: ChatRequestOptions = {}): Promise<Omit<ChatCommit,'type'>> {
+  return streamRequest('/api/chat/stream',{ message,attachmentIds: options.attachmentIds,generation: options.generation,operation: options.operation,sourceMessageId: options.sourceMessageId,parentRunRef: options.parentRunRef },onEvent,options);
+}
+type TemporaryInput = { sourceNodeId: string; anchorText: string; message: string; history: Array<Pick<Message,'kind' | 'text'>> };
+async function streamTemporaryMessage(input: TemporaryInput,onEvent: (event: RuntimeStreamEvent) => void,options: ChatRequestOptions = {}): Promise<{ userMessage: Message; assistantMessage: Message; model: string }> {
+  return streamRequest('/api/temp-chat/stream',input,onEvent,options,'TEMP_RESULT');
+}
+/** Abort transport first; resolve its durable identity in the original Workspace without dispatching again. */
+async function cancelAttempt(commandId: string,runId?: string,workspaceId = currentWorkspaceId) {
+  const prefix = workspaceId ? `/api/v1/workspaces/${encodeURIComponent(workspaceId)}` : '/api';
+  for (let attempt=0;attempt<5;attempt++) {
+    const run = runId ? { id: runId,status: 'running' } : (await request<{ run: import('./types').ExecutionRun | null }>(`${prefix}/runs/by-command/${encodeURIComponent(commandId)}?idempotencyKey=true`)).run;
+    if (run) { if (['created','dispatching','running'].includes(run.status)) await request(`${prefix}/runs/${encodeURIComponent(run.id)}/cancel`,{ method:'POST' }); return; }
+    await new Promise(resolve => setTimeout(resolve,200*(attempt+1)));
+  }
 }
 
 async function uploadAttachment(file: File): Promise<Attachment> {
@@ -145,19 +165,30 @@ export const api = {
   updateWorkspace: (workspaceId: string, action: 'archive' | 'restore' | 'rename', revision: number, name?: string) => request<{ workspace: WorkspaceRecord }>(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}`, { method: 'PATCH', headers: { 'If-Match': String(revision) }, body: JSON.stringify({ action, name }) }),
   getWorkspace: () => request<{ workspace: WorkspaceSnapshot; provider: ProviderStatus; providerCatalog: ProviderCatalog }>('/api/workspace'),
   getWorkspaceActivity: (limit = 50) => request<{ activity: WorkspaceActivityItem[] }>(`/api/workspace/activity?limit=${limit}`),
-  getGraphNeighborhood: (input: { objectId?: string; depth?: number; nodeLimit?: number; edgeLimit?: number; cursor?: string } = {}) => {
-    const parameters = new URLSearchParams({ objectTypes: 'conversation', depth: String(input.depth ?? 3), nodeLimit: String(input.nodeLimit ?? 500), edgeLimit: String(input.edgeLimit ?? 2000) });
+  getGraphNeighborhood: (input: { objectId?: string; depth?: number; nodeLimit?: number; edgeLimit?: number; cursor?: string; objectTypes?: string[]; query?:string; statuses?:string[]; updatedAfter?:string } = {}) => {
+    const parameters = new URLSearchParams({ objectTypes: input.objectTypes?.join(',')??'conversation', depth: String(input.depth ?? 3), nodeLimit: String(input.nodeLimit ?? 500), edgeLimit: String(input.edgeLimit ?? 2000) });
     if (input.objectId) { parameters.set('objectType', 'conversation'); parameters.set('objectId', input.objectId); }
     if (input.cursor) parameters.set('cursor', input.cursor);
+    if(input.query)parameters.set('q',input.query);if(input.statuses?.length)parameters.set('statuses',input.statuses.join(','));if(input.updatedAfter)parameters.set('updatedAfter',input.updatedAfter);
     return request<{ graph: import('./types').GraphProjectionResult }>(`/api/graph/neighborhood?${parameters}`);
   },
+  getGraphPath: (fromId:string,toId:string) => request<{graph:import('./types').GraphProjectionResult}>(`/api/graph/path?${new URLSearchParams({fromId,toId,nodeLimit:'500'})}`),
   setMode: (mode: ContextMode) => request<{ workspace: WorkspaceSnapshot }>('/api/workspace/mode', { method: 'PATCH', body: JSON.stringify({ mode }) }),
   getMessageContext: (id: string) => request<ContextHistory>(`/api/messages/${encodeURIComponent(id)}/context`),
   setContextStatus: (id: string, status: ContextStatus) => request<{ workspace: WorkspaceSnapshot }>(`/api/workspace/context/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   setContextPin: (id: string, pinned: boolean) => request<{ workspace: WorkspaceSnapshot }>(`/api/workspace/context/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ pinned }) }),
   addContextSource: (sourceType: 'node' | 'segment' | 'file', sourceId: string) => request<{ workspace: WorkspaceSnapshot }>('/api/workspace/context', { method: 'POST', body: JSON.stringify({ sourceType, sourceId }) }),
   sendMessage: (message: string) => request<{ userMessage: Message; assistantMessage: Message; manifest: { id: string } }>('/api/chat', { method: 'POST', body: JSON.stringify({ message }) }),
-  streamMessage,
+  streamMessage, streamTemporaryMessage, cancelAttempt,
+  workspaceId: () => currentWorkspaceId,
+  retryRun: (runId: string, idempotencyKey: string, signal?:AbortSignal) => request<Omit<ChatCommit,'type'>>(`/api/runs/${encodeURIComponent(runId)}/retry`,{ method: 'POST', headers: { 'Idempotency-Key': idempotencyKey },signal }),
+  searchWorkspace: (query: string) => request<{ results: Array<{ sourceType: 'node' | 'segment'; sourceId: string; nodeId: string; title: string; excerpt: string; titleMatch: boolean }> }>(`/api/search?q=${encodeURIComponent(query)}`),
+  renameConversation: (nodeId: string,title: string) => request<{ workspace: WorkspaceSnapshot }>(`/api/nodes/${encodeURIComponent(nodeId)}/title`,{ method:'PATCH',body:JSON.stringify({ title }) }),
+  setNodeStatus: (nodeId: string,status: import('./types').DiscussionStatus) => request<{ workspace: WorkspaceSnapshot }>(`/api/nodes/${encodeURIComponent(nodeId)}/status`,{ method:'PATCH',body:JSON.stringify({ status }) }),
+  setConversationModel: (nodeId: string,modelId: string | null) => request<{ workspace: WorkspaceSnapshot }>(`/api/nodes/${encodeURIComponent(nodeId)}/model`,{ method:'PATCH',body:JSON.stringify({ modelId }) }),
+  setWorkspaceModel: (modelId: string | null) => request<{ workspace: WorkspaceSnapshot }>('/api/workspace/model',{ method:'PATCH',body:JSON.stringify({ modelId }) }),
+  updateSegment: (segmentId: string,changes: { title?: string; status?: 'active' | 'archived' }) => request<{ workspace: WorkspaceSnapshot }>(`/api/segments/${encodeURIComponent(segmentId)}`,{ method:'PATCH',body:JSON.stringify(changes) }),
+  createSegment: (nodeId: string,title: string,messageIds: string[],range?: { messageId: string; selectedText: string; startOffset: number; endOffset: number }) => request<{ workspace: WorkspaceSnapshot }>(`/api/nodes/${encodeURIComponent(nodeId)}/segments`,{ method:'POST',body:JSON.stringify({ title,messageIds,range }) }),
   uploadAttachment,
   createBranch: (input: { title: string; anchorText?: string; anchorStart?: number; anchorEnd?: number; sourceMessageId?: string; messages?: Array<Pick<Message, 'kind' | 'text' | 'createdAt'>> }) => request<{ workspace: WorkspaceSnapshot }>('/api/nodes', { method: 'POST', body: JSON.stringify(input) }),
   sendTemporaryMessage: (input: { sourceNodeId: string; anchorText: string; message: string; history: Array<Pick<Message, 'kind' | 'text'>> }) => request<{ userMessage: Message; assistantMessage: Message; model: string }>('/api/temp-chat', { method: 'POST', body: JSON.stringify(input) }),

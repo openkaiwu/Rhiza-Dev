@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0.0",
+  "workspace": {
+    "registry_digest": "sha256:372cb0d86406e53beb19c00a211ff8116da581b34cb05d3aa28c055e1d978dc0",
+    "schema_digest": "sha256:9370a011dac376da95969d342119490d2dd8006bee53e363694260a467ccd53c"
+  },
+  "db": {
+    "digest": "sha256:ea40846990ac7e8899feb1b7065a46354f617a90724af734cef96bba54a0a4ae"
+  },
+  "api": {
+    "digest": "sha256:ce8717a5aa16c949cbb2243ac88b130c1ad527c4f40d7b22392e7408c38ce65e"
+  }
+}

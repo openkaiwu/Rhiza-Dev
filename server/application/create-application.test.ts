@@ -244,3 +244,25 @@ describe('Rhiza Application', () => {
     await expect(application.execute(createLegacyCommandEnvelope('corrupt-2', 'CreateConversationRun', { prompt: 'use it', operation: 'send', attachmentIds: [created.attachment.id], generation: { temperature: 0.4, topP: 1, maxTokens: 50 } }))).rejects.toMatchObject({ message: expect.stringContaining('未使用可能损坏的数据'), details: { code: 'BLOB_INTEGRITY_ERROR', status: 409 } });
   });
 });
+
+describe('M12–M13 product commands', () => {
+  it('fails closed on unavailable conversation preferences and clears inheritance explicitly', async () => {
+    const f = fixture(); const nodeId = f.workspace().activeNodeId;
+    await f.application.execute(createLegacyCommandEnvelope('prefer', 'SetConversationModel', { nodeId, modelId: 'model-1' }));
+    expect(f.workspace().discussionNodes.find(node => node.id === nodeId)?.preferredModelId).toBe('model-1');
+    await expect(f.application.execute(createLegacyCommandEnvelope('invalid', 'SetConversationModel', { nodeId, modelId: 'missing' }))).rejects.toMatchObject({ details: { code: 'MODEL_NOT_FOUND' } });
+    await f.application.execute(createLegacyCommandEnvelope('inherit', 'SetConversationModel', { nodeId, modelId: null }));
+    expect(f.workspace().discussionNodes.find(node => node.id === nodeId)?.preferredModelId).toBeUndefined();
+  });
+  it('renames and archives a Segment while preserving its original message and anchor', async () => {
+    const f = fixture(); const nodeId = f.workspace().activeNodeId;
+    const message = f.workspace().messages.find(message => message.nodeId === nodeId)!;
+    const text = message.text.slice(0, 3);
+    const result = await f.application.execute(createLegacyCommandEnvelope('segment', 'CreateSegment', { nodeId, title: 'excerpt', messageIds: [message.id], range: { messageId: message.id, startOffset: 0, endOffset: 3, selectedText: text } }));
+    expect(result.workspace.anchors.find(anchor => anchor.segmentId === result.segment.id)).toMatchObject({ messageId: message.id, selectedText: text });
+    await f.application.execute(createLegacyCommandEnvelope('archive-segment', 'UpdateSegment', { segmentId: result.segment.id, title: 'renamed', status: 'archived' }));
+    expect(f.workspace().segments.find(segment => segment.id === result.segment.id)).toMatchObject({ title: 'renamed', status: 'archived' });
+    expect(f.workspace().messages.find(item => item.id === message.id)?.text).toBe(message.text);
+    await expect(f.application.execute(createLegacyCommandEnvelope('wrong-range', 'CreateSegment', { nodeId, title: 'bad', messageIds: [message.id], range: { messageId: message.id, startOffset: 0, endOffset: 3, selectedText: 'wrong' } }))).rejects.toMatchObject({ details: { code: 'INVALID_SEGMENT_RANGE' } });
+  });
+});

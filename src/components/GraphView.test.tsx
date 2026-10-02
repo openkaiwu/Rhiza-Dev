@@ -60,15 +60,18 @@ describe('GraphView', () => {
     await waitFor(() => expect(handlers.onDeleteEdge).toHaveBeenCalledWith('relation'));
   });
 
-  it('keeps 300 nodes navigable through search, focus and fit view', () => {
+  it('keeps 300 nodes navigable while culling offscreen DOM', async () => {
+    vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockReturnValue({left:0,top:0,width:800,height:600,right:800,bottom:600,x:0,y:0,toJSON:()=>({})});
     const nodes = Array.from({ length: 300 }, (_, index) => ({ ...node, id: `node-${index}`, title: `讨论 ${index}`, summary: index === 287 ? '唯一检索目标' : '规模测试', x: (index % 20) * 100, y: Math.floor(index / 20) * 80 }));
     render(<GraphView nodes={nodes} edges={[]} activeNodeId="node-287" {...callbacks()} />);
-    expect(document.querySelectorAll('.graph-node')).toHaveLength(300);
+    await waitFor(()=>expect(document.querySelector('[aria-label="讨论节点：讨论 287"]')).toBeInTheDocument());
+    expect(document.querySelectorAll('.graph-node').length).toBeLessThan(300);
     expect(document.querySelector('[aria-label="讨论节点：讨论 287"]')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('搜索图谱'), { target: { value: '唯一检索目标' } });
     expect(document.querySelectorAll('.graph-node')).toHaveLength(1);
     fireEvent.keyDown(screen.getByLabelText('搜索图谱'), { key: 'Enter' });
     fireEvent.click(screen.getByRole('button', { name: '适合全部节点' }));
     expect(screen.getByLabelText('图谱概览').querySelectorAll('i')).toHaveLength(300);
+    vi.restoreAllMocks();
   });
 });

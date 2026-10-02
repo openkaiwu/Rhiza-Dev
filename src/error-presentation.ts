@@ -49,6 +49,17 @@ export function presentError(error: unknown, fallback: PresentedError): Presente
   if (code === 'GENERATION_STOPPED') return { message: '生成已停止，本轮未写入历史。', recovery: '可以修改输入后重新发送。' };
   if (code === 'STREAM_UNAVAILABLE' || code === 'INCOMPLETE_STREAM') return { message: '生成连接意外中断。', recovery: '请重试；本轮未写入历史。' };
 
+  const specific: Record<string, PresentedError> = {
+    PROVIDER_INPUT_INVALID: { message: '模型无法处理当前输入。', recovery: '请调整消息、附件或生成参数。' },
+    PROVIDER_AUTH_FAILED: { message: '模型认证失败。', recovery: '请在模型设置检查凭据。' },
+    PROVIDER_RATE_LIMITED: { message: '模型请求频率受限。', recovery: '请稍后手动重试。' },
+    PROVIDER_TIMEOUT: { message: '生成超时。', recovery: '请查看执行状态后重试。' },
+    PROVIDER_UNREACHABLE: { message: '无法连接模型。', recovery: '请检查网络后重试。' },
+    PROCESS_INTERRUPTED: { message: '执行中断。', recovery: '请查看执行历史，确认后重试。' },
+    MODEL_NOT_FOUND: { message: '选择的模型不可用。', recovery: '请重新选择模型。' },
+    RUN_COMMIT_FAILED: { message: '结果保存失败。', recovery: '请查看执行记录后重试。' },
+  };
+  if (specific[code]) return specific[code];
   const category = inferCategory(details);
   const presented = category ? categoryMessages[category] : fallback;
   const retryable = details.retryable === true || category === 'infrastructure';

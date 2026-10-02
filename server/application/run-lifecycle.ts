@@ -46,7 +46,7 @@ export class RunLifecycle {
       request.signal = options?.signal;
       await options?.onReady?.();
       for await (const event of this.runtime.generate(request)) {
-        if (event.type === 'RUN_ERROR') throw applicationError('AI Runtime 执行失败，请稍后重试。', safeRunErrorCode(event.code), 'infrastructure', 'retry', true, event.status);
+        if (event.type === 'RUN_ERROR') throw applicationError('AI Runtime 执行失败，请稍后重试。', safeRunErrorCode(event.status === 401 || event.status === 403 ? 'PROVIDER_AUTH_FAILED' : event.status === 429 ? 'PROVIDER_RATE_LIMITED' : event.status === 400 ? 'PROVIDER_INPUT_INVALID' : event.status === 408 || event.status === 504 ? 'PROVIDER_TIMEOUT' : event.code), 'infrastructure', event.status===401||event.status===403?'select_model':'retry',event.status!==401&&event.status!==403, event.status);
         await options?.onRuntimeEvent?.(event);
         if (event.type === 'RUN_END') return complete(event);
       }
@@ -101,7 +101,7 @@ export class RunLifecycle {
         await trace.push(event.type, this.now());
         if (event.type === 'CONTENT_DELTA' && ttftMs === undefined) ttftMs = Date.now() - started;
         if (event.type === 'USAGE' || event.type === 'RUN_END') usage = event.usage ?? usage;
-        if (event.type === 'RUN_ERROR') throw applicationError('AI Runtime 执行失败，请稍后重试。', safeRunErrorCode(event.code), 'infrastructure', 'retry', true, event.status);
+        if (event.type === 'RUN_ERROR') throw applicationError('AI Runtime 执行失败，请稍后重试。', safeRunErrorCode(event.status === 401 || event.status === 403 ? 'PROVIDER_AUTH_FAILED' : event.status === 429 ? 'PROVIDER_RATE_LIMITED' : event.status === 400 ? 'PROVIDER_INPUT_INVALID' : event.status === 408 || event.status === 504 ? 'PROVIDER_TIMEOUT' : event.code), 'infrastructure', event.status===401||event.status===403?'select_model':'retry',event.status!==401&&event.status!==403, event.status);
         if (event.type === 'RUN_END') {
           await trace.flush();
           // Tx C guards the attempt and commits messages + terminal + facts + receipt together.
@@ -119,7 +119,7 @@ export class RunLifecycle {
         const candidate = error as { code?: string; details?: { code?: string } };
         const code = timeout ? 'PROVIDER_TIMEOUT' : controller.signal.aborted ? 'GENERATION_STOPPED'
           : committing ? 'RUN_COMMIT_FAILED' : safeRunErrorCode(candidate.details?.code ?? candidate.code);
-        const errorClass = code === 'GENERATION_STOPPED' ? 'canceled' : code.includes('TIMEOUT') ? 'timeout' : code === 'INCOMPLETE_RUNTIME_STREAM' ? 'interrupted' : code.includes('NETWORK') || code === 'PROVIDER_UNREACHABLE' ? 'network' : code.includes('PROVIDER') || code === 'MODEL_NOT_FOUND' || code === 'RUNTIME_ERROR' ? 'provider' : 'commit';
+        const errorClass = code === 'PROVIDER_INPUT_INVALID' ? 'validation' : code === 'PROVIDER_AUTH_FAILED' ? 'auth' : code === 'PROVIDER_RATE_LIMITED' ? 'rate_limit' : code === 'RUN_COMMIT_FAILED' ? 'storage' : code === 'GENERATION_STOPPED' ? 'canceled' : code.includes('TIMEOUT') ? 'timeout' : code === 'INCOMPLETE_RUNTIME_STREAM' ? 'interrupted' : code.includes('NETWORK') || code === 'PROVIDER_UNREACHABLE' ? 'network' : code.includes('PROVIDER') || code === 'MODEL_NOT_FOUND' || code === 'RUNTIME_ERROR' ? 'provider' : 'commit';
         await this.change(envelope, { kind: 'transition', runId: run.id, attempt: 1, from: activeRunStatuses,
           patch: { status: errorClass === 'canceled' ? 'canceled' : errorClass === 'interrupted' ? 'interrupted' : 'failed', terminalAt: this.now(),
             error: { code, class: errorClass, message: errorClass === 'canceled' ? '生成已停止。' : '执行未完成，请查看错误类别并重试。' }, telemetry: { traceCount: trace.count, durationMs: Date.now() - started, ttftMs, usage } } }, null);

@@ -29,7 +29,8 @@ export interface ContextItem {
   score?: number;
 }
 
-export interface Segment { id: string; nodeId: string; ordinal: number; title: string; createdAt: string }
+export interface Segment {
+  status?: 'archived'; id: string; nodeId: string; ordinal: number; title: string; createdAt: string }
 export interface ManifestContextItem {
   sourceType: 'node' | 'segment' | 'file' | 'chunk' | 'reference'; sourceId: string; sourceNodeId?: string;
   title: string; detail: string; role: ContextItem['role'];
@@ -56,6 +57,7 @@ export interface ContextHistory {
 }
 
 export interface Message {
+  segmentId?: string;
   id: string;
   nodeId: string;
   kind: 'user' | 'assistant';
@@ -100,6 +102,7 @@ export interface Anchor {
 }
 
 export interface DiscussionNode {
+  preferredModelId?: string;
   id: string;
   title: string;
   summary: string;
@@ -156,6 +159,7 @@ export interface ProviderCatalog {
 export interface ProviderPresetInfo { name: string; baseUrl: string; allowNoKey: boolean }
 
 export interface WorkspaceSnapshot {
+  defaultModelId?: string;
   projectId: string;
   nodeId: string;
   mode: ContextMode;
@@ -173,9 +177,9 @@ export interface WorkspaceSnapshot {
 }
 
 export interface ExecutionRun {
-  id: string; workspaceId: string; nodeId: string; status: string; attempt: number;
+  id: string; commandId: string; workspaceId: string; nodeId: string; status: string; attempt: number;
   parentRunRef?: string; inputHash: string; createdAt: string; terminalAt?: string;
-  input: { executor: { runtime: string; modelSpecRef: string; providerEndpointRef: string; model: string; provider: string }; request: { prompt: string; manifestId: string; attachments?: Array<{ id: string }>; generation?: GenerationOptions; operation?: ChatOperation } };
+  input: { executor: { runtime: string; modelSpecRef: string; providerEndpointRef: string; model: string; provider: string }; request: { prompt: string; manifestId: string; attachments?: Array<{ id: string }>; generation?: GenerationOptions; operation?: ChatOperation; sourceMessageId?: string } };
   error?: { code: string; class: string; message: string };
   telemetry: { durationMs?: number; ttftMs?: number; traceCount: number; usage?: TokenUsage };
 }

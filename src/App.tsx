@@ -1,5 +1,9 @@
+import { WorkspaceForm } from './components/WorkspaceForm';
+import { WorkspaceSearch } from './components/WorkspaceSearch';
+import { MergeDialog } from './components/MergeDialog';
+import { boundedGraphCache } from './components/graph-viewport';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Attachment, ContextManifest, ContextMode, ContextStatus, DiscussionEdge, DiscussionNode, GraphProjectionResult, Message, ProviderCatalog, ProviderPresetInfo, ProviderStatus, Segment, View, WorkspaceActivityItem, WorkspaceSnapshot, WorkspaceRecord } from './types';
+import type { Anchor, Attachment, ContextManifest, ContextMode, ContextStatus, DiscussionEdge, DiscussionNode, GraphProjectionResult, Message, ProviderCatalog, ProviderPresetInfo, ProviderStatus, Segment, View, WorkspaceActivityItem, WorkspaceSnapshot, WorkspaceRecord } from './types';
 import { api, type ChatRequestOptions } from './api';
 import { presentErrorText } from './error-presentation';
 import { Sidebar } from './components/Sidebar';
@@ -33,11 +37,15 @@ export function App() {
   const [contextHistory, setContextHistory] = useState<ContextHistoryState>();
   const historyRequestRef = useRef(0);
   const [manifests, setManifests] = useState<ContextManifest[]>([]);
+  const [anchors,setAnchors]=useState<Anchor[]>([]);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [boot, setBoot] = useState<'loading' | 'ready' | 'error'>('loading');
   const [bootError, setBootError] = useState('');
   const [online, setOnline] = useState(() => navigator.onLine);
   const [networkNotice, setNetworkNotice] = useState('');
+  const [workspaceForm,setWorkspaceForm]=useState<'create'|'rename'>();
+  const [mergeSource,setMergeSource]=useState<string>();
+  const [workspaceModelId,setWorkspaceModelId]=useState<string>();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(() => localStorage.getItem('rhiza:onboarding-seen') !== '1');
   const [focusComposerRequest, setFocusComposerRequest] = useState(0);
@@ -49,6 +57,7 @@ export function App() {
   const [graphProjection, setGraphProjection] = useState<GraphProjectionResult>();
   const [graphLoading, setGraphLoading] = useState(false);
   const [graphError, setGraphError] = useState('');
+  const graphFiltersRef=useRef<{query?:string;statuses?:string[];updatedAfter?:string}>({});
   const graphRequestRef = useRef(0);
   const graphPagesRef = useRef(1);
   const graphCompleteRef = useRef(false);
@@ -61,13 +70,13 @@ export function App() {
     setContextItems(workspace.contextItems);
     setMessages(workspace.messages);
     setAttachments(workspace.attachments || []);
-    setMode(workspace.mode);
+    setMode(workspace.mode);setWorkspaceModelId(workspace.defaultModelId);
     setDiscussionNodes(workspace.discussionNodes);
     setDiscussionEdges(workspace.discussionEdges);
     graphRequestRef.current += 1;
     setActiveNodeId(workspace.activeNodeId);
     setManifests(workspace.manifests || []);
-    setSegments(workspace.segments || []);
+    setSegments(workspace.segments || []);setAnchors(workspace.anchors || []);
   }, []);
 
   const workspaceMutation = () => {
@@ -125,27 +134,35 @@ export function App() {
     const current = () => requestId === graphRequestRef.current && generation === workspaceGenerationRef.current && workspaceId === selectedWorkspaceRef.current;
     setGraphLoading(true); setGraphError('');
     try {
-      let { graph } = await api.getGraphNeighborhood({ nodeLimit: 100, cursor });
+      let { graph } = await api.getGraphNeighborhood({ nodeLimit: 100, cursor,...graphFiltersRef.current });
       let pages = 1;
       // Refresh the user's loaded range after edits, including a new final page when needed.
-      const targetPages = cursor ? 1 : graphPagesRef.current + Number(graphCompleteRef.current);
+      const targetPages = cursor ? 1 : Math.min(10,graphPagesRef.current + Number(graphCompleteRef.current));
       while (graph.nextCursor && pages < targetPages && current()) {
-        const next = (await api.getGraphNeighborhood({ nodeLimit: 100, cursor: graph.nextCursor })).graph;
-        graph = { ...next, objects: [...graph.objects, ...next.objects], relations: [...graph.relations, ...next.relations] };
+        const next = (await api.getGraphNeighborhood({ nodeLimit: 100, cursor: graph.nextCursor,...graphFiltersRef.current })).graph;
+        graph = boundedGraphCache({ ...next, objects: [...graph.objects, ...next.objects], relations: [...graph.relations, ...next.relations] });
         pages += 1;
       }
       if (!current()) return;
       graphPagesRef.current = cursor ? graphPagesRef.current + 1 : pages;
       graphCompleteRef.current = !graph.nextCursor;
-      setGraphProjection(previous => cursor && previous && previous.checkpoint === graph.checkpoint ? {
+      setGraphProjection(previous => boundedGraphCache(cursor && previous && previous.checkpoint === graph.checkpoint ? {
         ...graph,
         objects: [...new Map([...previous.objects, ...graph.objects].map(item => [item.ref.objectId, item])).values()],
         relations: [...new Map([...previous.relations, ...graph.relations].map(item => [item.id, item])).values()],
-      } : graph);
+      } : graph));
     } catch (error) {
       if (current()) setGraphError(presentErrorText(error, { message: '无法加载图谱。', recovery: '请刷新图谱后重试。' }));
     } finally { if (current()) setGraphLoading(false); }
   }, []);
+  const filterGraph=useCallback((filters:{query?:string;statuses?:string[];updatedAfter?:string})=>{if(JSON.stringify(filters)===JSON.stringify(graphFiltersRef.current))return;graphFiltersRef.current=filters;graphPagesRef.current=1;graphCompleteRef.current=false;void loadGraph();},[loadGraph]);
+  const graphDetailKeys=useRef(new Set<string>());
+  const loadGraphNeighborhood=useCallback((objectId:string)=>{
+    if(!graphProjection?.version)return;
+    const workspaceId=selectedWorkspaceRef.current;const generation=workspaceGenerationRef.current;const cacheKey=`${workspaceId}:${graphProjection?.version}:${graphProjection?.checkpoint}:${objectId}:conversation,segment,message:${JSON.stringify(graphFiltersRef.current)}`;
+    if(graphDetailKeys.current.has(cacheKey))return;graphDetailKeys.current.add(cacheKey);if(graphDetailKeys.current.size>100)graphDetailKeys.current.delete(graphDetailKeys.current.values().next().value!);
+    void api.getGraphNeighborhood({objectId,depth:2,nodeLimit:200,edgeLimit:800,objectTypes:['conversation','segment','message'],...graphFiltersRef.current}).then(({graph})=>{if(workspaceId===selectedWorkspaceRef.current&&generation===workspaceGenerationRef.current)setGraphProjection(previous=>boundedGraphCache(previous&&previous.checkpoint===graph.checkpoint&&previous.version===graph.version?{...previous,objects:[...previous.objects,...graph.objects],relations:[...previous.relations,...graph.relations]}:graph));}).catch(()=>{graphDetailKeys.current.delete(cacheKey);});
+  },[graphProjection]);
   useEffect(() => { if (view === 'graph' && boot === 'ready') void loadGraph(); }, [view, boot, currentWorkspaceId, discussionNodes, loadGraph]);
   useEffect(() => { if (api.listWorkspaces) void api.listWorkspaces(true).then(result => setWorkspaces(result.workspaces)).catch(() => undefined); }, []);
   const openCurrentContext = () => { historyRequestRef.current++; setContextHistory(undefined); setContextOpen(true); };
@@ -166,6 +183,7 @@ export function App() {
     selectedWorkspaceRef.current = workspaceId;
     graphRequestRef.current += 1; graphPagesRef.current = 1; graphCompleteRef.current = false; setGraphProjection(undefined); setGraphError('');
     setMessages([]); setDiscussionNodes([]); setContextItems([]); setAttachments([]); setDiscussionEdges([]); setSegments([]); setManifests([]); setActivity([]); setActiveNodeId('');
+    graphFiltersRef.current={}; graphDetailKeys.current.clear();setAnchors([]);
     api.setWorkspace(workspaceId); setCurrentWorkspaceId(workspaceId);
     try {
       const { workspace } = await api.getScopedWorkspace(workspaceId);
@@ -177,9 +195,9 @@ export function App() {
     }
   };
   const refreshWorkspaces = async () => { const items = (await api.listWorkspaces(true)).workspaces; setWorkspaces(items); return items; };
-  const createWorkspace = async () => { const current = workspaceMutation(); const name = window.prompt('工作区名称'); if (!name?.trim()) return; const { workspace } = await api.createWorkspace(name.trim()); if (!current()) return; await refreshWorkspaces(); if (current()) await switchWorkspace(workspace.workspaceId); };
+  const createWorkspace = async (name:string) => { const current=workspaceMutation();const {workspace}=await api.createWorkspace(name);if(!current())return;await refreshWorkspaces();if(current())await switchWorkspace(workspace.workspaceId); };
   const workspaceRecord = () => workspaces.find(item => item.workspaceId === currentWorkspaceId);
-  const renameWorkspace = async () => { const current = workspaceMutation(); const record = workspaceRecord(); const name = window.prompt('新名称', record?.name); if (!name?.trim() || !record) return; await api.updateWorkspace(record.workspaceId, 'rename', record.revision, name.trim()); if (current()) await refreshWorkspaces(); };
+  const renameWorkspace = async (name:string) => { const current=workspaceMutation();const record=workspaceRecord();if(!record)return;await api.updateWorkspace(record.workspaceId,'rename',record.revision,name);if(current())await refreshWorkspaces(); };
   const archiveWorkspace = async () => { const current = workspaceMutation(); const record = workspaceRecord(); if (!record) return; await api.updateWorkspace(record.workspaceId, 'archive', record.revision); if (!current()) return; const items = await refreshWorkspaces(); if (!current()) return; const next = items.find(item => item.workspaceId !== record.workspaceId && item.status === 'active'); if (next) await switchWorkspace(next.workspaceId); };
   const restoreWorkspace = async () => { const current = workspaceMutation(); const record = workspaceRecord(); if (!record) return; await api.updateWorkspace(record.workspaceId, 'restore', record.revision); if (current()) await refreshWorkspaces(); };
   useEffect(() => {
@@ -366,7 +384,7 @@ export function App() {
     setView('chat');
     setSyncError('');
   };
-  const sendTemporaryMessage = async (input: { sourceNodeId: string; anchorText: string; message: string; history: Array<Pick<Message, 'kind' | 'text'>> }) => api.sendTemporaryMessage(input);
+  const sendTemporaryMessage = async (input: { sourceNodeId: string; anchorText: string; message: string; history: Array<Pick<Message, 'kind' | 'text'>> },onEvent?: Parameters<typeof api.streamTemporaryMessage>[1],options?: ChatRequestOptions) => api.streamTemporaryMessage(input,onEvent??(()=>undefined),options);
   const activateNode = async (id: string, openChat = false) => {
     const current = workspaceMutation();
     const { workspace } = await api.activateNode(id);
@@ -404,7 +422,7 @@ export function App() {
   };
   const restoreGraphNode = async (id: string) => {
     const current = workspaceMutation();
-    const { workspace } = await api.restoreGraphNode(id);
+    const { workspace } = segments.some(segment=>segment.id===id)?await api.updateSegment(id,{status:'active'}):await api.restoreGraphNode(id);
     if (!current()) return;
     applyWorkspace(workspace);
     setSyncError('');
@@ -430,13 +448,7 @@ export function App() {
     applyWorkspace(workspace);
     setSyncError('');
   };
-  const mergeNode = async (id: string) => {
-    const current = workspaceMutation();
-    const { workspace } = await api.mergeNode(id);
-    if (!current()) return;
-    applyWorkspace(workspace);
-    setView('chat');
-  };
+  const mergeNode = async (id:string) => { setMergeSource(id); };
   const activeCount = contextItems.filter(item => item.status === 'active').length;
   const navigableNodes = discussionNodes.filter(node => node.status !== 'archived');
   const activeNode = navigableNodes.find(node => node.id === activeNodeId) || navigableNodes[0] || initialNode;
@@ -456,9 +468,9 @@ export function App() {
     view={view}
     hasDiscussionNodes={discussionNodes.length > 0}
     contextOpen={contextOpen}
-    networkNotice={networkNotice}
+    networkNotice={workspaceRecord()?.status==='archived'?'工作区已归档，可在工作区菜单恢复。':networkNotice}
     onCloseContext={() => setContextOpen(false)}
-    sidebar={<Sidebar view={view} nodes={navigableNodes} messages={messages} activeNodeId={activeNode.id} onView={setView} onNode={id => activateNode(id, true)} onSettings={openSettings} onCommand={() => setPaletteOpen(true)} onHelp={() => setOnboardingOpen(true)} workspaces={workspaces} currentWorkspaceId={currentWorkspaceId} onWorkspace={id => void switchWorkspace(id)} onCreateWorkspace={() => void createWorkspace()} onRenameWorkspace={() => void renameWorkspace()} onArchiveWorkspace={() => void archiveWorkspace()} onRestoreWorkspace={() => void restoreWorkspace()} onBundleImported={async workspaceId => {
+    sidebar={<Sidebar view={view} nodes={navigableNodes} messages={messages} activeNodeId={activeNode.id} onView={setView} onNode={id => activateNode(id, true)} onSettings={openSettings} onCommand={() => setPaletteOpen(true)} onHelp={() => setOnboardingOpen(true)} workspaces={workspaces} currentWorkspaceId={currentWorkspaceId} onWorkspace={id => void switchWorkspace(id)} onCreateWorkspace={() => setWorkspaceForm('create')} onRenameWorkspace={() => setWorkspaceForm('rename')} onArchiveWorkspace={() => void archiveWorkspace()} onRestoreWorkspace={() => void restoreWorkspace()} onBundleImported={async workspaceId => {
       if (selectedWorkspaceRef.current !== currentWorkspaceId) return;
       const current = workspaceMutation();
       await refreshWorkspaces();
@@ -467,22 +479,25 @@ export function App() {
     emptySurface={<main id="workspace-main" className="workspace-empty"><h1>这个工作区还没有讨论节点</h1><p>请通过项目入口创建第一个节点，然后开始建立上下文。</p></main>}
     surfaces={{
       chat: <ChatView
-        activeNode={activeNode} nodes={navigableNodes} edges={discussionEdges} mode={mode}
+        key={`${currentWorkspaceId}:${activeNode.id}`} activeNode={activeNode} nodes={navigableNodes} edges={discussionEdges} mode={mode}
         activeCount={activeCount} messages={activeMessages} manifests={manifests} attachments={attachments}
-        provider={provider} providerCatalog={providerCatalog} syncError={syncError} online={online} focusComposerRequest={focusComposerRequest} onSend={sendMessage}
+        segments={segments} anchors={anchors} onWorkspaceChanged={applyWorkspace} onReconcile={()=>void loadWorkspace(true)} onRetry={async(runId,key,signal)=>{const current=workspaceMutation();const result=await api.retryRun(runId,key,signal);if(current()){setMessages(messages=>[...messages,result.userMessage,result.assistantMessage]);setManifests(manifests=>[...manifests,result.manifest]);}}} provider={provider} providerCatalog={{...providerCatalog,activeModelId:activeNode.preferredModelId??workspaceModelId??providerCatalog.activeModelId}} syncError={syncError} online={online&&workspaceRecord()?.status!=='archived'} focusComposerRequest={focusComposerRequest} onSend={sendMessage}
         onUpload={uploadAttachment} onTempSend={sendTemporaryMessage} onCreateBranch={createBranch}
-        onActivateNode={id => activateNode(id, true)} onMerge={mergeNode} onSelectModel={selectModel}
+        onActivateNode={id => activateNode(id, true)} onMerge={mergeNode} onSelectModel={async modelId=>{const current=workspaceMutation();const {workspace}=await api.setConversationModel(activeNode.id,modelId);if(current())applyWorkspace(workspace);}}
         onSettings={openSettings} onOpenContext={() => { if (contextHistory) openCurrentContext(); else setContextOpen(open => !open); }} onInspectContext={id => void inspectMessageContext(id)} onGraph={() => setView('graph')} onRuns={() => setView('runs')}
       />,
-      graph: <GraphView key={currentWorkspaceId} loading={graphLoading} error={graphError} hasMore={!!graphProjection?.nextCursor} onLoadMore={() => void loadGraph(graphProjection?.nextCursor)} onRefresh={() => void loadGraph()} nodes={graphModel.nodes} edges={graphModel.edges} activeNodeId={activeNode.id} onMove={moveNode} onActivate={id => activateNode(id, true)} onCreateNode={createGraphNode} onArchiveNode={archiveGraphNode} onRestoreNode={restoreGraphNode} onPurgeNode={purgeGraphNode} onCreateEdge={createGraphEdge} onDeleteEdge={deleteGraphEdge}/>,
+      graph: <GraphView key={currentWorkspaceId} loading={graphLoading} error={graphError} hasMore={!!graphProjection?.nextCursor} onLoadMore={() => void loadGraph(graphProjection?.nextCursor)} onRefresh={() => void loadGraph()} onFilter={filterGraph} onNeighborhood={loadGraphNeighborhood} contextIds={contextItems.filter(item=>item.status==='active').map(item=>item.sourceId??'')} onContext={async(node,remove)=>{if(remove){const item=contextItems.find(item=>item.sourceId===node.id);if(item)await updateStatus(item.id,'excluded');}else await addContextSource(node.objectType==='segment'?'segment':'node',node.id);}} onNavigateObject={async node=>{let parent=node.parentId;const parentObject=graphProjection?.objects.find(item=>item.ref.objectId===parent);if(parentObject?.ref.objectType==='segment')parent=graphProjection?.relations.find(edge=>edge.relationType==='contains'&&edge.target.objectId===parent)?.source.objectId;if(parent)await activateNode(parent,true);const message=node.objectType==='message'?node.id:anchors.find(anchor=>anchor.segmentId===node.id)?.messageId??messages.find(message=>message.segmentId===node.id)?.id;if(message)setTimeout(()=>document.getElementById(`message-${message}`)?.scrollIntoView({block:'center'}),50);}} onPath={async(from,to)=>{const current=workspaceMutation();const {graph}=await api.getGraphPath(from,to);if(current())setGraphProjection(previous=>boundedGraphCache({...graph,objects:[...(previous?.objects??[]),...graph.objects],relations:[...(previous?.relations??[]),...graph.relations]}));return graph.objects.map(item=>item.ref.objectId);}} nodes={graphModel.nodes} edges={graphModel.edges} activeNodeId={activeNode.id} onMove={moveNode} onActivate={id => activateNode(id, true)} onCreateNode={createGraphNode} onArchiveNode={archiveGraphNode} onRestoreNode={restoreGraphNode} onPurgeNode={purgeGraphNode} onCreateEdge={createGraphEdge} onDeleteEdge={deleteGraphEdge}/>,
       state: <StateView/>,
       runs: <RunHistory key={currentWorkspaceId} onChanged={() => void loadWorkspace(true)}/>,
       activity: <ActivityView activity={activity} loading={activityLoading} error={activityError} onRefresh={() => void loadActivity()}/>,
     }}
     contextSurface={<ContextPanel history={contextHistory} onBackToCurrent={openCurrentContext} onRetryHistory={() => { if (contextHistory) void inspectMessageContext(contextHistory.messageId); }} items={contextItems} mode={mode} nodes={discussionNodes} segments={segments} attachments={attachments} onMode={updateMode} onStatus={updateStatus} onPin={updatePin} onAddSource={addContextSource}/>}
     overlayLayer={<>
+      {workspaceForm&&<WorkspaceForm key={currentWorkspaceId} rename={workspaceForm==='rename'} initialName={workspaceForm==='rename'?workspaceRecord()?.name:undefined} onSave={workspaceForm==='rename'?renameWorkspace:createWorkspace} onClose={()=>setWorkspaceForm(undefined)}/>}
+      {mergeSource&&discussionNodes.find(node=>node.id===mergeSource)&&<MergeDialog source={discussionNodes.find(node=>node.id===mergeSource)!} nodes={discussionNodes} latestReply={[...messages].reverse().find(message=>message.nodeId===mergeSource&&message.kind==='assistant')?.text??''} onClose={()=>setMergeSource(undefined)} onSave={async(targetNodeId,summary)=>{const current=workspaceMutation();const {workspace}=await api.mergeNode(mergeSource,targetNodeId,summary);if(current())applyWorkspace(workspace);}}/>}
+
       {settingsOpen && <ProviderSettings catalog={providerCatalog} presets={providerPresets} onClose={() => setSettingsOpen(false)} onSave={saveProvider} onDiscover={discoverModels} onToggleModel={updateModel} onSelectModel={selectModel}/>}
-      {paletteOpen && <div className="dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setPaletteOpen(false); }}><section ref={activeModalRef} className="command-palette" role="dialog" aria-modal="true" aria-label="命令面板"><header><strong>搜索或运行命令</strong><kbd>Esc</kbd></header><button onClick={() => runCommand(() => setView('chat'))}>当前讨论 <kbd>⌘1</kbd></button><button onClick={() => runCommand(() => setView('graph'))}>对话图谱 <kbd>⌘2</kbd></button><button onClick={() => runCommand(() => setView('state'))}>知识状态 <kbd>⌘3</kbd></button><button onClick={() => runCommand(() => setView('activity'))}>活动时间线 <kbd>⌘4</kbd></button><button onClick={() => runCommand(() => setContextOpen(true))}>打开 Context <kbd>⌘⇧C</kbd></button><button onClick={() => runCommand(() => { setView('chat'); setFocusComposerRequest(value => value + 1); })}>聚焦消息输入框 <kbd>/</kbd></button><button onClick={() => runCommand(() => setOnboardingOpen(true))}>帮助与快捷键</button></section></div>}
+      {paletteOpen && <div className="dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setPaletteOpen(false); }}><section ref={activeModalRef} className="command-palette" role="dialog" aria-modal="true" aria-label="命令面板"><header><strong>搜索或运行命令</strong><kbd>Esc</kbd></header><WorkspaceSearch key={currentWorkspaceId} onOpen={async(nodeId,segmentId,query)=>{await activateNode(nodeId,true);setPaletteOpen(false);const message=segmentId?messages.find(message=>message.segmentId===segmentId):messages.find(message=>message.nodeId===nodeId&&message.text.toLocaleLowerCase().includes(query?.toLocaleLowerCase()??''));if(message)setTimeout(()=>document.getElementById(`message-${message.id}`)?.scrollIntoView({block:'center'}),50);}}/><label>工作区默认模型<select value={workspaceModelId??''} onChange={event=>{const current=workspaceMutation();void api.setWorkspaceModel(event.target.value||null).then(({workspace})=>{if(current())applyWorkspace(workspace);}).catch(()=>setSyncError('工作区模型保存失败，请重试。'));}}><option value="">继承全局默认模型</option>{providerCatalog.models.map(model=><option key={model.id} value={model.id}>{model.displayName}</option>)}</select></label><details><summary>已归档讨论</summary>{discussionNodes.filter(node=>node.status==='archived').map(node=><div key={node.id}>{node.title}<button onClick={()=>void restoreGraphNode(node.id)}>恢复讨论</button></div>)}</details><button onClick={() => runCommand(() => setView('chat'))}>当前讨论 <kbd>⌘1</kbd></button><button onClick={() => runCommand(() => setView('graph'))}>对话图谱 <kbd>⌘2</kbd></button><button onClick={() => runCommand(() => setView('state'))}>知识状态 <kbd>⌘3</kbd></button><button onClick={() => runCommand(() => setView('activity'))}>活动时间线 <kbd>⌘4</kbd></button><button onClick={() => runCommand(() => setContextOpen(true))}>打开 Context <kbd>⌘⇧C</kbd></button><button onClick={() => runCommand(() => { setView('chat'); setFocusComposerRequest(value => value + 1); })}>聚焦消息输入框 <kbd>/</kbd></button><button onClick={() => runCommand(() => setOnboardingOpen(true))}>帮助与快捷键</button></section></div>}
       {onboardingOpen && <div className="dialog-backdrop" role="presentation"><section ref={activeModalRef} className="onboarding-dialog" role="dialog" aria-modal="true" aria-labelledby="onboarding-title"><h2 id="onboarding-title">欢迎来到 Rhiza</h2><p>用四个对象把研究和决策留在同一个工作区：</p><dl><div><dt>Project</dt><dd>一个完整的研究或决策空间。</dd></div><div><dt>Node</dt><dd>围绕一个问题持续展开的讨论。</dd></div><div><dt>Graph</dt><dd>展示讨论之间的衍生、引用和合并关系。</dd></div><div><dt>Context</dt><dd>明确控制本轮发送给模型的材料。</dd></div></dl><button className="primary-button" autoFocus onClick={closeOnboarding}>开始使用</button></section></div>}
     </>}
   />;

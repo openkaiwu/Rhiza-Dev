@@ -120,6 +120,7 @@ export interface StoredMessage {
 }
 
 export interface Segment {
+  status?: 'archived';
   id: string;
   nodeId: string;
   ordinal: number;
@@ -153,6 +154,7 @@ export interface Anchor {
 }
 
 export interface DiscussionNode {
+  preferredModelId?: string;
   id: string;
   title: string;
   summary: string;
@@ -244,6 +246,7 @@ export interface ContextHistory {
 }
 
 export interface WorkspaceData {
+  defaultModelId?: string;
   projectId: string;
   projectTitle: string;
   nodeId: string;

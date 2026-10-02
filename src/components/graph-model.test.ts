@@ -62,7 +62,7 @@ describe('toGraphPresentationModel', () => {
       target: { workspaceId: 'workspace', objectType: 'conversation', objectId: 'node-2' }, relationType: 'derived_from',
       lifecycle: 'active', label: 'branch', createdAt: '2026-09-04T00:00:00.000Z',
     }] })).toEqual({
-      nodes: [{ id: 'node-1', title: 'Projected', summary: 'read model', status: 'archived', kind: 'branch', x: 10, y: 20 }],
+      nodes: [{ objectType: 'conversation', parentId: undefined, lifecycle: 'archived', updatedAt: '2026-09-04T00:00:00.000Z', id: 'node-1', title: 'Projected', summary: 'read model', status: 'archived', kind: 'branch', x: 10, y: 20 }],
       edges: [],
     });
   });

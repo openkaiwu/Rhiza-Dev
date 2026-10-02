@@ -22,7 +22,7 @@ export class LegacyContextPlanner implements ContextPlannerPort {
     }
     if (sourceType === 'node') {
       const node = workspace.discussionNodes.find(item => item.id === sourceId);
-      if (!node) throw legacyPlannerError('Context 来源节点不存在。', 404, 'CONTEXT_SOURCE_NOT_FOUND');
+      if (!node || node.status==='archived') throw legacyPlannerError('Context 来源节点不存在。', 404, 'CONTEXT_SOURCE_NOT_FOUND');
       const body = workspace.messages.filter(message => message.nodeId === node.id).map(message => message.text).join('\n');
       return {
         id: this.id(), title: node.title, detail: `讨论节点 · ${node.summary}`, role: 'Reference', status: 'active',
@@ -31,9 +31,10 @@ export class LegacyContextPlanner implements ContextPlannerPort {
       };
     }
     const segment = workspace.segments.find(item => item.id === sourceId);
-    if (!segment) throw legacyPlannerError('Context 来源片段不存在。', 404, 'CONTEXT_SOURCE_NOT_FOUND');
+    if (!segment || segment.status==='archived') throw legacyPlannerError('Context 来源片段不存在。', 404, 'CONTEXT_SOURCE_NOT_FOUND');
     const node = workspace.discussionNodes.find(item => item.id === segment.nodeId);
-    const body = workspace.messages.filter(message => message.segmentId === segment.id).map(message => message.text).join('\n');
+    if (!node || node.status==='archived') throw legacyPlannerError('来源讨论不可用。',409,'CONTEXT_SOURCE_ARCHIVED');
+    const body = workspace.anchors.find(anchor=>anchor.segmentId===segment.id)?.selectedText || workspace.messages.filter(message => message.segmentId === segment.id).map(message => message.text).join('\n');
     return {
       id: this.id(), title: segment.title, detail: `片段 · 来自 ${node?.title || '未知节点'}`, role: 'Reference', status: 'active',
       tokens: estimateTokens(body || segment.title), selectionMode: 'USER_SELECTED', sourceType, sourceId: segment.id,

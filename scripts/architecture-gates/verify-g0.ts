@@ -243,10 +243,12 @@ async function verifyCharacterizationMap(): Promise<number> {
 }
 
 export function extractApiRoutes(appSource: string): string[] {
-  return [...appSource.matchAll(/app\.(get|post|put|patch|delete)\(\s*['`]([^'`]+)/g)]
-    .map(match => `${match[1].toUpperCase()} ${match[2]}`)
-    .filter(route => route !== 'GET *path')
-    .sort();
+  const routes = [...appSource.matchAll(/app\.(get|post|put|patch|delete)\(\s*['`]([^'`]+)/g)]
+    .map(match => `${match[1].toUpperCase()} ${match[2]}`);
+  for (const registration of appSource.matchAll(/app\.(get|post|put|patch|delete)\(\s*\[([^\]]+)\]/g)) {
+    for (const path of registration[2]!.matchAll(/['`]([^'`]+)['`]/g)) routes.push(`${registration[1]!.toUpperCase()} ${path[1]}`);
+  }
+  return [...new Set(routes)].filter(route => route !== 'GET *path').sort();
 }
 
 async function verifySnapshots(registryDigest: string): Promise<Record<string, string>> {

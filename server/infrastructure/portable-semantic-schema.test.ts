@@ -11,8 +11,11 @@ it('matches semantic snapshot fields while rejecting malformed historical record
   const validate = ajv.compile(portableSemanticDeltaSchema);
   const snapshot = workspaceSemanticSnapshot(createSeedWorkspace());
   expect(validate(snapshot), JSON.stringify(validate.errors)).toBe(true);
-  expect(Object.keys(portableSemanticDeltaSchema.properties).sort()).toEqual(Object.keys(snapshot).sort());
+  expect(Object.keys(portableSemanticDeltaSchema.properties).sort()).toEqual([...Object.keys(snapshot), 'defaultModelId'].sort());
   expect(validate({})).toBe(true);
+  expect(validate({ defaultModelId: 'selected-model' })).toBe(true);
+  expect(validate({ defaultModelId: null })).toBe(true);
+  expect(validate({ defaultModelId: 42 })).toBe(false);
   expect(validate({ projectTitle: 'renamed' })).toBe(true);
   for (const delta of [{ mode: 'invalid' }, { messages: [{ id: 'message' }] }, { nodes: [{ id: 'node', title: {} }] }, { auditEvents: [] }, { updatedAt: '2026-09-09T00:00:00Z' }]) {
     expect(validate(delta)).toBe(false);

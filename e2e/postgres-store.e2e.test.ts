@@ -98,7 +98,10 @@ for (const backend of ['embedded', 'postgres'] as const) describe.skipIf(backend
       const presentation = (graph: ReturnType<typeof toGraphPresentationModel>) => ({
         nodes: graph.nodes.sort((a, b) => a.id.localeCompare(b.id)), edges: graph.edges.sort((a, b) => a.id.localeCompare(b.id)),
       });
-      expect(presentation(projectionToGraphPresentationModel(first))).toEqual(presentation(toGraphPresentationModel(workspace.discussionNodes, workspace.discussionEdges)));
+      const projected = projectionToGraphPresentationModel(first);
+      const conversations = { nodes: projected.nodes.filter(node => node.objectType === 'conversation').map(node => ({id:node.id,title:node.title,summary:node.summary,...(node.anchorText?{anchorText:node.anchorText}:{}),status:node.status,kind:node.kind,x:node.x,y:node.y})), edges: projected.edges.filter(edge => workspace.discussionEdges.some(source => source.id === edge.id)) };
+      expect(presentation(conversations)).toEqual(presentation(toGraphPresentationModel(workspace.discussionNodes, workspace.discussionEdges)));
+      expect(projected.nodes.some(node => node.objectType === 'segment')).toBe(true);
       expect(await adapter.materialize(projection)).toEqual(first);
       await database.query("UPDATE graph_layout_nodes SET x=777,collapsed=true WHERE workspace_id=$1 AND object_id=$2", [workspaceId, workspace.discussionNodes[0]!.id]);
       const aliasBefore = (await database.query('SELECT * FROM projection_aliases WHERE workspace_id=$1', [workspaceId])).rows;

@@ -52,7 +52,7 @@ type DispatchPayload = {
   body: unknown; providerId?: string; modelId: string; favorite?: boolean; pinned?: boolean;
   name: string; mimeType: string; bytes: Uint8Array; prompt: string; operation: ChatOperation; sourceMessageId?: string; attachmentIds: string[]; generation: GenerationOptions;
   mode: ContextMode; contextItemId: string; status?: ContextStatus; sourceType: 'node' | 'segment' | 'file'; sourceId: string; anchorText: string;
-  title: string; summary?: string; x?: number; y?: number; nodeId: string; messageIds: string[]; positions: Array<{ nodeId: string; x: number; y: number }>;
+  title: string; segmentId: string; range?: CommandMap['CreateSegment']['payload']['range']; summary?: string; x?: number; y?: number; nodeId: string; messageIds: string[]; positions: Array<{ nodeId: string; x: number; y: number }>;
   source: string; target: string; relation: 'derived-from' | 'references' | 'related-to' | 'merged-into'; label?: string; edgeId: string;
   sourceNodeId: string; targetNodeId?: string; confirmation: string; reason: string; messages?: Array<{ kind: 'user' | 'assistant'; text: string; createdAt?: string }>; history?: Array<{ kind: 'user' | 'assistant'; text: string; createdAt?: string }>; attachmentId: string;
 };
@@ -131,9 +131,9 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
     await unitOfWork.ensureWorkspaceInitialized?.(workspaceId, record.name);
   };
   const budget = dependencies.contextTokenBudget ?? 32_000;
-  const activeModel = async () => {
-    const model = (await runtime.listModels()).find(item => item.active);
-    if (!model) throw legacyError('请先在模型设置中选择一个模型。', 503, 'MODEL_NOT_SELECTED');
+  const activeModel = async (preferredModelId?: string) => {
+    const model = (await runtime.listModels()).find(item => preferredModelId ? item.id === preferredModelId : item.active);
+    if (!model) throw legacyError('请在模型设置中选择可用模型。', preferredModelId ? 409 : 503, preferredModelId ? 'MODEL_NOT_FOUND' : 'MODEL_NOT_SELECTED');
     return model;
   };
   const mutate = async <T>(work: (current: WorkspaceData) => { next: WorkspaceData; value: T }, purge?: { nodeId: string; auditReceiptId: string }, run?: RunMutation) =>
@@ -183,7 +183,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
       else if (host.readLegacyAttachment) await host.readLegacyAttachment(attachment.id);
       else throw legacyError('附件尚未完成 ResourceVersion 回填。', 409, 'RESOURCE_BACKFILL_REQUIRED');
     }));
-    const model = await activeModel(); const createdAt = now(); const requestId = id(); const manifestId = id();
+    const model = await activeModel(current.node?.preferredModelId ?? current.defaultModelId); const createdAt = now(); const requestId = id(); const manifestId = id();
     const frozen = dependencies.contextCompiler ? await dependencies.contextCompiler.compile(current.projectId, plan.items) : [];
     const manifest: ContextManifest = {
       ...(dependencies.contextCompiler ? { schemaVersion: '1.0.0' as const, versions: dependencies.contextVersions, omissions: plan.omissions, cache: plan.cache } : {}),
@@ -355,6 +355,40 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
         case 'DiscoverProviderModels': return providers.discoverModels(payload.providerId!);
         case 'UpdateModelPreference': return providers.updateModel(payload.modelId, { favorite: payload.favorite, pinned: payload.pinned });
         case 'SelectModel': return providers.selectModel(payload.modelId);
+        case 'SetWorkspaceModel':
+        case 'SetConversationModel': {
+          const { modelId } = envelope.payload;
+          if (modelId !== null && (typeof modelId !== 'string' || !(await runtime.listModels()).some(model => model.id === modelId))) throw legacyError('选择的模型不可用。',409,'MODEL_NOT_FOUND');
+          if (envelope.commandType === 'SetWorkspaceModel') return mutateWorkspace(current => { const next = { ...current }; if (modelId === null) delete next.defaultModelId; else next.defaultModelId = modelId; return { next, value: undefined }; });
+          const nodeId = envelope.payload.nodeId;
+          return mutateWorkspace(current => { const node = current.discussionNodes.find(node => node.id === nodeId); if (!node) throw legacyError('讨论不存在。',404,'NODE_NOT_FOUND'); if (node.status === 'archived') throw legacyError('归档讨论为只读。',409,'NODE_ARCHIVED');
+            const next = { ...current, discussionNodes: current.discussionNodes.map(node => { if (node.id !== nodeId) return node; const updated = { ...node, updatedAt: now() }; if (modelId === null) delete updated.preferredModelId; else updated.preferredModelId = modelId; return updated; }) }; return { next, value: undefined }; });
+        }
+        case 'RenameConversation': return mutateWorkspace(current => {
+          const { nodeId, title } = envelope.payload;
+          if (!title.trim() || title.trim().length > 200) throw legacyError('讨论名称须为 1–200 字符。',400,'INVALID_NODE_TITLE');
+          const node = current.discussionNodes.find(node => node.id === nodeId); if (!node) throw legacyError('讨论不存在。',404,'NODE_NOT_FOUND'); if (node.status === 'archived') throw legacyError('归档讨论为只读。',409,'NODE_ARCHIVED');
+          return { next: { ...current, discussionNodes: current.discussionNodes.map(node => node.id === nodeId ? { ...node, title: title.trim(), updatedAt: now() } : node) }, value: undefined };
+        });
+        case 'UpdateSegment': return mutateWorkspace(current => {
+          const { segmentId, title, status } = envelope.payload;
+          const segment = current.segments.find(segment => segment.id === segmentId); if (!segment) throw legacyError('Segment 不存在。',404,'SEGMENT_NOT_FOUND');
+          if (current.discussionNodes.find(node => node.id === segment.nodeId)?.status === 'archived') throw legacyError('归档讨论为只读。',409,'NODE_ARCHIVED');
+          if (title !== undefined && (!title.trim() || title.trim().length > 200)) throw legacyError('Segment 名称须为 1–200 字符。',400,'INVALID_SEGMENT_TITLE');
+          if (status !== undefined && !['active','archived'].includes(status)) throw legacyError('Segment 状态无效。',400,'INVALID_SEGMENT_STATUS');
+          const updated = { ...segment, ...(title !== undefined ? { title: title.trim() } : {}) }; if (status === 'active') delete updated.status; if (status === 'archived') updated.status = status;
+          return { next: { ...current, segments: current.segments.map(item => item.id === segmentId ? updated : item), contextItems: status === 'archived' ? current.contextItems.map(item => item.sourceType === 'segment' && item.sourceId === segmentId ? { ...item, status: 'excluded' as const, pinned: false } : item) : current.contextItems }, value: undefined };
+        });
+        case 'RetryExecutionRun': {
+          const prior = await unitOfWork.readCommittedResult?.<CommandMap['RetryExecutionRun']['result']>(); if (prior?.found) return prior.value;
+          const original = await unitOfWork.getRun?.(envelope.payload.runId); if (!original) throw legacyError('执行不存在。',404,'RUN_NOT_FOUND');
+          if (!['failed','canceled','interrupted'].includes(original.status)) throw legacyError('只有未完成执行可以重试。',409,'RUN_NOT_RETRYABLE');
+          if (original.nodeId.startsWith('temp:')) throw legacyError('临时对话请在原草稿中重试。',409,'TEMP_RUN_RETRY_REQUIRED');
+          const active = await unitOfWork.read(workspace => workspace.activeNodeId); if (active !== original.nodeId) throw legacyError('请先打开来源讨论。',409,'INVALID_PARENT_RUN');
+          const saved = original.input.request;
+          const run = await prepareRun({ prompt: saved.prompt, attachmentIds: (saved.attachments ?? []).map(item => item.id), generation: saved.generation ?? { temperature: 0.7, topP: 1, maxTokens: 4096 }, operation: saved.operation === 'regenerate' || saved.operation === 'edit-resend' ? saved.operation : 'retry', sourceMessageId: saved.sourceMessageId });
+          return runs.execute(envelope,run.request,inputFor(run.request),(completion,mutation) => commitRun(run,completion,mutation),options,original.id,run.frozen);
+        }
         case 'RegisterLegacyAttachment':
         case 'RegisterResource': return await registerResourceVersion(payload, envelope.workspaceId);
         case 'CreateResourceVersion': {
@@ -430,12 +464,24 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
           const next = { ...current, contextItems: current.contextItems.map(item => { if (item.id !== payload.contextItemId) return item; found = true; const status = payload.status || (payload.pinned ? 'active' : item.status); return { ...item, status, pinned: payload.pinned ?? item.pinned, ...(item.status === 'recommended' && payload.status === 'active' ? { selectionMode: 'AI_RECOMMENDED_ACCEPTED' as const } : {}), ...(payload.status === 'excluded' ? { pinned: false, reason: '用户显式排除，本轮不会发送给模型。' } : {}) }; }) };
           if (!found) throw legacyError('Context 条目不存在。', 404, 'CONTEXT_NOT_FOUND'); return { next, value: next };
         });
-        case 'AddContextSource': return mutateWorkspace(current => { const found = current.contextItems.find(item => item.sourceType === payload.sourceType && item.sourceId === payload.sourceId); const next = found ? { ...current, contextItems: current.contextItems.map(item => item.id === found.id ? { ...item, status: 'active' as const, selectionMode: 'USER_SELECTED' as const, reason: '由用户显式加入。' } : item) } : { ...current, contextItems: [...current.contextItems, planner.sourceItem(current, payload.sourceType, payload.sourceId)] }; return { next, value: undefined }; });
+        case 'AddContextSource': return mutateWorkspace(current => { const node=payload.sourceType==='node'?current.discussionNodes.find(node=>node.id===payload.sourceId):payload.sourceType==='segment'?current.discussionNodes.find(node=>node.id===current.segments.find(segment=>segment.id===payload.sourceId)?.nodeId):undefined; if(node?.status==='archived'||(payload.sourceType==='segment'&&current.segments.find(segment=>segment.id===payload.sourceId)?.status==='archived'))throw legacyError('归档来源不能加入 Context。',409,'CONTEXT_SOURCE_ARCHIVED'); const found = current.contextItems.find(item => item.sourceType === payload.sourceType && item.sourceId === payload.sourceId); const next = found ? { ...current, contextItems: current.contextItems.map(item => item.id === found.id ? { ...item, status: 'active' as const, selectionMode: 'USER_SELECTED' as const, reason: '由用户显式加入。' } : item) } : { ...current, contextItems: [...current.contextItems, planner.sourceItem(current, payload.sourceType, payload.sourceId)] }; return { next, value: undefined }; });
         case 'CreateGraphNode': return mutateWorkspace(current => { const createdAt = now(); const node = { id: id(), title: payload.title, summary: payload.summary || '尚未补充讨论摘要。', status: 'draft' as const, kind: 'branch' as const, x: Math.round(payload.x ?? 180), y: Math.round(payload.y ?? 140), createdAt, updatedAt: createdAt }; const next = { ...current, discussionNodes: [...current.discussionNodes, node] }; return { next, value: undefined }; });
         case 'ActivateNode': return mutateWorkspace(current => { const node = current.discussionNodes.find(item => item.id === payload.nodeId); if (!node) throw legacyError('讨论节点不存在。', 404, 'NODE_NOT_FOUND'); if (node.status === 'archived') throw legacyError('归档节点不能激活，请先恢复。', 409, 'NODE_ARCHIVED'); const next = withCurrentNodeContext({ ...current, activeNodeId: node.id, nodeId: node.id }, node.id, planner); return { next, value: undefined }; });
         case 'ChangeNodeStatus': return mutateWorkspace(current => changeNodeStatus(current, payload.nodeId, payload.status as 'draft' | 'active' | 'resolved' | 'stale' | 'archived', now, planner));
         case 'ArchiveObject': return mutateWorkspace(current => changeNodeStatus(current, payload.nodeId, 'archived', now, planner));
-        case 'CreateSegment': { const committed = await mutate(current => { const node = current.discussionNodes.find(item => item.id === payload.nodeId); if (!node) throw legacyError('讨论节点不存在。', 404, 'NODE_NOT_FOUND'); if (node.status === 'archived') throw legacyError('归档节点为只读；请先恢复。', 409, 'NODE_ARCHIVED_READ_ONLY'); if (payload.messageIds.some((messageId: string) => !current.messages.some(message => message.id === messageId && message.nodeId === node.id))) throw legacyError('Segment 只能包含所属节点中的 Event。', 400, 'INVALID_SEGMENT_EVENT'); const segment = { id: id(), nodeId: node.id, ordinal: Math.max(-1, ...current.segments.filter(item => item.nodeId === node.id).map(item => item.ordinal)) + 1, title: payload.title, createdAt: now() }; const workspace = { ...current, segments: [...current.segments, segment], messages: current.messages.map(message => payload.messageIds.includes(message.id) ? { ...message, segmentId: segment.id } : message) }; return { next: workspace, value: segment }; }); return { workspace: committed.workspace, segment: committed.value }; }
+        case 'CreateSegment': {
+          const committed = await mutate(current => {
+            const { nodeId, title, messageIds, range } = envelope.payload;
+            if (!title.trim() || title.trim().length > 200) throw legacyError('Segment 名称须为 1–200 字符。',400,'INVALID_SEGMENT_TITLE');
+            const node = current.discussionNodes.find(item => item.id === nodeId); if (!node) throw legacyError('讨论不存在。',404,'NODE_NOT_FOUND'); if (node.status === 'archived') throw legacyError('归档讨论为只读。',409,'NODE_ARCHIVED');
+            if (messageIds.some(messageId => !current.messages.some(message => message.id === messageId && message.nodeId === nodeId))) throw legacyError('Segment 只能包含所属讨论的消息。',400,'INVALID_SEGMENT_EVENT');
+            const message = range && current.messages.find(message => message.id === range.messageId && message.nodeId === nodeId);
+            if (range && (!message || !messageIds.includes(range.messageId) || !Number.isSafeInteger(range.startOffset) || !Number.isSafeInteger(range.endOffset) || range.startOffset < 0 || range.endOffset <= range.startOffset || range.endOffset > message.text.length || message.text.slice(range.startOffset,range.endOffset) !== range.selectedText)) throw legacyError('选中文本必须对应原始消息范围。',400,'INVALID_SEGMENT_RANGE');
+            const segment = { id: id(), nodeId, ordinal: Math.max(-1,...current.segments.filter(item => item.nodeId === nodeId).map(item => item.ordinal))+1, title: title.trim(), createdAt: now() };
+            const anchor = range ? { ...range, id: id(), nodeId, segmentId: segment.id, createdAt: now() } : undefined;
+            return { next: { ...current, segments: [...current.segments,segment], anchors: anchor ? [...current.anchors,anchor] : current.anchors, messages: current.messages.map(message => messageIds.includes(message.id) ? { ...message,segmentId: segment.id } : message) }, value: segment };
+          }); return { workspace: committed.workspace, segment: committed.value };
+        }
         case 'UpdateGraphLayout': return mutateWorkspace(current => { const positions = payload.positions; for (const position of positions) { const node = current.discussionNodes.find(item => item.id === position.nodeId); if (!node) throw legacyError('讨论节点不存在。', 404, 'NODE_NOT_FOUND'); if (node.status === 'archived') throw legacyError('归档节点为只读；请先恢复。', 409, 'NODE_ARCHIVED_READ_ONLY'); if (!Number.isFinite(position.x) || !Number.isFinite(position.y) || position.x < 0 || position.y < 0 || position.x > 5000 || position.y > 5000) throw legacyError('节点坐标无效。', 400, 'INVALID_POSITION'); } const changed = new Map(positions.map(position => [position.nodeId, { x: Math.round(position.x), y: Math.round(position.y) }])); const next = { ...current, discussionNodes: current.discussionNodes.map(node => changed.has(node.id) ? { ...node, ...changed.get(node.id)!, updatedAt: now() } : node) }; return { next, value: undefined }; });
         case 'CreateRelation': return mutateWorkspace(current => { const source = current.discussionNodes.find(node => node.id === payload.source); const target = current.discussionNodes.find(node => node.id === payload.target); if (!source || !target) throw legacyError('关系节点不存在。', 404, 'NODE_NOT_FOUND'); if (source.status === 'archived' || target.status === 'archived') throw legacyError('归档节点为只读；请先恢复。', 409, 'NODE_ARCHIVED_READ_ONLY'); if (current.discussionEdges.some(edge => edge.source === payload.source && edge.target === payload.target && edge.relation === payload.relation)) throw legacyError('相同关系已经存在。', 409, 'EDGE_ALREADY_EXISTS'); const next = { ...current, discussionEdges: [...current.discussionEdges, { id: id(), source: payload.source, target: payload.target, relation: payload.relation, label: payload.label || '', createdAt: now() }] }; return { next, value: undefined }; });
         case 'RemoveRelation': return mutateWorkspace(current => { const edge = current.discussionEdges.find(item => item.id === payload.edgeId); if (!edge) throw legacyError('关系不存在。', 404, 'EDGE_NOT_FOUND'); if (current.discussionNodes.some(node => (node.id === edge.source || node.id === edge.target) && node.status === 'archived')) throw legacyError('归档节点及其关系为只读；请先恢复。', 409, 'NODE_ARCHIVED_READ_ONLY'); const next = { ...current, discussionEdges: current.discussionEdges.filter(item => item.id !== edge.id) }; return { next, value: undefined }; });
@@ -501,6 +547,8 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
           return resolveContextHistory(facts, host.blobs);
         }
         case 'ListExecutionRuns': return unitOfWork.listRuns?.(Math.min(100, Math.max(1, Number((envelope.payload as { limit?: number }).limit || 50)))) ?? [];
+        case 'GetRunByCommand': return (await unitOfWork.getRunByCommand?.(envelope.payload.commandId)) ?? null;
+        case 'SearchWorkspace': return unitOfWork.searchWorkspace?.(envelope.payload.query.trim().slice(0,200),Math.min(50,Math.max(1,envelope.payload.limit ?? 20))) ?? [];
         case 'GetExecutionRun': { const run = await unitOfWork.getRun?.((envelope.payload as { runId: string }).runId); if (!run) throw legacyError('执行记录不存在。', 404, 'RUN_NOT_FOUND'); return run; }
         case 'GetHealth': return { ok: true };
         case 'GetWorkspace': return unitOfWork.read(workspace => workspace);
@@ -564,6 +612,7 @@ function createBranch(current: WorkspaceData, payload: Extract<CommandEnvelope<'
 }
 
 function mergeRevision(current: WorkspaceData, sourceId: string, targetId: string, summary: string | undefined, id: () => string, now: () => string, planner: ContextPlannerPort) {
+  if (sourceId === targetId) throw legacyError('合并目标必须是另一讨论。',400,'INVALID_MERGE_TARGET');
   const source = current.discussionNodes.find(node => node.id === sourceId); if (!source || source.kind !== 'branch') throw legacyError('只有正式支线可以合并。', 400, 'INVALID_MERGE_SOURCE');
   const target = current.discussionNodes.find(node => node.id === targetId); if (!target) throw legacyError('合并目标不存在。', 404, 'MERGE_TARGET_NOT_FOUND');
   if (source.status === 'archived' || target.status === 'archived') throw legacyError('归档节点为只读；请先恢复。', 409, 'NODE_ARCHIVED_READ_ONLY'); if (source.status === 'resolved') throw legacyError('该支线已经合并。', 409, 'BRANCH_ALREADY_MERGED');
@@ -571,9 +620,9 @@ function mergeRevision(current: WorkspaceData, sourceId: string, targetId: strin
   const next = withCurrentNodeContext({ ...current, activeNodeId: target.id, nodeId: target.id, messages: [...current.messages, { id: id(), nodeId: target.id, kind: 'assistant' as const, text: `已从支线「${source.title}」合并引用：\n\n${content}`, createdAt }], discussionNodes: current.discussionNodes.map(node => node.id === source.id ? { ...node, status: 'resolved' as const, updatedAt: createdAt } : node), discussionEdges: [...current.discussionEdges, { id: id(), source: source.id, target: target.id, relation: 'merged-into' as const, label: '选择性合并', createdAt }] }, target.id, planner); return { next, value: next };
 }
 
-async function temporaryConversation(payload: Extract<CommandEnvelope<'ExecuteTemporaryConversation'>['payload'], object>, uow: WorkspaceUnitOfWork, activeModel: () => Promise<Awaited<ReturnType<RuntimePort['listModels']>>[number]>, id: () => string, now: () => string, execute: (request: RuntimeRequest, resultFor: (completion: Completion) => CommandMap['ExecuteTemporaryConversation']['result']) => Promise<CommandMap['ExecuteTemporaryConversation']['result']>) {
+async function temporaryConversation(payload: Extract<CommandEnvelope<'ExecuteTemporaryConversation'>['payload'], object>, uow: WorkspaceUnitOfWork, activeModel: (preferredModelId?: string) => Promise<Awaited<ReturnType<RuntimePort['listModels']>>[number]>, id: () => string, now: () => string, execute: (request: RuntimeRequest, resultFor: (completion: Completion) => CommandMap['ExecuteTemporaryConversation']['result']) => Promise<CommandMap['ExecuteTemporaryConversation']['result']>) {
   const current = await uow.read(workspace => workspace); if (!current.discussionNodes.some(node => node.id === payload.sourceNodeId)) throw legacyError('来源讨论节点不存在。', 404, 'NODE_NOT_FOUND');
-  const temporaryNodeId = `temp:${payload.sourceNodeId}`; const createdAt = now(); const history = [...current.messages.filter(message => message.nodeId === payload.sourceNodeId).slice(-8), ...(payload.history || []).map(item => ({ id: id(), nodeId: temporaryNodeId, kind: item.kind, text: item.text, createdAt: item.createdAt || createdAt }))]; const model = await activeModel();
+  const temporaryNodeId = `temp:${payload.sourceNodeId}`; const createdAt = now(); const history = [...current.messages.filter(message => message.nodeId === payload.sourceNodeId).slice(-8), ...(payload.history || []).map(item => ({ id: id(), nodeId: temporaryNodeId, kind: item.kind, text: item.text, createdAt: item.createdAt || createdAt }))]; const source = current.discussionNodes.find(node => node.id === payload.sourceNodeId)!; if (source.status === 'archived') throw legacyError('归档讨论为只读。',409,'NODE_ARCHIVED'); const model = await activeModel(source.preferredModelId ?? current.defaultModelId);
   const request: RuntimeRequest = { modelSnapshot: model, requestId: id(), manifestId: `temporary:${id()}`, projectId: current.projectId, nodeId: temporaryNodeId, modelId: model.id, prompt: `围绕下列选中内容回答临时支线问题。不要偏离锚点：\n\n「${payload.anchorText}」\n\n问题：${payload.prompt}`, history, contextItems: current.contextItems.filter(item => item.status === 'active'), mode: current.mode };
   return execute(request, completion => ({ userMessage: { id: id(), nodeId: temporaryNodeId, kind: 'user' as const, text: payload.prompt, createdAt }, assistantMessage: { id: id(), nodeId: temporaryNodeId, kind: 'assistant' as const, text: completion.text, createdAt }, model: completion.model }));
 }

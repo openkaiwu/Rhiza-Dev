@@ -91,7 +91,12 @@
     "m10:reconcile": "tsx scripts/m10-check-store.ts",
     "m10:rollback": "tsx scripts/m10-rollback-drill.ts",
     "m10:legacy-writes": "tsx scripts/architecture-gates/verify-m10-write-path.ts",
-    "m10:checks": "pnpm vitest run server/infrastructure/content-directory-ownership.test.ts src/components/PurgeNodeControl.test.tsx server/m10-history.test.ts server/infrastructure/workspace-repository-unit-of-work.test.ts server/feature-flags.test.ts scripts/m10-inspection.test.ts scripts/architecture-gates/verify-m10-write-path.test.ts e2e/m10-write-path.e2e.test.ts e2e/m10-rollback.e2e.test.ts --maxWorkers=1 --testTimeout=30000 && pnpm run m10:legacy-writes"
+    "m10:checks": "pnpm vitest run server/infrastructure/content-directory-ownership.test.ts src/components/PurgeNodeControl.test.tsx server/m10-history.test.ts server/infrastructure/workspace-repository-unit-of-work.test.ts server/feature-flags.test.ts scripts/m10-inspection.test.ts scripts/architecture-gates/verify-m10-write-path.test.ts e2e/m10-write-path.e2e.test.ts e2e/m10-rollback.e2e.test.ts --maxWorkers=1 --testTimeout=30000 && pnpm run m10:legacy-writes",
+    "benchmark:m11": "tsx scripts/benchmark-m11.ts",
+    "m11:checks": "pnpm vitest run e2e/m11-graph.e2e.test.ts server/graph-projection/model.test.ts server/infrastructure/node-host-runtime.test.ts scripts/m10-inspection.test.ts --maxWorkers=1 --testTimeout=30000 && pnpm vitest run e2e/m06-runs.e2e.test.ts -t \"stores 10k traces\" --maxWorkers=1 --testTimeout=30000 && pnpm run benchmark:m11",
+    "m12:checks": "pnpm vitest run e2e/m06-runs.e2e.test.ts -t \"M12|canceled|interrupt|concurrent|retry\" --maxWorkers=1 --testTimeout=30000 && pnpm vitest run src/api.test.ts src/components/RunHistory.test.tsx src/error-presentation.test.ts --maxWorkers=1",
+    "m13:checks": "pnpm vitest run e2e/m06-runs.e2e.test.ts -t \"M12–M13 HTTP\" --maxWorkers=1 --testTimeout=30000 && pnpm vitest run server/application/create-application.test.ts server/infrastructure/portable-semantic-schema.test.ts --maxWorkers=1",
+    "m14:checks": "pnpm vitest run src/components/GraphView.test.tsx src/components/graph-model.test.ts src/components/graph-viewport.test.ts e2e/m11-graph.e2e.test.ts --maxWorkers=1 --testTimeout=30000"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",

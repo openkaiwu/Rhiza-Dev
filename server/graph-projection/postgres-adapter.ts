@@ -40,6 +40,17 @@ export class PostgresGraphProjectionAdapter {
       ? activeVersion
       : `graph-v1-${projection.checkpoint}-${projection.checksum.slice(0, 12)}-${randomUUID().slice(0, 8)}`;
     const previous = activeVersion && !force ? await this.load(activeVersion) : undefined;
+    await this.writeDelta(projection, previous, version);
+    return this.load(version);
+  }
+
+  /** The command owns the transaction; delta calculation never reads the full SQL projection. */
+  async applyDelta(previous: WorkspaceGraphProjection, projection: WorkspaceGraphProjection): Promise<void> {
+    const alias = await this.database.query<{ active_version: string }>("SELECT active_version FROM projection_aliases WHERE workspace_id=$1 AND projection_name='graph'", [this.workspaceId]);
+    if (alias.rows[0]) await this.writeDelta(projection, previous, alias.rows[0].active_version);
+  }
+
+  private async writeDelta(projection: WorkspaceGraphProjection, previous: WorkspaceGraphProjection | undefined, version: string): Promise<void> {
     const objectKey = (object: ProjectedObject) => JSON.stringify([object.ref.objectType, object.ref.objectId]);
     const objectChecksum = ({ layout: _layout, ...object }: ProjectedObject) => semanticStateChecksum(object);
     const oldObjects = new Map(previous?.objects.map(object => [objectKey(object), objectChecksum(object)]));
@@ -51,7 +62,7 @@ export class PostgresGraphProjectionAdapter {
     await this.transaction(async database => {
       await database.query(`INSERT INTO graph_layouts (workspace_id,layout_id,owner_scope) VALUES ($1,'default',$2::jsonb) ON CONFLICT DO NOTHING`, [this.workspaceId, JSON.stringify({ scopeType: 'workspace', scopeId: this.workspaceId })]);
       // Layout is a user-owned input. Materialization only seeds missing positions.
-      for (const object of projection.objects) if (object.layout) await database.query(`INSERT INTO graph_layout_nodes
+      for (const object of changedObjects) if (object.layout) await database.query(`INSERT INTO graph_layout_nodes
         (workspace_id,layout_id,object_type,object_id,x,y,collapsed) VALUES ($1,'default',$2,$3,$4,$5,$6)
         ON CONFLICT DO NOTHING`, [this.workspaceId, object.ref.objectType, object.ref.objectId, object.layout.x, object.layout.y, object.layout.collapsed ?? false]);
       const currentObjects = new Set(projection.objects.map(objectKey));
@@ -72,7 +83,6 @@ export class PostgresGraphProjectionAdapter {
       await database.query(`INSERT INTO projection_aliases (workspace_id,projection_name,active_version) VALUES ($1,'graph',$2)
         ON CONFLICT (workspace_id,projection_name) DO UPDATE SET active_version=EXCLUDED.active_version,updated_at=now()`, [this.workspaceId, version]);
     });
-    return this.load(version);
   }
 
   async load(version?: string): Promise<WorkspaceGraphProjection> {

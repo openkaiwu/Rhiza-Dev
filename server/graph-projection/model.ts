@@ -31,6 +31,10 @@ export function buildWorkspaceGraphProjection(workspace: WorkspaceData, runs: re
       }
     }
   }
+  const nodeById=new Map(workspace.discussionNodes.map(node=>[node.id,node]));
+  const segmentById=new Map(workspace.segments.map(segment=>[segment.id,segment]));
+  const messageOrdinal=new Map<string,number>();const counts=new Map<string,number>();
+  for(const message of workspace.messages){const count=counts.get(message.nodeId)??0;messageOrdinal.set(message.id,count);counts.set(message.nodeId,count+1);}
   const objects: ProjectedObject[] = [
     ...workspace.discussionNodes.map(node => ({
       ref: ref(workspace.projectId, 'conversation', node.id), revision: 1,
@@ -39,11 +43,17 @@ export function buildWorkspaceGraphProjection(workspace: WorkspaceData, runs: re
       status: node.status,
       createdAt: node.createdAt, updatedAt: node.updatedAt, layout: { x: node.x, y: node.y },
     })),
+    ...workspace.segments.map(segment => {
+      const parent = workspace.discussionNodes.find(node => node.id === segment.nodeId);
+      const anchor = workspace.anchors.find(anchor => anchor.segmentId === segment.id);
+      return { ref: ref(workspace.projectId,'segment',segment.id),revision:1,lifecycle: segment.status === 'archived' || parent?.status === 'archived' ? 'archived' as const : 'active' as const,title:segment.title,summary:anchor?.selectedText?.slice(0,240) ?? '',kind:'segment',status:segment.status ?? 'active',createdAt:segment.createdAt,updatedAt:segment.createdAt,layout:{x:(parent?.x ?? 0)+190,y:(parent?.y ?? 0)+segment.ordinal*105} };
+    }),
     ...workspace.messages.map(message => ({
       ref: ref(workspace.projectId, 'message', message.id, message.versionGroupId), revision: message.version ?? 1,
-      lifecycle: 'active' as const, title: message.kind === 'user' ? 'User message' : 'Assistant message',
+      lifecycle: nodeById.get(message.nodeId)?.status === 'archived' || (message.segmentId && segmentById.get(message.segmentId)?.status === 'archived') ? 'archived' as const : 'active' as const, title: message.kind === 'user' ? 'User message' : 'Assistant message',
       summary: message.text.slice(0, 240), kind: message.kind, createdAt: message.createdAt, updatedAt: message.createdAt,
       status: 'active',
+      layout: { x: (nodeById.get(message.nodeId)?.x ?? 0)+380, y: (nodeById.get(message.nodeId)?.y ?? 0)+(messageOrdinal.get(message.id)??0)*95 },
     })),
     ...workspace.resources.map(resource => {
       const versions = workspace.resourceVersions.filter(version => version.resourceId === resource.id);
@@ -72,7 +82,10 @@ export function buildWorkspaceGraphProjection(workspace: WorkspaceData, runs: re
     }),
   ].sort(byRef);
   const purgedIds = new Set(objects.filter(object => object.lifecycle === 'tombstoned').map(object => object.ref.objectId));
-  const relations: ProjectedRelation[] = [...workspace.discussionEdges.map(edge => ({
+  const relations: ProjectedRelation[] = [
+    ...workspace.segments.map(segment => ({ id: `contains:segment:${segment.id}`,source:ref(workspace.projectId,'conversation',segment.nodeId),target:ref(workspace.projectId,'segment',segment.id),relationType:'contains',lifecycle:'active' as const,label:'Segment',createdAt:segment.createdAt })),
+    ...workspace.messages.map(message => ({ id: `contains:message:${message.id}`,source:ref(workspace.projectId,message.segmentId ? 'segment' : 'conversation',message.segmentId ?? message.nodeId),target:ref(workspace.projectId,'message',message.id,message.versionGroupId),relationType:'contains',lifecycle:'active' as const,label:'消息',createdAt:message.createdAt })),
+    ...workspace.discussionEdges.map(edge => ({
     id: edge.id,
     source: ref(workspace.projectId, 'conversation', edge.source),
     target: ref(workspace.projectId, 'conversation', edge.target),

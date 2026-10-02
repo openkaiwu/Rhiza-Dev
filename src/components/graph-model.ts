@@ -4,6 +4,10 @@ export type GraphRelation = EdgeRelation;
 
 export interface GraphNodeModel {
   id: string;
+  objectType?: 'conversation' | 'segment' | 'message';
+  parentId?: string;
+  lifecycle?: 'active' | 'archived' | 'tombstoned';
+  updatedAt?: string;
   title: string;
   summary: string;
   anchorText?: string;
@@ -56,17 +60,18 @@ const projectedRelation: Record<string, GraphRelation> = {
 };
 
 export function projectionToGraphPresentationModel(graph: GraphProjectionResult): GraphPresentationModel {
-  const visibleIds = new Set(graph.objects.filter(item => item.ref.objectType === 'conversation' && item.lifecycle !== 'tombstoned').map(item => item.ref.objectId));
+  const supported = graph.objects.filter(item => ['conversation','segment','message'].includes(item.ref.objectType));
+  const visibleIds = new Set(supported.map(item => item.ref.objectId));
+  const parents = new Map(graph.relations.filter(edge => edge.relationType === 'contains').map(edge => [edge.target.objectId,edge.source.objectId]));
   return {
-    nodes: graph.objects.filter(item => item.ref.objectType === 'conversation' && item.lifecycle !== 'tombstoned').map(item => ({
-      id: item.ref.objectId, title: item.title, summary: item.summary, ...(item.anchorText ? { anchorText: item.anchorText } : {}),
-      status: (item.lifecycle === 'archived' ? 'archived' : item.status) as DiscussionNode['status'],
-      kind: (item.kind === 'main' ? 'main' : 'branch') as DiscussionNode['kind'],
-      x: item.layout?.x ?? 0, y: item.layout?.y ?? 0,
+    nodes: supported.map(item => ({
+      id: item.ref.objectId, objectType: item.ref.objectType as 'conversation' | 'segment' | 'message', parentId: parents.get(item.ref.objectId), lifecycle: item.lifecycle, updatedAt:item.updatedAt,
+      title: item.title, summary: item.summary, ...(item.anchorText ? { anchorText:item.anchorText } : {}),
+      status: (item.lifecycle==='archived'?'archived':item.status) as DiscussionNode['status'],kind:(item.kind==='main'?'main':'branch') as DiscussionNode['kind'],x:item.layout?.x??0,y:item.layout?.y??0,
     })),
-    edges: graph.relations.filter(item => item.lifecycle === 'active' && item.source.objectType === 'conversation' && item.target.objectType === 'conversation' && visibleIds.has(item.source.objectId) && visibleIds.has(item.target.objectId)).flatMap(item => {
-      const relation = projectedRelation[item.relationType];
-      return relation ? [{ id: item.id, source: item.source.objectId, target: item.target.objectId, relation, label: item.label }] : [];
+    edges: graph.relations.filter(edge=>edge.lifecycle==='active'&&visibleIds.has(edge.source.objectId)&&visibleIds.has(edge.target.objectId)).flatMap(edge=>{
+      const relation=projectedRelation[edge.relationType]??(edge.relationType==='contains'?'related-to':undefined);
+      return relation?[{id:edge.id,source:edge.source.objectId,target:edge.target.objectId,relation,label:edge.label||edge.relationType}]:[];
     }),
   };
 }

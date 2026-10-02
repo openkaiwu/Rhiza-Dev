@@ -35,8 +35,8 @@ export interface Application {
 }
 
 export interface ExecutionRunView {
-  input: { executor: { runtime: string; modelSpecRef: string; providerEndpointRef: string; model: string; provider: string }; request: { prompt: string; manifestId: string; attachments?: StoredAttachment[]; generation?: GenerationOptions; operation?: ChatOperation } };
-  id: string; workspaceId: string; nodeId: string; status: string; attempt: number;
+  input: { executor: { runtime: string; modelSpecRef: string; providerEndpointRef: string; model: string; provider: string }; request: { prompt: string; manifestId: string; attachments?: StoredAttachment[]; generation?: GenerationOptions; operation?: ChatOperation; sourceMessageId?: string } };
+  id: string; commandId: string; workspaceId: string; nodeId: string; status: string; attempt: number;
   parentRunRef?: string; inputHash: string; createdAt: string; terminalAt?: string;
   error?: { code: string; class: string; message: string };
   telemetry: { durationMs?: number; ttftMs?: number; usage?: import('../domain').TokenUsage; traceCount: number };
@@ -68,6 +68,11 @@ export interface CommandMap {
   UpdateModelPreference: { payload: { modelId: string; favorite?: boolean; pinned?: boolean }; result: unknown };
   SelectModel: { payload: { modelId: string }; result: unknown };
   RegisterLegacyAttachment: { payload: { name: string; mimeType: string; bytes: Uint8Array }; result: { attachment: LegacyAttachmentView } };
+  SetConversationModel: { payload: { nodeId: string; modelId: string | null }; result: WorkspaceData };
+  SetWorkspaceModel: { payload: { modelId: string | null }; result: WorkspaceData };
+  RenameConversation: { payload: { nodeId: string; title: string }; result: WorkspaceData };
+  UpdateSegment: { payload: { segmentId: string; title?: string; status?: 'active' | 'archived' }; result: WorkspaceData };
+  RetryExecutionRun: { payload: { runId: string }; result: CreateConversationRunResult };
   CancelExecutionRun: { payload: { runId: string }; result: ExecutionRunView };
   CreateConversationRun: {
     payload: { parentRunRef?: string; prompt: string; operation: ChatOperation; sourceMessageId?: string; attachmentIds: string[]; generation: GenerationOptions };
@@ -81,7 +86,7 @@ export interface CommandMap {
   ExecuteTemporaryConversation: { payload: { prompt: string; sourceNodeId: string; anchorText: string; history?: Array<{ kind: 'user' | 'assistant'; text: string; createdAt?: string }> }; result: { userMessage: StoredMessage; assistantMessage: StoredMessage; model: string } };
   ActivateNode: { payload: { nodeId: string }; result: WorkspaceData };
   ChangeNodeStatus: { payload: { nodeId: string; status: 'draft' | 'active' | 'resolved' | 'stale' | 'archived' }; result: WorkspaceData };
-  CreateSegment: { payload: { nodeId: string; title: string; messageIds: string[] }; result: { workspace: WorkspaceData; segment: WorkspaceData['segments'][number] } };
+  CreateSegment: { payload: { nodeId: string; title: string; messageIds: string[]; range?: { messageId: string; startOffset: number; endOffset: number; selectedText: string } }; result: { workspace: WorkspaceData; segment: WorkspaceData['segments'][number] } };
   ArchiveObject: { payload: { nodeId: string }; result: WorkspaceData };
   PurgeObject: { payload: { nodeId: string; confirmation: string; reason: string }; result: { workspace: WorkspaceData; purgeReceipt: AuditEvent } };
   CreateRelation: { payload: { source: string; target: string; relation: 'derived-from' | 'references' | 'related-to' | 'merged-into'; label?: string }; result: WorkspaceData };
@@ -99,6 +104,8 @@ export interface QueryMap {
   GetProvenance: { payload: { outputId: string }; result: import('../domain').ProvenanceLink };
   GetContextHistory: { payload: { manifestId: string } | { messageId: string }; result: import('../domain').ContextHistory };
   ListExecutionRuns: { payload: { limit?: number }; result: ExecutionRunView[] };
+  SearchWorkspace: { payload: { query: string; limit?: number }; result: Array<{ sourceType: 'node' | 'segment'; sourceId: string; nodeId: string; title: string; excerpt: string; titleMatch: boolean }> };
+  GetRunByCommand: { payload: { commandId: string }; result: ExecutionRunView | null };
   GetExecutionRun: { payload: { runId: string }; result: ExecutionRunView };
   ListWorkspaces: { payload: { includeArchived?: boolean }; result: WorkspaceRecord[] };
   GetHealth: { payload: Empty; result: { ok: true } };

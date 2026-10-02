@@ -123,6 +123,8 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
     return (await target.readJournal(limit)).map(toActivityItem);
   }
 
+  async getRunByCommand(commandId: string) { return this.runRepository().getRunByCommand?.(commandId); }
+  async searchWorkspace(query: string, limit: number) { return this.runRepository().searchWorkspace?.(query,limit) ?? []; }
   async readGraphProjection() {
     const target = this.runRepository();
     if (target.readGraphProjection) return target.readGraphProjection();
@@ -136,10 +138,10 @@ export class RepositoryWorkspaceUnitOfWork implements WorkspaceUnitOfWork {
     if (target.rebuildGraphProjection) return target.rebuildGraphProjection();
     return this.readGraphProjection();
   }
-  async queryGraphNeighborhood(input: GraphNeighborhoodInput) { return graphNeighborhood(await this.readGraphProjection(), input); }
-  async queryGraphPath(input: GraphPathInput) { return graphPath(await this.readGraphProjection(), input.from, input.to, input.nodeLimit); }
-  async queryGraphTree(input: GraphTreeInput) { return graphTree(await this.readGraphProjection(), input.root, input.depth, input.nodeLimit); }
-  async queryGraphChanges(input: GraphChangesInput) { return graphChanges(await this.readGraphProjection(), input.cursor, input.limit); }
+  async queryGraphNeighborhood(input: GraphNeighborhoodInput) { const target = this.runRepository(); return target.queryGraphNeighborhood ? target.queryGraphNeighborhood(input) : graphNeighborhood(await this.readGraphProjection(), input); }
+  async queryGraphPath(input: GraphPathInput) { const target = this.runRepository(); return target.queryGraphPath ? target.queryGraphPath(input) : graphPath(await this.readGraphProjection(), input.from, input.to, input.nodeLimit); }
+  async queryGraphTree(input: GraphTreeInput) { const target = this.runRepository(); return target.queryGraphTree ? target.queryGraphTree(input) : graphTree(await this.readGraphProjection(), input.root, input.depth, input.nodeLimit); }
+  async queryGraphChanges(input: GraphChangesInput) { const target = this.runRepository(); return target.queryGraphChanges ? target.queryGraphChanges(input) : graphChanges(await this.readGraphProjection(), input.cursor, input.limit); }
 
   async readCommittedResult<T>(): Promise<{ found: false } | { found: true; value: T }> {
     const context = this.command.getStore();

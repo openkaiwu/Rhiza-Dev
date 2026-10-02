@@ -19,7 +19,7 @@ export interface WorkspaceGraphProjection {
 export interface GraphQueryResult {
   version: string; checkpoint: number; objects: ProjectedObject[]; relations: ProjectedRelation[]; nextCursor?: string;
 }
-export interface GraphNeighborhoodInput { root?: ObjectRef; depth?: number; nodeLimit?: number; edgeLimit?: number; cursor?: string; objectTypes?: string[] }
+export interface GraphNeighborhoodInput { root?: ObjectRef; depth?: number; nodeLimit?: number; edgeLimit?: number; cursor?: string; objectTypes?: string[]; relationTypes?: string[]; query?: string; statuses?: string[]; lifecycles?: ObjectLifecycle[]; updatedAfter?: string }
 export interface GraphPathInput { from: ObjectRef; to: ObjectRef; nodeLimit?: number }
 export interface GraphTreeInput { root: ObjectRef; depth?: number; nodeLimit?: number }
 export interface GraphChangesInput { cursor: number; limit?: number }

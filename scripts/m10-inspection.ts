@@ -1,3 +1,4 @@
+import { applySemanticChanges } from '../server/domain-journal';
 import type { PostgresWorkspaceStore } from '../server/postgres-store';
 import { semanticChecksum, semanticStateChecksum } from '../server/infrastructure/workspace-semantic-checksum';
 import { validatePortableHistory } from '../server/application/portable-history';
@@ -9,7 +10,7 @@ function persistedJournalChecksum(facts: PortableWorkspaceFacts): string {
   if (!snapshot?.state) throw new Error('M10_JOURNAL_BASELINE_MISSING');
   const state = structuredClone(snapshot.state);
   for (const [index, event] of facts.journal.entries()) {
-    if (event.payload.stateChanges) Object.assign(state, event.payload.stateChanges);
+    if (event.payload.stateChanges) applySemanticChanges(state, event.payload.stateChanges as Record<string, unknown>);
     const portable = event.payload.portableStateChecksum;
     const finalInCommand = facts.journal[index + 1]?.commandId !== event.commandId;
     const checksum = portable ?? (finalInCommand ? event.payload.reconcileChecksum ?? event.payload.checksum : undefined);

@@ -35,7 +35,7 @@ describe('Workspace Graph Projection', () => {
       telemetry: { traceCount: 0 },
     } satisfies ExecutionRun], 7);
 
-    expect(new Set(projection.objects.map(item => item.ref.objectType))).toEqual(new Set(['conversation', 'message', 'resource', 'run']));
+    expect(new Set(projection.objects.map(item => item.ref.objectType))).toEqual(new Set(['conversation', 'message', 'resource', 'run', 'segment']));
     expect(projection.objects.find(item => item.ref.objectId === 'branch')).toMatchObject({ lifecycle: 'archived', layout: { x: 420, y: 240 } });
     expect(projection.relations).toContainEqual(expect.objectContaining({ id: 'edge', relationType: 'derived_from', lifecycle: 'active' }));
     expect(projection.checkpoint).toBe(7);
@@ -46,6 +46,17 @@ describe('Workspace Graph Projection', () => {
       createdAt: branch.createdAt, purgedAt: branch.createdAt });
     expect(buildWorkspaceGraphProjection(workspace, [], 8).objects.find(item => item.ref.objectId === 'resource'))
       .toMatchObject({ lifecycle: 'tombstoned', title: '[purged]', status: 'tombstoned' });
+  });
+
+  it('inherits archived Conversation and Segment lifecycle for message detail cards', () => {
+    const workspace = createSeedWorkspace();
+    const message = workspace.messages[0]!;
+    workspace.discussionNodes.find(node => node.id === message.nodeId)!.status = 'archived';
+    expect(buildWorkspaceGraphProjection(workspace).objects.find(object => object.ref.objectId === message.id)?.lifecycle).toBe('archived');
+    workspace.discussionNodes.find(node => node.id === message.nodeId)!.status = 'active';
+    const segment = workspace.segments.find(segment => segment.id === message.segmentId)!;
+    segment.status = 'archived';
+    expect(buildWorkspaceGraphProjection(workspace).objects.find(object => object.ref.objectId === message.id)?.lifecycle).toBe('archived');
   });
 
   it('keeps generic object types additive and bounds neighborhood, path, tree and changes queries', () => {
