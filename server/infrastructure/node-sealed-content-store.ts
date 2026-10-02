@@ -6,11 +6,31 @@ import type { BlobPutResult } from '../application/ports/host-runtime';
 import { NodeContentKeys } from './node-content-keys';
 import { NodeFilesystemBlobStore } from './node-host-runtime';
 import { associatedData, openContent, sealContent, type ContentIdentity } from './sealed-content';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 export interface SealedContentRef { version: 1; digest: string; size: number; ciphertext: BlobPutResult }
 const maxDocumentBytes = 64 * 1024 ** 2;
 const headerBytes = 29; // version + 12-byte nonce + 16-byte authentication tag
 const digest = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
+interface VerifiedReadScope {
+  active: boolean; bytes: number; count: number;
+  stores: WeakMap<NodeSealedContentStore, Map<string, Promise<Uint8Array>>>;
+  pending: Set<Promise<Uint8Array>>;
+}
+const verifiedReads = new AsyncLocalStorage<VerifiedReadScope>();
+
+/** Caller holds database/content lifecycle ownership. Cached plaintext is erased before scope exit. */
+export async function withVerifiedContentReads<T>(work: () => Promise<T>): Promise<T> {
+  const scope: VerifiedReadScope = { active: true, bytes: 0, count: 0, stores: new WeakMap(), pending: new Set() };
+  return verifiedReads.run(scope, async () => {
+    try { return await work(); }
+    finally {
+      scope.active = false;
+      await Promise.all([...scope.pending].map(value => value.then(bytes => { bytes.fill(0); }, () => undefined)));
+      scope.pending.clear();
+    }
+  });
+}
 
 /** Scoped encrypted documents and resource streams. */
 export class NodeSealedContentStore {
@@ -19,7 +39,10 @@ export class NodeSealedContentStore {
   auditKeys(identities: Iterable<ContentIdentity>) { return this.keys.audit(identities); }
 
   /** Maintenance only; caller holds exclusive publication ownership throughout. */
-  revokeUnreferencedKeys(identities: Iterable<ContentIdentity>) { return this.keys.revokeUnreferenced(identities); }
+  revokeUnreferencedKeys(identities: Iterable<ContentIdentity>) {
+    verifiedReads.getStore()?.stores.delete(this);
+    return this.keys.revokeUnreferenced(identities);
+  }
 
   /** Streaming publication; the bounded document reader remains limited to 64 MiB. */
   async putStream(identity: ContentIdentity, plaintext: AsyncIterable<Uint8Array>, expectedSize: number, expectedDigest?: string): Promise<SealedContentRef> {
@@ -163,6 +186,24 @@ export class NodeSealedContentStore {
   async read(identity: ContentIdentity, reference: SealedContentRef): Promise<Uint8Array> {
     if (reference.version !== 1 || !Number.isSafeInteger(reference.size) || reference.size < 0 || reference.size > maxDocumentBytes
       || reference.ciphertext.size !== reference.size + headerBytes || !/^[a-f0-9]{64}$/.test(reference.digest)) throw new Error('CONTENT_REFERENCE_INVALID');
+    identity = { ...identity }; reference = structuredClone(reference);
+    const scope = verifiedReads.getStore();
+    if (!scope?.active) return this.readVerified(identity, reference);
+    let entries = scope.stores.get(this);
+    if (!entries) { entries = new Map(); scope.stores.set(this, entries); }
+    const key = JSON.stringify([identity.workspaceId, identity.contentId, reference]);
+    let pending = entries.get(key);
+    if (!pending) {
+      if (scope.count >= 8192 || scope.bytes + reference.size > maxDocumentBytes) return this.readVerified(identity, reference);
+      pending = this.readVerified(identity, reference);
+      entries.set(key, pending); scope.pending.add(pending); scope.count += 1; scope.bytes += reference.size;
+      void pending.catch(() => { entries.delete(key); scope.pending.delete(pending!); scope.count -= 1; scope.bytes -= reference.size; });
+    }
+    // Readers erase their own bytes; a shared Buffer slice would corrupt the next authenticated read.
+    return new Uint8Array(await pending);
+  }
+
+  private async readVerified(identity: ContentIdentity, reference: SealedContentRef): Promise<Uint8Array> {
     const key = await this.keys.read(identity);
     try {
       const chunks: Uint8Array[] = [];
@@ -184,5 +225,8 @@ export class NodeSealedContentStore {
     } finally { key.fill(0); }
   }
 
-  destroy(identity: ContentIdentity): Promise<void> { return this.keys.destroy(identity); }
+  destroy(identity: ContentIdentity): Promise<void> {
+    verifiedReads.getStore()?.stores.delete(this);
+    return this.keys.destroy(identity);
+  }
 }

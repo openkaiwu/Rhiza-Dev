@@ -1,0 +1,163 @@
+{
+  "schemaVersion": "1.0.0",
+  "matrixRevision": 1,
+  "frozenAt": "2026-10-02T12:21:00.192199+00:00",
+  "sourceCommit": "75fc15b2c6f6a91ec504de6205688046284697e0",
+  "authority": "INH-136 and approved M15-M18 implementation plan",
+  "status": "engineering_matrix_frozen; formal M16/M17 gates remain pending",
+  "changePolicy": "Any threshold, environment, fixture or user-task change requires a new matrix revision and affected revalidation. Do not retrospectively relax thresholds.",
+  "owners": {
+    "engineering": "current implementation task",
+    "external": "project owner / study facilitator"
+  },
+  "fixtures": [
+    {
+      "path": "scripts/benchmark-m11.ts",
+      "sha256": "880c4ae7f96373cbfbb52e8e770d2d77d620c2195cc217eaff99923cbff46b33"
+    },
+    {
+      "path": "e2e/m17-transaction-reads.e2e.test.ts",
+      "sha256": "e1c186308f88819c721cf6829e6effc0eb1dbb7437ab63e72714b93ec0e7c795"
+    },
+    {
+      "path": "e2e/m16-collaboration.e2e.test.ts",
+      "sha256": "9edff7dcd1ccae926a55a5bdc6265ca8bedcb273400e4de5f02e78fe2b713e0e"
+    },
+    {
+      "path": "e2e/m16-collaboration-recovery.e2e.test.ts",
+      "sha256": "a008e2d868075250cb6b1d0df3c4b48d03e791bbeec8f999bc12cb656f217f91"
+    },
+    {
+      "path": "e2e/m16-collaboration-stream.e2e.test.ts",
+      "sha256": "c840937980dea0fa5878cb23bc7acbb8c356b92ecf3d7772fc8cf6351bc1ec0e"
+    },
+    {
+      "path": "e2e/m06-runs.e2e.test.ts",
+      "sha256": "59ac1affc6bfd18aeb108ce202675ea12c489674578ecc9a0a07b25275de667d"
+    },
+    {
+      "path": "src/App.test.tsx",
+      "sha256": "8df2d33bfb459e65e44da0746bd47d0cceabe1b96a6c288c0654e479d29988b4"
+    }
+  ],
+  "performance": {
+    "commandMs": {
+      "p95Max": 200,
+      "p99Max": 500
+    },
+    "graphMs": {
+      "p95Max": 150,
+      "p99Max": 400
+    },
+    "contextMs": {
+      "p95Max": 250
+    },
+    "traceRegressionPercentMax": 25,
+    "profile": {
+      "warmups": 20,
+      "samples": 200,
+      "concurrency": 1,
+      "externalNetwork": false,
+      "commandBackend": "encrypted PGlite, 300 Conversations",
+      "graphObjects": 10000,
+      "graphRelations": 50000,
+      "traceEvents": 10000
+    },
+    "command": "pnpm run benchmark:m17",
+    "evidence": "reports/m15-m18/performance.json",
+    "g0Relative": "pending: archived Linux JSON baseline is not comparable; no relative pass is claimed"
+  },
+  "blocking": {
+    "functionalP0Max": 0,
+    "blockingP1Max": 0,
+    "halfCommitMax": 0,
+    "duplicateDispatchMax": 0,
+    "crossWorkspaceDisclosureMax": 0,
+    "historicalOverwriteMax": 0,
+    "purgedReadableCopiesMax": 0,
+    "semanticRoundTripMismatchMax": 0,
+    "contextManifestSelectionMismatchMax": 0,
+    "unconfirmedAssistedManifestItemsMax": 0,
+    "missingResourceDispatchMax": 0,
+    "uiKeyboardAndNarrowCriticalFailuresMax": 0
+  },
+  "coverage": [
+    {
+      "family": "functional",
+      "owner": "engineering",
+      "fixture": "existing package.json test:unit/test:e2e + collaboration checks",
+      "evidence": "final verification output and production browser screenshots",
+      "status": "pending final sweep and approved UI"
+    },
+    {
+      "family": "context_integrity",
+      "owner": "engineering",
+      "fixture": "M15 three modes, provenance, history, preflight and corrupt resources",
+      "evidence": "M15 automated/production flow report",
+      "status": "backend evidence partial; production UI pending"
+    },
+    {
+      "family": "recovery_data",
+      "owner": "engineering",
+      "fixture": "network/SSE/timeout/restart/full storage/write failure; multi-Workspace attachment/history/collaboration Bundle and managed backup",
+      "evidence": "fault and semantic checksum reports",
+      "status": "partial backend fixtures; backup/full-storage pending"
+    },
+    {
+      "family": "ux_a11y",
+      "owner": "engineering",
+      "fixture": "desktop, narrow, keyboard, loading/empty/error/offline/reconnect/retry/cancel",
+      "evidence": "production browser screenshots and flow results",
+      "status": "prototype only; approval pending"
+    }
+  ],
+  "external": {
+    "browser": {
+      "continuousMinutesMin": 60,
+      "nodes": 100,
+      "crashMax": 0,
+      "sustainedMonotonicResourceGrowthAllowed": false,
+      "requiredEvidence": [
+        "production build SHA",
+        "environment",
+        "start/end timestamps",
+        "raw heap/DOM/listener profiles",
+        "start/end/critical screenshots with visual verdict"
+      ],
+      "status": "not run"
+    },
+    "dogfood": {
+      "calendarWeeksMin": 4,
+      "requiredEvidence": [
+        "dated daily log",
+        "issues and severity",
+        "completion records",
+        "starting and final build SHA"
+      ],
+      "status": "not run"
+    },
+    "newUsers": {
+      "usersMin": 3,
+      "completionPercentMin": 80,
+      "tasks": [
+        "configure/select Provider and model",
+        "send prompt and read streamed answer",
+        "Stop and manually Retry failed generation",
+        "attach a file and inspect its source",
+        "create/navigate a Conversation branch",
+        "confirm Assisted Context and inspect Manifest",
+        "inspect Provenance and Replay policy",
+        "navigate/filter/select Graph objects",
+        "run review and inspect partial synthesis",
+        "export/import and restore an encrypted backup"
+      ],
+      "requiredEvidence": [
+        "participant consent and task records",
+        "completion per task",
+        "P0/P1 incident list",
+        "build SHA and environment"
+      ],
+      "status": "not run"
+    }
+  }
+}

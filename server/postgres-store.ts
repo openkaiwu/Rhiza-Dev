@@ -3,6 +3,7 @@ import { runFrozenResourceIds } from './domain/purge-resources';
 import { collectionChanges, validateWorkspaceReferences } from './infrastructure/workspace-change-set';
 import { observeLegacyWrite } from './infrastructure/legacy-write-observation';
 import { ContentDirectoryOwnership } from './infrastructure/content-directory-ownership';
+import { withVerifiedContentReads } from './infrastructure/node-sealed-content-store';
 import { materializeContextCandidates, queryContextCandidates } from './context-runtime/postgres-index';
 import type { ContextPlanningInput } from './context-runtime/contracts';
 import { assertCollaborationPurge, recoverCollaboration, type CollaborationRecord } from './application/collaboration-policy';
@@ -315,7 +316,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
         await database.query(exclusiveContent
           ? "SELECT pg_advisory_xact_lock(hashtext('rhiza:content-lifecycle'))"
           : "SELECT pg_advisory_xact_lock_shared(hashtext('rhiza:content-lifecycle'))");
-        return await callback(database);
+        return await (exclusiveContent ? callback(database) : withVerifiedContentReads(() => callback(database)));
       }
       catch (error) { operationFailed = true; throw error; }
       finally { this.transactionContent.delete(database); }
@@ -1227,7 +1228,8 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       if (!events.length) throw new Error(`Persistent command ${command.context.commandType} produced no Domain Event`);
       await this.persist(database, next, current, command.options);
       const recovered = await this.readFrom(database);
-      if (!recovered || semanticChecksum(recovered) !== semanticChecksum(next)) throw new Error('Shadow reconcile mismatch after transactional Workspace write');
+      const nextChecksum = semanticChecksum(next);
+      if (!recovered || semanticChecksum(recovered) !== nextChecksum) throw new Error('Shadow reconcile mismatch after transactional Workspace write');
 
       const head = await database.query<{ last_sequence: number }>(`
         INSERT INTO workspace_event_heads (workspace_id,last_sequence) VALUES ($1,$2)
@@ -1239,7 +1241,7 @@ constructor(private readonly database: TransactionalSql, defaultWorkspaceId?: st
       const firstSequence = lastSequence - events.length + 1;
       for (const [offset, event] of events.entries()) {
         const eventId = randomUUID();
-        const sealed = await this.prepareJournalPayload(database, this.defaultWorkspaceId, eventId, { ...event.payload, reconcileChecksum: semanticChecksum(next), stateSchema: 'rhiza.workspace-semantic.v1', ...(offset === events.length - 1 ? { stateChanges: workspaceSemanticChanges(current, next) } : {}) });
+        const sealed = await this.prepareJournalPayload(database, this.defaultWorkspaceId, eventId, { ...event.payload, reconcileChecksum: nextChecksum, stateSchema: 'rhiza.workspace-semantic.v1', ...(offset === events.length - 1 ? { stateChanges: workspaceSemanticChanges(current, next) } : {}) });
         await database.query(`
           INSERT INTO workspace_events
             (event_id,workspace_id,sequence,ce_specversion,rhiza_envelope_version,event_type,event_source,subject,data_schema,aggregate_type,aggregate_id,aggregate_revision,actor_ref,scope_ref,command_id,event_index,causation_id,correlation_id,payload,occurred_at,payload_content_ref)
