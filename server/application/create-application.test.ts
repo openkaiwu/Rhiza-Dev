@@ -29,6 +29,7 @@ function fixture(options: { indexedPlanning?: boolean; failMutation?: boolean; c
       snapshot: async () => providerSnapshot,
       activeStatus: async () => ({ configured: true, name: 'test', model: 'gpt-test', baseUrl: '' }),
       saveProvider: async () => providerSnapshot, discoverModels: async () => providerSnapshot, updateModel: async () => providerSnapshot, selectModel: async () => providerSnapshot,
+      discoverBatch: async () => ({ catalog: providerSnapshot, results: [] }),
     },
     host: {
       describe: () => ({ host: 'headless', fileAccess: 'available', pathNormalization: 'available', blobStorage: 'available', credentialAccess: 'unavailable', spawn: 'unavailable', desktop: 'unavailable' }),

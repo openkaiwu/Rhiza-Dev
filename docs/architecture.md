@@ -163,6 +163,7 @@ Express 后端暴露以下边界：
 - `POST /api/nodes/:id/merge`：选择性合并支线摘要、写入主线引用并生成 `merged-into` 关系
 - `GET/POST/PUT /api/providers`：读取、新增和更新安全裁剪后的供应商配置
 - `POST /api/providers/:id/discover`：从兼容 `/models` 接口同步模型
+- `POST /api/providers/discover`：有界批量发现与仅失败项重试；GET 目录支持只读筛选/排序。全局目录、版本绑定的发现健康状态、历史身份和密钥边界见 [Provider contract](provider-catalog-contract.md)。发现失败不禁用手工 Chat 模型。
 - `PATCH /api/models/:id`：持久化收藏与置顶状态
 - `POST /api/models/:id/select`：切换当前模型
 - `GET /api/runs`、`GET /api/runs/:runId`、`POST /api/runs/:runId/cancel`：读取、检查和取消当前 Workspace 的 durable Chat Run；显式 Workspace 的取消也可走 `/api/v1/runs/:runId/cancel`

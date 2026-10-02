@@ -1,4 +1,4 @@
-import type { ProviderPreset, ProviderSnapshot } from '../../provider-domain';
+import type { ProviderCatalogQuery, ProviderDiscoveryBatchInput, ProviderDiscoveryBatchResult, ProviderPreset, ProviderSnapshot } from '../../provider-domain';
 
 export interface ProviderProfileInput {
   preset: ProviderPreset;
@@ -12,10 +12,11 @@ export interface ProviderProfileInput {
 
 /** Structural port implemented by the existing provider catalog service. */
 export interface ProviderManagementPort {
-  snapshot(): Promise<ProviderSnapshot>;
+  snapshot(query?: ProviderCatalogQuery): Promise<ProviderSnapshot>;
   activeStatus(): Promise<{ configured: boolean; name: string; model: string; baseUrl: string }>;
   saveProvider(input: ProviderProfileInput, providerId?: string): Promise<ProviderSnapshot>;
   discoverModels(providerId: string): Promise<ProviderSnapshot>;
+  discoverBatch(input: ProviderDiscoveryBatchInput): Promise<ProviderDiscoveryBatchResult>;
   updateModel(modelId: string, changes: { favorite?: boolean; pinned?: boolean }): Promise<ProviderSnapshot>;
   selectModel(modelId: string): Promise<ProviderSnapshot>;
 }

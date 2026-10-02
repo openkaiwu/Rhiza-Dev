@@ -20,12 +20,14 @@ export class ProviderStore {
 
   async update(mutator: (data: ProviderData) => ProviderData | Promise<ProviderData>): Promise<ProviderData> {
     let result!: ProviderData;
-    this.queue = this.queue.then(async () => {
+    const operation = this.queue.then(async () => {
       result = await mutator(structuredClone(await this.read()));
       result.updatedAt = new Date().toISOString();
       await this.write(result);
     });
-    await this.queue;
+    // A rejected save belongs to that caller; later commands must still run.
+    this.queue = operation.catch(() => undefined);
+    await operation;
     return result;
   }
 

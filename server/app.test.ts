@@ -343,6 +343,38 @@ describe('Rhiza API', () => {
     expect(selected.body.catalog.models[0]).toMatchObject({ favorite: true, pinned: true });
   });
 
+  it('exposes global Provider discovery health, filtered reads and explicit failed-only batch retry through Application', async () => {
+    const { app, fetcher, filePath } = await testApp();
+    const initial = (await request(app).get('/api/providers').expect(200)).body.catalog;
+    const providerId = initial.providers[0].id;
+    const workspaceBefore = (await request(app).get('/api/workspace').expect(200)).body.workspace;
+    const before = await readFile(filePath, 'utf8');
+    fetcher.mockResolvedValueOnce(new Response('secret-upstream-response', { status: 401 }));
+    const rejected = await request(app).post(`/api/providers/${providerId}/discover`).expect(502);
+    expect(rejected.body.error.code).toBe('PROVIDER_INVALID_KEY');
+    expect(rejected.body.error).toMatchObject({ recovery: 'select_model', retryable: false });
+    expect(rejected.body.error.message).toContain('密钥');
+    expect(JSON.stringify(rejected.body)).not.toContain('secret-upstream-response');
+    const health = (await request(app).get('/api/providers').expect(200)).body.catalog.providers[0];
+    expect(health.discoveryHealth.status).toBe('invalid-key');
+    expect(health.configured).toBe(true);
+    fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: 'catalog-model', name: 'Catalog Model' }] })));
+    const refreshed = await request(app).post('/api/providers/discover').send({ providerIds: [providerId], failedOnly: true }).expect(200);
+    expect(refreshed.body.results).toEqual([{ providerId, status: 'succeeded' }]);
+    const model = refreshed.body.catalog.models.find((item: { modelId: string }) => item.modelId === 'catalog-model');
+    await request(app).patch(`/api/models/${model.id}`).send({ favorite: true }).expect(200);
+    const filtered = await request(app).get('/api/providers').query({ search: 'catalog', providerId, favorite: true, sort: 'name' }).expect(200);
+    expect(filtered.body.catalog.models.map((item: { id: string }) => item.id)).toEqual([model.id]);
+    await request(app).get('/api/providers?favorite=maybe').expect(400);
+    await request(app).get('/api/providers?sort=invalid').expect(400);
+    const calls = fetcher.mock.calls.length;
+    expect((await request(app).post('/api/providers/discover').send({ providerIds: [providerId], failedOnly: true }).expect(200)).body.results[0].status).toBe('skipped');
+    await request(app).post('/api/providers/discover').send({ providerIds: [providerId, 'missing'] }).expect(404);
+    expect(fetcher).toHaveBeenCalledTimes(calls);
+    expect(await readFile(filePath, 'utf8')).toBe(before);
+    expect((await request(app).get('/api/workspace').expect(200)).body.workspace).toEqual(workspaceBefore);
+  });
+
   it('creates, moves and merges a formal discussion branch', async () => {
     const { app, filePath } = await testApp();
     const created = await request(app).post('/api/nodes').send({ title: '检索策略支线', sourceMessageId: 'm2', anchorText: '渐进式上下文', anchorStart: 16, anchorEnd: 23, messages: [{ kind: 'user', text: '临时问题', createdAt: '2026-08-09T12:00:20.000Z' }, { kind: 'assistant', text: '临时结论', createdAt: '2026-08-09T12:00:21.000Z' }] }).expect(201);

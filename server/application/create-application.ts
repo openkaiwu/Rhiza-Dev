@@ -4,6 +4,7 @@ import { RunLifecycle } from './run-lifecycle';
 import { resolveContextHistory } from './context-history';
 import type { ContextEnvelope, RunMutation } from '../execution-runtime/run';
 import { ApplicationError, applicationError } from '../contracts/application-error';
+import { providerDiscoveryFailures } from '../provider-domain';
 import type { Application, CommandEnvelope, CommandExecutionOptions, CommandMap, CommandResult, CommandType, QueryEnvelope, QueryMap, QueryResult, QueryType } from '../contracts/application';
 import type { AuditEvent, ChatOperation, ContextManifest, ContextMode, ContextStatus, GenerationOptions, Resource, ResourceMaterialization, ResourceVersion, StoredAttachment, StoredMessage, WorkspaceData } from '../domain';
 import { deriveVersionIdentity } from '../domain/message-version';
@@ -84,6 +85,11 @@ function asApplicationError(error: unknown): ApplicationError {
   if (error instanceof ApplicationError) return error;
   if (error && typeof error === 'object' && 'message' in error && 'code' in error && 'status' in error) {
     const legacy = error as { message: string; code: string; status: number };
+    if (Object.hasOwn(providerDiscoveryFailures, legacy.code)) {
+      const failure = providerDiscoveryFailures[legacy.code as keyof typeof providerDiscoveryFailures];
+      return applicationError(failure.message, legacy.code, 'infrastructure', failure.recovery, failure.retryable, failure.status);
+    }
+    if (legacy.code === 'PROVIDER_CONFIGURATION_CHANGED') return applicationError('供应商配置已变化，请重新刷新。', legacy.code, 'conflict', 'refresh', false, 409);
     if (legacy.code === 'BLOB_INTEGRITY_ERROR') return legacyError('附件内容校验失败，系统未使用可能损坏的数据。请重新上传该附件。', 409, legacy.code);
     return legacy.status >= 500 || /^(?:PROVIDER_|RUNTIME_|GENERATION_)/.test(legacy.code)
       ? runtimeError(legacy.message, legacy.status, legacy.code)
@@ -376,10 +382,11 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
             return { next, value: { message } };
           }); return committed.value;
         }
-        case 'SaveProvider': return providers.saveProvider(payload.body as never, payload.providerId);
-        case 'DiscoverProviderModels': return providers.discoverModels(payload.providerId!);
-        case 'UpdateModelPreference': return providers.updateModel(payload.modelId, { favorite: payload.favorite, pinned: payload.pinned });
-        case 'SelectModel': return providers.selectModel(payload.modelId);
+        case 'SaveProvider': return await providers.saveProvider(payload.body as never, payload.providerId);
+        case 'DiscoverProviderModels': return await providers.discoverModels(payload.providerId!);
+        case 'DiscoverProviderBatch': return await providers.discoverBatch(envelope.payload);
+        case 'UpdateModelPreference': return await providers.updateModel(payload.modelId, { favorite: payload.favorite, pinned: payload.pinned });
+        case 'SelectModel': return await providers.selectModel(payload.modelId);
         case 'SetWorkspaceModel':
         case 'SetConversationModel': {
           const { modelId } = envelope.payload;
@@ -613,7 +620,7 @@ export function createRhizaApplication(dependencies: RhizaApplicationDependencie
           if (!unitOfWork.queryGraphChanges) throw legacyError('Graph Projection 不可用。', 503, 'GRAPH_PROJECTION_UNAVAILABLE');
           return unitOfWork.queryGraphChanges(envelope.payload as QueryMap['GetGraphChanges']['payload']);
         }
-        case 'GetProviders': return providers.snapshot();
+        case 'GetProviders': return await providers.snapshot(envelope.payload);
         case 'GetProviderStatus': {
           if (runtime.kind !== 'librechat') return providers.activeStatus();
           const model = await activeModel();

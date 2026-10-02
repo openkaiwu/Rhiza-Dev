@@ -2,6 +2,7 @@ import type { AuditEvent, ChatOperation, ContextMode, ContextStatus, GenerationO
 import type { WorkspaceActivityItem } from '../domain-journal';
 import type { ActorRef, RequestIdentity, ScopeRef } from './references';
 import type { GraphChangesInput, GraphChangesResult, GraphNeighborhoodInput, GraphPathInput, GraphQueryResult, GraphTreeInput } from './graph-projection';
+import type { ProviderCatalogQuery, ProviderDiscoveryBatchInput, ProviderDiscoveryBatchResult } from '../provider-domain';
 
 export type CommandType = keyof CommandMap;
 export type QueryType = keyof QueryMap;
@@ -72,6 +73,7 @@ export interface CommandMap {
   SwitchWorkspace: { payload: Empty; result: WorkspaceRecord };
   SaveProvider: { payload: { providerId?: string; body: unknown }; result: unknown };
   DiscoverProviderModels: { payload: { providerId: string }; result: unknown };
+  DiscoverProviderBatch: { payload: ProviderDiscoveryBatchInput; result: ProviderDiscoveryBatchResult };
   UpdateModelPreference: { payload: { modelId: string; favorite?: boolean; pinned?: boolean }; result: unknown };
   SelectModel: { payload: { modelId: string }; result: unknown };
   RegisterLegacyAttachment: { payload: { name: string; mimeType: string; bytes: Uint8Array }; result: { attachment: LegacyAttachmentView } };
@@ -123,7 +125,7 @@ export interface QueryMap {
   GetHealth: { payload: Empty; result: { ok: true } };
   GetWorkspace: { payload: Empty; result: WorkspaceData };
   GetWorkspaceActivity: { payload: { limit?: number }; result: WorkspaceActivityItem[] };
-  GetProviders: { payload: Empty; result: unknown };
+  GetProviders: { payload: ProviderCatalogQuery; result: unknown };
   GetProviderStatus: { payload: Empty; result: { configured: boolean; name: string; model: string; baseUrl: string } };
   ListModels: { payload: Empty; result: Array<{ id: string; provider: string; displayName: string; active: boolean }> };
   GetGraphNeighborhood: { payload: GraphNeighborhoodInput; result: GraphQueryResult };

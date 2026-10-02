@@ -327,8 +327,18 @@ export function createHttpApp(application: Application, options: HttpAppOptions)
     } catch (error) { next(error); }
   });
 
-  app.get('/api/providers', async (_request, response, next) => {
-    try { response.json({ catalog: await query(response, 'GetProviders', {}), presets: options.providerPresets }); }
+  app.get('/api/providers', async (request, response, next) => {
+    try {
+      const { search, providerId, sort, favorite, pinned } = request.query;
+      const booleanFilter = (value: unknown): boolean | undefined => value === undefined ? undefined : value === 'true' ? true : value === 'false' ? false : rejectInput('筛选条件必须为 true 或 false。', 'INVALID_CATALOG_QUERY');
+      const payload = { search, providerId, sort, favorite: booleanFilter(favorite), pinned: booleanFilter(pinned) } as QueryMap['GetProviders']['payload'];
+      response.json({ catalog: await query(response, 'GetProviders', payload), presets: options.providerPresets });
+    }
+    catch (error) { next(error); }
+  });
+
+  app.post('/api/providers/discover', async (request, response, next) => {
+    try { response.json(await execute(response, 'DiscoverProviderBatch', request.body)); }
     catch (error) { next(error); }
   });
 
